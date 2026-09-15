@@ -55,6 +55,19 @@ object DiscordRpcManager {
     private val currentActivityId = AtomicLong(0L)
     @Volatile private var imageResolutionJob: Job? = null
     @Volatile private var currentActivityHadImages: Boolean = false
+
+    // Songs whose artwork Discord refused to host. Without this the "artwork still pending" escape
+    // in isShowingSong() never stops firing for them, and the caller re-sends the presence on every
+    // poll tick forever.
+    @Volatile private var artworkUnavailableForSongId: String? = null
+
+    // Discord allows roughly 5 presence updates per 20s per session and simply stops honouring the
+    // ones past that, which needs an app restart to recover. Refusing to send is safe: setActivity
+    // only records a song as published once its frame is on the wire, so the periodic sync retries.
+    private const val PRESENCE_BUDGET = 5
+    private const val PRESENCE_WINDOW_MS = 20_000L
+    private val recentPresenceSends = ArrayDeque<Long>()
+
     private val reconnectMutex = Mutex()
 
     private val _accessTokenFlow = MutableStateFlow<String?>(null)
@@ -77,6 +90,9 @@ object DiscordRpcManager {
         _settingsChanged.value++
         currentSongId = null
         currentIsPlaying = false
+        // New settings can change the artwork we ask Discord to host, so the previous refusal
+        // no longer tells us anything.
+        artworkUnavailableForSongId = null
     }
 
     enum class Status { Disconnected, Authorizing, Connected }
@@ -97,14 +113,38 @@ object DiscordRpcManager {
             return false
         }
         // If the last activity had images to resolve but none were sent,
-        // and no resolution is in progress, allow the caller to retry.
+        // and no resolution is in progress, allow the caller to retry -- unless Discord already
+        // told us it cannot host this song's artwork, in which case the text-only presence is as
+        // good as it gets and retrying would just burn the presence budget until the session
+        // stopped updating at all.
         if (currentActivityHadImages &&
+            artworkUnavailableForSongId != songId &&
             lastActivity?.largeImage == null && lastActivity?.smallImage == null &&
             (imageResolutionJob == null || imageResolutionJob?.isCompleted == true)
         ) {
             return false
         }
         return true
+    }
+
+    /**
+     * Claims one slot of Discord's presence-update allowance, or reports that the window is full.
+     * Callers must not record any state when this returns false: nothing was sent.
+     */
+    private fun claimPresenceSlot(): Boolean = synchronized(recentPresenceSends) {
+        val now = System.currentTimeMillis()
+        while (recentPresenceSends.isNotEmpty() && now - recentPresenceSends.first() >= PRESENCE_WINDOW_MS) {
+            recentPresenceSends.removeFirst()
+        }
+        if (recentPresenceSends.size >= PRESENCE_BUDGET) {
+            Timber.tag(TAG).w(
+                "presence budget exhausted (%d in %dms), deferring to the next sync",
+                recentPresenceSends.size, PRESENCE_WINDOW_MS,
+            )
+            return@synchronized false
+        }
+        recentPresenceSends.addLast(now)
+        true
     }
 
     fun clearLastError() {
@@ -343,7 +383,7 @@ object DiscordRpcManager {
         // early, so the presence stayed on the previous track until something else moved the keys
         // (a pause, a settings change, the next song). That is the "skipping doesn't update, but
         // touching the seekbar does" report — seeking flips isPlaying, which changes the keys.
-        val sent = try {
+        val sent = if (!claimPresenceSlot()) false else try {
             val presenceJson = DiscordPresence.buildPresenceUpdate(
                 status = status,
                 activities = listOf(payloadNoImages),
@@ -373,6 +413,7 @@ object DiscordRpcManager {
         currentActivityId.incrementAndGet()
         currentActivityHadImages = !activity.largeImage.isNullOrEmpty() || !activity.smallImage.isNullOrEmpty()
         lastActivity = payloadNoImages
+        if (artworkUnavailableForSongId != songId) artworkUnavailableForSongId = null
 
         imageResolutionJob?.cancel()
 
@@ -401,6 +442,10 @@ object DiscordRpcManager {
 
             if (largeResolved == null && smallResolved == null) {
                 Timber.tag(TAG).i("setActivity: image resolution returned null, keeping text-only presence")
+                // Record the failure so isShowingSong() stops asking for a retry we know will fail
+                // again. Testers hit tracks whose artwork Discord would not host, and the endless
+                // re-send eventually stopped the presence updating at all until the app restarted.
+                artworkUnavailableForSongId = songIdAtLaunch
                 return@launch
             }
 
@@ -425,6 +470,11 @@ object DiscordRpcManager {
                 endMs = activity.endTimestamp?.takeIf { it > 0L },
                 buttons = buttons,
             )
+
+            if (!claimPresenceSlot()) {
+                Timber.tag(TAG).w("setActivity: no presence budget for the artwork re-send, songId=%s", songIdAtLaunch)
+                return@launch
+            }
 
             try {
                 val presenceJson = DiscordPresence.buildPresenceUpdate(
