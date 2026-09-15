@@ -5,6 +5,10 @@
 
 package com.metrolist.music.lyrics
 
+// MusixmatchLyricsProvider is deliberately absent: Musixmatch no longer issues working guest
+// tokens to its desktop API, so the provider can only fail. The file and its guards are kept so
+// it can be registered again in one line if that ever changes. Rows it already wrote are removed
+// by MIGRATION_40_41.
 object LyricsProviderRegistry {
     private val providerMap = mapOf(
         "BetterLyrics" to BetterLyricsProvider,
@@ -12,7 +16,6 @@ object LyricsProviderRegistry {
         "LrcLib" to LrcLibLyricsProvider,
         "KuGou" to KuGouLyricsProvider,
         "LyricsPlus" to LyricsPlusProvider,
-        "Musixmatch" to MusixmatchLyricsProvider,
         "Zemer" to ZemerLyricsProvider,
         "YouTubeSubtitle" to YouTubeSubtitleLyricsProvider,
         "YouTube" to YouTubeLyricsProvider,
@@ -43,7 +46,6 @@ object LyricsProviderRegistry {
         "KuGou",
         "Paxsenix",
         "LyricsPlus",
-        "Musixmatch",
         "Zemer",
         "YouTubeSubtitle",
         "YouTube",

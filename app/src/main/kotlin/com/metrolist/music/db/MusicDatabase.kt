@@ -121,7 +121,7 @@ class MusicDatabase(
     // 34..39 exports differ from upstream's. Upstream's own additions (artist.cachedPageJson
     // and the three speed_dial_item columns) therefore land here as 40 rather than by
     // adopting upstream's 37/38.
-    version = 40,
+    version = 41,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 2, to = 3),
@@ -209,6 +209,7 @@ abstract class InternalDatabase : RoomDatabase() {
                     MIGRATION_21_24,
                     MIGRATION_22_24,
                     MIGRATION_24_25,
+                    MIGRATION_40_41,
                 ).fallbackToDestructiveMigration(false)
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .setTransactionExecutor(
@@ -601,6 +602,19 @@ val MIGRATION_1_2 =
                     ),
                 )
             }
+        }
+    }
+
+/**
+ * Musixmatch stopped issuing working guest tokens and started answering with a placeholder one,
+ * and every query made with it returned the same unrelated track's placeholder lyrics. Anything
+ * this provider saved is therefore wrong, and it would otherwise stay on screen forever: lyrics
+ * are only fetched when no row exists for the song.
+ */
+val MIGRATION_40_41 =
+    object : Migration(40, 41) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DELETE FROM lyrics WHERE provider = 'Musixmatch'")
         }
     }
 
