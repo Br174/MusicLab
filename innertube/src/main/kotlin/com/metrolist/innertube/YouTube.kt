@@ -34,6 +34,7 @@ import com.metrolist.innertube.models.splitBySeparator
 import com.metrolist.innertube.utils.parseTime
 import com.metrolist.innertube.models.response.AccountMenuResponse
 import com.metrolist.innertube.models.response.BrowseResponse
+import com.metrolist.innertube.models.response.TimedLyricsResponse
 import com.metrolist.innertube.models.response.CreatePlaylistResponse
 import com.metrolist.innertube.models.response.EditPlaylistResponse
 import com.metrolist.innertube.models.response.FeedbackResponse
@@ -68,6 +69,7 @@ import com.metrolist.innertube.pages.SearchResult
 import com.metrolist.innertube.pages.SearchSuggestionPage
 import com.metrolist.innertube.pages.SearchSummary
 import com.metrolist.innertube.pages.SearchSummaryPage
+import com.metrolist.innertubex.models.YouTubeClient.Companion.ANDROID_MUSIC
 import com.metrolist.innertubex.models.YouTubeClient.Companion.WEB
 import com.metrolist.innertubex.models.YouTubeClient.Companion.WEB_REMIX
 import io.ktor.client.call.body
@@ -3055,6 +3057,30 @@ object YouTube {
                 continuation = playlistPanelRenderer.continuations?.getContinuation(),
                 endpoint = endpoint,
             )
+        }
+
+    /**
+     * Line-timed lyrics in LRC form, or null when YouTube Music has none for this track.
+     *
+     * [lyrics] asks as WEB_REMIX and gets a single block of untimed text back; asking the very same
+     * browseId as ANDROID_MUSIC returns each line with its cue range instead, which is what lets the
+     * lyrics view scroll and highlight.
+     */
+    suspend fun timedLyrics(endpoint: BrowseEndpoint): Result<String?> =
+        runCatching {
+            val response = innerTube
+                .browse(ANDROID_MUSIC, endpoint.browseId, endpoint.params)
+                .body<TimedLyricsResponse>()
+
+            val lines = response.lines.mapNotNull { line ->
+                val startMs = line.cueRange?.startTimeMilliseconds?.toLongOrNull() ?: return@mapNotNull null
+                val minutes = startMs / 60_000
+                val seconds = (startMs % 60_000) / 1_000
+                val hundredths = (startMs % 1_000) / 10
+                "[%02d:%02d.%02d]%s".format(minutes, seconds, hundredths, line.lyricLine.orEmpty())
+            }
+
+            lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
         }
 
     suspend fun lyrics(endpoint: BrowseEndpoint): Result<String?> =
