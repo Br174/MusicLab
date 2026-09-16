@@ -10,17 +10,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,9 +35,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
@@ -54,6 +59,8 @@ private data class CoverCandidate(
     val score: Double,
     val differentArtist: Boolean,
     val confirmedByWhoSampled: Boolean = false,
+    val confidence: CoverConfidence = CoverConfidence.PROBABLE,
+    val year: Int? = null,
 )
 
 private data class CoverSearchOutcome(
@@ -63,13 +70,8 @@ private data class CoverSearchOutcome(
 )
 
 /**
- * Finds alternate performances of the same musical work.
- *
- * WhoSampled is used as an optional relationship source. Its links can identify
- * translated/adapted cover titles that a title-only YouTube search cannot.
- * Confirmed WhoSampled relations are then resolved to playable YouTube Music
- * results. If WhoSampled cannot be read, the existing MusicLab search remains
- * available as a fallback.
+ * Finds alternate performances of the same musical work and presents them in a
+ * fullscreen, scrollable chronology from newest to oldest.
  */
 @Composable
 fun CoverSearchDialog(
@@ -112,90 +114,147 @@ fun CoverSearchDialog(
         loading = false
     }
 
-    DefaultDialog(
-        onDismiss = onDismiss,
-        title = { Text(text = stringResource(R.string.find_covers)) },
-        buttons = {
-            TextButton(onClick = onDismiss) {
-                Text(text = stringResource(android.R.string.cancel))
-            }
-        },
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = stringResource(R.string.find_covers_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            if (!loading) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = when (whoSampledStatus) {
-                        WhoSampledStatus.OK ->
-                            if (confirmedCount > 0) {
-                                stringResource(R.string.cover_source_whosampled_count, confirmedCount)
-                            } else {
-                                stringResource(R.string.cover_source_whosampled_empty)
-                            }
-                        WhoSampledStatus.NO_MATCH ->
-                            stringResource(R.string.cover_source_whosampled_no_match)
-                        WhoSampledStatus.BLOCKED ->
-                            stringResource(R.string.cover_source_whosampled_blocked)
-                        WhoSampledStatus.STRUCTURE_CHANGED ->
-                            stringResource(R.string.cover_source_whosampled_changed)
-                        WhoSampledStatus.NETWORK_ERROR ->
-                            stringResource(R.string.cover_source_whosampled_unavailable)
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            when {
-                loading -> {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                    ) {
-                        CircularProgressIndicator()
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = stringResource(R.string.find_covers),
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onDismiss) {
+                        Text(text = stringResource(R.string.cover_close))
                     }
                 }
 
-                failed && candidates.isEmpty() -> {
-                    Text(
-                        text = stringResource(R.string.cover_search_error),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.find_covers_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
-                candidates.isEmpty() -> {
+                if (!loading) {
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = stringResource(R.string.no_covers_found),
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = when (whoSampledStatus) {
+                            WhoSampledStatus.OK ->
+                                if (confirmedCount > 0) {
+                                    stringResource(R.string.cover_source_whosampled_count, confirmedCount)
+                                } else {
+                                    stringResource(R.string.cover_source_whosampled_empty)
+                                }
+                            WhoSampledStatus.NO_MATCH ->
+                                stringResource(R.string.cover_source_whosampled_no_match)
+                            WhoSampledStatus.BLOCKED ->
+                                stringResource(R.string.cover_source_whosampled_blocked)
+                            WhoSampledStatus.STRUCTURE_CHANGED ->
+                                stringResource(R.string.cover_source_whosampled_changed)
+                            WhoSampledStatus.NETWORK_ERROR ->
+                                stringResource(R.string.cover_source_whosampled_unavailable)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
-                else -> {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 520.dp),
-                    ) {
-                        items(candidates, key = { it.song.id }) { candidate ->
-                            CoverCandidateRow(
-                                candidate = candidate,
-                                onClick = {
-                                    onSelect(candidate.song)
-                                    onDismiss()
-                                },
+                Spacer(modifier = Modifier.height(12.dp))
+
+                when {
+                    loading -> {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+
+                    failed && candidates.isEmpty() -> {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.cover_search_error),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
                             )
+                        }
+                    }
+
+                    candidates.isEmpty() -> {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.no_covers_found),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    else -> {
+                        val yearGroups = remember(candidates) {
+                            candidates
+                                .groupBy { it.year }
+                                .entries
+                                .sortedWith(
+                                    compareByDescending<Map.Entry<Int?, List<CoverCandidate>>> {
+                                        it.key ?: Int.MIN_VALUE
+                                    }
+                                )
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) {
+                            yearGroups.forEach { group ->
+                                item(key = "cover-year-${group.key ?: "unknown"}") {
+                                    Text(
+                                        text = group.key?.toString()
+                                            ?: stringResource(R.string.cover_year_unknown),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+                                    )
+                                }
+
+                                items(group.value, key = { it.song.id }) { candidate ->
+                                    CoverCandidateRow(
+                                        candidate = candidate,
+                                        originalTitle = title,
+                                        originalArtist = originalArtist,
+                                        onClick = {
+                                            onSelect(candidate.song)
+                                            onDismiss()
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -207,9 +266,14 @@ fun CoverSearchDialog(
 @Composable
 private fun CoverCandidateRow(
     candidate: CoverCandidate,
+    originalTitle: String,
+    originalArtist: String,
     onClick: () -> Unit,
 ) {
     val song = candidate.song
+    val uriHandler = LocalUriHandler.current
+    val candidateArtist = song.artists.joinToString(", ") { it.name }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -222,7 +286,7 @@ private fun CoverCandidateRow(
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(54.dp)
+                .size(58.dp)
                 .clip(RoundedCornerShape(6.dp)),
         )
         Spacer(modifier = Modifier.width(12.dp))
@@ -234,7 +298,7 @@ private fun CoverCandidateRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = song.artists.joinToString(", ") { it.name },
+                text = candidateArtist,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (candidate.differentArtist) {
                     MaterialTheme.colorScheme.primary
@@ -244,6 +308,23 @@ private fun CoverCandidateRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+
+            Text(
+                text = when (candidate.confidence) {
+                    CoverConfidence.CONFIRMED -> stringResource(R.string.cover_confidence_confirmed)
+                    CoverConfidence.VERIFIED -> stringResource(R.string.cover_confidence_verified)
+                    CoverConfidence.PROBABLE -> stringResource(R.string.cover_confidence_probable)
+                    CoverConfidence.REJECTED -> stringResource(R.string.cover_confidence_rejected)
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = when (candidate.confidence) {
+                    CoverConfidence.CONFIRMED,
+                    CoverConfidence.VERIFIED -> MaterialTheme.colorScheme.primary
+                    CoverConfidence.PROBABLE,
+                    CoverConfidence.REJECTED -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+
             if (candidate.confirmedByWhoSampled) {
                 Text(
                     text = stringResource(R.string.cover_confirmed_whosampled),
@@ -251,12 +332,30 @@ private fun CoverCandidateRow(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+
             song.duration?.takeIf { it > 0 }?.let { seconds ->
                 Text(
                     text = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            if (candidate.confidence == CoverConfidence.PROBABLE) {
+                TextButton(
+                    onClick = {
+                        val url = CoverWebVerification.googleSearchUrl(
+                            originalTitle = originalTitle,
+                            originalArtist = originalArtist,
+                            candidateTitle = song.title,
+                            candidateArtist = candidateArtist,
+                        )
+                        runCatching { uriHandler.openUri(url) }
+                    },
+                    modifier = Modifier.padding(top = 2.dp),
+                ) {
+                    Text(text = stringResource(R.string.cover_verify_web))
+                }
             }
         }
     }
@@ -312,29 +411,72 @@ private suspend fun findCoverCandidates(
     val internal = internalDeferred.await()
     val merged = linkedMapOf<String, CoverCandidate>()
 
-    confirmed.forEach { candidate ->
-        merged[candidate.song.id] = candidate
-    }
-    internal.forEach { candidate ->
+    fun merge(candidate: CoverCandidate) {
+        if (candidate.confidence == CoverConfidence.REJECTED) return
         val existing = merged[candidate.song.id]
-        if (existing == null || (!existing.confirmedByWhoSampled && candidate.score > existing.score)) {
+        if (
+            existing == null ||
+            confidenceRank(candidate.confidence) > confidenceRank(existing.confidence) ||
+            (
+                confidenceRank(candidate.confidence) == confidenceRank(existing.confidence) &&
+                    candidate.score > existing.score
+                )
+        ) {
             merged[candidate.song.id] = candidate
         }
     }
 
-    val ordered = merged.values
+    confirmed.forEach(::merge)
+    internal.forEach(::merge)
+
+    val ranked = merged.values
         .sortedWith(
-            compareByDescending<CoverCandidate> { it.confirmedByWhoSampled }
+            compareByDescending<CoverCandidate> { confidenceRank(it.confidence) }
                 .thenByDescending { it.differentArtist }
                 .thenByDescending { it.score }
         )
         .take(MAX_RESULTS)
 
+    val withYears = enrichCandidateYears(ranked)
+    val ordered = withYears.sortedWith(
+        compareByDescending<CoverCandidate> { it.year ?: Int.MIN_VALUE }
+            .thenByDescending { confidenceRank(it.confidence) }
+            .thenByDescending { it.score }
+    )
+
     CoverSearchOutcome(
         candidates = ordered,
         whoSampledStatus = whoSampledLookup.status,
-        confirmedCount = confirmed.size,
+        confirmedCount = confirmed.count { it.confidence == CoverConfidence.CONFIRMED },
     )
+}
+
+private suspend fun enrichCandidateYears(
+    candidates: List<CoverCandidate>,
+): List<CoverCandidate> = coroutineScope {
+    val representatives = candidates
+        .mapNotNull { candidate ->
+            candidate.song.album?.id
+                ?.takeIf { it.isNotBlank() }
+                ?.let { albumId -> albumId to candidate.song }
+        }
+        .distinctBy { it.first }
+
+    val years = mutableMapOf<String, Int?>()
+    for (batch in representatives.chunked(6)) {
+        batch.map { (albumId, song) ->
+            async(Dispatchers.IO) {
+                albumId to CoverYearResolver.resolve(song)
+            }
+        }.awaitAll().forEach { (albumId, year) ->
+            years[albumId] = year
+        }
+    }
+
+    candidates.map { candidate ->
+        val albumId = candidate.song.album?.id
+        candidate.copy(year = candidate.year ?: albumId?.let { years[it] })
+    }
 }
 
 private suspend fun resolveWhoSampledCovers(
@@ -397,6 +539,14 @@ private suspend fun resolveWhoSampledCover(
             candidateArtists.none { it == originalArtistKey }
 
         val durationScore = looseDurationCompatibility(originalDurationSec, song.duration ?: -1)
+        val confidence = CoverConfidenceEngine.evaluate(
+            CoverEvidence(
+                whoSampledRelationship = true,
+                titleSimilarity = titleScore,
+                durationSimilarity = durationScore,
+                differentArtist = differentArtist,
+            )
+        )
         val currentPenalty = if (song.id == currentYouTubeId) 0.18 else 0.0
         val score = 1.0 + titleScore * 0.55 + artistScore * 0.30 + durationScore * 0.10 - currentPenalty
 
@@ -405,6 +555,7 @@ private suspend fun resolveWhoSampledCover(
             score = score,
             differentArtist = differentArtist,
             confirmedByWhoSampled = true,
+            confidence = confidence,
         )
     }.maxByOrNull { it.score }
 }
@@ -467,8 +618,19 @@ private suspend fun findInternalCoverCandidates(
         val candidateArtists = song.artists.map { canonicalArtist(it.name) }.filter { it.isNotBlank() }
         val differentArtist = originalArtistKey.isNotBlank() &&
             candidateArtists.none { it == originalArtistKey }
+        val explicitVariantLabel = COVER_VARIANT_REGEX.containsMatchIn(song.title.lowercase())
 
-        val variantBoost = if (COVER_VARIANT_REGEX.containsMatchIn(song.title.lowercase())) 0.10 else 0.0
+        val confidence = CoverConfidenceEngine.evaluate(
+            CoverEvidence(
+                titleSimilarity = titleScore,
+                durationSimilarity = durationScore,
+                differentArtist = differentArtist,
+                explicitVariantLabel = explicitVariantLabel,
+            )
+        )
+        if (confidence == CoverConfidence.REJECTED) return@mapNotNull null
+
+        val variantBoost = if (explicitVariantLabel) 0.10 else 0.0
         val artistBoost = if (differentArtist) 0.24 else 0.0
         val currentPenalty = if (song.id == currentYouTubeId) 0.20 else 0.0
 
@@ -476,13 +638,22 @@ private suspend fun findInternalCoverCandidates(
             song = song,
             score = titleScore * 0.70 + durationScore * 0.20 + variantBoost + artistBoost - currentPenalty,
             differentArtist = differentArtist,
+            confidence = confidence,
         )
     }
         .sortedWith(
-            compareByDescending<CoverCandidate> { it.differentArtist }
+            compareByDescending<CoverCandidate> { confidenceRank(it.confidence) }
+                .thenByDescending { it.differentArtist }
                 .thenByDescending { it.score }
         )
         .take(MAX_INTERNAL_RESULTS)
+}
+
+private fun confidenceRank(confidence: CoverConfidence): Int = when (confidence) {
+    CoverConfidence.CONFIRMED -> 3
+    CoverConfidence.VERIFIED -> 2
+    CoverConfidence.PROBABLE -> 1
+    CoverConfidence.REJECTED -> 0
 }
 
 private fun canonicalWorkTitle(value: String): String {
