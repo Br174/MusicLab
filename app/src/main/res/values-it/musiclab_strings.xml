@@ -3,9 +3,16 @@
     <string name="go_to_artist">Vai all\'artista</string>
     <string name="go_to_album">Vai all\'album</string>
     <string name="find_covers">Cerca cover</string>
-    <string name="find_covers_desc">Cerca altre interpretazioni della stessa canzone, dando priorità ad artisti diversi</string>
+    <string name="find_covers_desc">Cerca cover confermate e altre interpretazioni della stessa canzone, comprese versioni in altre lingue</string>
     <string name="cover_search_error">Impossibile cercare altre interpretazioni</string>
     <string name="no_covers_found">Nessuna interpretazione alternativa affidabile trovata per questa canzone</string>
+    <string name="cover_confirmed_whosampled">✓ Confermata da WhoSampled</string>
+    <string name="cover_source_whosampled_count">WhoSampled: %1$d versioni confermate</string>
+    <string name="cover_source_whosampled_empty">WhoSampled: nessuna cover confermata; mostro i risultati MusicLab</string>
+    <string name="cover_source_whosampled_no_match">Nessuna corrispondenza WhoSampled; mostro i risultati MusicLab</string>
+    <string name="cover_source_whosampled_blocked">WhoSampled richiede una verifica; mostro i risultati MusicLab</string>
+    <string name="cover_source_whosampled_changed">WhoSampled ha cambiato struttura; mostro i risultati MusicLab</string>
+    <string name="cover_source_whosampled_unavailable">WhoSampled non disponibile; mostro i risultati MusicLab</string>
     <string name="artist_unavailable">Pagina dell\'artista non disponibile per questo brano</string>
     <string name="album_unavailable">Pagina dell\'album non disponibile per questo brano</string>
 </resources>
