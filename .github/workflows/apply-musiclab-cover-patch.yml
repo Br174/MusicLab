@@ -18,14 +18,14 @@ jobs:
           ref: musiclab-lab
           fetch-depth: 0
 
-      - name: Patch PlayerMenu
+      - name: Patch MusicLab player menu
         shell: bash
         run: |
           python3 <<'PY'
           from pathlib import Path
 
-          path = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt')
-          text = path.read_text()
+          player_path = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt')
+          text = player_path.read_text()
 
           def replace_once(old, new, label):
               global text
@@ -34,35 +34,36 @@ jobs:
                   raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
               text = text.replace(old, new, 1)
 
+          # Import the isolated cover-search UI.
           replace_once(
               'import com.metrolist.music.ui.component.YouTubeMatchDialog\n',
               'import com.metrolist.music.ui.component.YouTubeMatchDialog\nimport com.metrolist.music.ui.component.CoverSearchDialog\n',
               'CoverSearchDialog import',
           )
 
+          # One new dialog state; no existing state is changed.
           replace_once(
               '''    var showYouTubeMatchDialog by rememberSaveable {
-              mutableStateOf(false)
-          }
+                  mutableStateOf(false)
+              }
 
-          var showQobuzMatchDialog by rememberSaveable {''',
+              var showQobuzMatchDialog by rememberSaveable {''',
               '''    var showYouTubeMatchDialog by rememberSaveable {
-              mutableStateOf(false)
-          }
+                  mutableStateOf(false)
+              }
 
-          var showCoverSearchDialog by rememberSaveable {
-              mutableStateOf(false)
-          }
+              var showCoverSearchDialog by rememberSaveable {
+                  mutableStateOf(false)
+              }
 
-          var showQobuzMatchDialog by rememberSaveable {''',
+              var showQobuzMatchDialog by rememberSaveable {''',
               'cover dialog state',
           )
 
-          nav_block = '''
-          // Resolve canonical YouTube metadata even for Spotify-backed tracks. Spotify
-          // metadata intentionally carries Spotify artist/album IDs, which cannot be
-          // used by MusicLab's YouTube artist/album routes.
-          val resolvedNavigationSong by produceState<com.metrolist.innertube.models.SongItem?>(
+          # Resolve canonical YouTube artist/album IDs from the already-playing
+          # YouTube video. This is important for Spotify-backed tracks, whose
+          # source metadata may carry non-YouTube IDs.
+          nav_block = '''    val resolvedNavigationSong by produceState<com.metrolist.innertube.models.SongItem?>(
               initialValue = null,
               mediaMetadata.id,
           ) {
@@ -79,22 +80,20 @@ jobs:
                   ?.takeIf { it.isNotEmpty() }
                   ?: artists
 
-          val navigationAlbumId =
-              resolvedNavigationSong?.album?.id
-                  ?: mediaMetadata.album?.id
-          val navigationAlbumTitle =
-              resolvedNavigationSong?.album?.name
-                  ?: mediaMetadata.album?.title
+          val navigationAlbumId = resolvedNavigationSong?.album?.id ?: mediaMetadata.album?.id
+          val navigationAlbumTitle = resolvedNavigationSong?.album?.name ?: mediaMetadata.album?.title
+          val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_") } ?: false
 
           '''
           replace_once(
               '    AddToSpotifyPlaylistFlow(\n',
               nav_block + '    AddToSpotifyPlaylistFlow(\n',
-              'navigation metadata block',
+              'navigation metadata insertion',
           )
 
-          cover_dialog = '''
-          if (showCoverSearchDialog) {
+          # Cover results are played temporarily. Deliberately no
+          # SpotifyYouTubeMapper.overrideMatch call is made here.
+          cover_dialog = '''    if (showCoverSearchDialog) {
               CoverSearchDialog(
                   title = mediaMetadata.title,
                   originalArtist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
@@ -114,186 +113,167 @@ jobs:
           replace_once(
               '    val listenTogetherManager = LocalListenTogetherManager.current\n',
               cover_dialog + '    val listenTogetherManager = LocalListenTogetherManager.current\n',
-              'cover dialog invocation',
+              'cover dialog insertion',
           )
 
+          # Reuse the existing multi-artist chooser with canonical YouTube IDs.
           replace_once(
               '            items(artists) { artist ->\n',
               '            items(navigationArtists) { artist ->\n',
-              'artist selector data',
+              'artist chooser source',
           )
 
-          start_marker = '        item {\n            // Check if this is a podcast episode (album ID doesn\'t start with MPREb_)'
-          end_marker = '\n        item { Spacer(modifier = Modifier.height(12.dp)) }'
-          start = text.find(start_marker)
-          if start < 0:
-              raise SystemExit('persistent navigation group: start marker not found')
-          end = text.find(end_marker, start)
-          if end < 0:
-              raise SystemExit('persistent navigation group: end marker not found')
+          # Add the three persistent entries immediately before the existing
+          # Details item shown in Bruno's screenshot. Nothing below is replaced.
+          details_marker = '''                        add(
+                                      Material3MenuItemData(
+                                          title = { Text(text = stringResource(R.string.details)) },'''
+          persistent_actions = '''                        add(
+                                      Material3MenuItemData(
+                                          title = { Text(text = stringResource(R.string.go_to_artist)) },
+                                          description = {
+                                              Text(
+                                                  text = mediaMetadata.artists.joinToString { it.name },
+                                                  maxLines = 1,
+                                                  overflow = TextOverflow.Ellipsis,
+                                              )
+                                          },
+                                          icon = {
+                                              Icon(
+                                                  painter = painterResource(R.drawable.artist),
+                                                  contentDescription = null,
+                                                  modifier = Modifier.size(24.dp),
+                                              )
+                                          },
+                                          onClick = {
+                                              when {
+                                                  navigationArtists.size == 1 -> {
+                                                      navController.navigate("artist/${navigationArtists[0].id}")
+                                                      playerBottomSheetState.collapseSoft()
+                                                      onDismiss()
+                                                  }
+                                                  navigationArtists.size > 1 -> {
+                                                      showSelectArtistDialog = true
+                                                  }
+                                                  else -> {
+                                                      Toast.makeText(context, R.string.artist_unavailable, Toast.LENGTH_SHORT).show()
+                                                  }
+                                              }
+                                          },
+                                      ),
+                                  )
 
-          new_group = '''        item {
-              val isPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_") } ?: false
-              val artistDescription = mediaMetadata.artists.joinToString { it.name }
-                  .ifBlank { resolvedNavigationSong?.artists?.joinToString { it.name }.orEmpty() }
-
-              Material3MenuGroup(
-                  items =
-                      buildList {
-                          // MusicLab: persistent navigation entry. For Spotify-backed
-                          // playback, navigationArtists comes from the matched YouTube item.
-                          add(
-                              Material3MenuItemData(
-                                  title = { Text(text = stringResource(R.string.go_to_artist)) },
-                                  description = {
-                                      Text(
-                                          text = artistDescription,
-                                          maxLines = 1,
-                                          overflow = TextOverflow.Ellipsis,
-                                      )
-                                  },
-                                  icon = {
-                                      Icon(
-                                          painter = painterResource(R.drawable.artist),
-                                          contentDescription = null,
-                                          modifier = Modifier.size(24.dp),
-                                      )
-                                  },
-                                  onClick = {
-                                      when {
-                                          navigationArtists.size == 1 -> {
-                                              navController.navigate("artist/${navigationArtists[0].id}")
-                                              playerBottomSheetState.collapseSoft()
-                                              onDismiss()
-                                          }
-                                          navigationArtists.size > 1 -> {
-                                              showSelectArtistDialog = true
-                                          }
-                                          else -> {
-                                              Toast.makeText(context, R.string.artist_unavailable, Toast.LENGTH_SHORT).show()
-                                          }
-                                      }
-                                  },
-                              ),
-                          )
-
-                          // Persistent even when the album metadata is still resolving.
-                          add(
-                              Material3MenuItemData(
-                                  title = { Text(text = stringResource(R.string.go_to_album)) },
-                                  description = {
-                                      navigationAlbumTitle?.let { title ->
-                                          Text(
-                                              text = title,
-                                              maxLines = 1,
-                                              overflow = TextOverflow.Ellipsis,
-                                          )
-                                      }
-                                  },
-                                  icon = {
-                                      Icon(
-                                          painter = painterResource(if (isPodcast) R.drawable.mic else R.drawable.album),
-                                          contentDescription = null,
-                                          modifier = Modifier.size(24.dp),
-                                      )
-                                  },
-                                  onClick = {
-                                      val id = navigationAlbumId
-                                      if (id.isNullOrBlank()) {
-                                          Toast.makeText(context, R.string.album_unavailable, Toast.LENGTH_SHORT).show()
-                                      } else {
-                                          if (isPodcast) {
-                                              navController.navigate("online_podcast/$id")
-                                          } else {
-                                              navController.navigate("album/$id")
-                                          }
-                                          playerBottomSheetState.collapseSoft()
-                                          onDismiss()
-                                      }
-                                  },
-                              ),
-                          )
-
-                          add(
-                              Material3MenuItemData(
-                                  title = { Text(text = stringResource(R.string.find_covers)) },
-                                  description = { Text(text = stringResource(R.string.find_covers_desc)) },
-                                  icon = {
-                                      Icon(
-                                          painter = painterResource(R.drawable.link),
-                                          contentDescription = null,
-                                          modifier = Modifier.size(24.dp),
-                                      )
-                                  },
-                                  onClick = { showCoverSearchDialog = true },
-                              ),
-                          )
-
-                          // Existing library action remains unchanged.
-                          val isInLibrary = librarySong?.song?.inLibrary != null
-                          add(
-                              Material3MenuItemData(
-                                  title = {
-                                      Text(
-                                          text =
-                                              stringResource(
-                                                  if (isInLibrary) {
-                                                      R.string.remove_from_library
+                                  add(
+                                      Material3MenuItemData(
+                                          title = { Text(text = stringResource(R.string.go_to_album)) },
+                                          description = {
+                                              navigationAlbumTitle?.let { title ->
+                                                  Text(
+                                                      text = title,
+                                                      maxLines = 1,
+                                                      overflow = TextOverflow.Ellipsis,
+                                                  )
+                                              }
+                                          },
+                                          icon = {
+                                              Icon(
+                                                  painter = painterResource(if (navigationAlbumIsPodcast) R.drawable.mic else R.drawable.album),
+                                                  contentDescription = null,
+                                                  modifier = Modifier.size(24.dp),
+                                              )
+                                          },
+                                          onClick = {
+                                              val albumId = navigationAlbumId
+                                              if (albumId.isNullOrBlank()) {
+                                                  Toast.makeText(context, R.string.album_unavailable, Toast.LENGTH_SHORT).show()
+                                              } else {
+                                                  if (navigationAlbumIsPodcast) {
+                                                      navController.navigate("online_podcast/$albumId")
                                                   } else {
-                                                      R.string.add_to_library
-                                                  },
-                                              ),
-                                      )
-                                  },
-                                  icon = {
-                                      Icon(
-                                          painter =
-                                              painterResource(
-                                                  if (isInLibrary) {
-                                                      R.drawable.library_add_check
-                                                  } else {
-                                                      R.drawable.library_add
-                                                  },
-                                              ),
-                                          contentDescription = null,
-                                          modifier = Modifier.size(24.dp),
-                                      )
-                                  },
-                                  onClick = {
-                                      playerConnection.toggleLibrary()
-                                      onDismiss()
-                                  },
-                              ),
-                          )
-                      },
-              )
-          }
+                                                      navController.navigate("album/$albumId")
+                                                  }
+                                                  playerBottomSheetState.collapseSoft()
+                                                  onDismiss()
+                                              }
+                                          },
+                                      ),
+                                  )
+
+                                  add(
+                                      Material3MenuItemData(
+                                          title = { Text(text = stringResource(R.string.find_covers)) },
+                                          description = { Text(text = stringResource(R.string.find_covers_desc)) },
+                                          icon = {
+                                              Icon(
+                                                  painter = painterResource(R.drawable.link),
+                                                  contentDescription = null,
+                                                  modifier = Modifier.size(24.dp),
+                                              )
+                                          },
+                                          onClick = { showCoverSearchDialog = true },
+                                      ),
+                                  )
+
           '''
-          text = text[:start] + new_group + text[end:]
+          replace_once(
+              details_marker,
+              persistent_actions + details_marker,
+              'persistent actions insertion',
+          )
 
-          path.write_text(text)
+          player_path.write_text(text)
+
+          # Strengthen same-song discovery by including the original performer
+          # in the first searches, while still allowing other artists in results.
+          cover_path = Path('app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchDialog.kt')
+          cover = cover_path.read_text()
+          old_queries = '''    val queries = linkedSetOf(
+                  "$cleanTitle cover",
+                  "$cleanTitle live",
+                  "$cleanTitle acoustic",
+                  "$cleanTitle version",
+                  "$cleanTitle tribute",
+                  cleanTitle,
+              )'''
+          new_queries = '''    val queries = linkedSetOf<String>().apply {
+                  if (originalArtist.isNotBlank()) {
+                      add("$cleanTitle $originalArtist cover")
+                      add("$cleanTitle $originalArtist version")
+                      add("$cleanTitle $originalArtist")
+                  }
+                  add("$cleanTitle cover")
+                  add("$cleanTitle live")
+                  add("$cleanTitle acoustic")
+                  add("$cleanTitle tribute")
+                  add(cleanTitle)
+              }'''
+          count = cover.count(old_queries)
+          if count != 1:
+              raise SystemExit(f'cover query strengthening: expected exactly 1 match, found {count}')
+          cover_path.write_text(cover.replace(old_queries, new_queries, 1))
           PY
 
       - name: Sanity checks
         shell: bash
         run: |
           set -e
-          grep -q 'showCoverSearchDialog' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
-          grep -q 'R.string.go_to_artist' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
-          grep -q 'R.string.go_to_album' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
-          grep -q 'R.string.find_covers' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
-          test "$(grep -c 'R.string.go_to_artist' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt)" -eq 1
-          test "$(grep -c 'R.string.find_covers' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt)" -eq 1
+          PLAYER=app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          COVER=app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchDialog.kt
+          test "$(grep -c 'R.string.go_to_artist' "$PLAYER")" -eq 1
+          test "$(grep -c 'R.string.go_to_album' "$PLAYER")" -eq 1
+          test "$(grep -c 'R.string.find_covers' "$PLAYER")" -eq 1
+          test "$(grep -c 'CoverSearchDialog(' "$PLAYER")" -eq 1
+          grep -q 'items(navigationArtists)' "$PLAYER"
+          grep -q 'sameWorkScore' "$COVER"
+          grep -q 'originalArtist cover' "$COVER"
 
       - name: Commit patch
         shell: bash
         run: |
           git config user.name "MusicLab CI"
           git config user.email "actions@users.noreply.github.com"
-          git add app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
-          if git diff --cached --quiet; then
-            echo "No patch changes to commit"
-            exit 0
-          fi
+          git add \
+            app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchDialog.kt
           git commit -m "feat: add persistent artist album and cover actions"
           git push origin HEAD:musiclab-lab
