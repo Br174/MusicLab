@@ -1,0 +1,55 @@
+name: Commit MusicLab Cover Patch
+
+on:
+  push:
+    branches: ["musiclab-lab"]
+    paths:
+      - ".github/workflows/commit-musiclab-cover-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  commit_patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: musiclab-lab
+          fetch-depth: 0
+
+      - name: Reuse verified patch script
+        shell: bash
+        run: |
+          awk '
+            /^[[:space:]]*python3 <<'\''PY'\''$/ { inside=1; next }
+            inside && /^[[:space:]]*PY$/ { exit }
+            inside { sub(/^          /, ""); print }
+          ' .github/workflows/apply-musiclab-cover-patch.yml > /tmp/musiclab_patch.py
+          test -s /tmp/musiclab_patch.py
+          python3 /tmp/musiclab_patch.py
+
+      - name: Verify intended changes
+        shell: bash
+        run: |
+          set -e
+          PLAYER=app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          COVER=app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchDialog.kt
+          grep -Fq 'R.string.go_to_artist' "$PLAYER"
+          grep -Fq 'R.string.go_to_album' "$PLAYER"
+          grep -Fq 'R.string.find_covers' "$PLAYER"
+          grep -Fq 'CoverSearchDialog(' "$PLAYER"
+          grep -Fq 'items(navigationArtists)' "$PLAYER"
+          grep -Fq 'sameWorkScore' "$COVER"
+          grep -Fq '$cleanTitle $originalArtist cover' "$COVER"
+
+      - name: Commit feature source
+        shell: bash
+        run: |
+          git config user.name "MusicLab CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchDialog.kt
+          git commit -m "feat: add persistent artist album and cover actions"
+          git push origin HEAD:musiclab-lab
