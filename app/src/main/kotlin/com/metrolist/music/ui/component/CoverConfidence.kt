@@ -36,6 +36,8 @@ internal data class CoverEvidence(
     val titleSimilarity: Double = 0.0,
     val durationSimilarity: Double? = null,
     val translatedOrAdaptedTitle: Boolean = false,
+    val differentArtist: Boolean = false,
+    val explicitVariantLabel: Boolean = false,
     val disallowedVariant: Boolean = false,
 )
 
@@ -82,8 +84,14 @@ internal object CoverConfidenceEngine {
             return CoverConfidence.VERIFIED
         }
 
-        // A very close title plus a plausible duration is useful for the normal
-        // MusicLab discovery engine, but is not strong enough to claim certainty.
+        // A clearly incompatible duration is a hard warning when no structured
+        // source has already established the work relationship.
+        if (duration != null && duration < 0.20) {
+            return CoverConfidence.REJECTED
+        }
+
+        // Very close title + plausible duration is useful for discovery, but is
+        // deliberately only PROBABLE.
         if (
             title >= 0.92 &&
             (duration == null || duration >= 0.45)
@@ -91,10 +99,17 @@ internal object CoverConfidenceEngine {
             return CoverConfidence.PROBABLE
         }
 
-        // If duration is clearly incompatible and there is no strong external
-        // relationship, reject the candidate instead of relying on title alone.
-        if (duration != null && duration < 0.20) {
-            return CoverConfidence.REJECTED
+        // MusicLab's broader discovery may find titles that differ slightly due
+        // to subtitles, translations or uploader naming. Keep them as PROBABLE
+        // only when another concrete clue exists: a different performer or an
+        // explicit cover/live/acoustic/version label, plus plausible duration.
+        if (
+            title >= 0.70 &&
+            duration != null &&
+            duration >= 0.45 &&
+            (evidence.differentArtist || evidence.explicitVariantLabel)
+        ) {
+            return CoverConfidence.PROBABLE
         }
 
         // AI alone, a translated title alone, or a merely similar title are not
