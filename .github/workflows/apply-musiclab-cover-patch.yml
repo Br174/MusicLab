@@ -1,0 +1,299 @@
+name: Apply MusicLab Cover Patch
+
+on:
+  push:
+    branches: ["musiclab-lab"]
+    paths:
+      - ".github/workflows/apply-musiclab-cover-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: musiclab-lab
+          fetch-depth: 0
+
+      - name: Patch PlayerMenu
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt')
+          text = path.read_text()
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'import com.metrolist.music.ui.component.YouTubeMatchDialog\n',
+              'import com.metrolist.music.ui.component.YouTubeMatchDialog\nimport com.metrolist.music.ui.component.CoverSearchDialog\n',
+              'CoverSearchDialog import',
+          )
+
+          replace_once(
+              '''    var showYouTubeMatchDialog by rememberSaveable {
+              mutableStateOf(false)
+          }
+
+          var showQobuzMatchDialog by rememberSaveable {''',
+              '''    var showYouTubeMatchDialog by rememberSaveable {
+              mutableStateOf(false)
+          }
+
+          var showCoverSearchDialog by rememberSaveable {
+              mutableStateOf(false)
+          }
+
+          var showQobuzMatchDialog by rememberSaveable {''',
+              'cover dialog state',
+          )
+
+          nav_block = '''
+          // Resolve canonical YouTube metadata even for Spotify-backed tracks. Spotify
+          // metadata intentionally carries Spotify artist/album IDs, which cannot be
+          // used by MusicLab's YouTube artist/album routes.
+          val resolvedNavigationSong by produceState<com.metrolist.innertube.models.SongItem?>(
+              initialValue = null,
+              mediaMetadata.id,
+          ) {
+              value = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                  YouTube.queue(listOf(mediaMetadata.id)).getOrNull()?.firstOrNull()
+              }
+          }
+
+          val navigationArtists =
+              resolvedNavigationSong?.artists
+                  ?.mapNotNull { item ->
+                      item.id?.let { id -> MediaMetadata.Artist(id = id, name = item.name) }
+                  }
+                  ?.takeIf { it.isNotEmpty() }
+                  ?: artists
+
+          val navigationAlbumId =
+              resolvedNavigationSong?.album?.id
+                  ?: mediaMetadata.album?.id
+          val navigationAlbumTitle =
+              resolvedNavigationSong?.album?.name
+                  ?: mediaMetadata.album?.title
+
+          '''
+          replace_once(
+              '    AddToSpotifyPlaylistFlow(\n',
+              nav_block + '    AddToSpotifyPlaylistFlow(\n',
+              'navigation metadata block',
+          )
+
+          cover_dialog = '''
+          if (showCoverSearchDialog) {
+              CoverSearchDialog(
+                  title = mediaMetadata.title,
+                  originalArtist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                  durationSec = mediaMetadata.duration,
+                  currentYouTubeId = mediaMetadata.id,
+                  onSelect = { song ->
+                      playerConnection.playNext(song.toMediaItem())
+                      playerConnection.seekToNext()
+                      playerBottomSheetState.collapseSoft()
+                      onDismiss()
+                  },
+                  onDismiss = { showCoverSearchDialog = false },
+              )
+          }
+
+          '''
+          replace_once(
+              '    val listenTogetherManager = LocalListenTogetherManager.current\n',
+              cover_dialog + '    val listenTogetherManager = LocalListenTogetherManager.current\n',
+              'cover dialog invocation',
+          )
+
+          replace_once(
+              '            items(artists) { artist ->\n',
+              '            items(navigationArtists) { artist ->\n',
+              'artist selector data',
+          )
+
+          start_marker = '        item {\n            // Check if this is a podcast episode (album ID doesn\'t start with MPREb_)'
+          end_marker = '\n        item { Spacer(modifier = Modifier.height(12.dp)) }'
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit('persistent navigation group: start marker not found')
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('persistent navigation group: end marker not found')
+
+          new_group = '''        item {
+              val isPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_") } ?: false
+              val artistDescription = mediaMetadata.artists.joinToString { it.name }
+                  .ifBlank { resolvedNavigationSong?.artists?.joinToString { it.name }.orEmpty() }
+
+              Material3MenuGroup(
+                  items =
+                      buildList {
+                          // MusicLab: persistent navigation entry. For Spotify-backed
+                          // playback, navigationArtists comes from the matched YouTube item.
+                          add(
+                              Material3MenuItemData(
+                                  title = { Text(text = stringResource(R.string.go_to_artist)) },
+                                  description = {
+                                      Text(
+                                          text = artistDescription,
+                                          maxLines = 1,
+                                          overflow = TextOverflow.Ellipsis,
+                                      )
+                                  },
+                                  icon = {
+                                      Icon(
+                                          painter = painterResource(R.drawable.artist),
+                                          contentDescription = null,
+                                          modifier = Modifier.size(24.dp),
+                                      )
+                                  },
+                                  onClick = {
+                                      when {
+                                          navigationArtists.size == 1 -> {
+                                              navController.navigate("artist/${navigationArtists[0].id}")
+                                              playerBottomSheetState.collapseSoft()
+                                              onDismiss()
+                                          }
+                                          navigationArtists.size > 1 -> {
+                                              showSelectArtistDialog = true
+                                          }
+                                          else -> {
+                                              Toast.makeText(context, R.string.artist_unavailable, Toast.LENGTH_SHORT).show()
+                                          }
+                                      }
+                                  },
+                              ),
+                          )
+
+                          // Persistent even when the album metadata is still resolving.
+                          add(
+                              Material3MenuItemData(
+                                  title = { Text(text = stringResource(R.string.go_to_album)) },
+                                  description = {
+                                      navigationAlbumTitle?.let { title ->
+                                          Text(
+                                              text = title,
+                                              maxLines = 1,
+                                              overflow = TextOverflow.Ellipsis,
+                                          )
+                                      }
+                                  },
+                                  icon = {
+                                      Icon(
+                                          painter = painterResource(if (isPodcast) R.drawable.mic else R.drawable.album),
+                                          contentDescription = null,
+                                          modifier = Modifier.size(24.dp),
+                                      )
+                                  },
+                                  onClick = {
+                                      val id = navigationAlbumId
+                                      if (id.isNullOrBlank()) {
+                                          Toast.makeText(context, R.string.album_unavailable, Toast.LENGTH_SHORT).show()
+                                      } else {
+                                          if (isPodcast) {
+                                              navController.navigate("online_podcast/$id")
+                                          } else {
+                                              navController.navigate("album/$id")
+                                          }
+                                          playerBottomSheetState.collapseSoft()
+                                          onDismiss()
+                                      }
+                                  },
+                              ),
+                          )
+
+                          add(
+                              Material3MenuItemData(
+                                  title = { Text(text = stringResource(R.string.find_covers)) },
+                                  description = { Text(text = stringResource(R.string.find_covers_desc)) },
+                                  icon = {
+                                      Icon(
+                                          painter = painterResource(R.drawable.link),
+                                          contentDescription = null,
+                                          modifier = Modifier.size(24.dp),
+                                      )
+                                  },
+                                  onClick = { showCoverSearchDialog = true },
+                              ),
+                          )
+
+                          // Existing library action remains unchanged.
+                          val isInLibrary = librarySong?.song?.inLibrary != null
+                          add(
+                              Material3MenuItemData(
+                                  title = {
+                                      Text(
+                                          text =
+                                              stringResource(
+                                                  if (isInLibrary) {
+                                                      R.string.remove_from_library
+                                                  } else {
+                                                      R.string.add_to_library
+                                                  },
+                                              ),
+                                      )
+                                  },
+                                  icon = {
+                                      Icon(
+                                          painter =
+                                              painterResource(
+                                                  if (isInLibrary) {
+                                                      R.drawable.library_add_check
+                                                  } else {
+                                                      R.drawable.library_add
+                                                  },
+                                              ),
+                                          contentDescription = null,
+                                          modifier = Modifier.size(24.dp),
+                                      )
+                                  },
+                                  onClick = {
+                                      playerConnection.toggleLibrary()
+                                      onDismiss()
+                                  },
+                              ),
+                          )
+                      },
+              )
+          }
+          '''
+          text = text[:start] + new_group + text[end:]
+
+          path.write_text(text)
+          PY
+
+      - name: Sanity checks
+        shell: bash
+        run: |
+          set -e
+          grep -q 'showCoverSearchDialog' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          grep -q 'R.string.go_to_artist' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          grep -q 'R.string.go_to_album' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          grep -q 'R.string.find_covers' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          test "$(grep -c 'R.string.go_to_artist' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt)" -eq 1
+          test "$(grep -c 'R.string.find_covers' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt)" -eq 1
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "MusicLab CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          if git diff --cached --quiet; then
+            echo "No patch changes to commit"
+            exit 0
+          fi
+          git commit -m "feat: add persistent artist album and cover actions"
+          git push origin HEAD:musiclab-lab
