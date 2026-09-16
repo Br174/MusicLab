@@ -220,14 +220,18 @@ private suspend fun findCoverCandidates(
     val cleanTitle = title.trim()
     if (cleanTitle.isBlank()) return emptyList()
 
-    val queries = linkedSetOf(
-        "$cleanTitle cover",
-        "$cleanTitle live",
-        "$cleanTitle acoustic",
-        "$cleanTitle version",
-        "$cleanTitle tribute",
-        cleanTitle,
-    )
+    val queries = linkedSetOf<String>().apply {
+        if (originalArtist.isNotBlank()) {
+            add("$cleanTitle $originalArtist cover")
+            add("$cleanTitle $originalArtist version")
+            add("$cleanTitle $originalArtist")
+        }
+        add("$cleanTitle cover")
+        add("$cleanTitle live")
+        add("$cleanTitle acoustic")
+        add("$cleanTitle tribute")
+        add(cleanTitle)
+    }
 
     val uniqueSongs = linkedMapOf<String, SongItem>()
     for (query in queries) {

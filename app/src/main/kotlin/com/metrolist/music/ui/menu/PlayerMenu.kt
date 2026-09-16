@@ -90,6 +90,7 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.SpotifyYouTubeMapper
 import com.metrolist.music.ui.component.YouTubeMatchDialog
+import com.metrolist.music.ui.component.CoverSearchDialog
 import com.metrolist.music.ui.component.BottomSheetState
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
@@ -159,6 +160,10 @@ fun PlayerMenu(
         mutableStateOf(false)
     }
 
+    var showCoverSearchDialog by rememberSaveable {
+        mutableStateOf(false)
+    }
+
     var showQobuzMatchDialog by rememberSaveable {
         mutableStateOf(false)
     }
@@ -174,6 +179,27 @@ fun PlayerMenu(
             value = database.getSpotifyMatchByYouTubeId(mediaMetadata.id)
         }
     }
+
+    val resolvedNavigationSong by produceState<com.metrolist.innertube.models.SongItem?>(
+    initialValue = null,
+    mediaMetadata.id,
+) {
+    value = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        YouTube.queue(listOf(mediaMetadata.id)).getOrNull()?.firstOrNull()
+    }
+}
+
+val navigationArtists =
+    resolvedNavigationSong?.artists
+        ?.mapNotNull { item ->
+            item.id?.let { id -> MediaMetadata.Artist(id = id, name = item.name) }
+        }
+        ?.takeIf { it.isNotEmpty() }
+        ?: artists
+
+val navigationAlbumId = resolvedNavigationSong?.album?.id ?: mediaMetadata.album?.id
+val navigationAlbumTitle = resolvedNavigationSong?.album?.name ?: mediaMetadata.album?.title
+val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_") } ?: false
 
     AddToSpotifyPlaylistFlow(
         showDialog = showAddToSpotifyPlaylist,
@@ -230,6 +256,22 @@ fun PlayerMenu(
         )
     }
 
+    if (showCoverSearchDialog) {
+    CoverSearchDialog(
+        title = mediaMetadata.title,
+        originalArtist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+        durationSec = mediaMetadata.duration,
+        currentYouTubeId = mediaMetadata.id,
+        onSelect = { song ->
+            playerConnection.playNext(song.toMediaItem())
+            playerConnection.seekToNext()
+            playerBottomSheetState.collapseSoft()
+            onDismiss()
+        },
+        onDismiss = { showCoverSearchDialog = false },
+    )
+}
+
     val listenTogetherManager = LocalListenTogetherManager.current
     val listenTogetherRoleState = listenTogetherManager?.role?.collectAsState(initial = com.metrolist.music.listentogether.RoomRole.NONE)
     val isListenTogetherGuest = listenTogetherRoleState?.value == com.metrolist.music.listentogether.RoomRole.GUEST
@@ -267,7 +309,7 @@ fun PlayerMenu(
         ListDialog(
             onDismiss = { showSelectArtistDialog = false },
         ) {
-            items(artists) { artist ->
+            items(navigationArtists) { artist ->
                 Box(
                     contentAlignment = Alignment.CenterStart,
                     modifier =
@@ -767,6 +809,92 @@ fun PlayerMenu(
                             )
                         }
 
+
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.go_to_artist)) },
+                                description = {
+                                    Text(
+                                        text = mediaMetadata.artists.joinToString { it.name },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.artist),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    when {
+                                        navigationArtists.size == 1 -> {
+                                            navController.navigate("artist/${navigationArtists[0].id}")
+                                            playerBottomSheetState.collapseSoft()
+                                            onDismiss()
+                                        }
+                                        navigationArtists.size > 1 -> {
+                                            showSelectArtistDialog = true
+                                        }
+                                        else -> {
+                                            Toast.makeText(context, R.string.artist_unavailable, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                            ),
+                        )
+
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.go_to_album)) },
+                                description = {
+                                    navigationAlbumTitle?.let { title ->
+                                        Text(
+                                            text = title,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(if (navigationAlbumIsPodcast) R.drawable.mic else R.drawable.album),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    val albumId = navigationAlbumId
+                                    if (albumId.isNullOrBlank()) {
+                                        Toast.makeText(context, R.string.album_unavailable, Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        if (navigationAlbumIsPodcast) {
+                                            navController.navigate("online_podcast/$albumId")
+                                        } else {
+                                            navController.navigate("album/$albumId")
+                                        }
+                                        playerBottomSheetState.collapseSoft()
+                                        onDismiss()
+                                    }
+                                },
+                            ),
+                        )
+
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.find_covers)) },
+                                description = { Text(text = stringResource(R.string.find_covers_desc)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.link),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = { showCoverSearchDialog = true },
+                            ),
+                        )
 
                         add(
                             Material3MenuItemData(
