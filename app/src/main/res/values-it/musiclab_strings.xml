@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="go_to_artist">Vai all'artista</string>
+    <string name="go_to_album">Vai all'album</string>
+    <string name="find_covers">Cerca cover</string>
+    <string name="find_covers_desc">Cerca altre interpretazioni della stessa canzone, dando priorità ad artisti diversi</string>
+    <string name="cover_search_error">Impossibile cercare altre interpretazioni</string>
+    <string name="no_covers_found">Nessuna interpretazione alternativa affidabile trovata per questa canzone</string>
+    <string name="artist_unavailable">Pagina dell'artista non disponibile per questo brano</string>
+    <string name="album_unavailable">Pagina dell'album non disponibile per questo brano</string>
+</resources>
