@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="go_to_artist">Go to artist</string>
+    <string name="go_to_album">Go to album</string>
+    <string name="find_covers">Find covers</string>
+    <string name="find_covers_desc">Find other performances of the same song, prioritizing different artists</string>
+    <string name="cover_search_error">Could not search for alternate performances</string>
+    <string name="no_covers_found">No reliable alternate performances found for this song</string>
+    <string name="artist_unavailable">Artist page unavailable for this track</string>
+    <string name="album_unavailable">Album page unavailable for this track</string>
+</resources>
