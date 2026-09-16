@@ -73,6 +73,19 @@ class CoverConfidenceEngineTest {
     }
 
     @Test
+    fun broaderMusicLabCandidateCanRemainProbable() {
+        val result = CoverConfidenceEngine.evaluate(
+            CoverEvidence(
+                titleSimilarity = 0.76,
+                durationSimilarity = 0.72,
+                differentArtist = true,
+            )
+        )
+
+        assertEquals(CoverConfidence.PROBABLE, result)
+    }
+
+    @Test
     fun sameTitleWithImplausibleDurationIsRejected() {
         val result = CoverConfidenceEngine.evaluate(
             CoverEvidence(
