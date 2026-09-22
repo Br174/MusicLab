@@ -83,23 +83,26 @@ Return ONLY valid JSON with this shape:
 
 Return at most 10 high-confidence candidates. If evidence is weak, omit the candidate rather than guessing."""
 
-        val responseBody = executeGroundedRequest(
-            prompt = prompt,
-            config = config,
-            maxOutputTokens = 1200,
-        ) ?: return@withContext emptyList()
+        val responseBody =
+            executeGroundedRequest(
+                prompt = prompt,
+                config = config,
+                maxOutputTokens = 1200,
+            ) ?: return@withContext emptyList()
 
         val grounded = parseGroundedResponse(responseBody) ?: return@withContext emptyList()
         if (grounded.webSourceCount == 0) return@withContext emptyList()
 
-        val references = parseDiscoveryText(grounded.text)
-            .distinctBy { "${it.title.lowercase()}|${it.artist.lowercase()}" }
-            .take(MAX_DISCOVERY_RESULTS)
+        val references =
+            parseDiscoveryText(grounded.text)
+                .distinctBy { "${it.title.lowercase()}|${it.artist.lowercase()}" }
+                .take(MAX_DISCOVERY_RESULTS)
 
-        discoveryCache[cacheKey] = CachedReferences(
-            references = references,
-            expiresAtMs = System.currentTimeMillis() + CACHE_TTL_MS,
-        )
+        discoveryCache[cacheKey] =
+            CachedReferences(
+                references = references,
+                expiresAtMs = System.currentTimeMillis() + CACHE_TTL_MS,
+            )
         references
     }
 
@@ -114,13 +117,14 @@ Return at most 10 high-confidence candidates. If evidence is weak, omit the cand
     ): GeminiCoverVerdict? = withContext(Dispatchers.IO) {
         if (!config.isUsable()) return@withContext null
 
-        val cacheKey = listOf(
-            config.model,
-            originalTitle.trim(),
-            originalArtist.trim(),
-            candidateTitle.trim(),
-            candidateArtist.trim(),
-        ).joinToString("|")
+        val cacheKey =
+            listOf(
+                config.model,
+                originalTitle.trim(),
+                originalArtist.trim(),
+                candidateTitle.trim(),
+                candidateArtist.trim(),
+            ).joinToString("|")
 
         verificationCache[cacheKey]
             ?.takeIf { it.expiresAtMs > System.currentTimeMillis() }
@@ -146,22 +150,25 @@ A true cover, foreign-language adaptation or translated-title version counts as 
 Return ONLY valid JSON:
 {"verdict":"same_work|different_work|uncertain","adapted_title":false}"""
 
-        val responseBody = executeGroundedRequest(
-            prompt = prompt,
-            config = config,
-            maxOutputTokens = 320,
-        ) ?: return@withContext null
+        val responseBody =
+            executeGroundedRequest(
+                prompt = prompt,
+                config = config,
+                maxOutputTokens = 320,
+            ) ?: return@withContext null
 
         val grounded = parseGroundedResponse(responseBody) ?: return@withContext null
-        val verdict = parseVerificationText(
-            text = grounded.text,
-            webSourceCount = grounded.webSourceCount,
-        ) ?: return@withContext null
+        val verdict =
+            parseVerificationText(
+                text = grounded.text,
+                webSourceCount = grounded.webSourceCount,
+            ) ?: return@withContext null
 
-        verificationCache[cacheKey] = CachedVerdict(
-            verdict = verdict,
-            expiresAtMs = System.currentTimeMillis() + CACHE_TTL_MS,
-        )
+        verificationCache[cacheKey] =
+            CachedVerdict(
+                verdict = verdict,
+                expiresAtMs = System.currentTimeMillis() + CACHE_TTL_MS,
+            )
         verdict
     }
 
@@ -226,32 +233,52 @@ Return ONLY valid JSON:
         val candidate = root.optJSONArray("candidates")?.optJSONObject(0) ?: return null
         val parts = candidate.optJSONObject("content")?.optJSONArray("parts") ?: return null
 
-        val text = buildString {
-            for (index in 0 until parts.length()) {
-                val value = parts.optJSONObject(index)?.optString("text").orEmpty()
-                if (value.isNotBlank()) {
-                    if (isNotEmpty()) append('\n')
-                    append(value)
+        val text =
+            buildString {
+                for (index in 0 until parts.length()) {
+                    val value = parts.optJSONObject(index)?.optString("text").orEmpty()
+                    if (value.isNotBlank()) {
+                        if (isNotEmpty()) append('\n')
+                        append(value)
+                    }
                 }
-            }
-        }.trim()
+            }.trim()
         if (text.isBlank()) return null
 
-        val uniqueSources = linkedSetOf<String>()
-        val chunks = candidate.optJSONObject("groundingMetadata")?.optJSONArray("groundingChunks")
+        val metadata = candidate.optJSONObject("groundingMetadata")
+        val chunks = metadata?.optJSONArray("groundingChunks")
+        val chunkKeys = mutableMapOf<Int, String>()
         if (chunks != null) {
             for (index in 0 until chunks.length()) {
                 val web = chunks.optJSONObject(index)?.optJSONObject("web") ?: continue
                 val uri = web.optString("uri").trim()
                 val title = web.optString("title").trim()
                 val key = uri.ifBlank { title }
-                if (key.isNotBlank()) uniqueSources += key
+                if (key.isNotBlank()) chunkKeys[index] = key
+            }
+        }
+
+        // Only count web chunks explicitly cited by groundingSupports. A chunk
+        // merely retrieved during search is not evidence for the model's
+        // conclusion and must not promote/reject a cover candidate.
+        val supportedSources = linkedSetOf<String>()
+        val supports = metadata?.optJSONArray("groundingSupports")
+        if (supports != null) {
+            for (supportIndex in 0 until supports.length()) {
+                val indices =
+                    supports
+                        .optJSONObject(supportIndex)
+                        ?.optJSONArray("groundingChunkIndices")
+                        ?: continue
+                for (indexPosition in 0 until indices.length()) {
+                    chunkKeys[indices.optInt(indexPosition, -1)]?.let(supportedSources::add)
+                }
             }
         }
 
         return GroundedText(
             text = text,
-            webSourceCount = uniqueSources.size.coerceAtMost(MAX_WEB_CONFIRMATIONS),
+            webSourceCount = supportedSources.size.coerceAtMost(MAX_WEB_CONFIRMATIONS),
         )
     }
 
@@ -264,11 +291,12 @@ Return ONLY valid JSON:
             val title = item.optString("title").trim()
             val artist = item.optString("artist").trim()
             if (title.isBlank() || artist.isBlank()) continue
-            result += GeminiCoverReference(
-                title = title,
-                artist = artist,
-                translatedOrAdaptedTitle = item.optBoolean("adapted_title", false),
-            )
+            result +=
+                GeminiCoverReference(
+                    title = title,
+                    artist = artist,
+                    translatedOrAdaptedTitle = item.optBoolean("adapted_title", false),
+                )
         }
         return result
     }
@@ -294,10 +322,11 @@ Return ONLY valid JSON:
     }
 
     private fun extractJsonObject(text: String): JSONObject? {
-        val cleaned = text
-            .replace("```json", "", ignoreCase = true)
-            .replace("```", "")
-            .trim()
+        val cleaned =
+            text
+                .replace("```json", "", ignoreCase = true)
+                .replace("```", "")
+                .trim()
         val start = cleaned.indexOf('{')
         val end = cleaned.lastIndexOf('}')
         if (start < 0 || end <= start) return null
