@@ -8,7 +8,7 @@ import org.junit.Test
 
 class GeminiCoverVerificationTest {
     @Test
-    fun groundedResponseCountsUniqueWebSources() {
+    fun groundedResponseCountsOnlySupportedUniqueWebSources() {
         val response =
             """
             {
@@ -18,7 +18,12 @@ class GeminiCoverVerificationTest {
                   "groundingChunks": [
                     {"web": {"uri": "https://example.com/a", "title": "A"}},
                     {"web": {"uri": "https://example.com/a", "title": "A duplicate"}},
-                    {"web": {"uri": "https://example.com/b", "title": "B"}}
+                    {"web": {"uri": "https://example.com/b", "title": "B"}},
+                    {"web": {"uri": "https://example.com/unused", "title": "Unused"}}
+                  ],
+                  "groundingSupports": [
+                    {"groundingChunkIndices": [0, 1]},
+                    {"groundingChunkIndices": [2]}
                   ]
                 }
               }]
@@ -30,6 +35,29 @@ class GeminiCoverVerificationTest {
         assertNotNull(parsed)
         assertEquals(2, parsed?.webSourceCount)
         assertTrue(parsed?.text.orEmpty().contains("same_work"))
+    }
+
+    @Test
+    fun retrievedButUnsupportedWebChunksDoNotCountAsEvidence() {
+        val response =
+            """
+            {
+              "candidates": [{
+                "content": {"parts": [{"text": "{\"verdict\":\"same_work\",\"adapted_title\":false}"}]},
+                "groundingMetadata": {
+                  "groundingChunks": [
+                    {"web": {"uri": "https://example.com/a", "title": "A"}}
+                  ],
+                  "groundingSupports": []
+                }
+              }]
+            }
+            """.trimIndent()
+
+        val parsed = GeminiCoverVerification.parseGroundedResponse(response)
+
+        assertNotNull(parsed)
+        assertEquals(0, parsed?.webSourceCount)
     }
 
     @Test
