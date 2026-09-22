@@ -212,7 +212,7 @@ Return ONLY valid JSON:
                 put(
                     "tools",
                     buildJsonArray {
-                        add(buildJsonObject { put("google_search", buildJsonObject { }) })
+                        add(buildJsonObject { put("google_search", buildJsonObject {}) })
                     },
                 )
                 put(
@@ -312,20 +312,20 @@ Return ONLY valid JSON:
                 ?.get("groundingSupports")
                 ?.runCatching { jsonArray }
                 ?.getOrNull()
-        supports?.forEach { support ->
+        supports?.forEach supportLoop@ { support ->
             val indices =
                 support.runCatching { jsonObject }
                     .getOrNull()
                     ?.get("groundingChunkIndices")
                     ?.runCatching { jsonArray }
                     ?.getOrNull()
-                    ?: return@forEach
-            indices.forEach { indexElement ->
+                    ?: return@supportLoop
+            indices.forEach indexLoop@ { indexElement ->
                 val index =
                     indexElement.runCatching { jsonPrimitive }
                         .getOrNull()
                         ?.intOrNull
-                        ?: return@forEach
+                        ?: return@indexLoop
                 chunkKeys[index]?.let(supportedSources::add)
             }
         }
