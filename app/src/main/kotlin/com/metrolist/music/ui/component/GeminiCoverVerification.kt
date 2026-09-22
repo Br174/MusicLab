@@ -6,12 +6,21 @@ package com.metrolist.music.ui.component
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -53,6 +62,7 @@ internal object GeminiCoverVerification {
             .writeTimeout(20, TimeUnit.SECONDS)
             .build()
 
+    private val json = Json { ignoreUnknownKeys = true }
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val verificationCache = ConcurrentHashMap<String, CachedVerdict>()
     private val discoveryCache = ConcurrentHashMap<String, CachedReferences>()
@@ -182,32 +192,35 @@ Return ONLY valid JSON:
     ): String? {
         val model = config.model.trim()
         val body =
-            JSONObject().apply {
+            buildJsonObject {
                 put(
                     "contents",
-                    JSONArray().put(
-                        JSONObject().apply {
-                            put("role", "user")
-                            put(
-                                "parts",
-                                JSONArray().put(
-                                    JSONObject().put("text", prompt),
-                                ),
-                            )
-                        },
-                    ),
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("role", "user")
+                                put(
+                                    "parts",
+                                    buildJsonArray {
+                                        add(buildJsonObject { put("text", prompt) })
+                                    },
+                                )
+                            },
+                        )
+                    },
                 )
                 put(
                     "tools",
-                    JSONArray().put(
-                        JSONObject().put("google_search", JSONObject()),
-                    ),
+                    buildJsonArray {
+                        add(buildJsonObject { put("google_search", buildJsonObject { }) })
+                    },
                 )
                 put(
                     "generationConfig",
-                    JSONObject()
-                        .put("temperature", 0.0)
-                        .put("maxOutputTokens", maxOutputTokens),
+                    buildJsonObject {
+                        put("temperature", 0.0)
+                        put("maxOutputTokens", maxOutputTokens)
+                    },
                 )
             }
 
@@ -229,14 +242,35 @@ Return ONLY valid JSON:
     }
 
     internal fun parseGroundedResponse(responseBody: String): GroundedText? {
-        val root = runCatching { JSONObject(responseBody) }.getOrNull() ?: return null
-        val candidate = root.optJSONArray("candidates")?.optJSONObject(0) ?: return null
-        val parts = candidate.optJSONObject("content")?.optJSONArray("parts") ?: return null
+        val root = parseJsonObject(responseBody) ?: return null
+        val candidate =
+            root["candidates"]
+                ?.runCatching { jsonArray }
+                ?.getOrNull()
+                ?.firstOrNull()
+                ?.runCatching { jsonObject }
+                ?.getOrNull()
+                ?: return null
+        val parts =
+            candidate["content"]
+                ?.runCatching { jsonObject }
+                ?.getOrNull()
+                ?.get("parts")
+                ?.runCatching { jsonArray }
+                ?.getOrNull()
+                ?: return null
 
         val text =
             buildString {
-                for (index in 0 until parts.length()) {
-                    val value = parts.optJSONObject(index)?.optString("text").orEmpty()
+                parts.forEach { part ->
+                    val value =
+                        part.runCatching { jsonObject }
+                            .getOrNull()
+                            ?.get("text")
+                            ?.runCatching { jsonPrimitive }
+                            ?.getOrNull()
+                            ?.contentOrNull
+                            .orEmpty()
                     if (value.isNotBlank()) {
                         if (isNotEmpty()) append('\n')
                         append(value)
@@ -245,34 +279,54 @@ Return ONLY valid JSON:
             }.trim()
         if (text.isBlank()) return null
 
-        val metadata = candidate.optJSONObject("groundingMetadata")
-        val chunks = metadata?.optJSONArray("groundingChunks")
+        val metadata =
+            candidate["groundingMetadata"]
+                ?.runCatching { jsonObject }
+                ?.getOrNull()
+        val chunks =
+            metadata
+                ?.get("groundingChunks")
+                ?.runCatching { jsonArray }
+                ?.getOrNull()
         val chunkKeys = mutableMapOf<Int, String>()
-        if (chunks != null) {
-            for (index in 0 until chunks.length()) {
-                val web = chunks.optJSONObject(index)?.optJSONObject("web") ?: continue
-                val uri = web.optString("uri").trim()
-                val title = web.optString("title").trim()
-                val key = uri.ifBlank { title }
-                if (key.isNotBlank()) chunkKeys[index] = key
-            }
+        chunks?.forEachIndexed { index, chunk ->
+            val web =
+                chunk.runCatching { jsonObject }
+                    .getOrNull()
+                    ?.get("web")
+                    ?.runCatching { jsonObject }
+                    ?.getOrNull()
+                    ?: return@forEachIndexed
+            val uri = web.string("uri")
+            val title = web.string("title")
+            val key = uri.ifBlank { title }
+            if (key.isNotBlank()) chunkKeys[index] = key
         }
 
         // Only count web chunks explicitly cited by groundingSupports. A chunk
         // merely retrieved during search is not evidence for the model's
         // conclusion and must not promote/reject a cover candidate.
         val supportedSources = linkedSetOf<String>()
-        val supports = metadata?.optJSONArray("groundingSupports")
-        if (supports != null) {
-            for (supportIndex in 0 until supports.length()) {
-                val indices =
-                    supports
-                        .optJSONObject(supportIndex)
-                        ?.optJSONArray("groundingChunkIndices")
-                        ?: continue
-                for (indexPosition in 0 until indices.length()) {
-                    chunkKeys[indices.optInt(indexPosition, -1)]?.let(supportedSources::add)
-                }
+        val supports =
+            metadata
+                ?.get("groundingSupports")
+                ?.runCatching { jsonArray }
+                ?.getOrNull()
+        supports?.forEach { support ->
+            val indices =
+                support.runCatching { jsonObject }
+                    .getOrNull()
+                    ?.get("groundingChunkIndices")
+                    ?.runCatching { jsonArray }
+                    ?.getOrNull()
+                    ?: return@forEach
+            indices.forEach { indexElement ->
+                val index =
+                    indexElement.runCatching { jsonPrimitive }
+                        .getOrNull()
+                        ?.intOrNull
+                        ?: return@forEach
+                chunkKeys[index]?.let(supportedSources::add)
             }
         }
 
@@ -283,31 +337,33 @@ Return ONLY valid JSON:
     }
 
     internal fun parseDiscoveryText(text: String): List<GeminiCoverReference> {
-        val json = extractJsonObject(text) ?: return emptyList()
-        val covers = json.optJSONArray("covers") ?: return emptyList()
-        val result = mutableListOf<GeminiCoverReference>()
-        for (index in 0 until covers.length()) {
-            val item = covers.optJSONObject(index) ?: continue
-            val title = item.optString("title").trim()
-            val artist = item.optString("artist").trim()
-            if (title.isBlank() || artist.isBlank()) continue
-            result +=
-                GeminiCoverReference(
-                    title = title,
-                    artist = artist,
-                    translatedOrAdaptedTitle = item.optBoolean("adapted_title", false),
-                )
+        val root = extractJsonObject(text) ?: return emptyList()
+        val covers =
+            root["covers"]
+                ?.runCatching { jsonArray }
+                ?.getOrNull()
+                ?: return emptyList()
+
+        return covers.mapNotNull { element ->
+            val item = element.runCatching { jsonObject }.getOrNull() ?: return@mapNotNull null
+            val title = item.string("title")
+            val artist = item.string("artist")
+            if (title.isBlank() || artist.isBlank()) return@mapNotNull null
+            GeminiCoverReference(
+                title = title,
+                artist = artist,
+                translatedOrAdaptedTitle = item.boolean("adapted_title"),
+            )
         }
-        return result
     }
 
     internal fun parseVerificationText(
         text: String,
         webSourceCount: Int,
     ): GeminiCoverVerdict? {
-        val json = extractJsonObject(text) ?: return null
+        val root = extractJsonObject(text) ?: return null
         val decision =
-            when (json.optString("verdict").trim().lowercase()) {
+            when (root.string("verdict").lowercase()) {
                 "same_work" -> GeminiCoverDecision.SAME_WORK
                 "different_work" -> GeminiCoverDecision.DIFFERENT_WORK
                 "uncertain" -> GeminiCoverDecision.UNCERTAIN
@@ -316,12 +372,12 @@ Return ONLY valid JSON:
 
         return GeminiCoverVerdict(
             decision = decision,
-            translatedOrAdaptedTitle = json.optBoolean("adapted_title", false),
+            translatedOrAdaptedTitle = root.boolean("adapted_title"),
             webSourceConfirmations = webSourceCount.coerceIn(0, MAX_WEB_CONFIRMATIONS),
         )
     }
 
-    private fun extractJsonObject(text: String): JSONObject? {
+    private fun extractJsonObject(text: String): JsonObject? {
         val cleaned =
             text
                 .replace("```json", "", ignoreCase = true)
@@ -330,8 +386,26 @@ Return ONLY valid JSON:
         val start = cleaned.indexOf('{')
         val end = cleaned.lastIndexOf('}')
         if (start < 0 || end <= start) return null
-        return runCatching { JSONObject(cleaned.substring(start, end + 1)) }.getOrNull()
+        return parseJsonObject(cleaned.substring(start, end + 1))
     }
+
+    private fun parseJsonObject(value: String): JsonObject? =
+        runCatching { json.parseToJsonElement(value).jsonObject }.getOrNull()
+
+    private fun JsonObject.string(key: String): String =
+        get(key)
+            ?.runCatching { jsonPrimitive }
+            ?.getOrNull()
+            ?.contentOrNull
+            ?.trim()
+            .orEmpty()
+
+    private fun JsonObject.boolean(key: String): Boolean =
+        get(key)
+            ?.runCatching { jsonPrimitive }
+            ?.getOrNull()
+            ?.booleanOrNull
+            ?: false
 
     internal data class GroundedText(
         val text: String,
