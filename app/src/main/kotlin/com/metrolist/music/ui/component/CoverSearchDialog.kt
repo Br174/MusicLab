@@ -217,14 +217,10 @@ fun CoverSearchDialog(
 
                     else -> {
                         val yearGroups = remember(candidates) {
-                            candidates
-                                .groupBy { it.year }
-                                .entries
-                                .sortedWith(
-                                    compareByDescending<Map.Entry<Int?, List<CoverCandidate>>> {
-                                        it.key ?: Int.MIN_VALUE
-                                    }
-                                )
+                            groupCoverResultsNewestFirst(
+                                values = candidates,
+                                yearOf = { it.year },
+                            )
                         }
 
                         LazyColumn(
@@ -233,9 +229,9 @@ fun CoverSearchDialog(
                                 .weight(1f),
                         ) {
                             yearGroups.forEach { group ->
-                                item(key = "cover-year-${group.key ?: "unknown"}") {
+                                item(key = "cover-year-${group.first ?: "unknown"}") {
                                     Text(
-                                        text = group.key?.toString()
+                                        text = group.first?.toString()
                                             ?: stringResource(R.string.cover_year_unknown),
                                         style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.primary,
@@ -243,7 +239,7 @@ fun CoverSearchDialog(
                                     )
                                 }
 
-                                items(group.value, key = { it.song.id }) { candidate ->
+                                items(group.second, key = { it.song.id }) { candidate ->
                                     CoverCandidateRow(
                                         candidate = candidate,
                                         originalTitle = title,
@@ -376,24 +372,16 @@ private suspend fun findCoverCandidates(
         )
     }
 
-    val internalDeferred = async(Dispatchers.IO) {
-        findInternalCoverCandidates(
-            title = cleanTitle,
-            originalArtist = originalArtist,
-            durationSec = durationSec,
-            currentYouTubeId = currentYouTubeId,
-        )
-    }
-
-    val whoSampledDeferred = async(Dispatchers.IO) {
+    // Source priority is intentional: WhoSampled first, then a structured web
+    // fallback (MusicBrainz), and only then a broad YouTube Music discovery.
+    val whoSampledLookup = async(Dispatchers.IO) {
         runCatching {
             WhoSampledCoverSource.lookup(cleanTitle, originalArtist)
         }.getOrElse {
             WhoSampledLookup(emptyList(), WhoSampledStatus.NETWORK_ERROR)
         }
-    }
+    }.await()
 
-    val whoSampledLookup = whoSampledDeferred.await()
     val confirmed = if (
         whoSampledLookup.status == WhoSampledStatus.OK &&
         whoSampledLookup.covers.isNotEmpty()
@@ -408,11 +396,54 @@ private suspend fun findCoverCandidates(
         emptyList()
     }
 
-    val internal = internalDeferred.await()
+    val musicBrainz = if (confirmed.size < MIN_STRONG_RESULTS_BEFORE_FALLBACK) {
+        val lookup = async(Dispatchers.IO) {
+            runCatching {
+                MusicBrainzCoverSource.lookup(cleanTitle, originalArtist)
+            }.getOrElse {
+                MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR)
+            }
+        }.await()
+
+        if (
+            lookup.status == MusicBrainzStatus.OK &&
+            lookup.covers.isNotEmpty()
+        ) {
+            resolveMusicBrainzCovers(
+                references = lookup.covers,
+                originalArtist = originalArtist,
+                originalDurationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+            )
+        } else {
+            emptyList()
+        }
+    } else {
+        emptyList()
+    }
+
+    val structured = confirmed + musicBrainz
+    val strongCount = structured.count {
+        it.confidence == CoverConfidence.CONFIRMED ||
+            it.confidence == CoverConfidence.VERIFIED
+    }
+
+    val internal = if (strongCount < MIN_STRONG_RESULTS_BEFORE_FALLBACK) {
+        findInternalCoverCandidates(
+            title = cleanTitle,
+            originalArtist = originalArtist,
+            durationSec = durationSec,
+            currentYouTubeId = currentYouTubeId,
+        )
+    } else {
+        emptyList()
+    }
+
     val merged = linkedMapOf<String, CoverCandidate>()
 
     fun merge(candidate: CoverCandidate) {
         if (candidate.confidence == CoverConfidence.REJECTED) return
+        if (candidate.song.id == currentYouTubeId) return
         val existing = merged[candidate.song.id]
         if (
             existing == null ||
@@ -426,7 +457,7 @@ private suspend fun findCoverCandidates(
         }
     }
 
-    confirmed.forEach(::merge)
+    structured.forEach(::merge)
     internal.forEach(::merge)
 
     val ranked = merged.values
@@ -455,6 +486,7 @@ private suspend fun enrichCandidateYears(
     candidates: List<CoverCandidate>,
 ): List<CoverCandidate> = coroutineScope {
     val representatives = candidates
+        .filter { it.year == null }
         .mapNotNull { candidate ->
             candidate.song.album?.id
                 ?.takeIf { it.isNotBlank() }
@@ -523,6 +555,7 @@ private suspend fun resolveWhoSampledCover(
     val originalArtistKey = canonicalArtist(originalArtist)
 
     return songs.mapNotNull { song ->
+        if (song.id == currentYouTubeId) return@mapNotNull null
         if (DISALLOWED_VARIANT_REGEX.containsMatchIn(song.title.lowercase())) return@mapNotNull null
 
         val titleScore = sameWorkScore(refTitle, canonicalWorkTitle(song.title))
@@ -547,8 +580,7 @@ private suspend fun resolveWhoSampledCover(
                 differentArtist = differentArtist,
             )
         )
-        val currentPenalty = if (song.id == currentYouTubeId) 0.18 else 0.0
-        val score = 1.0 + titleScore * 0.55 + artistScore * 0.30 + durationScore * 0.10 - currentPenalty
+        val score = 1.0 + titleScore * 0.55 + artistScore * 0.30 + durationScore * 0.10
 
         CoverCandidate(
             song = song,
@@ -556,6 +588,86 @@ private suspend fun resolveWhoSampledCover(
             differentArtist = differentArtist,
             confirmedByWhoSampled = true,
             confidence = confidence,
+        )
+    }.maxByOrNull { it.score }
+}
+
+private suspend fun resolveMusicBrainzCovers(
+    references: List<MusicBrainzCover>,
+    originalArtist: String,
+    originalDurationSec: Int,
+    currentYouTubeId: String?,
+): List<CoverCandidate> = coroutineScope {
+    val deduped = references
+        .distinctBy { it.recordingId }
+        .take(MAX_MUSICBRAINZ_TO_RESOLVE)
+
+    val result = mutableListOf<CoverCandidate>()
+    for (batch in deduped.chunked(4)) {
+        result += batch.map { reference ->
+            async(Dispatchers.IO) {
+                resolveMusicBrainzCover(
+                    reference = reference,
+                    originalArtist = originalArtist,
+                    originalDurationSec = originalDurationSec,
+                    currentYouTubeId = currentYouTubeId,
+                )
+            }
+        }.awaitAll().filterNotNull()
+    }
+    result
+}
+
+private suspend fun resolveMusicBrainzCover(
+    reference: MusicBrainzCover,
+    originalArtist: String,
+    originalDurationSec: Int,
+    currentYouTubeId: String?,
+): CoverCandidate? {
+    val query = "${reference.title} ${reference.artist}".trim()
+    val search = YouTube.searchSummary(query, incognito = true).getOrNull() ?: return null
+    val songs = search.summaries
+        .flatMap { it.items }
+        .filterIsInstance<SongItem>()
+        .distinctBy { it.id }
+
+    val refTitle = canonicalWorkTitle(reference.title)
+    val refArtist = canonicalArtist(reference.artist)
+    val originalArtistKey = canonicalArtist(originalArtist)
+
+    return songs.mapNotNull { song ->
+        if (song.id == currentYouTubeId) return@mapNotNull null
+        if (DISALLOWED_VARIANT_REGEX.containsMatchIn(song.title.lowercase())) return@mapNotNull null
+
+        val titleScore = sameWorkScore(refTitle, canonicalWorkTitle(song.title))
+        if (titleScore < 0.52) return@mapNotNull null
+
+        val artistScore = song.artists
+            .map { artistSimilarity(refArtist, canonicalArtist(it.name)) }
+            .maxOrNull()
+            ?: 0.0
+        if (artistScore < 0.30 && titleScore < 0.90) return@mapNotNull null
+
+        val candidateArtists = song.artists.map { canonicalArtist(it.name) }.filter { it.isNotBlank() }
+        val differentArtist = originalArtistKey.isNotBlank() &&
+            candidateArtists.none { it == originalArtistKey }
+        val durationScore = looseDurationCompatibility(originalDurationSec, song.duration ?: -1)
+        val confidence = CoverConfidenceEngine.evaluate(
+            CoverEvidence(
+                workIdentifierMatch = true,
+                titleSimilarity = titleScore,
+                durationSimilarity = durationScore,
+                differentArtist = differentArtist,
+            )
+        )
+        val score = 0.95 + titleScore * 0.52 + artistScore * 0.30 + durationScore * 0.10
+
+        CoverCandidate(
+            song = song,
+            score = score,
+            differentArtist = differentArtist,
+            confidence = confidence,
+            year = reference.year,
         )
     }.maxByOrNull { it.score }
 }
@@ -607,6 +719,7 @@ private suspend fun findInternalCoverCandidates(
     val originalArtistKey = canonicalArtist(originalArtist)
 
     uniqueSongs.values.mapNotNull { song ->
+        if (song.id == currentYouTubeId) return@mapNotNull null
         if (DISALLOWED_VARIANT_REGEX.containsMatchIn(song.title.lowercase())) return@mapNotNull null
 
         val titleScore = sameWorkScore(originalWork, canonicalWorkTitle(song.title))
@@ -632,11 +745,10 @@ private suspend fun findInternalCoverCandidates(
 
         val variantBoost = if (explicitVariantLabel) 0.10 else 0.0
         val artistBoost = if (differentArtist) 0.24 else 0.0
-        val currentPenalty = if (song.id == currentYouTubeId) 0.20 else 0.0
 
         CoverCandidate(
             song = song,
-            score = titleScore * 0.70 + durationScore * 0.20 + variantBoost + artistBoost - currentPenalty,
+            score = titleScore * 0.70 + durationScore * 0.20 + variantBoost + artistBoost,
             differentArtist = differentArtist,
             confidence = confidence,
         )
@@ -714,7 +826,7 @@ private fun durationCompatibility(originalSec: Int, candidateSec: Int): Double? 
     return 1.0 - (difference.toDouble() / allowed.toDouble())
 }
 
-/** WhoSampled already confirms the work, so duration is only a ranking hint. */
+/** Structured sources already confirm the work, so duration is only a ranking hint. */
 private fun looseDurationCompatibility(originalSec: Int, candidateSec: Int): Double {
     if (originalSec <= 0 || candidateSec <= 0) return 0.55
     val difference = abs(originalSec - candidateSec)
@@ -724,8 +836,10 @@ private fun looseDurationCompatibility(originalSec: Int, candidateSec: Int): Dou
 }
 
 private const val MIN_TITLE_SCORE = 0.70
+private const val MIN_STRONG_RESULTS_BEFORE_FALLBACK = 10
 private const val MAX_INTERNAL_RESULTS = 56
 private const val MAX_WHOSAMPLED_TO_RESOLVE = 24
+private const val MAX_MUSICBRAINZ_TO_RESOLVE = 32
 private const val MAX_RESULTS = 60
 
 private val WORK_NOISE_REGEX = Regex(
