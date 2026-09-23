@@ -1,0 +1,42 @@
+workflows:
+  uab-musiclab-lab:
+    name: Universal APK Builder - MusicLab LAB
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+
+    environment:
+      java: 21
+      vars:
+        UAB_OUTPUT_NAME: "MusicLab-LAB"
+
+    cache:
+      cache_paths:
+        - ~/.gradle/caches
+        - ~/.gradle/wrapper
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: universal-apk-builder
+          include: true
+          source: true
+      cancel_previous_builds: true
+
+    scripts:
+      - name: Initialize submodules
+        script: git submodule update --init --recursive
+
+      - name: Configure Android SDK path
+        script: echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
+
+      - name: UAB preflight diagnostics
+        script: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build APK and ZIP with UAB
+        script: bash tools/universal-apk-builder/build-apk.sh .
+
+    artifacts:
+      - dist/uab/apk/*.apk
+      - dist/uab/*.zip
+      - dist/uab/logs/*.log
