@@ -1,11 +1,20 @@
 UNIVERSAL APK BUILDER POLICY
 
 Default APK build path:
-1. Diagnose with tools/universal-apk-builder/diagnose.sh
-2. Build with tools/universal-apk-builder/run-container.sh when container engine is available
-3. Otherwise build with tools/universal-apk-builder/build-apk.sh on an Android-SDK-equipped host
-4. Collect APK + SHA256 + ZIP under dist/uab
+1. Route every APK request through tools/universal-apk-builder/route-build.sh.
+2. Provider order is read from uab-router.env and can be changed without modifying application code.
+3. Default provider order: Codemagic -> GitHub Actions -> local Android host.
+4. A provider may be skipped when its free quota, authorization, runner or service is unavailable.
+5. If a build actually starts and fails because of project/code/signing/dependency errors, STOP and diagnose it instead of wasting minutes on another provider.
+6. Collect APK + SHA256 + ZIP under dist/uab whenever the active provider uses the local UAB build engine.
 
-GitHub is the source/version archive. GitHub Actions is NOT the default APK compiler.
-Do not trigger GitHub Actions automatically for APK generation. Use it only when Bruno explicitly requests GitHub Actions.
-Do not silently switch to a paid build service. If the free/local builder is unavailable, report the blocker.
+COST SAFETY
+- Paid fallback is forbidden: UAB_PAID_FALLBACK must remain "never".
+- Never buy minutes, enable billing, increase a budget, or use paid overage automatically.
+- GitHub Actions may be used automatically as a FREE fallback when included usage is available.
+- Codemagic may be used automatically while its free allowance is available.
+- If all free providers are unavailable, stop and report the blocker.
+- API tokens and signing credentials must never be committed to the repository; provide them only through protected environment/secrets.
+
+USER EXPERIENCE
+Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle or OpenCurt. The router selects the available free build path.
