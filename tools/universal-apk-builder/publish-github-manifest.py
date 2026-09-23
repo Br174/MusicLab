@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Publish latest UAB APK/ZIP metadata to a central GitHub manifest registry.
+"""Publish UAB APK/ZIP files directly to a central GitHub Release and latest.json.
 
-Project-neutral bridge:
-Codemagic artifacts -> temporary public Codemagic URLs -> central GitHub latest.json.
-No GitHub Actions are used.
+Project-neutral delivery bridge:
+local Codemagic build artifacts -> central GitHub Release assets -> central latest.json.
+No Codemagic API, email, AppDeploy, or GitHub Actions are required for delivery.
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
+import http.client
 import json
+import mimetypes
 import os
+from pathlib import Path
 import re
 import sys
 import time
@@ -23,69 +27,182 @@ def env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
-def request_json(url: str, *, method: str = "GET", headers=None, payload=None):
-    data = None if payload is None else json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
-    with urllib.request.urlopen(req, timeout=30) as response:
-        raw = response.read().decode("utf-8")
-        return json.loads(raw) if raw else {}
-
-
 def http_label(exc: urllib.error.HTTPError) -> str:
     return f"HTTP {exc.code} {exc.reason}"
 
 
-def codemagic_headers(token: str) -> dict[str, str]:
-    return {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "x-auth-token": token,
-        "User-Agent": "UAB-GitHub-Manifest",
-    }
-
-
-def github_headers(token: str) -> dict[str, str]:
+def github_headers(token: str, *, content_type: str = "application/json") -> dict[str, str]:
     return {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json",
-        "User-Agent": "UAB-GitHub-Manifest",
+        "Content-Type": content_type,
+        "User-Agent": "UAB-GitHub-Delivery",
     }
 
 
-def validate_codemagic_token(token: str) -> None:
-    try:
-        request_json("https://api.codemagic.io/apps", headers=codemagic_headers(token))
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"Codemagic API token rejected: {http_label(exc)}") from exc
+def request_json(url: str, *, method: str = "GET", headers=None, payload=None):
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    with urllib.request.urlopen(req, timeout=45) as response:
+        raw = response.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+
+def safe_project_slug(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-._")
+    return cleaned or "project"
 
 
 def validate_github_token(token: str, owner: str, repo: str) -> None:
+    url = f"https://api.github.com/repos/{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repo, safe='')}"
+    try:
+        result = request_json(url, headers=github_headers(token))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"GitHub delivery token rejected for {owner}/{repo}: {http_label(exc)}") from exc
+
+    permissions = result.get("permissions") if isinstance(result, dict) else None
+    if isinstance(permissions, dict) and permissions.get("push") is False:
+        raise RuntimeError(f"GitHub delivery token can read {owner}/{repo} but does not have write access")
+
+
+def resolve_output_dir() -> Path:
+    build_root = Path(env("CM_BUILD_DIR", os.getcwd())).expanduser().resolve()
+    configured = env("UAB_OUTPUT_DIR")
+    if configured:
+        output = Path(configured).expanduser()
+        if not output.is_absolute():
+            output = build_root / output
+        return output.resolve()
+    return (build_root / "dist" / "uab").resolve()
+
+
+def collect_artifacts(output_dir: Path) -> list[Path]:
+    files: list[Path] = []
+    apk_dir = output_dir / "apk"
+    if apk_dir.is_dir():
+        files.extend(sorted(p for p in apk_dir.glob("*.apk") if p.is_file()))
+    files.extend(sorted(p for p in output_dir.glob("*.zip") if p.is_file()))
+    return files
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def release_by_tag(token: str, owner: str, repo: str, tag: str):
     url = (
-        "https://api.github.com/repos/"
-        f"{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repo, safe='')}"
+        f"https://api.github.com/repos/{urllib.parse.quote(owner, safe='')}/"
+        f"{urllib.parse.quote(repo, safe='')}/releases/tags/{urllib.parse.quote(tag, safe='')}"
     )
     try:
-        request_json(url, headers=github_headers(token))
+        return request_json(url, headers=github_headers(token))
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"GitHub manifest token rejected for {owner}/{repo}: {http_label(exc)}") from exc
+        if exc.code == 404:
+            return None
+        raise RuntimeError(f"GitHub release lookup rejected: {http_label(exc)}") from exc
 
 
-def create_public_url(secure_url: str, token: str, expires_at: int) -> str:
+def ensure_release(
+    token: str,
+    owner: str,
+    repo: str,
+    tag: str,
+    branch: str,
+    name: str,
+    body: str,
+):
+    existing = release_by_tag(token, owner, repo, tag)
+    base = f"https://api.github.com/repos/{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repo, safe='')}"
+    payload = {
+        "tag_name": tag,
+        "target_commitish": branch,
+        "name": name,
+        "body": body,
+        "draft": False,
+        "prerelease": True,
+    }
     try:
-        result = request_json(
-            secure_url.rstrip("/") + "/public-url",
+        if existing:
+            release_id = int(existing["id"])
+            return request_json(
+                f"{base}/releases/{release_id}",
+                method="PATCH",
+                headers=github_headers(token),
+                payload={"name": name, "body": body, "draft": False, "prerelease": True},
+            )
+        return request_json(
+            f"{base}/releases",
             method="POST",
-            headers=codemagic_headers(token),
-            payload={"expiresAt": expires_at},
+            headers=github_headers(token),
+            payload=payload,
         )
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"Codemagic artifact public-url rejected: {http_label(exc)}") from exc
-    public_url = str(result.get("url", "")).strip()
-    if not public_url:
-        raise RuntimeError("Codemagic artifact public-url response did not contain a URL")
-    return public_url
+        raise RuntimeError(f"GitHub release create/update rejected: {http_label(exc)}") from exc
+
+
+def list_release_assets(token: str, owner: str, repo: str, release_id: int) -> list[dict]:
+    url = (
+        f"https://api.github.com/repos/{urllib.parse.quote(owner, safe='')}/"
+        f"{urllib.parse.quote(repo, safe='')}/releases/{release_id}/assets?per_page=100"
+    )
+    try:
+        result = request_json(url, headers=github_headers(token))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"GitHub release asset listing rejected: {http_label(exc)}") from exc
+    return result if isinstance(result, list) else []
+
+
+def delete_release_asset(token: str, owner: str, repo: str, asset_id: int) -> None:
+    url = (
+        f"https://api.github.com/repos/{urllib.parse.quote(owner, safe='')}/"
+        f"{urllib.parse.quote(repo, safe='')}/releases/assets/{asset_id}"
+    )
+    req = urllib.request.Request(url, headers=github_headers(token), method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=45):
+            return
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"GitHub release asset deletion rejected: {http_label(exc)}") from exc
+
+
+def upload_release_asset(token: str, owner: str, repo: str, release_id: int, path: Path) -> dict:
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if path.suffix.lower() == ".apk":
+        mime = "application/vnd.android.package-archive"
+    elif path.suffix.lower() == ".zip":
+        mime = "application/zip"
+
+    query = urllib.parse.urlencode({"name": path.name, "label": path.name})
+    request_path = (
+        f"/repos/{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repo, safe='')}/"
+        f"releases/{release_id}/assets?{query}"
+    )
+    size = path.stat().st_size
+    conn = http.client.HTTPSConnection("uploads.github.com", timeout=120)
+    try:
+        conn.putrequest("POST", request_path)
+        for key, value in github_headers(token, content_type=mime).items():
+            conn.putheader(key, value)
+        conn.putheader("Content-Length", str(size))
+        conn.endheaders()
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                conn.send(chunk)
+        response = conn.getresponse()
+        raw = response.read().decode("utf-8", errors="replace")
+        if response.status != 201:
+            raise RuntimeError(f"GitHub release asset upload rejected: HTTP {response.status} {response.reason}")
+        return json.loads(raw) if raw else {}
+    finally:
+        conn.close()
 
 
 def current_manifest_sha(api_url: str, headers: dict[str, str], branch: str) -> str | None:
@@ -101,112 +218,136 @@ def current_manifest_sha(api_url: str, headers: dict[str, str], branch: str) -> 
         raise RuntimeError(f"GitHub manifest read rejected: {http_label(exc)}") from exc
 
 
-def safe_project_slug(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-._")
-    return cleaned or "project"
+def write_manifest(
+    token: str,
+    owner: str,
+    repo: str,
+    branch: str,
+    path: str,
+    project: str,
+    build_number: str,
+    manifest: dict,
+) -> None:
+    encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
+    api_url = (
+        f"https://api.github.com/repos/{urllib.parse.quote(owner, safe='')}/"
+        f"{urllib.parse.quote(repo, safe='')}/contents/{encoded_path}"
+    )
+    headers = github_headers(token)
+    sha = current_manifest_sha(api_url, headers, branch)
+    data = (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    payload = {
+        "message": f"chore(uab): publish {project} build {build_number}",
+        "content": base64.b64encode(data).decode("ascii"),
+        "branch": branch,
+    }
+    if sha:
+        payload["sha"] = sha
+    try:
+        request_json(api_url, method="PUT", headers=headers, payload=payload)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"GitHub manifest write rejected: {http_label(exc)}") from exc
 
 
 def main() -> int:
     github_token = env("UAB_GITHUB_MANIFEST_TOKEN")
-    codemagic_token = env("CODEMAGIC_API_TOKEN")
-    if not github_token or not codemagic_token:
-        missing = []
-        if not github_token:
-            missing.append("UAB_GITHUB_MANIFEST_TOKEN")
-        if not codemagic_token:
-            missing.append("CODEMAGIC_API_TOKEN")
-        print("[UAB] Central manifest publish skipped; missing secret(s): " + ", ".join(missing))
-        return 0
+    if not github_token:
+        raise RuntimeError("missing secret UAB_GITHUB_MANIFEST_TOKEN")
 
     target_repo = env("UAB_MANIFEST_REPOSITORY")
     if "/" not in target_repo:
         raise RuntimeError("UAB_MANIFEST_REPOSITORY must be owner/repository")
     target_owner, target_name = target_repo.split("/", 1)
+    manifest_branch = env("UAB_MANIFEST_BRANCH", "main")
 
-    validate_codemagic_token(codemagic_token)
     validate_github_token(github_token, target_owner, target_name)
     if "--preflight" in sys.argv:
-        print(f"[UAB] Delivery preflight OK: Codemagic API + GitHub {target_repo}")
+        print(f"[UAB] Delivery preflight OK: GitHub {target_repo} is readable/writable")
         return 0
-
-    raw_links = env("CM_ARTIFACT_LINKS", "[]")
-    try:
-        source_links = json.loads(raw_links)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("CM_ARTIFACT_LINKS is not valid JSON") from exc
-    if not isinstance(source_links, list):
-        raise RuntimeError("CM_ARTIFACT_LINKS must be a JSON list")
 
     source_repo = env("CM_REPO_SLUG") or env("UAB_REPOSITORY")
     if "/" not in source_repo:
         raise RuntimeError("Cannot determine source GitHub owner/repository")
     _, source_repo_name = source_repo.split("/", 1)
-
     project = env("UAB_PROJECT_NAME") or source_repo_name
     project_slug = safe_project_slug(project)
-    manifest_branch = env("UAB_MANIFEST_BRANCH", "main")
-    path_template = env("UAB_MANIFEST_PATH", "uab-artifacts/{project}/latest.json")
-    manifest_path = path_template.replace("{project}", project_slug)
-    ttl_days = max(1, min(int(env("UAB_ARTIFACT_PUBLIC_TTL_DAYS", "3")), 7))
-    expires_at = int(time.time()) + ttl_days * 24 * 60 * 60
+    build_number = env("PROJECT_BUILD_NUMBER") or env("BUILD_NUMBER") or "unknown"
+
+    output_dir = resolve_output_dir()
+    local_artifacts = collect_artifacts(output_dir)
+    if not local_artifacts:
+        raise RuntimeError(f"No APK/ZIP files found under {output_dir}")
+
+    release_tag = env("UAB_RELEASE_TAG", f"uab-{project_slug.lower()}-latest")
+    release_name = f"UAB {project} - latest build"
+    release_body = (
+        f"Automatically managed by Universal APK Builder.\n\n"
+        f"Project: {project}\n"
+        f"Source: {source_repo}\n"
+        f"Branch: {env('CM_BRANCH', 'unknown')}\n"
+        f"Build: {build_number}\n"
+        f"Updated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n"
+    )
+    release = ensure_release(
+        github_token,
+        target_owner,
+        target_name,
+        release_tag,
+        manifest_branch,
+        release_name,
+        release_body,
+    )
+    release_id = int(release["id"])
+
+    for asset in list_release_assets(github_token, target_owner, target_name, release_id):
+        asset_id = asset.get("id")
+        if asset_id is not None:
+            delete_release_asset(github_token, target_owner, target_name, int(asset_id))
 
     artifacts = []
-    for item in source_links:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name", "")).strip()
-        secure_url = str(item.get("url", "")).strip()
-        lower = name.lower()
-        if not secure_url or not (lower.endswith(".apk") or lower.endswith(".zip")):
-            continue
+    for path in local_artifacts:
+        uploaded = upload_release_asset(github_token, target_owner, target_name, release_id, path)
+        browser_url = str(uploaded.get("browser_download_url", "")).strip()
+        if not browser_url:
+            raise RuntimeError(f"GitHub did not return browser_download_url for {path.name}")
         artifacts.append(
             {
-                "name": name,
-                "kind": "apk" if lower.endswith(".apk") else "zip",
-                "url": create_public_url(secure_url, codemagic_token, expires_at),
-                "expiresAt": expires_at,
-                "md5": str(item.get("md5", "")).strip() or None,
+                "name": path.name,
+                "kind": "apk" if path.suffix.lower() == ".apk" else "zip",
+                "url": browser_url,
+                "size": path.stat().st_size,
+                "sha256": sha256_file(path),
             }
         )
+        print(f"[UAB] Uploaded release asset: {path.name}")
 
-    if not artifacts:
-        print("[UAB] No APK/ZIP artifacts found; central manifest not updated")
-        return 0
-
+    path_template = env("UAB_MANIFEST_PATH", "uab-artifacts/{project}/latest.json")
+    manifest_path = path_template.replace("{project}", project_slug)
     manifest = {
-        "schema": 1,
+        "schema": 2,
         "project": project,
         "sourceRepository": source_repo,
         "status": "ready",
         "branch": env("CM_BRANCH", "unknown"),
-        "buildNumber": env("PROJECT_BUILD_NUMBER") or env("BUILD_NUMBER") or "unknown",
+        "buildNumber": build_number,
         "commit": env("CM_COMMIT"),
         "generatedAt": int(time.time()),
-        "publicUrlTtlDays": ttl_days,
+        "delivery": "github-release",
+        "releaseTag": release_tag,
+        "releaseUrl": str(release.get("html_url", "")),
         "artifacts": artifacts,
     }
-    manifest_bytes = (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-
-    encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in manifest_path.split("/"))
-    api_url = (
-        "https://api.github.com/repos/"
-        f"{urllib.parse.quote(target_owner, safe='')}/{urllib.parse.quote(target_name, safe='')}/contents/{encoded_path}"
+    write_manifest(
+        github_token,
+        target_owner,
+        target_name,
+        manifest_branch,
+        manifest_path,
+        project,
+        build_number,
+        manifest,
     )
-    headers = github_headers(github_token)
-    sha = current_manifest_sha(api_url, headers, manifest_branch)
-    payload = {
-        "message": f"chore(uab): publish {project} build {manifest['buildNumber']}",
-        "content": base64.b64encode(manifest_bytes).decode("ascii"),
-        "branch": manifest_branch,
-    }
-    if sha:
-        payload["sha"] = sha
-
-    try:
-        request_json(api_url, method="PUT", headers=headers, payload=payload)
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"GitHub manifest write rejected: {http_label(exc)}") from exc
-    print(f"[UAB] Central manifest updated: {target_repo}@{manifest_branch}:{manifest_path}")
+    print(f"[UAB] Central release + manifest updated: {target_repo}:{manifest_path}")
     return 0
 
 
@@ -214,5 +355,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as exc:
-        print(f"[UAB] Central manifest publish failed: {exc}", file=sys.stderr)
+        print(f"[UAB] Central GitHub delivery failed: {exc}", file=sys.stderr)
         sys.exit(1)
