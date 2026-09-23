@@ -1,17 +1,7 @@
-name: Build APKs
+name: Legacy Build APKs (manual only)
 
 on:
   workflow_dispatch:
-  push:
-    branches-ignore:
-      - "musiclab-lab"
-    paths-ignore:
-      - "README.md"
-      - "fastlane/**"
-      - "assets/**"
-      - ".github/**/*.md"
-      - ".github/FUNDING.yml"
-      - ".github/ISSUE_TEMPLATE/**"
 
 permissions:
   contents: write
