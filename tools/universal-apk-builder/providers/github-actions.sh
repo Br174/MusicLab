@@ -50,6 +50,7 @@ fi
 response_file="$(mktemp)"
 trap 'rm -f "$response_file"' EXIT
 payload=$(printf '{"ref":"%s"}' "$BRANCH")
+dispatch_epoch=$(date -u +%s)
 http_code=$(curl -sS -o "$response_file" -w '%{http_code}' \
   -X POST \
   -H 'Accept: application/vnd.github+json' \
@@ -67,25 +68,53 @@ case "$http_code" in
   *) echo "[UAB][GitHub] Dispatch rifiutato (HTTP $http_code)."; cat "$response_file" 2>/dev/null || true; exit 22 ;;
 esac
 
-run_id=$(python3 - "$response_file" <<'PY'
-import json,sys
+echo "[UAB][GitHub] Workflow dispatch accettato."
+[[ "$WAIT" == "1" ]] || exit 0
+
+# workflow_dispatch normalmente risponde 204 senza run id. Cerchiamo la run appena creata.
+run_id=""
+discovery_start=$(date +%s)
+while [[ -z "$run_id" ]]; do
+  now=$(date +%s)
+  if (( now - discovery_start > 90 )); then
+    echo "[UAB][GitHub] Run non comparsa entro 90s: considero runner/servizio non disponibile."
+    exit 20
+  fi
+  runs_file="$(mktemp)"
+  runs_code=$(curl -sS -o "$runs_file" -w '%{http_code}' \
+    -H 'Accept: application/vnd.github+json' \
+    -H "Authorization: Bearer $TOKEN" \
+    -H 'X-GitHub-Api-Version: 2026-03-10' \
+    "https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW/runs?event=workflow_dispatch&branch=$BRANCH&per_page=10" || true)
+  if [[ "$runs_code" == "200" ]]; then
+    run_id=$(python3 - "$runs_file" "$dispatch_epoch" <<'PY'
+import json,sys,datetime
 try:
     data=json.load(open(sys.argv[1]))
-    print(data.get('workflow_run_id',''))
+    threshold=int(sys.argv[2]) - 15
+    for r in data.get('workflow_runs',[]):
+        created=r.get('created_at')
+        if not created: continue
+        epoch=int(datetime.datetime.fromisoformat(created.replace('Z','+00:00')).timestamp())
+        if epoch >= threshold:
+            print(r.get('id',''))
+            break
 except Exception:
-    print('')
+    pass
 PY
 )
+  fi
+  rm -f "$runs_file"
+  [[ -n "$run_id" ]] || sleep 5
+done
 
-echo "[UAB][GitHub] Workflow avviato${run_id:+: run $run_id}."
-[[ "$WAIT" == "1" && -n "$run_id" ]] || exit 0
-
+echo "[UAB][GitHub] Run rilevata: $run_id"
 start=$(date +%s)
 while :; do
   now=$(date +%s)
   if (( now - start > TIMEOUT )); then
     echo "[UAB][GitHub] Timeout attesa workflow."
-    exit 30
+    exit 20
   fi
   run_file="$(mktemp)"
   code=$(curl -sS -o "$run_file" -w '%{http_code}' \
@@ -118,18 +147,23 @@ PY
     -H 'X-GitHub-Api-Version: 2026-03-10' \
     "https://api.github.com/repos/$REPO/actions/runs/$run_id/jobs" || true)
   jobs_count=0
+  steps_count=0
   if [[ "$jobs_code" == "200" ]]; then
-    jobs_count=$(python3 - "$jobs_file" <<'PY'
+    read -r jobs_count steps_count < <(python3 - "$jobs_file" <<'PY'
 import json,sys
-try: print(int(json.load(open(sys.argv[1])).get('total_count',0)))
-except Exception: print(0)
+try:
+    data=json.load(open(sys.argv[1]))
+    jobs=data.get('jobs',[])
+    print(len(jobs), sum(len(j.get('steps') or []) for j in jobs))
+except Exception:
+    print(0,0)
 PY
 )
   fi
   rm -f "$jobs_file"
 
-  if (( jobs_count == 0 )) || [[ "$conclusion" =~ ^(startup_failure|action_required|stale|cancelled)$ ]]; then
-    echo "[UAB][GitHub] Runner/servizio/quota non disponibile; fallback."
+  if (( jobs_count == 0 || steps_count == 0 )) || [[ "$conclusion" =~ ^(startup_failure|action_required|stale|cancelled)$ ]]; then
+    echo "[UAB][GitHub] Nessuno step eseguito: runner/quota/servizio non disponibile; fallback."
     exit 20
   fi
 
