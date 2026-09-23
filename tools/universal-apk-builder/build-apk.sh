@@ -22,8 +22,9 @@ fail() { printf '[UAB][ERROR] %s\n' "$*" >&2; exit "${2:-1}"; }
 [[ -f "$PROJECT_ROOT/gradlew" ]] || fail "gradlew non trovato: il progetto non sembra un progetto Gradle Android standard." 10
 chmod +x "$PROJECT_ROOT/gradlew"
 
+command -v java >/dev/null 2>&1 || fail "Java/JDK non disponibile." 11
 JAVA_MAJOR="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
-[[ -n "$JAVA_MAJOR" ]] || fail "Java/JDK non disponibile." 11
+[[ -n "$JAVA_MAJOR" ]] || fail "Impossibile determinare la versione Java." 11
 if (( JAVA_MAJOR < 17 )); then
   fail "JDK troppo vecchio: trovato Java $JAVA_MAJOR. Serve almeno Java 17; per MusicLab è richiesto Java 21." 12
 fi
@@ -35,11 +36,11 @@ TASK="${UAB_TASK:-}"
 if [[ -z "$TASK" ]]; then
   APP_MODULE=""
   while IFS= read -r gradle_file; do
-    if grep -Eq 'com\.android\.application|id\(["'"']com\.android\.application["'"']\)' "$gradle_file"; then
+    if grep -Eq 'com\.android\.application' "$gradle_file"; then
       rel="${gradle_file#$PROJECT_ROOT/}"
       APP_MODULE="${rel%%/*}"
       [[ "$APP_MODULE" == "$rel" ]] && APP_MODULE=""
-      break
+      [[ -n "$APP_MODULE" ]] && break
     fi
   done < <(find "$PROJECT_ROOT" -maxdepth 3 \( -name build.gradle -o -name build.gradle.kts \) -type f | sort)
   [[ -n "$APP_MODULE" ]] || fail "Modulo Android application non rilevato automaticamente. Impostare UAB_TASK in uab-project.env." 14
@@ -54,6 +55,7 @@ status "Output: $OUTPUT_DIR"
 
 cd "$PROJECT_ROOT"
 set +e
+# UAB_GRADLE_ARGS is intentionally word-split to support multiple optional Gradle flags.
 ./gradlew "$TASK" --console=plain --warning-mode summary ${UAB_GRADLE_ARGS:-} 2>&1 | tee "$LOG_FILE"
 BUILD_RC=${PIPESTATUS[0]}
 set -e
@@ -81,8 +83,7 @@ mapfile -t APKS < <(
 
 ((${#APKS[@]} > 0)) || fail "Build riuscita ma nessun APK trovato." 30
 
-OUTPUT_NAME="${UAB_OUTPUT_NAME:-$(basename "$PROJECT_ROOT") }"
-OUTPUT_NAME="${OUTPUT_NAME% }"
+OUTPUT_NAME="${UAB_OUTPUT_NAME:-$(basename "$PROJECT_ROOT")}"
 
 if ((${#APKS[@]} == 1)); then
   cp "${APKS[0]}" "$OUTPUT_DIR/apk/$OUTPUT_NAME.apk"
