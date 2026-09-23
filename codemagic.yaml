@@ -14,6 +14,15 @@ workflows:
         - ~/.gradle/caches
         - ~/.gradle/wrapper
 
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: uab-parallel-test
+          include: true
+          source: true
+      cancel_previous_builds: true
+
     scripts:
       - name: Initialize submodules
         script: git submodule update --init --recursive
