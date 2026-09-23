@@ -80,7 +80,9 @@ PY
 
 setup_parallel_install() {
   local enabled="${UAB_PARALLEL_INSTALL:-off}"
-  case "${enabled,,}" in
+  local enabled_norm
+  enabled_norm="$(printf '%s' "$enabled" | tr '[:upper:]' '[:lower:]')"
+  case "$enabled_norm" in
     1|true|yes|on) ;;
     *) return 0 ;;
   esac
@@ -89,7 +91,6 @@ setup_parallel_install() {
   local id_env="${UAB_APPLICATION_ID_ENV:-}"
   [[ -n "$base" ]] || fail "UAB_PARALLEL_INSTALL attivo ma UAB_APPLICATION_ID_BASE non configurato." 25
 
-  # Android package segments cannot start with a digit, so each generated suffix starts with 'b'.
   local generated="${UAB_BUILD_ID:-b$(date -u +%Y%m%d%H%M%S)}"
   generated="$(printf '%s' "$generated" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_]/_/g')"
   [[ "$generated" =~ ^[a-z] ]] || generated="b$generated"
@@ -190,7 +191,6 @@ cd "$PROJECT_ROOT"
 run_hook "Pre-build" "${UAB_PRE_BUILD_SCRIPT:-}" "$PROJECT_ROOT/.uab/pre-build.sh"
 
 set +e
-# UAB_GRADLE_ARGS is intentionally word-split to support multiple optional Gradle flags.
 ./gradlew "$TASK" --console=plain --warning-mode summary ${UAB_GRADLE_ARGS:-} 2>&1 | tee -a "$LOG_FILE"
 BUILD_RC=${PIPESTATUS[0]}
 set -e
