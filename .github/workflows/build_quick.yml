@@ -1,80 +1,80 @@
-name: Quick Test Build
+name: Build MusicLab LAB APK
 
 on:
   workflow_dispatch:
-  push:
-    branches-ignore:
-      - "musiclab-lab"
-    paths-ignore:
-      - "README.md"
-      - "fastlane/**"
-      - "assets/**"
-      - ".github/**/*.md"
-      - ".github/FUNDING.yml"
-      - ".github/ISSUE_TEMPLATE/**"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: musiclab-lab-apk
+  cancel-in-progress: true
 
 jobs:
-  build_quick:
-    name: Quick Universal Release Build
+  build:
+    name: MusicLab LAB APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Init metroproto submodule
-        run: git submodule update --init metroproto
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
+      - name: Checkout source
+        uses: actions/checkout@v4
         with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
           java-version: "21"
-          distribution: "temurin"
 
-      - name: Set Up Gradle
-        uses: gradle/actions/setup-gradle@v5
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
         with:
-          cache-encryption-key: ${{ secrets.GRADLE_CACHE_KEY }}
           cache-cleanup: on-success
 
-      - name: Setup and Generate Protobuf
+      - name: Set up Protobuf
         uses: ./.github/actions/setup-protobuf
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Prepare stable LAB signing key
+        shell: bash
+        run: |
+          echo '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' | base64 --decode > app/persistent-debug.keystore
+          chmod +x gradlew
 
-      - name: Build Release APK (No Lint)
-        run: ./gradlew --console=plain assembleFossRelease --warning-mode summary -x lint -x lintFossRelease
+      - name: Build one LAB APK
+        shell: bash
         env:
-          METROLIST_APPLICATION_ID: com.meld.app.test
-          METROLIST_APP_NAME: Meld Testing
+          METROLIST_APPLICATION_ID: it.verlezza.musiclab.lab
+          METROLIST_APP_NAME: MusicLab LAB
           PULL_REQUEST: "false"
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_NAME: workflow_dispatch
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
           CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
-          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'FrancescoGrazioso/Meld' }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+        run: ./gradlew :app:assembleFossDebug --console=plain --warning-mode summary -x lint
 
-      - name: Sign APK
-        uses: ilharp/sign-android-release@v2.0.0
-        with:
-          releaseDir: app/build/outputs/apk/foss/release/
-          signingKey: ${{ secrets.KEYSTORE }}
-          keyAlias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-          buildToolsVersion: 35.0.0
-
-      - name: Move signed APK
+      - name: Package APK and checksum
+        shell: bash
         run: |
-          OUTPUT_DIR="app/build/outputs/apk/foss/release"
-          mkdir -p "$OUTPUT_DIR/out"
-          find "$OUTPUT_DIR" -name "*-signed.apk" -o -name "*-unsigned-signed.apk" | xargs -I{} mv {} "$OUTPUT_DIR/out/app-universal-test-release.apk"
+          mkdir -p dist
+          APK="$(find app/build/outputs/apk/foss/debug -name '*.apk' -type f | head -n 1)"
+          test -n "$APK"
+          cp "$APK" dist/MusicLab-LAB.apk
+          cd dist
+          sha256sum MusicLab-LAB.apk > MusicLab-LAB.sha256
+          zip -9 MusicLab-LAB-APK.zip MusicLab-LAB.apk MusicLab-LAB.sha256
+          unzip -t MusicLab-LAB-APK.zip
 
-      - name: Upload Signed APK
-        uses: actions/upload-artifact@v6
+      - name: Upload APK and ZIP
+        uses: actions/upload-artifact@v4
         with:
-          name: app-universal-test-release
-          path: app/build/outputs/apk/foss/release/out/*
+          name: MusicLab-LAB
+          path: |
+            dist/MusicLab-LAB.apk
+            dist/MusicLab-LAB.sha256
+            dist/MusicLab-LAB-APK.zip
+          if-no-files-found: error
+          retention-days: 14
