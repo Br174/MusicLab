@@ -79,10 +79,6 @@ class App :
         super.onCreate()
 
         if (BuildConfig.DEBUG) {
-            // Logs main-thread disk/network I/O and leaked resources to logcat so ANR
-            // regressions are visible while developing. penaltyLog() only — never death,
-            // to avoid crashing developers on pre-existing violations while we migrate
-            // away from blocking DataStore reads.
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()
                     .detectDiskReads()
@@ -100,24 +96,13 @@ class App :
             )
         }
 
-        // Install crash handler first. CrashReporter must be initialized before
-        // CrashHandler so the uncaught-exception path can post to GitHub Issues.
         CrashReporter.init(this)
         CrashHandler.install(this)
         AnrWatchdog.start()
-
-        // Initialize cipher deobfuscator for WEB_REMIX streaming
         CipherDeobfuscator.initialize(this)
-
         Timber.plant(Timber.DebugTree())
-
-        // Start mirroring DataStore into an in-memory snapshot so subsequent synchronous
-        // `dataStore.get(...)` calls (used in Composables and Service lifecycle) don't
-        // hit disk. Kicked off before any other initialization so the snapshot is
-        // populated as early as possible.
         installPreferencesSnapshotCollector(applicationScope, dataStore)
 
-        // تهيئة إعدادات التطبيق عند الإقلاع
         applicationScope.launch {
             initializeSettings()
             observeSettingsChanges()
@@ -129,7 +114,6 @@ class App :
         val locale = Locale.getDefault()
         val languageTag = locale.language
 
-        // Keep the global artwork dimensions synchronized from the very first frame.
         ArtworkSizeRuntime.current = settings[ArtworkSizeKey].toEnum(defaultValue = ArtworkSize.MEDIUM)
 
         YouTube.locale =
@@ -149,13 +133,11 @@ class App :
             KuGou.useTraditionalChinese = true
         }
 
-        // Initialize LastFM with API keys from BuildConfig (GitHub Secrets)
         LastFM.initialize(
             apiKey = BuildConfig.LASTFM_API_KEY.takeIf { it.isNotEmpty() } ?: "",
             secret = BuildConfig.LASTFM_SECRET.takeIf { it.isNotEmpty() } ?: "",
         )
 
-        // Wire up Spotify API logging to Timber
         Spotify.logger = { level, message ->
             when (level) {
                 "E" -> Timber.tag("SpotifyAPI").e(message)
@@ -164,8 +146,6 @@ class App :
             }
         }
 
-        // Initialize GQL hash sync: load cached hashes immediately,
-        // then always fetch fresh hashes from remote in background.
         val hashSync = SpotifyHashSync(this@App)
         hashSync.loadCachedHashes()
         applicationScope.launch(Dispatchers.IO) { hashSync.sync() }
@@ -174,14 +154,11 @@ class App :
             applicationScope.launch(Dispatchers.IO) { hashSync.forceRefresh() }
         }
 
-        // Initialize centralized token manager and restore/refresh Spotify token
         SpotifyTokenManager.init(dataStore)
         applicationScope.launch(Dispatchers.IO) {
             SpotifyTokenManager.ensureAuthenticated()
         }
 
-        // Evict Spotify↔YouTube match-cache rows older than 90 days (manual
-        // overrides are preserved) so the table doesn't grow without bound.
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
                 database.clearOldSpotifyMatches(
@@ -340,7 +317,6 @@ class App :
                 }
                 crossfade(true)
                 allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-                // Memory cache for fast image loading (prevents network requests on recomposition)
                 memoryCache {
                     MemoryCache
                         .Builder()
@@ -357,7 +333,6 @@ class App :
                             .maxSizeBytes(cacheSize * 1024 * 1024L)
                             .build(),
                     )
-                    // Allow reading from disk cache as fallback when network is unavailable
                     networkCachePolicy(CachePolicy.ENABLED)
                 }
             }.build()
@@ -376,13 +351,10 @@ class App :
     }
 
     companion object {
-        /** Spotify match-cache rows older than this are evicted on startup. */
-        private const val SPOTIFY_MATCH_TTL_MS = 90L * 24 * 60 * 60 * 1000 // 90 days
+        private const val SPOTIFY_MATCH_TTL_MS = 90L * 24 * 60 * 60 * 1000
 
         suspend fun forgetAccount(context: Context) {
             Timber.d("forgetAccount: Starting logout process")
-
-            // Clear DataStore preferences
             Timber.d("forgetAccount: Clearing DataStore preferences")
             context.dataStore.edit { settings ->
                 settings.remove(InnerTubeCookieKey)
@@ -394,7 +366,6 @@ class App :
             }
             Timber.d("forgetAccount: DataStore preferences cleared")
 
-            // Immediately clear YouTube object's auth state
             Timber.d("forgetAccount: Clearing YouTube object auth state")
             Timber.d(
                 "forgetAccount: Before - cookie=${YouTube.cookie?.take(
@@ -408,7 +379,6 @@ class App :
                 "forgetAccount: After - cookie=${YouTube.cookie}, visitorData=${YouTube.visitorData}, dataSyncId=${YouTube.dataSyncId}",
             )
 
-            // Clear WebView cookies to prevent auto-relogin
             Timber.d("forgetAccount: Clearing WebView CookieManager")
             withContext(Dispatchers.Main) {
                 android.webkit.CookieManager.getInstance().apply {
