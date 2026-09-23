@@ -16,7 +16,7 @@ if [[ -f "$ROUTER_CONFIG" ]]; then
   source "$ROUTER_CONFIG"
 fi
 
-UAB_PROVIDER_ORDER="${UAB_PROVIDER_ORDER:-codemagic,github-actions,local}"
+UAB_PROVIDER_ORDER="${UAB_PROVIDER_ORDER:-local,github-actions,codemagic}"
 UAB_PAID_FALLBACK="${UAB_PAID_FALLBACK:-never}"
 
 log(){ printf '[UAB-ROUTER] %s\n' "$*" | tee -a "$ROUTER_LOG"; }
