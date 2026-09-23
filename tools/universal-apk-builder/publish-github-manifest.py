@@ -31,17 +31,17 @@ def request_json(url: str, *, method: str = "GET", headers=None, payload=None):
         return json.loads(raw) if raw else {}
 
 
-def create_public_url(secure_url: str, token: str, expires_at: int) -> str:
-    result = request_json(
-        secure_url.rstrip("/") + "/public-url",
-        method="POST",
-        headers={"Content-Type": "application/json", "x-auth-token": token},
-        payload={"expiresAt": expires_at},
-    )
-    public_url = str(result.get("url", "")).strip()
-    if not public_url:
-        raise RuntimeError("Codemagic did not return a public artifact URL")
-    return public_url
+def http_label(exc: urllib.error.HTTPError) -> str:
+    return f"HTTP {exc.code} {exc.reason}"
+
+
+def codemagic_headers(token: str) -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "x-auth-token": token,
+        "User-Agent": "UAB-GitHub-Manifest",
+    }
 
 
 def github_headers(token: str) -> dict[str, str]:
@@ -54,6 +54,40 @@ def github_headers(token: str) -> dict[str, str]:
     }
 
 
+def validate_codemagic_token(token: str) -> None:
+    try:
+        request_json("https://api.codemagic.io/apps", headers=codemagic_headers(token))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"Codemagic API token rejected: {http_label(exc)}") from exc
+
+
+def validate_github_token(token: str, owner: str, repo: str) -> None:
+    url = (
+        "https://api.github.com/repos/"
+        f"{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repo, safe='')}"
+    )
+    try:
+        request_json(url, headers=github_headers(token))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"GitHub manifest token rejected for {owner}/{repo}: {http_label(exc)}") from exc
+
+
+def create_public_url(secure_url: str, token: str, expires_at: int) -> str:
+    try:
+        result = request_json(
+            secure_url.rstrip("/") + "/public-url",
+            method="POST",
+            headers=codemagic_headers(token),
+            payload={"expiresAt": expires_at},
+        )
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"Codemagic artifact public-url rejected: {http_label(exc)}") from exc
+    public_url = str(result.get("url", "")).strip()
+    if not public_url:
+        raise RuntimeError("Codemagic artifact public-url response did not contain a URL")
+    return public_url
+
+
 def current_manifest_sha(api_url: str, headers: dict[str, str], branch: str) -> str | None:
     try:
         result = request_json(
@@ -64,7 +98,7 @@ def current_manifest_sha(api_url: str, headers: dict[str, str], branch: str) -> 
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return None
-        raise
+        raise RuntimeError(f"GitHub manifest read rejected: {http_label(exc)}") from exc
 
 
 def safe_project_slug(value: str) -> str:
@@ -84,6 +118,17 @@ def main() -> int:
         print("[UAB] Central manifest publish skipped; missing secret(s): " + ", ".join(missing))
         return 0
 
+    target_repo = env("UAB_MANIFEST_REPOSITORY")
+    if "/" not in target_repo:
+        raise RuntimeError("UAB_MANIFEST_REPOSITORY must be owner/repository")
+    target_owner, target_name = target_repo.split("/", 1)
+
+    validate_codemagic_token(codemagic_token)
+    validate_github_token(github_token, target_owner, target_name)
+    if "--preflight" in sys.argv:
+        print(f"[UAB] Delivery preflight OK: Codemagic API + GitHub {target_repo}")
+        return 0
+
     raw_links = env("CM_ARTIFACT_LINKS", "[]")
     try:
         source_links = json.loads(raw_links)
@@ -97,17 +142,12 @@ def main() -> int:
         raise RuntimeError("Cannot determine source GitHub owner/repository")
     _, source_repo_name = source_repo.split("/", 1)
 
-    target_repo = env("UAB_MANIFEST_REPOSITORY")
-    if "/" not in target_repo:
-        raise RuntimeError("UAB_MANIFEST_REPOSITORY must be owner/repository")
-    target_owner, target_name = target_repo.split("/", 1)
-
     project = env("UAB_PROJECT_NAME") or source_repo_name
     project_slug = safe_project_slug(project)
     manifest_branch = env("UAB_MANIFEST_BRANCH", "main")
     path_template = env("UAB_MANIFEST_PATH", "uab-artifacts/{project}/latest.json")
     manifest_path = path_template.replace("{project}", project_slug)
-    ttl_days = max(1, min(int(env("UAB_ARTIFACT_PUBLIC_TTL_DAYS", "30")), 30))
+    ttl_days = max(1, min(int(env("UAB_ARTIFACT_PUBLIC_TTL_DAYS", "3")), 7))
     expires_at = int(time.time()) + ttl_days * 24 * 60 * 60
 
     artifacts = []
@@ -150,7 +190,7 @@ def main() -> int:
     encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in manifest_path.split("/"))
     api_url = (
         "https://api.github.com/repos/"
-        f"{urllib.parse.quote(target_owner)}/{urllib.parse.quote(target_name)}/contents/{encoded_path}"
+        f"{urllib.parse.quote(target_owner, safe='')}/{urllib.parse.quote(target_name, safe='')}/contents/{encoded_path}"
     )
     headers = github_headers(github_token)
     sha = current_manifest_sha(api_url, headers, manifest_branch)
@@ -162,7 +202,10 @@ def main() -> int:
     if sha:
         payload["sha"] = sha
 
-    request_json(api_url, method="PUT", headers=headers, payload=payload)
+    try:
+        request_json(api_url, method="PUT", headers=headers, payload=payload)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"GitHub manifest write rejected: {http_label(exc)}") from exc
     print(f"[UAB] Central manifest updated: {target_repo}@{manifest_branch}:{manifest_path}")
     return 0
 
