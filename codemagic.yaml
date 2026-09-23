@@ -48,3 +48,50 @@ workflows:
         notify:
           success: true
           failure: true
+      scripts:
+        - name: Publish UAB artifact metadata
+          script: |
+            python3 - <<'PY'
+            import json
+            import os
+            import urllib.request
+
+            raw = os.environ.get("CM_ARTIFACT_LINKS", "[]")
+            links = json.loads(raw)
+            artifacts = []
+            for item in links:
+                name = str(item.get("name", ""))
+                url = str(item.get("url", ""))
+                if not (name.lower().endswith(".apk") or name.lower().endswith(".zip")):
+                    continue
+                artifacts.append({
+                    "name": name,
+                    "type": item.get("type", ""),
+                    "url": url,
+                    "md5": item.get("md5", ""),
+                })
+
+            if not artifacts:
+                print("[UAB] No APK/ZIP artifact links to publish")
+                raise SystemExit(0)
+
+            repo = os.environ.get("CM_REPO_SLUG", "")
+            project = repo.split("/", 1)[-1] if "/" in repo else (repo or os.environ.get("CM_PROJECT_ID", "project"))
+            payload = {
+                "project": project,
+                "branch": os.environ.get("CM_BRANCH", "unknown"),
+                "buildNumber": os.environ.get("PROJECT_BUILD_NUMBER", os.environ.get("BUILD_NUMBER", "unknown")),
+                "commit": os.environ.get("CM_COMMIT", ""),
+                "artifacts": artifacts,
+            }
+
+            endpoint = "https://uab-artifact-inbox-atqqpa.v2.appdeploy.ai/api/publish/Ut_68KbrUEmpn-V4c2L0_fXkhA0PnLj2qRs85ddez0w"
+            request = urllib.request.Request(
+                endpoint,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                print("[UAB] Artifact Inbox:", response.read().decode("utf-8"))
+            PY
