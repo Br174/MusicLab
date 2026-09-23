@@ -41,3 +41,11 @@ workflows:
       - dist/uab/apk/*.apk
       - dist/uab/*.zip
       - dist/uab/logs/*.log
+
+    publishing:
+      email:
+        recipients:
+          - brunoverlezza@gmail.com
+        notify:
+          success: true
+          failure: true
