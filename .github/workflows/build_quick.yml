@@ -2,6 +2,13 @@ name: Build MusicLab LAB APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - musiclab-lab-fastwork
+    paths-ignore:
+      - '**/*.md'
+      - 'fastlane/**'
+      - 'assets/**'
 
 permissions:
   contents: read
