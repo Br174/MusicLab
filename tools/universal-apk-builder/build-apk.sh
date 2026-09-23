@@ -19,6 +19,34 @@ fi
 status() { printf '[UAB] %s\n' "$*"; }
 fail() { printf '[UAB][ERROR] %s\n' "$*" >&2; exit "${2:-1}"; }
 
+run_hook() {
+  local phase="$1"
+  local configured_script="$2"
+  local auto_script="$3"
+  local script=""
+
+  if [[ -n "$configured_script" ]]; then
+    script="$configured_script"
+  elif [[ -f "$auto_script" ]]; then
+    script="$auto_script"
+  fi
+
+  [[ -n "$script" ]] || return 0
+  [[ "$script" = /* ]] || script="$PROJECT_ROOT/$script"
+  [[ -f "$script" ]] || fail "$phase hook configurato ma non trovato: $script" 24
+
+  status "$phase hook: ${script#$PROJECT_ROOT/}"
+  set +e
+  bash "$script" "$PROJECT_ROOT" 2>&1 | tee -a "$LOG_FILE"
+  local rc=${PIPESTATUS[0]}
+  set -e
+  if (( rc != 0 )); then
+    printf '[UAB][FAILED] %s hook fallito (exit %s)\n[UAB][LOG] %s\n' "$phase" "$rc" "$LOG_FILE" >&2
+    exit "$rc"
+  fi
+  status "$phase hook completato"
+}
+
 [[ -f "$PROJECT_ROOT/gradlew" ]] || fail "gradlew non trovato: il progetto non sembra un progetto Gradle Android standard." 10
 chmod +x "$PROJECT_ROOT/gradlew"
 
@@ -26,11 +54,11 @@ command -v java >/dev/null 2>&1 || fail "Java/JDK non disponibile." 11
 JAVA_MAJOR="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
 [[ -n "$JAVA_MAJOR" ]] || fail "Impossibile determinare la versione Java." 11
 if (( JAVA_MAJOR < 17 )); then
-  fail "JDK troppo vecchio: trovato Java $JAVA_MAJOR. Serve almeno Java 17; per MusicLab è richiesto Java 21." 12
+  fail "JDK troppo vecchio: trovato Java $JAVA_MAJOR. Serve almeno Java 17." 12
 fi
 
 SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-[[ -n "$SDK_ROOT" && -d "$SDK_ROOT" ]] || fail "Android SDK non disponibile. Avviare il Builder tramite run-container.sh oppure configurare ANDROID_SDK_ROOT." 13
+[[ -n "$SDK_ROOT" && -d "$SDK_ROOT" ]] || fail "Android SDK non disponibile. Configurare ANDROID_SDK_ROOT/ANDROID_HOME oppure usare un host preparato da UAB." 13
 
 TASK="${UAB_TASK:-}"
 if [[ -z "$TASK" ]]; then
@@ -54,9 +82,11 @@ status "Task: $TASK"
 status "Output: $OUTPUT_DIR"
 
 cd "$PROJECT_ROOT"
+run_hook "Pre-build" "${UAB_PRE_BUILD_SCRIPT:-}" "$PROJECT_ROOT/.uab/pre-build.sh"
+
 set +e
 # UAB_GRADLE_ARGS is intentionally word-split to support multiple optional Gradle flags.
-./gradlew "$TASK" --console=plain --warning-mode summary ${UAB_GRADLE_ARGS:-} 2>&1 | tee "$LOG_FILE"
+./gradlew "$TASK" --console=plain --warning-mode summary ${UAB_GRADLE_ARGS:-} 2>&1 | tee -a "$LOG_FILE"
 BUILD_RC=${PIPESTATUS[0]}
 set -e
 
@@ -69,6 +99,8 @@ if (( BUILD_RC != 0 )); then
   printf '[UAB][FAILED] %s\n[UAB][LOG] %s\n' "$REASON" "$LOG_FILE" >&2
   exit "$BUILD_RC"
 fi
+
+run_hook "Post-build" "${UAB_POST_BUILD_SCRIPT:-}" "$PROJECT_ROOT/.uab/post-build.sh"
 
 rm -rf "$OUTPUT_DIR/apk"
 mkdir -p "$OUTPUT_DIR/apk"

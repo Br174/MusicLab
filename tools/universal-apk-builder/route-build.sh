@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${1:-$PWD}"
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
 ROUTER_CONFIG="${UAB_ROUTER_CONFIG:-$PROJECT_ROOT/uab-router.env}"
-PROVIDER_DIR="$PROJECT_ROOT/tools/universal-apk-builder/providers"
+CORE_PROVIDER_DIR="$SCRIPT_DIR/providers"
+PROJECT_PROVIDER_DIR="$PROJECT_ROOT/.uab/providers"
 ROUTER_LOG_DIR="$PROJECT_ROOT/dist/uab/router"
 mkdir -p "$ROUTER_LOG_DIR"
 ROUTER_LOG="$ROUTER_LOG_DIR/router-$(date -u +%Y%m%dT%H%M%SZ).log"
@@ -25,15 +27,22 @@ if [[ "$UAB_PAID_FALLBACK" != "never" ]]; then
 fi
 
 IFS=',' read -r -a PROVIDERS <<< "$UAB_PROVIDER_ORDER"
+log "Progetto: $PROJECT_ROOT"
 log "Ordine provider: $UAB_PROVIDER_ORDER"
 log "Protezione costi: nessun fallback a pagamento"
 
 for provider in "${PROVIDERS[@]}"; do
   provider="$(printf '%s' "$provider" | xargs)"
   [[ -n "$provider" ]] || continue
-  adapter="$PROVIDER_DIR/$provider.sh"
 
-  if [[ ! -f "$adapter" ]]; then
+  adapter=""
+  if [[ -f "$PROJECT_PROVIDER_DIR/$provider.sh" ]]; then
+    adapter="$PROJECT_PROVIDER_DIR/$provider.sh"
+  elif [[ -f "$CORE_PROVIDER_DIR/$provider.sh" ]]; then
+    adapter="$CORE_PROVIDER_DIR/$provider.sh"
+  fi
+
+  if [[ -z "$adapter" ]]; then
     log "$provider: adapter assente, passo al successivo."
     continue
   fi

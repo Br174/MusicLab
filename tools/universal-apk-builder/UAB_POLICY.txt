@@ -1,20 +1,28 @@
 UNIVERSAL APK BUILDER POLICY
 
-Default APK build path:
-1. Route every APK request through tools/universal-apk-builder/route-build.sh.
-2. Provider order is read from uab-router.env and can be changed without modifying application code.
+CORE ARCHITECTURE
+1. The Universal APK Builder core must remain project-neutral. Do not hardcode MusicLab, GeoVision, repository names, branches, workflow IDs or package names inside the core engine or provider adapters.
+2. Project-specific behavior belongs in the project adapter files (for example uab-project.env, uab-router.env and optional .uab/pre-build.sh / .uab/post-build.sh hooks).
+3. Standard Android Gradle projects should build without custom hooks. Projects that require generated sources, code generation, wrappers or other preparation may provide a project-specific pre-build hook without changing the core engine.
+4. The same core engine must be reusable for MusicLab, GeoVision and future Android Gradle projects.
+
+DEFAULT APK BUILD PATH
+1. Route APK requests through tools/universal-apk-builder/route-build.sh when the router environment is available.
+2. Provider order is read from each project's uab-router.env and can be changed without modifying application code or the Builder core.
 3. Default provider order: Codemagic -> GitHub Actions -> local Android host.
-4. A provider may be skipped when its free quota, authorization, runner or service is unavailable.
-5. If a build actually starts and fails because of project/code/signing/dependency errors, STOP and diagnose it instead of wasting minutes on another provider.
-6. Collect APK + SHA256 + ZIP under dist/uab whenever the active provider uses the local UAB build engine.
+4. Provider adapters are generic. Project-local provider adapters may optionally be added under .uab/providers/ and override a core adapter of the same name.
+5. A provider may be skipped when its free quota, authorization, runner or service is unavailable.
+6. If a build actually starts and fails because of project/code/signing/dependency errors, STOP and diagnose it instead of wasting minutes on another provider.
+7. Collect APK + SHA256 + ZIP under dist/uab whenever the active provider uses the UAB build engine.
 
 COST SAFETY
 - Paid fallback is forbidden: UAB_PAID_FALLBACK must remain "never".
 - Never buy minutes, enable billing, increase a budget, or use paid overage automatically.
 - GitHub Actions may be used automatically as a FREE fallback when included usage is available.
 - Codemagic may be used automatically while its free allowance is available.
+- Additional free providers may be added by creating another provider adapter and placing its name in UAB_PROVIDER_ORDER.
 - If all free providers are unavailable, stop and report the blocker.
 - API tokens and signing credentials must never be committed to the repository; provide them only through protected environment/secrets.
 
 USER EXPERIENCE
-Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle or OpenCurt. The router selects the available free build path.
+Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle, OpenCurt or project-specific preparation steps. The router selects the available free build path and the project adapter performs any required preparation automatically.

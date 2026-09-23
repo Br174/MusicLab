@@ -1,17 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 PROJECT_ROOT="${1:-$PWD}"
+PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
 TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-REPO="${UAB_GITHUB_REPOSITORY:-Br174/MusicLab}"
-WORKFLOW="${UAB_GITHUB_WORKFLOW:-build_quick.yml}"
-BRANCH="${UAB_BRANCH:-universal-apk-builder}"
+REPO="${UAB_GITHUB_REPOSITORY:-}"
+WORKFLOW="${UAB_GITHUB_WORKFLOW:-}"
+BRANCH="${UAB_BRANCH:-}"
 WAIT="${UAB_GITHUB_WAIT:-1}"
 TIMEOUT="${UAB_GITHUB_TIMEOUT_SECONDS:-2700}"
 
-if [[ -z "$TOKEN" ]]; then
-  echo "[UAB][GitHub] Token Actions non configurato."
-  exit 21
+if [[ -z "$REPO" ]]; then
+  remote="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || true)"
+  if [[ "$remote" =~ github.com[:/]([^/]+)/([^/.]+)(\.git)?$ ]]; then
+    REPO="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  fi
 fi
+if [[ -z "$BRANCH" ]]; then
+  BRANCH="$(git -C "$PROJECT_ROOT" branch --show-current 2>/dev/null || true)"
+fi
+
+[[ -n "$TOKEN" ]] || { echo "[UAB][GitHub] Token Actions non configurato."; exit 21; }
+[[ -n "$REPO" ]] || { echo "[UAB][GitHub] Repository non determinabile; impostare UAB_GITHUB_REPOSITORY."; exit 21; }
+[[ -n "$WORKFLOW" ]] || { echo "[UAB][GitHub] UAB_GITHUB_WORKFLOW non configurato per questo progetto."; exit 21; }
+[[ -n "$BRANCH" ]] || { echo "[UAB][GitHub] Branch non determinabile; impostare UAB_BRANCH."; exit 21; }
 command -v curl >/dev/null 2>&1 || { echo "[UAB][GitHub] curl non disponibile."; exit 22; }
 command -v python3 >/dev/null 2>&1 || { echo "[UAB][GitHub] python3 non disponibile."; exit 22; }
 
@@ -22,7 +34,6 @@ if [[ -n "$limit" ]]; then
   usage_code=$(curl -sS -o "$usage_file" -w '%{http_code}' \
     -H 'Accept: application/vnd.github+json' \
     -H "Authorization: Bearer $TOKEN" \
-    -H 'X-GitHub-Api-Version: 2026-03-10' \
     "https://api.github.com/users/$owner/settings/billing/usage?product=Actions" || true)
   if [[ "$usage_code" == "200" ]]; then
     used=$(python3 - "$usage_file" <<'PY'
@@ -55,7 +66,6 @@ http_code=$(curl -sS -o "$response_file" -w '%{http_code}' \
   -X POST \
   -H 'Accept: application/vnd.github+json' \
   -H "Authorization: Bearer $TOKEN" \
-  -H 'X-GitHub-Api-Version: 2026-03-10' \
   "https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
   -d "$payload" || true)
 
@@ -71,7 +81,6 @@ esac
 echo "[UAB][GitHub] Workflow dispatch accettato."
 [[ "$WAIT" == "1" ]] || exit 0
 
-# workflow_dispatch normalmente risponde 204 senza run id. Cerchiamo la run appena creata.
 run_id=""
 discovery_start=$(date +%s)
 while [[ -z "$run_id" ]]; do
@@ -84,7 +93,6 @@ while [[ -z "$run_id" ]]; do
   runs_code=$(curl -sS -o "$runs_file" -w '%{http_code}' \
     -H 'Accept: application/vnd.github+json' \
     -H "Authorization: Bearer $TOKEN" \
-    -H 'X-GitHub-Api-Version: 2026-03-10' \
     "https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW/runs?event=workflow_dispatch&branch=$BRANCH&per_page=10" || true)
   if [[ "$runs_code" == "200" ]]; then
     run_id=$(python3 - "$runs_file" "$dispatch_epoch" <<'PY'
@@ -120,7 +128,6 @@ while :; do
   code=$(curl -sS -o "$run_file" -w '%{http_code}' \
     -H 'Accept: application/vnd.github+json' \
     -H "Authorization: Bearer $TOKEN" \
-    -H 'X-GitHub-Api-Version: 2026-03-10' \
     "https://api.github.com/repos/$REPO/actions/runs/$run_id" || true)
   if [[ "$code" != "200" ]]; then
     rm -f "$run_file"
@@ -144,7 +151,6 @@ PY
   jobs_code=$(curl -sS -o "$jobs_file" -w '%{http_code}' \
     -H 'Accept: application/vnd.github+json' \
     -H "Authorization: Bearer $TOKEN" \
-    -H 'X-GitHub-Api-Version: 2026-03-10' \
     "https://api.github.com/repos/$REPO/actions/runs/$run_id/jobs" || true)
   jobs_count=0
   steps_count=0
