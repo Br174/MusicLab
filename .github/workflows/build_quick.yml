@@ -2,13 +2,6 @@ name: Universal APK Builder - GitHub fallback
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - universal-apk-builder
-    paths-ignore:
-      - '**/*.md'
-      - 'fastlane/**'
-      - 'assets/**'
 
 permissions:
   contents: read
