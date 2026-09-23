@@ -6,10 +6,13 @@ workflows:
 
     environment:
       java: 21
+      groups:
+        - uab_delivery
       vars:
         UAB_OUTPUT_NAME: "MusicLab-LAB"
-        UAB_MANIFEST_BRANCH: "uab-artifacts"
-        UAB_MANIFEST_PATH: "latest.json"
+        UAB_MANIFEST_REPOSITORY: "Br174/Chatgpt"
+        UAB_MANIFEST_BRANCH: "main"
+        UAB_MANIFEST_PATH: "uab-artifacts/{project}/latest.json"
         UAB_ARTIFACT_PUBLIC_TTL_DAYS: "30"
 
     cache:
