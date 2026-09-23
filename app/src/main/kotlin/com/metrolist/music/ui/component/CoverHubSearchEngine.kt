@@ -102,12 +102,8 @@ internal object CoverHubSearchEngine {
                         title = it.title,
                         artist = it.artist,
                         year = it.year,
-                        source = when {
-                            it.evidenceDomains.any { d -> d.contains("whosampled", ignoreCase = true) } -> "WhoSampled · web"
-                            it.evidenceDomains.any { d -> d.contains("discogs", ignoreCase = true) } -> "Discogs · web"
-                            else -> "Gemini · web"
-                        },
-                        confirmed = it.webSourceConfirmations > 0,
+                        source = "Gemini · web",
+                        confirmed = false,
                     )
                 },
                 originalArtist = originalArtist,
