@@ -13,7 +13,7 @@ workflows:
         UAB_MANIFEST_REPOSITORY: "Br174/Chatgpt"
         UAB_MANIFEST_BRANCH: "main"
         UAB_MANIFEST_PATH: "uab-artifacts/{project}/latest.json"
-        UAB_ARTIFACT_PUBLIC_TTL_DAYS: "30"
+        UAB_ARTIFACT_PUBLIC_TTL_DAYS: "3"
 
     cache:
       cache_paths:
@@ -30,6 +30,9 @@ workflows:
       - name: UAB preflight diagnostics
         script: bash tools/universal-apk-builder/diagnose.sh .
 
+      - name: UAB delivery credentials preflight
+        script: python3 tools/universal-apk-builder/publish-github-manifest.py --preflight
+
       - name: Build APK and ZIP with UAB
         script: bash tools/universal-apk-builder/build-apk.sh .
 
@@ -41,4 +44,8 @@ workflows:
     publishing:
       scripts:
         - name: Publish APK and ZIP manifest to GitHub
-          script: python3 tools/universal-apk-builder/publish-github-manifest.py
+          script: |
+            if ! python3 tools/universal-apk-builder/publish-github-manifest.py; then
+              echo "[UAB] Delivery bridge failed, but APK/ZIP build remains valid."
+              exit 0
+            fi
