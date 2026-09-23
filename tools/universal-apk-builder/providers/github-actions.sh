@@ -9,6 +9,7 @@ WORKFLOW="${UAB_GITHUB_WORKFLOW:-}"
 BRANCH="${UAB_BRANCH:-}"
 WAIT="${UAB_GITHUB_WAIT:-1}"
 TIMEOUT="${UAB_GITHUB_TIMEOUT_SECONDS:-2700}"
+DISCOVERY_TIMEOUT="${UAB_GITHUB_DISCOVERY_TIMEOUT_SECONDS:-30}"
 
 if [[ -z "$REPO" ]]; then
   remote="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || true)"
@@ -85,8 +86,8 @@ run_id=""
 discovery_start=$(date +%s)
 while [[ -z "$run_id" ]]; do
   now=$(date +%s)
-  if (( now - discovery_start > 90 )); then
-    echo "[UAB][GitHub] Run non comparsa entro 90s: considero runner/servizio non disponibile."
+  if (( now - discovery_start > DISCOVERY_TIMEOUT )); then
+    echo "[UAB][GitHub] Run non comparsa entro ${DISCOVERY_TIMEOUT}s: runner/servizio non disponibile abbastanza rapidamente; fallback."
     exit 20
   fi
   runs_file="$(mktemp)"
