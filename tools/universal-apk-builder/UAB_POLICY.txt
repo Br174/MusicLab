@@ -6,6 +6,17 @@ CORE ARCHITECTURE
 3. Standard Android Gradle projects should build without custom hooks. Projects that require generated sources, code generation, wrappers or other preparation may provide a project-specific pre-build hook without changing the core engine.
 4. The same core engine must be reusable for MusicLab, GeoVision and future Android Gradle projects.
 
+MANDATORY APK REQUEST FLOW
+1. Every request to obtain, download, generate, rebuild or deliver an APK/ZIP for any UAB-enabled Android project MUST use this flow. Do not invent or prefer alternate delivery/build routes before UAB.
+2. ARTIFACT-FIRST is mandatory. Before starting any build, check whether the current requested project/branch/commit already has a ready APK/ZIP in the configured UAB artifact registry. If status is ready and the manifest commit matches the requested/current source commit, return the APK and ZIP immediately and DO NOT rebuild them unless the user explicitly asks for a rebuild.
+3. If no matching ready artifact exists, start the provider router with the default order: local/current chat environment -> GitHub Actions free allowance -> Codemagic/UAB robust fallback.
+4. The first two providers must use fast availability checks. If a provider is clearly unavailable because of missing toolchain, authorization, free quota, runner, service or configuration, fail fast and immediately continue to the next provider. Do not spend minutes discovering an unavailable provider.
+5. A fast preflight is different from a real build. Once a provider has passed preflight and the Android build has genuinely started, allow the build to finish normally.
+6. If a real build fails because of project/code/signing/dependency errors, STOP and diagnose the project instead of repeating the same broken build on other providers.
+7. If a provider fails only for infrastructure/quota/authorization/runner reasons before meaningful build steps run, immediately continue to the next provider.
+8. Email, AppDeploy, manual mailbox searches and ad-hoc artifact recovery routes are not part of the normal APK request flow.
+9. The user must never need to remember or restate this flow. The AI/router is responsible for applying it automatically on every APK/ZIP request.
+
 DEFAULT APK BUILD PATH
 1. Route APK requests through tools/universal-apk-builder/route-build.sh when the router environment is available.
 2. Provider order is read from each project's uab-router.env and can be changed without modifying application code or the Builder core.
@@ -47,4 +58,4 @@ COST SAFETY
 - API tokens and signing credentials must never be committed to the repository; provide them only through protected environment/secrets.
 
 USER EXPERIENCE
-Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle, OpenCurt or project-specific preparation steps. The router selects the available free build path and the project adapter performs any required preparation automatically. Whenever the active environment can materialize the final artifacts, APK and ZIP should be returned directly in the chat. When Codemagic is used, the chat should retrieve the latest project manifest from the central GitHub registry instead of relying on email, AppDeploy or Codemagic API credentials. LAB builds should arrive as separately installable apps unless Bruno explicitly asks for an update of an existing package.
+Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle, OpenCurt or project-specific preparation steps. The router selects the available free build path and the project adapter performs any required preparation automatically. Whenever the active environment can materialize the final artifacts, APK and ZIP should be returned directly in the chat. When a matching artifact is already ready, it must be returned immediately without rebuilding. When Codemagic is used, the chat should retrieve the latest project manifest from the central GitHub registry instead of relying on email, AppDeploy or Codemagic API credentials. LAB builds should arrive as separately installable apps unless Bruno explicitly asks for an update of an existing package.
