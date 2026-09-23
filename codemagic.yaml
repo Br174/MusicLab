@@ -1,3 +1,4 @@
+# UAB: Codemagic connection verified; this comment intentionally triggers the first hosted build.
 workflows:
   uab-musiclab-lab:
     name: Universal APK Builder - MusicLab LAB
