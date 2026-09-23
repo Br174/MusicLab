@@ -1,4 +1,3 @@
-# UAB: Codemagic webhook verified; trigger build after webhook activation.
 workflows:
   uab-musiclab-lab:
     name: Universal APK Builder - MusicLab LAB
@@ -14,15 +13,6 @@ workflows:
       cache_paths:
         - ~/.gradle/caches
         - ~/.gradle/wrapper
-
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: universal-apk-builder
-          include: true
-          source: true
-      cancel_previous_builds: true
 
     scripts:
       - name: Initialize submodules
