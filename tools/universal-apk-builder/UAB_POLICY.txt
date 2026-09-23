@@ -16,6 +16,14 @@ DEFAULT APK BUILD PATH
 7. If a build actually starts and fails because of project/code/signing/dependency errors, STOP and diagnose it instead of wasting minutes on another provider.
 8. Collect APK + SHA256 + ZIP under dist/uab whenever the active provider uses the UAB build engine.
 
+PARALLEL LAB INSTALLATION
+1. LAB/test builds should install side-by-side by default instead of overwriting a previously installed LAB.
+2. The UAB core generates a unique build identity when UAB_PARALLEL_INSTALL is enabled.
+3. Each project adapter declares its base application ID and how the generated ID is injected into that project. Project-specific variable names must not be hardcoded in the core.
+4. Production/MADRE builds keep a stable application ID unless explicitly requested otherwise.
+5. Existing project-specific parallel-install rules, such as GeoVision LAB package separation, must be preserved and may map to the same UAB contract through the project adapter.
+6. The visible LAB app name may include a short build identifier so multiple installed test versions can be distinguished easily.
+
 COST SAFETY
 - Paid fallback is forbidden: UAB_PAID_FALLBACK must remain "never".
 - Never buy minutes, enable billing, increase a budget, or use paid overage automatically.
@@ -26,4 +34,4 @@ COST SAFETY
 - API tokens and signing credentials must never be committed to the repository; provide them only through protected environment/secrets.
 
 USER EXPERIENCE
-Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle, OpenCurt or project-specific preparation steps. The router selects the available free build path and the project adapter performs any required preparation automatically. Whenever the active environment can materialize the final artifacts, APK and ZIP should be returned directly in the chat.
+Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle, OpenCurt or project-specific preparation steps. The router selects the available free build path and the project adapter performs any required preparation automatically. Whenever the active environment can materialize the final artifacts, APK and ZIP should be returned directly in the chat. LAB builds should arrive as separately installable apps unless Bruno explicitly asks for an update of an existing package.
