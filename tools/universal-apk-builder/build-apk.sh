@@ -8,6 +8,8 @@ OUTPUT_DIR="${UAB_OUTPUT_DIR:-$PROJECT_ROOT/dist/uab}"
 LOG_DIR="$OUTPUT_DIR/logs"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_FILE="$LOG_DIR/build-$TIMESTAMP.log"
+PATCHED_GRADLE_FILE=""
+PATCHED_GRADLE_BACKUP=""
 
 mkdir -p "$LOG_DIR"
 
@@ -19,6 +21,63 @@ fi
 status() { printf '[UAB] %s\n' "$*"; }
 fail() { printf '[UAB][ERROR] %s\n' "$*" >&2; exit "${2:-1}"; }
 
+cleanup() {
+  if [[ -n "$PATCHED_GRADLE_FILE" && -n "$PATCHED_GRADLE_BACKUP" && -f "$PATCHED_GRADLE_BACKUP" ]]; then
+    cp "$PATCHED_GRADLE_BACKUP" "$PATCHED_GRADLE_FILE"
+    rm -f "$PATCHED_GRADLE_BACKUP"
+  fi
+}
+trap cleanup EXIT
+
+patch_application_id_generic() {
+  local app_id="$1"
+  local gradle_file="${UAB_APPLICATION_ID_GRADLE_FILE:-}"
+
+  if [[ -n "$gradle_file" && "$gradle_file" != /* ]]; then
+    gradle_file="$PROJECT_ROOT/$gradle_file"
+  fi
+
+  if [[ -z "$gradle_file" ]]; then
+    while IFS= read -r candidate; do
+      if grep -Eq 'applicationId[[:space:]]*(=|[[:space:]])' "$candidate"; then
+        gradle_file="$candidate"
+        break
+      fi
+    done < <(find "$PROJECT_ROOT" -maxdepth 3 \( -name build.gradle -o -name build.gradle.kts \) -type f | sort)
+  fi
+
+  [[ -n "$gradle_file" && -f "$gradle_file" ]] || fail "Nessun file Gradle con applicationId rilevato. Configurare UAB_APPLICATION_ID_ENV o UAB_APPLICATION_ID_GRADLE_FILE." 25
+  command -v python3 >/dev/null 2>&1 || fail "python3 richiesto per il fallback generico applicationId." 25
+
+  PATCHED_GRADLE_FILE="$gradle_file"
+  PATCHED_GRADLE_BACKUP="$(mktemp)"
+  cp "$gradle_file" "$PATCHED_GRADLE_BACKUP"
+
+  python3 - "$gradle_file" "$app_id" <<'PY'
+import re, sys
+path, app_id = sys.argv[1], sys.argv[2]
+text = open(path, encoding='utf-8').read()
+patterns = [
+    r'(applicationId\s*=\s*)["\'][^"\']+["\']',
+    r'(applicationId\s+)["\'][^"\']+["\']',
+]
+for pat in patterns:
+    new, count = re.subn(pat, lambda m: m.group(1) + '"' + app_id + '"', text, count=1)
+    if count:
+        open(path, 'w', encoding='utf-8').write(new)
+        sys.exit(0)
+sys.exit(2)
+PY
+  rc=$?
+  if (( rc != 0 )); then
+    cleanup
+    PATCHED_GRADLE_FILE=""
+    PATCHED_GRADLE_BACKUP=""
+    fail "applicationId non sostituibile automaticamente; usare l'adapter del progetto." 25
+  fi
+  status "Application ID iniettato temporaneamente in ${gradle_file#$PROJECT_ROOT/}; il file verrà ripristinato a fine build."
+}
+
 setup_parallel_install() {
   local enabled="${UAB_PARALLEL_INSTALL:-off}"
   case "${enabled,,}" in
@@ -29,7 +88,6 @@ setup_parallel_install() {
   local base="${UAB_APPLICATION_ID_BASE:-}"
   local id_env="${UAB_APPLICATION_ID_ENV:-}"
   [[ -n "$base" ]] || fail "UAB_PARALLEL_INSTALL attivo ma UAB_APPLICATION_ID_BASE non configurato." 25
-  [[ -n "$id_env" ]] || fail "UAB_PARALLEL_INSTALL attivo ma UAB_APPLICATION_ID_ENV non configurato." 25
 
   # Android package segments cannot start with a digit, so each generated suffix starts with 'b'.
   local generated="${UAB_BUILD_ID:-b$(date -u +%Y%m%d%H%M%S)}"
@@ -38,8 +96,14 @@ setup_parallel_install() {
 
   UAB_EFFECTIVE_APPLICATION_ID="${base}.${generated}"
   export UAB_EFFECTIVE_APPLICATION_ID UAB_BUILD_ID="$generated"
-  printf -v "$id_env" '%s' "$UAB_EFFECTIVE_APPLICATION_ID"
-  export "$id_env"
+
+  if [[ -n "$id_env" ]]; then
+    printf -v "$id_env" '%s' "$UAB_EFFECTIVE_APPLICATION_ID"
+    export "$id_env"
+    status "Application ID passato tramite adapter: $id_env"
+  else
+    patch_application_id_generic "$UAB_EFFECTIVE_APPLICATION_ID"
+  fi
 
   local name_env="${UAB_APP_NAME_ENV:-}"
   local name_base="${UAB_APP_NAME_BASE:-}"
