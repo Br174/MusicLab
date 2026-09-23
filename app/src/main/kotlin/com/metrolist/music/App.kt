@@ -129,6 +129,9 @@ class App :
         val locale = Locale.getDefault()
         val languageTag = locale.language
 
+        // Keep the global artwork dimensions synchronized from the very first frame.
+        ArtworkSizeRuntime.current = settings[ArtworkSizeKey].toEnum(defaultValue = ArtworkSize.MEDIUM)
+
         YouTube.locale =
             YouTubeLocale(
                 gl =
@@ -231,6 +234,15 @@ class App :
     }
 
     private fun observeSettingsChanges() {
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it[ArtworkSizeKey] }
+                .distinctUntilChanged()
+                .collect { value ->
+                    ArtworkSizeRuntime.current = value.toEnum(defaultValue = ArtworkSize.MEDIUM)
+                }
+        }
+
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
                 .map { it[VisitorDataKey] }
