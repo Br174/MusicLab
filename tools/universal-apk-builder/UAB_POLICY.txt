@@ -16,6 +16,18 @@ DEFAULT APK BUILD PATH
 7. If a build actually starts and fails because of project/code/signing/dependency errors, STOP and diagnose it instead of wasting minutes on another provider.
 8. Collect APK + SHA256 + ZIP under dist/uab whenever the active provider uses the UAB build engine.
 
+UNIVERSAL ARTIFACT DELIVERY
+1. APK/ZIP delivery must remain project-neutral and reusable across MusicLab, GeoVision and future projects.
+2. Email and AppDeploy must not be required to recover normal UAB artifacts.
+3. Codemagic delivery uses the project-neutral publisher tools/universal-apk-builder/publish-github-manifest.py.
+4. The publisher creates temporary public Codemagic artifact URLs and writes only metadata to a central private GitHub registry repository configured by UAB_MANIFEST_REPOSITORY.
+5. Each project gets its own manifest path, by default uab-artifacts/{project}/latest.json, so projects never overwrite one another.
+6. The central registry must not use GitHub Actions. Updating a small manifest file through the GitHub Contents API must not trigger a build provider.
+7. Secrets used for delivery must be stored only in protected provider variables. UAB_GITHUB_MANIFEST_TOKEN should have the minimum GitHub repository permission required to update the central registry; it must not require write access to source-code repositories.
+8. CODEMAGIC_API_TOKEN is used only to create temporary public artifact URLs from Codemagic's authenticated artifact links.
+9. The normal chat retrieval path is: read the project's latest.json through the connected GitHub account -> expose the current APK/ZIP URLs in chat.
+10. Provider-specific notification channels such as email may exist only as optional backup and must not be part of the required artifact retrieval path.
+
 PARALLEL LAB INSTALLATION
 1. LAB/test builds should install side-by-side by default instead of overwriting a previously installed LAB.
 2. The UAB core generates a unique build identity when UAB_PARALLEL_INSTALL is enabled.
@@ -34,4 +46,4 @@ COST SAFETY
 - API tokens and signing credentials must never be committed to the repository; provide them only through protected environment/secrets.
 
 USER EXPERIENCE
-Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle, OpenCurt or project-specific preparation steps. The router selects the available free build path and the project adapter performs any required preparation automatically. Whenever the active environment can materialize the final artifacts, APK and ZIP should be returned directly in the chat. LAB builds should arrive as separately installable apps unless Bruno explicitly asks for an update of an existing package.
+Bruno should only need to request the app modification/build. He should not have to remember provider names, GitHub Actions, Codemagic, Gradle, OpenCurt or project-specific preparation steps. The router selects the available free build path and the project adapter performs any required preparation automatically. Whenever the active environment can materialize the final artifacts, APK and ZIP should be returned directly in the chat. When Codemagic is used, the chat should retrieve the latest project manifest from the central GitHub registry instead of relying on email or AppDeploy. LAB builds should arrive as separately installable apps unless Bruno explicitly asks for an update of an existing package.
