@@ -19,6 +19,45 @@ fi
 status() { printf '[UAB] %s\n' "$*"; }
 fail() { printf '[UAB][ERROR] %s\n' "$*" >&2; exit "${2:-1}"; }
 
+setup_parallel_install() {
+  local enabled="${UAB_PARALLEL_INSTALL:-off}"
+  case "${enabled,,}" in
+    1|true|yes|on) ;;
+    *) return 0 ;;
+  esac
+
+  local base="${UAB_APPLICATION_ID_BASE:-}"
+  local id_env="${UAB_APPLICATION_ID_ENV:-}"
+  [[ -n "$base" ]] || fail "UAB_PARALLEL_INSTALL attivo ma UAB_APPLICATION_ID_BASE non configurato." 25
+  [[ -n "$id_env" ]] || fail "UAB_PARALLEL_INSTALL attivo ma UAB_APPLICATION_ID_ENV non configurato." 25
+
+  # Android package segments cannot start with a digit, so each generated suffix starts with 'b'.
+  local generated="${UAB_BUILD_ID:-b$(date -u +%Y%m%d%H%M%S)}"
+  generated="$(printf '%s' "$generated" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_]/_/g')"
+  [[ "$generated" =~ ^[a-z] ]] || generated="b$generated"
+
+  UAB_EFFECTIVE_APPLICATION_ID="${base}.${generated}"
+  export UAB_EFFECTIVE_APPLICATION_ID UAB_BUILD_ID="$generated"
+  printf -v "$id_env" '%s' "$UAB_EFFECTIVE_APPLICATION_ID"
+  export "$id_env"
+
+  local name_env="${UAB_APP_NAME_ENV:-}"
+  local name_base="${UAB_APP_NAME_BASE:-}"
+  if [[ -n "$name_env" && -n "$name_base" ]]; then
+    local short_id="${generated#b}"
+    short_id="${short_id:8:6}"
+    [[ -n "$short_id" ]] || short_id="$generated"
+    UAB_EFFECTIVE_APP_NAME="${name_base} ${short_id}"
+    export UAB_EFFECTIVE_APP_NAME
+    printf -v "$name_env" '%s' "$UAB_EFFECTIVE_APP_NAME"
+    export "$name_env"
+  fi
+
+  status "Installazione parallela: ON"
+  status "Application ID LAB: $UAB_EFFECTIVE_APPLICATION_ID"
+  [[ -n "${UAB_EFFECTIVE_APP_NAME:-}" ]] && status "Nome app LAB: $UAB_EFFECTIVE_APP_NAME"
+}
+
 run_hook() {
   local phase="$1"
   local configured_script="$2"
@@ -74,6 +113,8 @@ if [[ -z "$TASK" ]]; then
   [[ -n "$APP_MODULE" ]] || fail "Modulo Android application non rilevato automaticamente. Impostare UAB_TASK in uab-project.env." 14
   TASK=":$APP_MODULE:assembleDebug"
 fi
+
+setup_parallel_install
 
 status "Progetto: $PROJECT_ROOT"
 status "Java: $JAVA_MAJOR"
