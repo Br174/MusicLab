@@ -73,7 +73,10 @@ fi
 rm -rf "$OUTPUT_DIR/apk"
 mkdir -p "$OUTPUT_DIR/apk"
 
-mapfile -t APKS < <(
+APKS=()
+while IFS= read -r apk; do
+  [[ -n "$apk" ]] && APKS+=("$apk")
+done < <(
   if [[ -n "${UAB_APK_GLOB:-}" ]]; then
     compgen -G "$PROJECT_ROOT/$UAB_APK_GLOB" || true
   else
@@ -98,7 +101,11 @@ fi
 
 (
   cd "$OUTPUT_DIR/apk"
-  sha256sum ./*.apk > SHA256SUMS.txt
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum ./*.apk > SHA256SUMS.txt
+  else
+    shasum -a 256 ./*.apk > SHA256SUMS.txt
+  fi
   zip -9 -q "$OUTPUT_DIR/${OUTPUT_NAME}-APK.zip" ./*.apk SHA256SUMS.txt
 )
 
