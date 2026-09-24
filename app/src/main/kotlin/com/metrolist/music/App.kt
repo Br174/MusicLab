@@ -45,6 +45,7 @@ import com.metrolist.music.utils.SpotifyHashSync
 import com.metrolist.music.utils.SpotifyTokenManager
 import com.metrolist.music.utils.cipher.CipherDeobfuscator
 import com.metrolist.music.utils.dataStore
+import com.metrolist.music.utils.get
 import com.metrolist.music.utils.installPreferencesSnapshotCollector
 import com.metrolist.music.utils.reportException
 import dagger.hilt.android.HiltAndroidApp
@@ -54,7 +55,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import timber.log.Timber
@@ -305,10 +305,11 @@ class App :
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
-        val cacheSize =
-            runBlocking {
-                dataStore.data.map { it[MaxImageCacheSizeKey] ?: 512 }.first()
-            }
+        // Never wait for DataStore disk I/O on the UI thread while Coil creates
+        // its singleton. The synchronous getter now reads the in-memory snapshot
+        // and safely falls back to the existing default until the first snapshot
+        // is available.
+        val cacheSize = dataStore.get(MaxImageCacheSizeKey, 512)
         return ImageLoader
             .Builder(this)
             .apply {
