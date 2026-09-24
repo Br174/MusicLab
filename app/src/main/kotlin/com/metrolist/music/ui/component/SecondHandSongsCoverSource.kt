@@ -278,7 +278,7 @@ internal object SecondHandSongsCoverSource {
         if (workId.isBlank()) {
             return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH)
         }
-        val workUrl = "$BASE_URL/work/$workId"
+        val workUrl = "$BASE_URL/work/$workId?format=json"
         return when (val workResponse = fetchJson(workUrl)) {
             is FetchJson.Error ->
                 SecondHandSongsLookup(emptyList(), workResponse.status, workResponse.url)
@@ -315,18 +315,18 @@ internal object SecondHandSongsCoverSource {
             append("&performer=")
             append(URLEncoder.encode(artist, "UTF-8"))
         }
-        append("&pageSize=20&page=1")
+        append("&pageSize=20&page=1&format=json")
     }
 
     private fun buildWorkSearchUrl(title: String): String = buildString {
         append("$BASE_URL/search/work?title=")
         append(URLEncoder.encode(title, "UTF-8"))
-        append("&pageSize=20&page=1")
+        append("&pageSize=20&page=1&format=json")
     }
 
     private fun fetchPerformanceRoot(id: String): JSONObject? {
         if (id.isBlank()) return null
-        return when (val response = fetchJson("$BASE_URL/performance/$id")) {
+        return when (val response = fetchJson("$BASE_URL/performance/$id?format=json")) {
             is FetchJson.Error -> null
             is FetchJson.Ok -> parseJson(response.body) as? JSONObject
         }
