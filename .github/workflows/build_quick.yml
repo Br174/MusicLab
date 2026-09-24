@@ -46,17 +46,29 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Restore persistent debug keystore
+      - name: Prepare LAB debug signing
         shell: bash
         env:
           DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE }}
         run: |
-          if [ -z "$DEBUG_KEYSTORE_B64" ]; then
-            echo "DEBUG_KEYSTORE secret is missing" >&2
-            exit 1
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > app/persistent-debug.keystore
+            chmod 600 app/persistent-debug.keystore
+            echo "Using persistent debug keystore from repository secret"
+          else
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            chmod 600 "$HOME/.android/debug.keystore"
+            echo "Using standard ephemeral Android debug keystore for parallel-install LAB"
           fi
-          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > app/persistent-debug.keystore
-          chmod 600 app/persistent-debug.keystore
 
       - name: UAB preflight diagnostics
         shell: bash
