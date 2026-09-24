@@ -1,10 +1,13 @@
-name: UAB MusicLab LAB - artifact only
+name: UAB-CORE MusicLab adapter
 
 on:
   workflow_dispatch:
   push:
     branches:
       - lab-cover-restart-from-build52
+      - 'lab/**'
+      - 'candidate/**'
+      - 'mother/**'
     paths:
       - ".github/workflows/build_quick.yml"
       - "app/**"
@@ -12,21 +15,21 @@ on:
       - "uab-project.env"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: uab-musiclab-lab
+  group: uab-musiclab-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: UAB MusicLab LAB
+    name: UAB MusicLab lifecycle adapter
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
       - name: Progress 5% - accepted
-        run: echo "[UAB_PROGRESS=5] LAB presa in carico"
+        run: echo "[UAB_PROGRESS=5] MusicLab preso in carico da UAB-CORE-V1"
 
       - name: Checkout source
         uses: actions/checkout@v4
@@ -34,8 +37,18 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Progress 15% - Mother baseline protected
-        run: echo "[UAB_PROGRESS=15] LAB derivata dalla MADRE 112726; MADRE non modificata"
+      - name: Detect lifecycle stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF_NAME" in
+            mother/*) UAB_STAGE="MADRE" ;;
+            candidate/*) UAB_STAGE="CANDIDATA" ;;
+            lab/*|lab-*) UAB_STAGE="LAB" ;;
+            *) UAB_STAGE="LAB" ;;
+          esac
+          echo "UAB_STAGE=$UAB_STAGE" >> "$GITHUB_ENV"
+          echo "[UAB_PROGRESS=15] Stage=$UAB_STAGE; MADRE di riferimento mother/musiclab-112726 protetta"
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -55,11 +68,12 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Prepare LAB debug signing
+      - name: Prepare isolated build signing
         shell: bash
         env:
           DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE }}
         run: |
+          set -euo pipefail
           if [ -n "$DEBUG_KEYSTORE_B64" ]; then
             printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > app/persistent-debug.keystore
             chmod 600 app/persistent-debug.keystore
@@ -76,14 +90,15 @@ jobs:
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
             chmod 600 "$HOME/.android/debug.keystore"
-            echo "Using ephemeral LAB debug keystore"
+            echo "Using ephemeral isolated-build debug keystore"
           fi
+          echo "[UAB_PROGRESS=45] Firma e configurazione build pronte"
 
       - name: UAB preflight diagnostics
         shell: bash
         run: |
           bash tools/universal-apk-builder/diagnose.sh .
-          echo "[UAB_PROGRESS=60] Cache, firma LAB e preflight pronti"
+          echo "[UAB_PROGRESS=60] Cache, toolchain e preflight pronti"
 
       - name: Build APK and ZIP with UAB
         shell: bash
@@ -95,25 +110,27 @@ jobs:
           CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
 
       - name: Progress 75% - build complete
-        run: echo "[UAB_PROGRESS=75] Compilazione LAB completata"
+        run: echo "[UAB_PROGRESS=75] Compilazione $UAB_STAGE completata"
 
-      - name: Verify temporary LAB artifacts
+      - name: Verify lifecycle artifacts
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist/uab/lab
+          mkdir -p dist/uab/lifecycle
           APK="$(find dist/uab/apk -maxdepth 1 -type f -name '*.apk' | sort | head -n 1)"
           test -n "$APK"
           test -s "$APK"
           unzip -tq "$APK" >/dev/null
           APK_SIZE="$(stat -c%s "$APK")"
           test "$APK_SIZE" -ge 10000000
-          cp "$APK" dist/uab/lab/MusicLab-LAB-TEST.apk
+          SAFE_STAGE="$(printf '%s' "$UAB_STAGE" | tr '[:lower:]' '[:upper:]')"
+          cp "$APK" "dist/uab/lifecycle/MusicLab-${SAFE_STAGE}.apk"
           python3 <<'PY'
           from pathlib import Path
-          import zipfile
-          apk = Path('dist/uab/lab/MusicLab-LAB-TEST.apk')
-          out = Path('dist/uab/lab/MusicLab-LAB-TEST.zip')
+          import os, zipfile
+          stage = os.environ['UAB_STAGE'].upper()
+          apk = Path(f'dist/uab/lifecycle/MusicLab-{stage}.apk')
+          out = Path(f'dist/uab/lifecycle/MusicLab-{stage}.zip')
           data = apk.read_bytes()
           info = zipfile.ZipInfo('MusicLab.apk', date_time=(2026, 1, 1, 0, 0, 0))
           info.create_system = 0
@@ -128,23 +145,62 @@ jobs:
               assert zf.namelist() == ['MusicLab.apk']
               assert zf.read('MusicLab.apk') == data
           PY
-          (cd dist/uab/lab && sha256sum MusicLab-LAB-TEST.apk MusicLab-LAB-TEST.zip > SHA256SUMS.txt)
-          echo "[UAB_PROGRESS=85] APK/ZIP LAB verificati"
+          (cd dist/uab/lifecycle && sha256sum MusicLab-"$SAFE_STAGE".apk MusicLab-"$SAFE_STAGE".zip > SHA256SUMS.txt)
+          echo "[UAB_PROGRESS=85] APK/ZIP $UAB_STAGE verificati"
 
-      - name: Upload temporary LAB artifact
+      - name: Upload temporary LAB/CANDIDATA artifact
+        if: env.UAB_STAGE != 'MADRE'
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-${{ github.run_number }}
+          name: MusicLab-${{ env.UAB_STAGE }}-${{ github.run_number }}
           path: |
-            dist/uab/lab/MusicLab-LAB-TEST.apk
-            dist/uab/lab/MusicLab-LAB-TEST.zip
-            dist/uab/lab/SHA256SUMS.txt
+            dist/uab/lifecycle/MusicLab-${{ env.UAB_STAGE }}.apk
+            dist/uab/lifecycle/MusicLab-${{ env.UAB_STAGE }}.zip
+            dist/uab/lifecycle/SHA256SUMS.txt
             dist/uab/logs/*.log
           if-no-files-found: error
           retention-days: 14
 
-      - name: Progress 95% - LAB handoff ready
-        run: echo "[UAB_PROGRESS=95] Artefatto LAB temporaneo pronto; nessuna Release MADRE modificata"
+      - name: Publish immutable MADRE release
+        if: env.UAB_STAGE == 'MADRE'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SUFFIX="${GITHUB_REF_NAME#mother/}"
+          TAG="madre-${SUFFIX}"
+          TITLE="MusicLab MADRE — ${SUFFIX}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::La MADRE $TAG esiste già ed è immutabile."
+            exit 41
+          fi
+          cp dist/uab/lifecycle/MusicLab-MADRE.apk "dist/uab/lifecycle/MusicLab-MADRE-${SUFFIX}.apk"
+          cp dist/uab/lifecycle/MusicLab-MADRE.zip "dist/uab/lifecycle/MusicLab-MADRE-${SUFFIX}.zip"
+          cat > /tmp/mother-notes.md <<EOF
+          MusicLab MADRE approvata: ${SUFFIX}
+          Source commit: $GITHUB_SHA
+          UAB-CORE-V1 immutable release.
+          Le MADRI precedenti non vengono sostituite.
+          EOF
+          gh release create "$TAG" \
+            "dist/uab/lifecycle/MusicLab-MADRE-${SUFFIX}.apk" \
+            "dist/uab/lifecycle/MusicLab-MADRE-${SUFFIX}.zip" \
+            dist/uab/lifecycle/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TITLE" \
+            --notes-file /tmp/mother-notes.md \
+            --latest
+
+      - name: Progress 95% - handoff/promotion ready
+        shell: bash
+        run: |
+          if [ "$UAB_STAGE" = "MADRE" ]; then
+            echo "[UAB_PROGRESS=95] MADRE immutabile pubblicata"
+          else
+            echo "[UAB_PROGRESS=95] Artefatto temporaneo $UAB_STAGE pronto; nessuna Release permanente modificata"
+          fi
 
       - name: Progress 100% - complete
-        run: echo "[UAB_PROGRESS=100] LAB verificata tecnicamente e consegnabile per test; promozione MADRE non eseguita"
+        run: echo "[UAB_PROGRESS=100] MusicLab UAB-CORE-V1 completato per stage $UAB_STAGE"
