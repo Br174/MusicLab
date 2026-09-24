@@ -67,6 +67,10 @@ Original recording:
 Title: ${originalTitle.trim()}
 Artist: ${originalArtist.trim()}
 
+Start with a site-restricted query equivalent to:
+site:whosampled.com \"${originalTitle.trim()}\" \"${originalArtist.trim()}\" cover
+Then broaden only with other site:whosampled.com queries if needed.
+
 Important rules:
 - Use ONLY WhoSampled pages as evidence. Ignore all other domains.
 - Return a version only when a WhoSampled result explicitly shows that it is a cover of this composition, that this recording was covered in that version, or that both versions are connected through the same original composition.
