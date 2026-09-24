@@ -51,6 +51,30 @@ import kotlinx.coroutines.launch
 import kotlin.math.pow
 
 /**
+ * Bridge to the app's primary player bottom sheet.
+ *
+ * Cover search is now a normal in-app screen instead of a separate Android
+ * Dialog window. This bridge lets that screen expand/collapse the existing
+ * player without duplicating or changing player UI code.
+ */
+object PlayerBottomSheetBridge {
+    @Volatile
+    private var state: BottomSheetState? = null
+
+    internal fun attach(candidate: BottomSheetState) {
+        state = candidate
+    }
+
+    fun expandSoft() {
+        state?.expandSoft()
+    }
+
+    fun collapseSoft() {
+        state?.collapseSoft()
+    }
+}
+
+/**
  * Bottom Sheet
  * Modified from [ViMusic](https://github.com/vfsfitvnm/ViMusic)
  */
@@ -65,7 +89,7 @@ fun BottomSheet(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val density = LocalDensity.current
-    
+
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -130,7 +154,7 @@ fun BottomSheet(
         if (!state.isExpanded && (onDismiss == null || !state.isDismissed)) {
             Box(
                 modifier =
-                Modifier
+                    Modifier
                     .graphicsLayer {
                         alpha = 1f - (state.progress * 4).coerceAtMost(1f)
                     }.clickable(
@@ -213,7 +237,7 @@ class BottomSheetState(
             animatable.animateTo(animatable.lowerBound!!)
         }
     }
-    
+
     suspend fun dismissAndWait() {
         onAnchorChanged(dismissedAnchor)
         animatable.animateTo(animatable.lowerBound!!)
@@ -354,6 +378,12 @@ fun rememberBottomSheetState(
             coroutineScope = coroutineScope,
             animatable = animatable,
             collapsedBound = collapsedBound
-        )
+        ).also { state ->
+            // The app's primary player is the only custom sheet with a real
+            // collapsed mini-player height above a 0.dp dismissed bound.
+            if (dismissedBound == 0.dp && collapsedBound > dismissedBound) {
+                PlayerBottomSheetBridge.attach(state)
+            }
+        }
     }
 }
