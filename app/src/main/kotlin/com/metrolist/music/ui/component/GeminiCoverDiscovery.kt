@@ -32,9 +32,11 @@ internal data class GeminiDiscoveredCover(
 )
 
 /**
- * Broader grounded discovery used by Cerca cover. It deliberately asks Gemini
- * to prioritise WhoSampled for relationship evidence, MusicBrainz for work
- * identity and Discogs/official sources for release chronology.
+ * Broader discovery used by Cerca cover. Google Search grounding is preferred
+ * whenever the key/tier supports it. If grounding is unavailable (for example
+ * on a free Gemini 3.x API tier), Gemini may still propose conservative
+ * candidates from model knowledge; those candidates still have to resolve to a
+ * real YouTube Music track before they can reach the final result list.
  */
 internal object GeminiCoverDiscovery {
     private val client =
@@ -57,12 +59,12 @@ internal object GeminiCoverDiscovery {
     ): List<GeminiDiscoveredCover> = withContext(Dispatchers.IO) {
         if (!config.isUsable()) return@withContext emptyList()
 
-        val cacheKey = "${config.model}|${originalTitle.trim()}|${originalArtist.trim()}"
+        val cacheKey = "v2|${config.model}|${originalTitle.trim()}|${originalArtist.trim()}"
         discoveryCache[cacheKey]
             ?.takeIf { it.expiresAtMs > System.currentTimeMillis() }
             ?.let { return@withContext it.covers }
 
-        val prompt =
+        val groundedPrompt =
             """Search the web for genuine cover recordings, reinterpretations and translated/adapted versions of the SAME underlying musical composition.
 
 Original recording:
@@ -83,19 +85,38 @@ Return ONLY JSON in this shape:
 
 Return up to 36 high-confidence candidates. Do not invent weak guesses."""
 
-        val grounded = executeGrounded(prompt, config, maxOutputTokens = 3000)
-            ?: return@withContext emptyList()
-        if (grounded.webSourceCount == 0) return@withContext emptyList()
+        val grounded = executeGrounded(groundedPrompt, config, maxOutputTokens = 3000)
+            ?.takeIf { it.webSourceCount > 0 }
+
+        val discoveryResponse = grounded ?: run {
+            val plainPrompt =
+                """Identify genuine cover recordings, reinterpretations and translated/adapted versions of the SAME underlying musical composition using your music knowledge. Do not claim that you searched or verified the web.
+
+Original recording:
+Title: ${originalTitle.trim()}
+Artist: ${originalArtist.trim()}
+
+Return versions by other artists only when you are reasonably confident they are performances of the same composition. A translated/adapted title is valid only if it is the same composition. Exclude same-title unrelated songs, remasters, karaoke, backing tracks, tutorials, reactions, mashups and medleys.
+
+If you know the earliest release year for that artist's version, include it; otherwise use null.
+
+Return ONLY JSON in this shape:
+{"covers":[{"title":"exact candidate title","artist":"candidate artist","year":1974,"adapted_title":false}]}
+
+Return up to 36 candidates. Prefer an empty list over weak guesses."""
+            executePlain(plainPrompt, config, maxOutputTokens = 3000)
+        } ?: return@withContext emptyList()
 
         val covers =
-            parseDiscoveryText(grounded.text)
+            parseDiscoveryText(discoveryResponse.text)
                 .distinctBy { "${it.title.lowercase()}|${it.artist.lowercase()}" }
                 .take(MAX_DISCOVERY_RESULTS)
 
         discoveryCache[cacheKey] =
             CachedDiscovery(
                 covers = covers,
-                expiresAtMs = System.currentTimeMillis() + CACHE_TTL_MS,
+                expiresAtMs = System.currentTimeMillis() +
+                    if (covers.isEmpty()) EMPTY_CACHE_TTL_MS else CACHE_TTL_MS,
             )
         covers
     }
@@ -142,17 +163,23 @@ Use null when reliable evidence is insufficient."""
         apiKey.isNotBlank() && MODEL_REGEX.matches(model.trim())
 
     /**
-     * The UI historically defaulted to Gemini 2.5 Flash-Lite. Google currently
-     * recommends the newer stable Flash-Lite model for new workloads. Keep the
-     * legacy model as a transparent fallback so existing explicit settings are
-     * not broken while the old default automatically benefits from the current
-     * model.
+     * Preserve the user's configured/default model first. For the historical
+     * 2.5 Flash-Lite default, also try the current Flash-Lite model. This is
+     * important because 2.5 grounding can still be available on some free-tier
+     * projects while Gemini 3.x search grounding requires a paid API tier.
      */
-    private fun modelCandidates(requestedModel: String): List<String> =
+    private fun groundedModelCandidates(requestedModel: String): List<String> =
+        if (requestedModel == LEGACY_DEFAULT_MODEL) {
+            listOf(LEGACY_DEFAULT_MODEL, CURRENT_DEFAULT_MODEL)
+        } else {
+            listOf(requestedModel)
+        }
+
+    private fun plainModelCandidates(requestedModel: String): List<String> =
         if (requestedModel == LEGACY_DEFAULT_MODEL) {
             listOf(CURRENT_DEFAULT_MODEL, LEGACY_DEFAULT_MODEL)
         } else {
-            listOf(requestedModel)
+            listOf(requestedModel, CURRENT_DEFAULT_MODEL).distinct()
         }
 
     private fun executeGrounded(
@@ -160,58 +187,85 @@ Use null when reliable evidence is insufficient."""
         config: GeminiCoverVerificationConfig,
         maxOutputTokens: Int,
     ): GroundedText? {
-        for (model in modelCandidates(config.model.trim())) {
-            val body =
-                buildJsonObject {
-                    put(
-                        "contents",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("role", "user")
-                                    put(
-                                        "parts",
-                                        buildJsonArray {
-                                            add(buildJsonObject { put("text", prompt) })
-                                        },
-                                    )
+        for (model in groundedModelCandidates(config.model.trim())) {
+            val body = requestBody(prompt, maxOutputTokens, useGoogleSearch = true)
+            val parsed = execute(model, config.apiKey, body) ?: continue
+            if (parsed.webSourceCount > 0) return parsed
+        }
+        return null
+    }
+
+    private fun executePlain(
+        prompt: String,
+        config: GeminiCoverVerificationConfig,
+        maxOutputTokens: Int,
+    ): GroundedText? {
+        for (model in plainModelCandidates(config.model.trim())) {
+            val body = requestBody(prompt, maxOutputTokens, useGoogleSearch = false)
+            val parsed = execute(model, config.apiKey, body) ?: continue
+            if (parsed.text.isNotBlank()) return parsed
+        }
+        return null
+    }
+
+    private fun requestBody(
+        prompt: String,
+        maxOutputTokens: Int,
+        useGoogleSearch: Boolean,
+    ): JsonObject =
+        buildJsonObject {
+            put(
+                "contents",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("role", "user")
+                            put(
+                                "parts",
+                                buildJsonArray {
+                                    add(buildJsonObject { put("text", prompt) })
                                 },
                             )
                         },
                     )
-                    put(
-                        "tools",
-                        buildJsonArray {
-                            add(buildJsonObject { put("google_search", buildJsonObject {}) })
-                        },
-                    )
-                    put(
-                        "generationConfig",
-                        buildJsonObject {
-                            put("maxOutputTokens", maxOutputTokens)
-                        },
-                    )
-                }
-
-            val request =
-                Request
-                    .Builder()
-                    .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
-                    .addHeader("x-goog-api-key", config.apiKey.trim())
-                    .addHeader("Content-Type", "application/json")
-                    .post(body.toString().toRequestBody(jsonMediaType))
-                    .build()
-
-            val grounded = runCatching {
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@use null
-                    response.body?.string()?.let(::parseGroundedResponse)
-                }
-            }.getOrNull()
-
-            if (grounded != null) return grounded
+                },
+            )
+            if (useGoogleSearch) {
+                put(
+                    "tools",
+                    buildJsonArray {
+                        add(buildJsonObject { put("google_search", buildJsonObject {}) })
+                    },
+                )
+            }
+            put(
+                "generationConfig",
+                buildJsonObject {
+                    put("maxOutputTokens", maxOutputTokens)
+                },
+            )
         }
-        return null
+
+    private fun execute(
+        model: String,
+        apiKey: String,
+        body: JsonObject,
+    ): GroundedText? {
+        val request =
+            Request
+                .Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
+                .addHeader("x-goog-api-key", apiKey.trim())
+                .addHeader("Content-Type", "application/json")
+                .post(body.toString().toRequestBody(jsonMediaType))
+                .build()
+
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                response.body?.string()?.let(::parseGroundedResponse)
+            }
+        }.getOrNull()
     }
 
     private fun parseGroundedResponse(responseBody: String): GroundedText? {
@@ -300,10 +354,6 @@ Use null when reliable evidence is insufficient."""
             }
         }
 
-        // GroundingSupports maps exact answer spans to citations, but for JSON
-        // discovery some valid grounded responses expose only GroundingChunks.
-        // A retrieved web chunk is sufficient to prove that Google Search ran;
-        // final candidates are still resolved against YouTube Music later.
         val webSourceCount =
             if (supportedSources.isNotEmpty()) supportedSources.size else chunkKeys.values.distinct().size
 
@@ -389,6 +439,7 @@ Use null when reliable evidence is insufficient."""
     )
 
     private const val CACHE_TTL_MS = 12L * 60L * 60L * 1000L
+    private const val EMPTY_CACHE_TTL_MS = 5L * 60L * 1000L
     private const val MAX_DISCOVERY_RESULTS = 36
     private const val LEGACY_DEFAULT_MODEL = "gemini-2.5-flash-lite"
     private const val CURRENT_DEFAULT_MODEL = "gemini-3.5-flash-lite"
