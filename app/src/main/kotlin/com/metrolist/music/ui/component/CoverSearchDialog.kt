@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +56,7 @@ import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.launch
 
 private val CoverHubGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 
@@ -75,16 +77,20 @@ fun CoverSearchDialog(
 ) {
     val playerConnection = LocalPlayerConnection.current
     val menuState = LocalMenuState.current
+    val coroutineScope = rememberCoroutineScope()
 
     var mode by remember { mutableStateOf(CoverHubMode.COVERS) }
     var coverLoading by remember { mutableStateOf(true) }
     var sameNameLoading by remember { mutableStateOf(false) }
+    var sameNameLoadingMore by remember { mutableStateOf(false) }
     var coverLoaded by remember { mutableStateOf(false) }
     var sameNameLoaded by remember { mutableStateOf(false) }
     var coverOutcome by remember { mutableStateOf(CoverHubOutcome(emptyList())) }
     var sameNameResults by remember { mutableStateOf<List<CoverHubResult>>(emptyList()) }
+    var sameNameContinuation by remember { mutableStateOf<String?>(null) }
     var coverFailed by remember { mutableStateOf(false) }
     var sameNameFailed by remember { mutableStateOf(false) }
+    var sameNameMoreFailed by remember { mutableStateOf(false) }
     var showKeyDialog by remember { mutableStateOf(false) }
     var keyDraft by remember { mutableStateOf("") }
 
@@ -168,15 +174,19 @@ fun CoverSearchDialog(
         if (mode != CoverHubMode.SAME_NAME || sameNameLoaded) return@LaunchedEffect
         sameNameLoading = true
         sameNameFailed = false
-        sameNameResults = try {
-            CoverHubSearchEngine.searchSameName(
+        sameNameMoreFailed = false
+        try {
+            val page = CoverHubSearchEngine.searchSameName(
                 title = title,
                 currentYouTubeId = currentYouTubeId,
                 geminiConfig = geminiConfig,
             )
+            sameNameResults = page.results
+            sameNameContinuation = page.continuation
         } catch (_: Exception) {
             sameNameFailed = true
-            emptyList()
+            sameNameResults = emptyList()
+            sameNameContinuation = null
         }
         sameNameLoading = false
         sameNameLoaded = true
@@ -396,6 +406,57 @@ fun CoverSearchDialog(
                                     }
                                 }
                             }
+                        }
+
+                        if (mode == CoverHubMode.SAME_NAME && sameNameContinuation != null && sameNameResults.size < 100) {
+                            TextButton(
+                                enabled = !sameNameLoadingMore,
+                                modifier = Modifier.align(Alignment.CenterHorizontally),
+                                onClick = {
+                                    val continuation = sameNameContinuation
+                                    if (continuation != null) {
+                                        sameNameLoadingMore = true
+                                        sameNameMoreFailed = false
+                                        coroutineScope.launch {
+                                            try {
+                                                val page = CoverHubSearchEngine.searchSameNameMore(
+                                                    title = title,
+                                                    continuation = continuation,
+                                                    currentYouTubeId = currentYouTubeId,
+                                                    existingResults = sameNameResults,
+                                                    geminiConfig = geminiConfig,
+                                                )
+                                                sameNameResults = page.results
+                                                sameNameContinuation = page.continuation
+                                            } catch (_: Exception) {
+                                                sameNameMoreFailed = true
+                                            } finally {
+                                                sameNameLoadingMore = false
+                                            }
+                                        }
+                                    }
+                                },
+                            ) {
+                                if (sameNameLoadingMore) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Cerco altri risultati…")
+                                } else {
+                                    Text("Cerca ancora")
+                                }
+                            }
+                        }
+
+                        if (mode == CoverHubMode.SAME_NAME && sameNameMoreFailed) {
+                            Text(
+                                text = "Impossibile caricare altri risultati. Puoi riprovare.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.align(Alignment.CenterHorizontally),
+                            )
                         }
                     }
                 }
