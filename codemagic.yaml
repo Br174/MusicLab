@@ -42,11 +42,7 @@ workflows:
         script: python3 tools/universal-apk-builder/publish-github-manifest.py --preflight
 
       - name: Build APK and ZIP with UAB
-        script: |
-          if ! bash tools/universal-apk-builder/build-apk.sh .; then
-            python3 tools/universal-apk-builder/publish-build-error.py || true
-            exit 1
-          fi
+        script: bash tools/universal-apk-builder/build-apk.sh .
 
     artifacts:
       - dist/uab/apk/*.apk
