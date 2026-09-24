@@ -79,6 +79,21 @@ internal object CoverHubSearchEngine {
         }
 
         val who = whoDeferred.await()
+        val secondHandSongsDeferred = if (who.status == WhoSampledStatus.OK && who.covers.isNotEmpty()) {
+            null
+        } else {
+            async(Dispatchers.IO) {
+                runCatching { SecondHandSongsCoverSource.lookup(cleanTitle, originalArtist) }
+                    .getOrElse {
+                        SecondHandSongsLookup(
+                            emptyList(),
+                            SecondHandSongsStatus.NETWORK_ERROR,
+                        )
+                    }
+            }
+        }
+        val secondHandSongs = secondHandSongsDeferred?.await()
+            ?: SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH)
         val mb = mbDeferred.await()
         val gemini = geminiDeferred?.await().orEmpty()
 
@@ -89,6 +104,23 @@ internal object CoverHubSearchEngine {
                 durationSec = durationSec,
                 currentYouTubeId = currentYouTubeId,
                 maxRefs = 60,
+            )
+        }
+        val secondHandSongsResolvedDeferred = async {
+            resolveReferences(
+                references = secondHandSongs.covers.map {
+                    Ref(
+                        title = it.title,
+                        artist = it.artist,
+                        year = it.year,
+                        source = "SecondHandSongs",
+                        confirmed = true,
+                    )
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 80,
             )
         }
         val mbResolvedDeferred = async {
@@ -120,6 +152,7 @@ internal object CoverHubSearchEngine {
 
         val all = buildList {
             addAll(whoResolvedDeferred.await())
+            addAll(secondHandSongsResolvedDeferred.await())
             addAll(mbResolvedDeferred.await())
             addAll(geminiResolvedDeferred.await())
             addAll(broadDeferred.await())
@@ -378,6 +411,7 @@ internal object CoverHubSearchEngine {
 
     private fun priority(result: CoverHubResult): Int = when {
         result.source == "WhoSampled" -> 5
+        result.source == "SecondHandSongs" -> 5
         result.source.startsWith("WhoSampled") -> 4
         result.source == "MusicBrainz" -> 4
         result.confirmed -> 3
