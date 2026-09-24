@@ -19,7 +19,14 @@ if [[ -f "$CONFIG_FILE" ]]; then
 fi
 
 status() { printf '[UAB] %s\n' "$*"; }
+progress() {
+  local pct="$1"
+  shift
+  printf '[UAB_PROGRESS=%s] %s\n' "$pct" "$*"
+}
 fail() { printf '[UAB][ERROR] %s\n' "$*" >&2; exit "${2:-1}"; }
+
+progress 5 "Motore UAB avviato"
 
 cleanup() {
   if [[ -n "$PATCHED_GRADLE_FILE" && -n "$PATCHED_GRADLE_BACKUP" && -f "$PATCHED_GRADLE_BACKUP" ]]; then
@@ -179,6 +186,7 @@ if [[ -z "$TASK" ]]; then
   TASK=":$APP_MODULE:assembleDebug"
 fi
 
+progress 15 "Sorgenti e toolchain verificati"
 setup_parallel_install
 
 status "Progetto: $PROJECT_ROOT"
@@ -188,10 +196,22 @@ status "Task: $TASK"
 status "Output: $OUTPUT_DIR"
 
 cd "$PROJECT_ROOT"
+progress 30 "Configurazione progetto pronta"
 run_hook "Pre-build" "${UAB_PRE_BUILD_SCRIPT:-}" "$PROJECT_ROOT/.uab/pre-build.sh"
+progress 45 "Controlli/pre-build completati"
+
+# Persistent acceleration is mandatory by UAB contract. Project adapters may add
+# more arguments, but the engine guarantees --build-cache unless already present.
+GRADLE_ARGS="${UAB_GRADLE_ARGS:-}"
+case " $GRADLE_ARGS " in
+  *" --build-cache "*) ;;
+  *) GRADLE_ARGS="--build-cache $GRADLE_ARGS" ;;
+esac
+status "Gradle persistent build cache: ON"
+progress 60 "Cache e preflight pronti; compilazione in avvio"
 
 set +e
-./gradlew "$TASK" --console=plain --warning-mode summary ${UAB_GRADLE_ARGS:-} 2>&1 | tee -a "$LOG_FILE"
+./gradlew "$TASK" --console=plain --warning-mode summary $GRADLE_ARGS 2>&1 | tee -a "$LOG_FILE"
 BUILD_RC=${PIPESTATUS[0]}
 set -e
 
@@ -205,6 +225,7 @@ if (( BUILD_RC != 0 )); then
   exit "$BUILD_RC"
 fi
 
+progress 75 "Compilazione completata"
 run_hook "Post-build" "${UAB_POST_BUILD_SCRIPT:-}" "$PROJECT_ROOT/.uab/post-build.sh"
 
 rm -rf "$OUTPUT_DIR/apk"
@@ -236,6 +257,7 @@ else
   done
 fi
 
+progress 85 "APK raccolto; verifica e ZIP in corso"
 (
   cd "$OUTPUT_DIR/apk"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -247,6 +269,7 @@ fi
 )
 
 unzip -tq "$OUTPUT_DIR/${OUTPUT_NAME}-APK.zip" >/dev/null
+progress 90 "APK/ZIP verificati; pronti per pubblicazione stabile"
 status "BUILD OK"
 status "APK: $OUTPUT_DIR/apk"
 status "ZIP: $OUTPUT_DIR/${OUTPUT_NAME}-APK.zip"
