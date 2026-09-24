@@ -51,6 +51,7 @@ internal object SecondHandSongsCoverSource {
     private const val MAX_WORK_CANDIDATES = 6
     private const val MAX_DISCOVERED_COVERS = 100
     private const val MAX_ORIGINAL_EXPANSIONS = 2
+    private const val MAX_WORK_VERSION_DETAILS = 8
     private const val CACHE_TTL_MS = 12L * 60L * 60L * 1000L
     private const val ERROR_CACHE_TTL_MS = 10L * 60L * 1000L
     private const val USER_AGENT = "MusicLab/0.8.9 (https://github.com/Br174/MusicLab)"
@@ -290,22 +291,106 @@ internal object SecondHandSongsCoverSource {
                         SecondHandSongsStatus.NETWORK_ERROR,
                         workUrl,
                     )
-                val versions = collectPerformanceRefs(root)
+
+                val directVersions = collectPerformanceRefs(root)
                     .mapNotNull { ref -> ref.toCover(workId) }
                     .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
                     .take(MAX_DISCOVERED_COVERS)
 
-                if (versions.isEmpty()) {
-                    SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, workUrl)
-                } else {
-                    SecondHandSongsLookup(
-                        covers = versions,
+                if (directVersions.isNotEmpty()) {
+                    return SecondHandSongsLookup(
+                        covers = directVersions,
                         status = SecondHandSongsStatus.OK,
                         sourceUrl = workUrl,
                     )
                 }
+
+                // SecondHandSongs work JSON may expose `versions` as lightweight
+                // performance references. Those references can omit performer data,
+                // so resolve a bounded number of performance IDs individually.
+                // This mirrors the reference SHS clients instead of discarding them.
+                val versionIds = collectVersionIds(root).take(MAX_WORK_VERSION_DETAILS)
+                if (versionIds.isEmpty()) {
+                    return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, workUrl)
+                }
+
+                val expanded = linkedMapOf<String, SecondHandSongsCover>()
+                var terminalStatus: SecondHandSongsStatus? = null
+                for (performanceId in versionIds) {
+                    val performanceUrl = "$BASE_URL/performance/$performanceId?format=json"
+                    when (val response = fetchJson(performanceUrl)) {
+                        is FetchJson.Error -> {
+                            if (
+                                response.status == SecondHandSongsStatus.BLOCKED ||
+                                response.status == SecondHandSongsStatus.AUTH_REQUIRED ||
+                                response.status == SecondHandSongsStatus.RATE_LIMITED
+                            ) {
+                                terminalStatus = response.status
+                                break
+                            }
+                        }
+                        is FetchJson.Ok -> {
+                            val performanceRoot = parseJson(response.body) ?: continue
+                            collectPerformanceRefs(performanceRoot)
+                                .mapNotNull { it.toCover(workId) }
+                                .forEach { cover ->
+                                    expanded.putIfAbsent(
+                                        "${canonical(cover.title)}|${canonical(cover.artist)}",
+                                        cover,
+                                    )
+                                }
+                        }
+                    }
+                    if (expanded.size >= MAX_DISCOVERED_COVERS) break
+                }
+
+                when {
+                    expanded.isNotEmpty() -> SecondHandSongsLookup(
+                        covers = expanded.values.take(MAX_DISCOVERED_COVERS),
+                        status = SecondHandSongsStatus.OK,
+                        sourceUrl = workUrl,
+                    )
+                    terminalStatus != null -> SecondHandSongsLookup(
+                        emptyList(),
+                        terminalStatus,
+                        workUrl,
+                    )
+                    else -> SecondHandSongsLookup(
+                        emptyList(),
+                        SecondHandSongsStatus.NO_MATCH,
+                        workUrl,
+                    )
+                }
             }
         }
+    }
+
+    private fun collectVersionIds(root: Any): List<String> {
+        val result = linkedSetOf<String>()
+
+        fun visit(value: Any?) {
+            when (value) {
+                is JSONObject -> {
+                    value.optJSONArray("versions")?.let { versions ->
+                        for (index in 0 until versions.length()) {
+                            val version = versions.optJSONObject(index) ?: continue
+                            val uri = version.optString("uri").trim()
+                            if (uri.contains("/performance/")) {
+                                val id = uri.substringAfterLast('/').substringBefore('?').trim()
+                                if (id.isNotBlank()) result += id
+                            }
+                        }
+                    }
+                    value.keys().forEach { key -> visit(value.opt(key)) }
+                }
+                is JSONArray -> {
+                    for (index in 0 until value.length()) visit(value.opt(index))
+                }
+            }
+        }
+
+        visit(root)
+        return result.toList()
     }
 
     private fun buildSearchUrl(title: String, artist: String): String = buildString {
@@ -382,7 +467,8 @@ internal object SecondHandSongsCoverSource {
             text.contains("verify you are human") ||
             text.contains("access denied") ||
             text.contains("cloudflare") ||
-            text.contains("security check")
+            text.contains("security check") ||
+            text.contains("ad blocker detected")
     }
 
     private fun parseJson(body: String): Any? {
