@@ -22,11 +22,17 @@ jobs:
     timeout-minutes: 45
 
     steps:
+      - name: Progress 5% - accepted
+        run: echo "[UAB_PROGRESS=5] Richiesta presa in carico"
+
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 1
+
+      - name: Progress 15% - source ready
+        run: echo "[UAB_PROGRESS=15] Sorgenti recuperati e baseline pronta"
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -92,8 +98,6 @@ jobs:
           APK="$(find dist/uab/apk -maxdepth 1 -type f -name '*.apk' | sort | head -n 1)"
           test -n "$APK"
           test -s "$APK"
-
-          # APK is itself a ZIP container. This catches truncated/corrupted APKs.
           unzip -tq "$APK" >/dev/null
 
           APK_SIZE="$(stat -c%s "$APK")"
@@ -134,6 +138,7 @@ jobs:
             unzip -tq MusicLab-LAB-LATEST.zip >/dev/null
             ls -lh MusicLab-LAB-LATEST.apk MusicLab-LAB-LATEST.zip SHA256SUMS.txt
           )
+          echo "[UAB_PROGRESS=85] Artefatti verificati"
 
       - name: Publish stable UAB Release
         shell: bash
@@ -176,6 +181,7 @@ jobs:
           fi
 
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,assets,url
+          echo "[UAB_PROGRESS=95] Release stabile pubblicata"
 
       - name: Upload temporary verification artifact
         uses: actions/upload-artifact@v4
@@ -188,3 +194,6 @@ jobs:
             dist/uab/logs/*.log
           if-no-files-found: error
           retention-days: 14
+
+      - name: Progress 100% - complete
+        run: echo "[UAB_PROGRESS=100] Build verificata e consegna stabile completata"
