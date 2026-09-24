@@ -46,6 +46,18 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
+      - name: Restore persistent debug keystore
+        shell: bash
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE }}
+        run: |
+          if [ -z "$DEBUG_KEYSTORE_B64" ]; then
+            echo "DEBUG_KEYSTORE secret is missing" >&2
+            exit 1
+          fi
+          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > app/persistent-debug.keystore
+          chmod 600 app/persistent-debug.keystore
+
       - name: UAB preflight diagnostics
         shell: bash
         run: bash tools/universal-apk-builder/diagnose.sh .
