@@ -1,0 +1,427 @@
+from pathlib import Path
+
+root = Path('.')
+
+# 1) Restore the known-good 112726 core orchestration first, then run
+# Credits.fm and COVER.INFO as additive providers after core results.
+p = root / 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt'
+s = p.read_text()
+start = s.index('    suspend fun searchCovers(')
+end = s.index('    suspend fun searchSameName(', start)
+method = r'''    suspend fun searchCovers(
+        title: String,
+        originalArtist: String,
+        durationSec: Int,
+        currentYouTubeId: String?,
+        geminiConfig: GeminiCoverVerificationConfig?,
+    ): CoverHubOutcome = coroutineScope {
+        val cleanTitle = coverLookupTitle(title, originalArtist)
+        if (cleanTitle.isBlank()) return@coroutineScope CoverHubOutcome(emptyList())
+
+        // Core providers: preserve the known-good 112726 behavior. The
+        // experimental providers are intentionally started only after the
+        // core lookups and reference resolution have completed, so a slow
+        // or failing new provider cannot starve/regress MusicBrainz,
+        // SecondHandSongs, Gemini or YouTube Music.
+        val whoDeferred = async(Dispatchers.IO) {
+            runCatching { WhoSampledCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { WhoSampledLookup(emptyList(), WhoSampledStatus.NETWORK_ERROR) }
+        }
+        val secondHandSongsDeferred = async(Dispatchers.IO) {
+            runCatching { SecondHandSongsCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse {
+                    SecondHandSongsLookup(
+                        emptyList(),
+                        SecondHandSongsStatus.NETWORK_ERROR,
+                    )
+                }
+        }
+        val mbDeferred = async(Dispatchers.IO) {
+            runCatching { MusicBrainzCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) }
+        }
+        val geminiDeferred = geminiConfig?.let { config ->
+            async(Dispatchers.IO) {
+                runCatching {
+                    GeminiCoverDiscovery.discover(
+                        originalTitle = cleanTitle,
+                        originalArtist = originalArtist,
+                        config = config,
+                    )
+                }.getOrDefault(emptyList())
+            }
+        }
+        val broadDeferred = async(Dispatchers.IO) {
+            broadYouTubeCovers(
+                title = cleanTitle,
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+            )
+        }
+
+        val directWho = whoDeferred.await()
+        val indexedWho =
+            if (
+                directWho.covers.isEmpty() &&
+                directWho.status != WhoSampledStatus.OK &&
+                geminiConfig != null
+            ) {
+                runCatching {
+                    WhoSampledIndexedDiscovery.discover(
+                        originalTitle = cleanTitle,
+                        originalArtist = originalArtist,
+                        config = geminiConfig,
+                    )
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+        val whoFromIndex = indexedWho.isNotEmpty()
+        val who =
+            if (whoFromIndex) {
+                WhoSampledLookup(
+                    covers = indexedWho,
+                    status = WhoSampledStatus.OK,
+                    sourceUrl = indexedWho.firstOrNull()?.url,
+                )
+            } else {
+                directWho
+            }
+        val whoSource = if (whoFromIndex) "WhoSampled · indice web" else "WhoSampled"
+
+        val secondHandSongs = secondHandSongsDeferred.await()
+        val mb = mbDeferred.await()
+        val gemini = geminiDeferred?.await().orEmpty()
+
+        val whoResolvedDeferred = async {
+            resolveReferences(
+                references = who.covers.map {
+                    Ref(
+                        title = it.title,
+                        artist = it.artist,
+                        year = null,
+                        source = whoSource,
+                        confirmed = !whoFromIndex,
+                    )
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 60,
+            )
+        }
+        val secondHandSongsResolvedDeferred = async {
+            resolveReferences(
+                references = secondHandSongs.covers.map {
+                    Ref(
+                        title = it.title,
+                        artist = it.artist,
+                        year = it.year,
+                        source = "SecondHandSongs",
+                        confirmed = true,
+                    )
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 80,
+            )
+        }
+        val mbResolvedDeferred = async {
+            resolveReferences(
+                references = mb.covers.map { Ref(it.title, it.artist, it.year, "MusicBrainz", true) },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 80,
+            )
+        }
+        val geminiResolvedDeferred = async {
+            resolveReferences(
+                references = gemini.map {
+                    Ref(
+                        title = it.title,
+                        artist = it.artist,
+                        year = it.year,
+                        source = "Gemini AI",
+                        confirmed = false,
+                    )
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 48,
+            )
+        }
+
+        val whoResolved = whoResolvedDeferred.await()
+        val secondHandSongsResolved = secondHandSongsResolvedDeferred.await()
+        val mbResolved = mbResolvedDeferred.await()
+        val geminiResolved = geminiResolvedDeferred.await()
+        val broad = broadDeferred.await()
+
+        // Additive providers. They start only after the stable core has
+        // finished, so failures here cannot change the core statuses.
+        val creditsDeferred = async(Dispatchers.IO) {
+            runCatching { CreditsFmCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { CreditsFmLookup(emptyList(), CreditsFmStatus.NETWORK_ERROR) }
+        }
+        val coverInfoDeferred = async(Dispatchers.IO) {
+            runCatching { CoverInfoCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { CoverInfoLookup(emptyList(), CoverInfoStatus.NETWORK_ERROR) }
+        }
+        val credits = creditsDeferred.await()
+        val coverInfo = coverInfoDeferred.await()
+
+        val creditsResolvedDeferred = async {
+            resolveReferences(
+                references = credits.covers.map {
+                    Ref(it.title, it.artist, it.year, "Credits.fm", true)
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 64,
+            )
+        }
+        val coverInfoResolvedDeferred = async {
+            resolveReferences(
+                references = coverInfo.covers.map {
+                    Ref(it.title, it.artist, it.year, "COVER.INFO", true)
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 72,
+            )
+        }
+        val creditsResolved = creditsResolvedDeferred.await()
+        val coverInfoResolved = coverInfoResolvedDeferred.await()
+
+        val all = buildList {
+            addAll(whoResolved)
+            addAll(secondHandSongsResolved)
+            addAll(mbResolved)
+            addAll(geminiResolved)
+            addAll(broad)
+            addAll(creditsResolved)
+            addAll(coverInfoResolved)
+        }
+
+        val merged = mergeResults(all)
+        val enriched = enrichYears(merged, geminiConfig)
+        val ordered = orderOldestFirst(enriched).take(MAX_RESULTS)
+
+        fun used(source: String): Int = ordered.count { hasSource(it, source) }
+
+        val whoUsed = used("WhoSampled")
+        val geminiUsed = used("Gemini AI")
+
+        CoverHubOutcome(
+            results = ordered,
+            whoSampledStatus = who.status,
+            creditsFmStatus = credits.status,
+            coverInfoStatus = coverInfo.status,
+            secondHandSongsStatus = secondHandSongs.status,
+            musicBrainzStatus = mb.status,
+            geminiConfigured = geminiConfig != null,
+            whoSampledStats = CoverSourceStats(
+                found = who.covers.size,
+                resolved = whoResolved.size,
+                used = whoUsed,
+            ),
+            creditsFmStats = CoverSourceStats(
+                found = credits.covers.size,
+                resolved = creditsResolved.size,
+                used = used("Credits.fm"),
+            ),
+            coverInfoStats = CoverSourceStats(
+                found = coverInfo.covers.size,
+                resolved = coverInfoResolved.size,
+                used = used("COVER.INFO"),
+            ),
+            secondHandSongsStats = CoverSourceStats(
+                found = secondHandSongs.covers.size,
+                resolved = secondHandSongsResolved.size,
+                used = used("SecondHandSongs"),
+            ),
+            musicBrainzStats = CoverSourceStats(
+                found = mb.covers.size,
+                resolved = mbResolved.size,
+                used = used("MusicBrainz"),
+            ),
+            geminiStats = CoverSourceStats(
+                found = gemini.size,
+                resolved = geminiResolved.size,
+                used = geminiUsed,
+            ),
+            youtubeMusicStats = CoverSourceStats(
+                found = broad.size,
+                resolved = broad.size,
+                used = used("YouTube Music"),
+            ),
+            whoSampledCount = whoUsed,
+            geminiCount = gemini.size,
+        )
+    }
+
+'''
+s = s[:start] + method + s[end:]
+p.write_text(s)
+
+# 2) MusicBrainz: retry transient network failures once and never cache them.
+p = root / 'app/src/main/kotlin/com/metrolist/music/ui/component/MusicBrainzCoverSource.kt'
+s = p.read_text()
+old = '''        val lookup = lookupFresh(cleanTitle, cleanArtist)\n        cache[key] = CacheEntry(now, lookup)\n        return lookup\n'''
+new = '''        var lookup = lookupFresh(cleanTitle, cleanArtist)\n        if (lookup.status == MusicBrainzStatus.NETWORK_ERROR) {\n            lookup = lookupFresh(cleanTitle, cleanArtist)\n        }\n        if (lookup.status != MusicBrainzStatus.NETWORK_ERROR) {\n            cache[key] = CacheEntry(now, lookup)\n        }\n        return lookup\n'''
+if old not in s:
+    raise SystemExit('MusicBrainz lookup block not found')
+s = s.replace(old, new, 1)
+p.write_text(s)
+
+# 3) Credits.fm: use current documented search + graph, relations fallback.
+p = root / 'app/src/main/kotlin/com/metrolist/music/ui/component/CreditsFmCoverSource.kt'
+s = p.read_text()
+s = s.replace('private const val ERROR_CACHE_TTL_MS = 8L * 60L * 60L * 1000L', 'private const val ERROR_CACHE_TTL_MS = 0L')
+start = s.index('    private fun lookupFresh(title: String, artist: String): CreditsFmLookup {')
+end = s.index('    private fun fetchJson(url: String): FetchJson', start)
+lookup = r'''    private fun lookupFresh(title: String, artist: String): CreditsFmLookup {
+        val query = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        val searchUrls = listOf(
+            "$BASE_URL/search?q=$encoded&type=isrc&match=recording_title&exclude_lyrics=true&limit=100&nocache=1",
+            "$BASE_URL/graph/search?q=$encoded&type=recording&limit=50&exclude_lyrics=true&nocache=1",
+        )
+
+        val candidateMap = linkedMapOf<String, RecordingRef>()
+        var terminalStatus: CreditsFmStatus? = null
+        var lastUrl = searchUrls.first()
+        for (searchUrl in searchUrls) {
+            lastUrl = searchUrl
+            when (val response = fetchJson(searchUrl)) {
+                is FetchJson.Error -> terminalStatus = response.status
+                is FetchJson.Ok -> {
+                    val root = parseJson(response.body) ?: continue
+                    collectRecordingRefs(root).forEach { ref -> candidateMap.putIfAbsent(ref.isrc, ref) }
+                }
+            }
+            if (candidateMap.size >= MAX_RECORDING_CANDIDATES) break
+        }
+
+        val candidates = candidateMap.values
+            .filter { candidate ->
+                val titleScore = similarity(title, candidate.title)
+                val artistScore = if (artist.isBlank()) 1.0 else similarity(artist, candidate.artist)
+                titleScore >= 0.58 && (artist.isBlank() || artistScore >= 0.24 || titleScore >= 0.96)
+            }
+            .sortedByDescending { candidate ->
+                similarity(title, candidate.title) * 0.78 +
+                    (if (artist.isBlank()) 1.0 else similarity(artist, candidate.artist)) * 0.22
+            }
+            .distinctBy { it.isrc }
+            .take(MAX_RECORDING_CANDIDATES)
+
+        if (candidates.isEmpty()) {
+            return CreditsFmLookup(emptyList(), terminalStatus ?: CreditsFmStatus.NO_MATCH, lastUrl)
+        }
+
+        val related = linkedMapOf<String, RecordingRef>()
+        for (candidate in candidates) {
+            val graphUrl = "$BASE_URL/graph/isrc/${candidate.isrc}?depth=1&per_hop=25&max_nodes=120&people=0"
+            lastUrl = graphUrl
+            when (val response = fetchJson(graphUrl)) {
+                is FetchJson.Error -> terminalStatus = response.status
+                is FetchJson.Ok -> parseJson(response.body)?.let { root ->
+                    collectCoverRelationshipRefs(root, candidate.isrc).forEach { ref ->
+                        related.putIfAbsent(ref.isrc, ref)
+                    }
+                }
+            }
+
+            if (related.isEmpty()) {
+                val relUrl = "$BASE_URL/isrc/${candidate.isrc}/relationships?limit=200"
+                lastUrl = relUrl
+                when (val response = fetchJson(relUrl)) {
+                    is FetchJson.Error -> terminalStatus = response.status
+                    is FetchJson.Ok -> parseJson(response.body)?.let { root ->
+                        collectCoverRelationshipRefs(root, candidate.isrc).forEach { ref ->
+                            related.putIfAbsent(ref.isrc, ref)
+                        }
+                    }
+                }
+            }
+            if (related.size >= MAX_RELATION_ISRCS) break
+        }
+
+        if (related.isEmpty()) {
+            return CreditsFmLookup(emptyList(), terminalStatus ?: CreditsFmStatus.NO_MATCH, lastUrl)
+        }
+
+        var metadataFetches = 0
+        val covers = linkedMapOf<String, CreditsFmCover>()
+        for ((isrc, embedded) in related) {
+            var resolved = embedded
+            if ((resolved.title.isBlank() || resolved.artist.isBlank()) && metadataFetches < MAX_METADATA_FETCHES) {
+                metadataFetches++
+                val detailUrl = "$BASE_URL/isrc/$isrc?contribute=false"
+                when (val detail = fetchJson(detailUrl)) {
+                    is FetchJson.Ok -> parseJson(detail.body)?.let { root ->
+                        collectRecordingRefs(root).firstOrNull { it.isrc == isrc }?.let { resolved = it }
+                    }
+                    is FetchJson.Error -> Unit
+                }
+            }
+
+            if (resolved.title.isBlank() || resolved.artist.isBlank()) continue
+            if (artist.isNotBlank() && similarity(artist, resolved.artist) >= 0.92) continue
+            if (similarity(title, resolved.title) < 0.44) continue
+
+            covers.putIfAbsent(
+                isrc,
+                CreditsFmCover(
+                    title = resolved.title,
+                    artist = resolved.artist,
+                    isrc = isrc,
+                    year = resolved.year,
+                ),
+            )
+            if (covers.size >= MAX_COVERS) break
+        }
+
+        return if (covers.isNotEmpty()) {
+            CreditsFmLookup(covers.values.toList(), CreditsFmStatus.OK, lastUrl)
+        } else {
+            CreditsFmLookup(emptyList(), terminalStatus ?: CreditsFmStatus.NO_MATCH, lastUrl)
+        }
+    }
+
+'''
+s = s[:start] + lookup + s[end:]
+p.write_text(s)
+
+# 4) COVER.INFO: broaden discovery for the redesigned site and do not cache
+# temporary block/network errors for hours.
+p = root / 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverInfoCoverSource.kt'
+s = p.read_text()
+s = s.replace('private const val ERROR_CACHE_TTL_MS = 8L * 60L * 60L * 1000L', 'private const val ERROR_CACHE_TTL_MS = 0L')
+s = s.replace('add("site:cover.info/en/song $quotedTitle $quotedArtist")', 'add("site:cover.info/en/song $quotedTitle $quotedArtist")\n                add("site:cover.info/de/song $quotedTitle $quotedArtist")')
+s = s.replace('add("site:cover.info/en/song $quotedTitle")', 'add("site:cover.info/en/song $quotedTitle")\n            add("site:cover.info/de/song $quotedTitle")')
+s = s.replace('doc.select("a[href*=\'/en/song/\']")', 'doc.select("a[href*=\'/song/\']")')
+old = 'host == "cover.info" && uri.path.orEmpty().contains("/en/song/")'
+new = 'host == "cover.info" && Regex("/(?:en|de)/song/").containsMatchIn(uri.path.orEmpty())'
+if old not in s:
+    raise SystemExit('COVER.INFO URL matcher not found')
+s = s.replace(old, new, 1)
+p.write_text(s)
+
+checks = {
+    'CoverHubSearchEngine.kt': 'Additive providers',
+    'MusicBrainzCoverSource.kt': 'lookup.status != MusicBrainzStatus.NETWORK_ERROR',
+    'CreditsFmCoverSource.kt': '/graph/isrc/',
+    'CoverInfoCoverSource.kt': '/(?:en|de)/song/',
+}
+for name, needle in checks.items():
+    path = next(root.rglob(name))
+    if needle not in path.read_text():
+        raise SystemExit(f'sanity failed: {name}: {needle}')
