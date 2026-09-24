@@ -88,6 +88,9 @@ fun CoverSearchDialog(
     var coverOutcome by remember { mutableStateOf(CoverHubOutcome(emptyList())) }
     var sameNameResults by remember { mutableStateOf<List<CoverHubResult>>(emptyList()) }
     var sameNameContinuation by remember { mutableStateOf<String?>(null) }
+    var sameNameLastScanPages by remember { mutableStateOf(0) }
+    var sameNameLastAdded by remember { mutableStateOf(0) }
+    var sameNameScannedMore by remember { mutableStateOf(false) }
     var coverFailed by remember { mutableStateOf(false) }
     var sameNameFailed by remember { mutableStateOf(false) }
     var sameNameMoreFailed by remember { mutableStateOf(false) }
@@ -175,6 +178,7 @@ fun CoverSearchDialog(
         sameNameLoading = true
         sameNameFailed = false
         sameNameMoreFailed = false
+        sameNameScannedMore = false
         try {
             val page = CoverHubSearchEngine.searchSameName(
                 title = title,
@@ -183,10 +187,14 @@ fun CoverSearchDialog(
             )
             sameNameResults = page.results
             sameNameContinuation = page.continuation
+            sameNameLastScanPages = page.scannedPages
+            sameNameLastAdded = page.addedCount
         } catch (_: Exception) {
             sameNameFailed = true
             sameNameResults = emptyList()
             sameNameContinuation = null
+            sameNameLastScanPages = 0
+            sameNameLastAdded = 0
         }
         sameNameLoading = false
         sameNameLoaded = true
@@ -200,6 +208,9 @@ fun CoverSearchDialog(
             onSelect(song)
         }
     }
+
+    fun statsText(stats: CoverSourceStats): String =
+        "${stats.found} trovati · ${stats.resolved} risolti · ${stats.used} usati"
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -267,16 +278,61 @@ fun CoverSearchDialog(
                     }
 
                     if (!coverLoading) {
+                        val diagnosticStyle = MaterialTheme.typography.labelSmall
+                        val diagnosticColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+                        val whoState = when (coverOutcome.whoSampledStatus) {
+                            WhoSampledStatus.OK -> "ok"
+                            WhoSampledStatus.NO_MATCH -> "nessuna relazione"
+                            WhoSampledStatus.BLOCKED -> "bloccato da verifica"
+                            WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
+                            WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
+                        }
                         Text(
-                            text = when (coverOutcome.whoSampledStatus) {
-                                WhoSampledStatus.OK -> "WhoSampled: ${coverOutcome.whoSampledCount} risultati collegati"
-                                WhoSampledStatus.NO_MATCH -> "WhoSampled: nessuna relazione diretta; continuo con le altre fonti"
-                                WhoSampledStatus.BLOCKED -> "WhoSampled protetto da verifica; continuo con MusicBrainz e ricerca web verificata"
-                                WhoSampledStatus.STRUCTURE_CHANGED -> "WhoSampled non leggibile direttamente; continuo con le altre fonti"
-                                WhoSampledStatus.NETWORK_ERROR -> "WhoSampled non disponibile; continuo con le altre fonti"
+                            "WhoSampled: $whoState · ${statsText(coverOutcome.whoSampledStats)}",
+                            style = diagnosticStyle,
+                            color = diagnosticColor,
+                        )
+
+                        val secondState = when (coverOutcome.secondHandSongsStatus) {
+                            SecondHandSongsStatus.OK -> "ok"
+                            SecondHandSongsStatus.NO_MATCH -> "nessuna relazione"
+                            SecondHandSongsStatus.BLOCKED -> "bloccato"
+                            SecondHandSongsStatus.AUTH_REQUIRED -> "autenticazione richiesta"
+                            SecondHandSongsStatus.RATE_LIMITED -> "limite temporaneo"
+                            SecondHandSongsStatus.NETWORK_ERROR -> "non disponibile"
+                        }
+                        Text(
+                            "SecondHandSongs: $secondState · ${statsText(coverOutcome.secondHandSongsStats)}",
+                            style = diagnosticStyle,
+                            color = diagnosticColor,
+                        )
+
+                        val mbState = when (coverOutcome.musicBrainzStatus) {
+                            MusicBrainzStatus.OK -> "ok"
+                            MusicBrainzStatus.NO_MATCH -> "nessuna relazione"
+                            MusicBrainzStatus.NETWORK_ERROR -> "non disponibile"
+                        }
+                        Text(
+                            "MusicBrainz: $mbState · ${statsText(coverOutcome.musicBrainzStats)}",
+                            style = diagnosticStyle,
+                            color = diagnosticColor,
+                        )
+
+                        Text(
+                            text = if (coverOutcome.geminiConfigured) {
+                                "Gemini AI: attivo · ${statsText(coverOutcome.geminiStats)}"
+                            } else {
+                                "Gemini AI: non configurato · 0 trovati · 0 risolti · 0 usati"
                             },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = diagnosticStyle,
+                            color = diagnosticColor,
+                        )
+
+                        Text(
+                            "YouTube Music: ${statsText(coverOutcome.youtubeMusicStats)}",
+                            style = diagnosticStyle,
+                            color = diagnosticColor,
                         )
                     }
                 } else {
@@ -284,8 +340,38 @@ fun CoverSearchDialog(
                         text = "Tutte le canzoni trovate con lo stesso titolo, anche se non sono cover.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 6.dp),
+                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                     )
+                    if (!sameNameLoading && sameNameLoaded) {
+                        Text(
+                            text = "YouTube Music: ${sameNameResults.size} risultati · $sameNameLastScanPages pagine analizzate nell'ultimo blocco",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                        if (sameNameScannedMore && sameNameLastAdded == 0 && sameNameContinuation != null) {
+                            Text(
+                                text = "Nessun nuovo titolo in queste $sameNameLastScanPages pagine; puoi premere Cerca ancora per continuare.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 4.dp),
+                            )
+                        } else if (sameNameScannedMore && sameNameLastAdded > 0) {
+                            Text(
+                                text = "+$sameNameLastAdded nuovi risultati trovati nell'ultimo blocco.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 4.dp),
+                            )
+                        } else if (sameNameContinuation == null && sameNameResults.isNotEmpty()) {
+                            Text(
+                                text = "Fine dei risultati disponibili per questa ricerca.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 4.dp),
+                            )
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(6.dp))
@@ -428,6 +514,9 @@ fun CoverSearchDialog(
                                                 )
                                                 sameNameResults = page.results
                                                 sameNameContinuation = page.continuation
+                                                sameNameLastScanPages = page.scannedPages
+                                                sameNameLastAdded = page.addedCount
+                                                sameNameScannedMore = true
                                             } catch (_: Exception) {
                                                 sameNameMoreFailed = true
                                             } finally {
