@@ -397,6 +397,12 @@ internal fun CoverSearchScreen(
                         Spacer(Modifier.height(6.dp))
                         Text("Credits.fm: ${creditsState(coverOutcome.creditsFmStatus)}", style = MaterialTheme.typography.bodyMedium)
                         Text(statsText(coverOutcome.creditsFmStats), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "percorso: ${coverOutcome.creditsFmSourceCandidates} ISRC sorgente · " +
+                                "${coverOutcome.creditsFmWorksFound} ISWC · " +
+                                "${coverOutcome.creditsFmLinkedRecordings} registrazioni collegate",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                         Spacer(Modifier.height(6.dp))
                         Text("SecondHandSongs: ${secondState(coverOutcome.secondHandSongsStatus)}", style = MaterialTheme.typography.bodyMedium)
                         Text(statsText(coverOutcome.secondHandSongsStats), style = MaterialTheme.typography.bodySmall)

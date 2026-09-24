@@ -31,6 +31,9 @@ internal data class CreditsFmLookup(
     val covers: List<CreditsFmCover>,
     val status: CreditsFmStatus,
     val sourceUrl: String? = null,
+    val sourceCandidates: Int = 0,
+    val worksFound: Int = 0,
+    val linkedRecordings: Int = 0,
 )
 
 /**
@@ -99,8 +102,10 @@ internal object CreditsFmCoverSource {
     }
 
     private fun lookupFresh(title: String, artist: String): CreditsFmLookup {
-        val query = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
-        val encoded = URLEncoder.encode(query, "UTF-8")
+        // `match=recording_title` searches title/song fields only. Keep the artist
+        // out of q, otherwise exact-title recordings by other performers (covers) can
+        // disappear before we ever reach their shared ISWC.
+        val encoded = URLEncoder.encode(title, "UTF-8")
         val searchUrl = "$BASE_URL/search?q=$encoded&type=isrc&match=recording_title&exclude_lyrics=true&limit=100&nocache=1"
 
         val searchRoot = when (val response = fetchJson(searchUrl)) {
@@ -127,6 +132,8 @@ internal object CreditsFmCoverSource {
         }
 
         val related = linkedMapOf<String, RecordingRef>()
+        val worksSeen = linkedSetOf<String>()
+        val sourceCandidateCount = candidates.size
         var lastUrl = searchUrl
         var terminalStatus: CreditsFmStatus? = null
 
@@ -148,7 +155,11 @@ internal object CreditsFmCoverSource {
             }
 
             for (iswc in works) {
-                val workUrl = "$BASE_URL/iswc/${URLEncoder.encode(iswc, "UTF-8")}?include=recordings&limit=100&contribute=false"
+                worksSeen += iswc
+                // Credits.fm identifier graph supports relationship expansion on the
+                // canonical ISWC endpoint. depth=2 asks for enriched recording objects;
+                // direct ISRC strings are also collected below as a defensive fallback.
+                val workUrl = "$BASE_URL/iswc/${URLEncoder.encode(iswc, "UTF-8")}?include=recordings&depth=2&limit=-1&contribute=false"
                 lastUrl = workUrl
                 when (val response = fetchJson(workUrl)) {
                     is FetchJson.Error -> terminalStatus = response.status
@@ -156,6 +167,9 @@ internal object CreditsFmCoverSource {
                         collectRecordingRefs(root)
                             .filter { it.isrc != candidate.isrc }
                             .forEach { related.putIfAbsent(it.isrc, it) }
+                        collectDirectIsrcs(root)
+                            .filter { it != candidate.isrc }
+                            .forEach { isrc -> related.putIfAbsent(isrc, RecordingRef(isrc, "", "")) }
                     }
                 }
                 if (related.size >= MAX_RELATED_ISRCS) break
@@ -192,7 +206,14 @@ internal object CreditsFmCoverSource {
         }
 
         if (related.isEmpty()) {
-            return CreditsFmLookup(emptyList(), terminalStatus ?: CreditsFmStatus.NO_MATCH, lastUrl)
+            return CreditsFmLookup(
+                covers = emptyList(),
+                status = terminalStatus ?: CreditsFmStatus.NO_MATCH,
+                sourceUrl = lastUrl,
+                sourceCandidates = sourceCandidateCount,
+                worksFound = worksSeen.size,
+                linkedRecordings = 0,
+            )
         }
 
         var metadataFetches = 0
@@ -228,9 +249,23 @@ internal object CreditsFmCoverSource {
         }
 
         return if (covers.isNotEmpty()) {
-            CreditsFmLookup(covers.values.toList(), CreditsFmStatus.OK, lastUrl)
+            CreditsFmLookup(
+                covers = covers.values.toList(),
+                status = CreditsFmStatus.OK,
+                sourceUrl = lastUrl,
+                sourceCandidates = sourceCandidateCount,
+                worksFound = worksSeen.size,
+                linkedRecordings = related.size,
+            )
         } else {
-            CreditsFmLookup(emptyList(), terminalStatus ?: CreditsFmStatus.NO_MATCH, lastUrl)
+            CreditsFmLookup(
+                covers = emptyList(),
+                status = terminalStatus ?: CreditsFmStatus.NO_MATCH,
+                sourceUrl = lastUrl,
+                sourceCandidates = sourceCandidateCount,
+                worksFound = worksSeen.size,
+                linkedRecordings = related.size,
+            )
         }
     }
 
@@ -338,20 +373,21 @@ internal object CreditsFmCoverSource {
         return values.any { it.equals("cover", ignoreCase = true) || it.contains("cover", ignoreCase = true) }
     }
 
-    private fun collectDirectIsrcs(obj: JSONObject): Set<String> {
+    private fun collectDirectIsrcs(root: Any): Set<String> {
         val result = linkedSetOf<String>()
 
-        fun visit(value: Any?, keyHint: String = "") {
+        fun visit(value: Any?) {
             when (value) {
-                is JSONObject -> value.keys().forEach { key -> visit(value.opt(key), key) }
-                is JSONArray -> for (index in 0 until value.length()) visit(value.opt(index), keyHint)
-                is String -> if (keyHint.contains("isrc", ignoreCase = true)) {
-                    normalizeIsrc(value)?.let(result::add)
-                }
+                is JSONObject -> value.keys().forEach { key -> visit(value.opt(key)) }
+                is JSONArray -> for (index in 0 until value.length()) visit(value.opt(index))
+                // Graph depth=1 may expose recording relationships as plain ISRC
+                // strings under a recordings array. ISRC format is strict enough to
+                // safely recognize them regardless of their JSON key name.
+                is String -> normalizeIsrc(value)?.let(result::add)
             }
         }
 
-        visit(obj)
+        visit(root)
         return result
     }
 
