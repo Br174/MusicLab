@@ -8,7 +8,7 @@ workflows:
       events:
         - push
       branch_patterns:
-        - pattern: 'universal-apk-builder'
+        - pattern: 'lab-cover-repair-from-build52'
           include: true
           source: true
       cancel_previous_builds: true
