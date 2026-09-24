@@ -230,7 +230,7 @@ internal object CoverHubSearchEngine {
             originalArtist = originalArtist,
             durationSec = durationSec,
             currentYouTubeId = currentYouTubeId,
-            maxRefs = 64,
+            maxRefs = 120,
         )
 
         val all = buildList {

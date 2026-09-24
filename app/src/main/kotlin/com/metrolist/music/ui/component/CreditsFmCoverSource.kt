@@ -49,11 +49,11 @@ internal data class CreditsFmLookup(
 internal object CreditsFmCoverSource {
     private const val BASE_URL = "https://api.credits.fm/v1"
     private const val REQUEST_TIMEOUT_MS = 8_000
-    private const val MAX_RECORDING_CANDIDATES = 3
+    private const val MAX_RECORDING_CANDIDATES = 12
     private const val MAX_WORKS_PER_RECORDING = 4
-    private const val MAX_RELATED_ISRCS = 60
-    private const val MAX_METADATA_FETCHES = 18
-    private const val MAX_COVERS = 80
+    private const val MAX_RELATED_ISRCS = 240
+    private const val MAX_METADATA_FETCHES = 80
+    private const val MAX_COVERS = 120
     private const val CACHE_TTL_MS = 6L * 60L * 60L * 1000L
     private const val NO_MATCH_CACHE_TTL_MS = 60L * 60L * 1000L
     private const val USER_AGENT = "MusicLab/0.8.9 (Android; Credits.fm public read client)"
