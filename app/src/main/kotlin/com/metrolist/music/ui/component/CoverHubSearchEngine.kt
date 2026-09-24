@@ -104,14 +104,51 @@ internal object CoverHubSearchEngine {
             )
         }
 
-        val who = whoDeferred.await()
+        val directWho = whoDeferred.await()
+        val indexedWho =
+            if (
+                directWho.covers.isEmpty() &&
+                directWho.status != WhoSampledStatus.OK &&
+                geminiConfig != null
+            ) {
+                runCatching {
+                    WhoSampledIndexedDiscovery.discover(
+                        originalTitle = cleanTitle,
+                        originalArtist = originalArtist,
+                        config = geminiConfig,
+                    )
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+        val whoFromIndex = indexedWho.isNotEmpty()
+        val who =
+            if (whoFromIndex) {
+                WhoSampledLookup(
+                    covers = indexedWho,
+                    status = WhoSampledStatus.OK,
+                    sourceUrl = indexedWho.firstOrNull()?.url,
+                )
+            } else {
+                directWho
+            }
+        val whoSource = if (whoFromIndex) "WhoSampled · indice web" else "WhoSampled"
+
         val secondHandSongs = secondHandSongsDeferred.await()
         val mb = mbDeferred.await()
         val gemini = geminiDeferred?.await().orEmpty()
 
         val whoResolvedDeferred = async {
             resolveReferences(
-                references = who.covers.map { Ref(it.title, it.artist, null, "WhoSampled", true) },
+                references = who.covers.map {
+                    Ref(
+                        title = it.title,
+                        artist = it.artist,
+                        year = null,
+                        source = whoSource,
+                        confirmed = !whoFromIndex,
+                    )
+                },
                 originalArtist = originalArtist,
                 durationSec = durationSec,
                 currentYouTubeId = currentYouTubeId,
@@ -553,7 +590,13 @@ internal object CoverHubSearchEngine {
         }.joinToString(SOURCE_DELIMITER)
 
     private fun hasSource(result: CoverHubResult, source: String): Boolean =
-        sourceNames(result.source).any { it.equals(source, ignoreCase = true) }
+        sourceNames(result.source).any { candidate ->
+            if (source.equals("WhoSampled", ignoreCase = true)) {
+                candidate.startsWith("WhoSampled", ignoreCase = true)
+            } else {
+                candidate.equals(source, ignoreCase = true)
+            }
+        }
 
     private fun priority(result: CoverHubResult): Int {
         val sourcePriority = sourceNames(result.source).maxOfOrNull { source ->
