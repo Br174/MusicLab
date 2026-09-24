@@ -23,25 +23,17 @@ jobs:
         with:
           ref: lab/musiclab-creditsfm-01
           fetch-depth: 0
+          submodules: recursive
 
-      - name: Apply isolated Credits.fm patch
-        run: |
-          python3 tools/one-shot-creditsfm-patch.py
-          echo '[UAB_PROGRESS=30] Correzione Credits.fm applicata alla LAB'
-
-      - name: Commit corrected LAB source
+      - name: Verify isolated Credits.fm source is already applied
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'Br174'
-          git config user.email 'brunoverlezza@gmail.com'
-          git add app/src/main/kotlin/com/metrolist/music/ui/component/CreditsFmCoverSource.kt
-          git add app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt
-          git add app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
-          git commit -m 'feat(covers): integrate Credits.fm additively from Mother'
-          git push origin HEAD:lab/musiclab-creditsfm-01
-          echo "LAB_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          echo '[UAB_PROGRESS=45] Sorgente LAB corretto salvato'
+          grep -F 'val creditsFmStatus:' app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt
+          grep -F 'Credits.fm is deliberately additive' app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt
+          grep -F 'fun creditsState(status: CreditsFmStatus)' app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
+          test -f app/src/main/kotlin/com/metrolist/music/ui/component/CreditsFmCoverSource.kt
+          echo '[UAB_PROGRESS=30] Correzione Credits.fm già presente nella LAB'
 
       - name: Verify app change-set against Mother
         shell: bash
@@ -141,6 +133,4 @@ jobs:
           retention-days: 14
 
       - name: Progress 100% - complete
-        run: |
-          echo "LAB source SHA: $LAB_SHA"
-          echo '[UAB_PROGRESS=100] LAB Credits.fm compilata e verificata; nessuna MADRE/Release modificata'
+        run: echo '[UAB_PROGRESS=100] LAB Credits.fm compilata e verificata; nessuna MADRE/Release modificata'
