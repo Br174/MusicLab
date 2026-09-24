@@ -40,14 +40,15 @@ internal data class SecondHandSongsLookup(
  *
  * MusicLab first searches by title + performer and, if that is too strict,
  * retries by title only. It then follows the native performance relations:
- * current performance -> original performance -> covers. The work versions
- * endpoint remains an additional fallback. No CAPTCHA/access-control bypass is
- * attempted and no API key is hardcoded in the application.
+ * current performance -> original performance -> covers. A direct work search
+ * is also used when performance search cannot identify the recording. No
+ * CAPTCHA/access-control bypass is attempted and no API key is hardcoded.
  */
 internal object SecondHandSongsCoverSource {
     private const val BASE_URL = "https://secondhandsongs.com"
     private const val REQUEST_TIMEOUT_MS = 7_500
     private const val MAX_SEARCH_CANDIDATES = 6
+    private const val MAX_WORK_CANDIDATES = 6
     private const val MAX_DISCOVERED_COVERS = 100
     private const val MAX_ORIGINAL_EXPANSIONS = 2
     private const val CACHE_TTL_MS = 12L * 60L * 60L * 1000L
@@ -72,6 +73,11 @@ internal object SecondHandSongsCoverSource {
         val artist: String,
         val workIds: List<String>,
         val year: Int?,
+    )
+
+    private data class WorkRef(
+        val id: String,
+        val title: String,
     )
 
     fun lookup(title: String, artist: String): SecondHandSongsLookup {
@@ -149,6 +155,13 @@ internal object SecondHandSongsCoverSource {
         }
 
         if (candidates.isEmpty()) {
+            val workFallback = lookupByWorkTitle(title)
+            if (
+                workFallback.status != SecondHandSongsStatus.NO_MATCH ||
+                workFallback.covers.isNotEmpty()
+            ) {
+                return workFallback
+            }
             return SecondHandSongsLookup(
                 emptyList(),
                 lastStatus ?: SecondHandSongsStatus.NO_MATCH,
@@ -175,7 +188,7 @@ internal object SecondHandSongsCoverSource {
                     .forEach { originalId ->
                         fetchPerformanceRoot(originalId)?.let { originalRoot ->
                             collectPerformanceRefs(originalRoot)
-                                .filter { it.id != candidate.id }
+                                .filter { it.id != candidate.id && it.id != originalId }
                                 .forEach { relationRefs.putIfAbsent(it.id, it) }
                         }
                     }
@@ -195,38 +208,104 @@ internal object SecondHandSongsCoverSource {
             }
 
             if (workId.isBlank()) continue
-            val workUrl = "$BASE_URL/work/$workId"
-            when (val workResponse = fetchJson(workUrl)) {
-                is FetchJson.Error -> {
-                    if (
-                        workResponse.status == SecondHandSongsStatus.BLOCKED ||
-                        workResponse.status == SecondHandSongsStatus.AUTH_REQUIRED ||
-                        workResponse.status == SecondHandSongsStatus.RATE_LIMITED
-                    ) {
-                        return SecondHandSongsLookup(emptyList(), workResponse.status, workUrl)
-                    }
-                }
-
-                is FetchJson.Ok -> {
-                    val root = parseJson(workResponse.body) ?: continue
-                    val versions = collectPerformanceRefs(root)
-                        .filter { it.id != candidate.id }
-                        .mapNotNull { ref -> ref.toCover(workId) }
-                        .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
-                        .take(MAX_DISCOVERED_COVERS)
-
-                    if (versions.isNotEmpty()) {
-                        return SecondHandSongsLookup(
-                            covers = versions,
-                            status = SecondHandSongsStatus.OK,
-                            sourceUrl = workUrl,
-                        )
-                    }
-                }
+            val workResult = fetchWorkVersions(workId)
+            if (
+                workResult.status == SecondHandSongsStatus.OK ||
+                workResult.status == SecondHandSongsStatus.BLOCKED ||
+                workResult.status == SecondHandSongsStatus.AUTH_REQUIRED ||
+                workResult.status == SecondHandSongsStatus.RATE_LIMITED
+            ) {
+                return workResult
             }
         }
 
+        val workFallback = lookupByWorkTitle(title)
+        if (
+            workFallback.status != SecondHandSongsStatus.NO_MATCH ||
+            workFallback.covers.isNotEmpty()
+        ) {
+            return workFallback
+        }
+
         return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, lastUrl)
+    }
+
+    private fun lookupByWorkTitle(title: String): SecondHandSongsLookup {
+        val searchUrl = buildWorkSearchUrl(title)
+        val root = when (val search = fetchJson(searchUrl)) {
+            is FetchJson.Error ->
+                return SecondHandSongsLookup(emptyList(), search.status, search.url)
+            is FetchJson.Ok ->
+                parseJson(search.body)
+                    ?: return SecondHandSongsLookup(
+                        emptyList(),
+                        SecondHandSongsStatus.NETWORK_ERROR,
+                        search.url,
+                    )
+        }
+
+        val works = collectWorkRefs(root)
+            .filter { textSimilarity(title, it.title) >= 0.60 }
+            .sortedByDescending { textSimilarity(title, it.title) }
+            .distinctBy { it.id }
+            .take(MAX_WORK_CANDIDATES)
+
+        if (works.isEmpty()) {
+            return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, searchUrl)
+        }
+
+        var lastStatus: SecondHandSongsStatus? = null
+        for (work in works) {
+            val result = fetchWorkVersions(work.id)
+            when (result.status) {
+                SecondHandSongsStatus.OK -> return result
+                SecondHandSongsStatus.BLOCKED,
+                SecondHandSongsStatus.AUTH_REQUIRED,
+                SecondHandSongsStatus.RATE_LIMITED -> return result
+                SecondHandSongsStatus.NETWORK_ERROR -> lastStatus = result.status
+                SecondHandSongsStatus.NO_MATCH -> Unit
+            }
+        }
+
+        return SecondHandSongsLookup(
+            emptyList(),
+            lastStatus ?: SecondHandSongsStatus.NO_MATCH,
+            searchUrl,
+        )
+    }
+
+    private fun fetchWorkVersions(workId: String): SecondHandSongsLookup {
+        if (workId.isBlank()) {
+            return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH)
+        }
+        val workUrl = "$BASE_URL/work/$workId"
+        return when (val workResponse = fetchJson(workUrl)) {
+            is FetchJson.Error ->
+                SecondHandSongsLookup(emptyList(), workResponse.status, workResponse.url)
+
+            is FetchJson.Ok -> {
+                val root = parseJson(workResponse.body)
+                    ?: return SecondHandSongsLookup(
+                        emptyList(),
+                        SecondHandSongsStatus.NETWORK_ERROR,
+                        workUrl,
+                    )
+                val versions = collectPerformanceRefs(root)
+                    .mapNotNull { ref -> ref.toCover(workId) }
+                    .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
+                    .take(MAX_DISCOVERED_COVERS)
+
+                if (versions.isEmpty()) {
+                    SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, workUrl)
+                } else {
+                    SecondHandSongsLookup(
+                        covers = versions,
+                        status = SecondHandSongsStatus.OK,
+                        sourceUrl = workUrl,
+                    )
+                }
+            }
+        }
     }
 
     private fun buildSearchUrl(title: String, artist: String): String = buildString {
@@ -236,6 +315,12 @@ internal object SecondHandSongsCoverSource {
             append("&performer=")
             append(URLEncoder.encode(artist, "UTF-8"))
         }
+        append("&pageSize=20&page=1")
+    }
+
+    private fun buildWorkSearchUrl(title: String): String = buildString {
+        append("$BASE_URL/search/work?title=")
+        append(URLEncoder.encode(title, "UTF-8"))
         append("&pageSize=20&page=1")
     }
 
@@ -319,6 +404,35 @@ internal object SecondHandSongsCoverSource {
                 is JSONObject -> {
                     performanceFromObject(value)?.let { ref ->
                         result.putIfAbsent(ref.id, ref)
+                    }
+                    value.keys().forEach { key -> visit(value.opt(key)) }
+                }
+                is JSONArray -> {
+                    for (index in 0 until value.length()) visit(value.opt(index))
+                }
+            }
+        }
+
+        visit(root)
+        return result.values.toList()
+    }
+
+    private fun collectWorkRefs(root: Any): List<WorkRef> {
+        val result = linkedMapOf<String, WorkRef>()
+
+        fun visit(value: Any?) {
+            when (value) {
+                is JSONObject -> {
+                    val uri = value.optString("uri").trim()
+                    val entityType = value.optString("entityType").trim()
+                    val looksLikeWork =
+                        entityType.equals("work", ignoreCase = true) || uri.contains("/work/")
+                    if (looksLikeWork) {
+                        val id = uri.substringAfterLast('/').substringBefore('?').trim()
+                        val title = value.optString("title").trim()
+                        if (id.isNotBlank() && title.isNotBlank()) {
+                            result.putIfAbsent(id, WorkRef(id, title))
+                        }
                     }
                     value.keys().forEach { key -> visit(value.opt(key)) }
                 }
