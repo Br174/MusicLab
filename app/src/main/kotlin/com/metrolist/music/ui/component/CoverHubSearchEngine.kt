@@ -34,6 +34,11 @@ internal data class CoverHubOutcome(
     val geminiCount: Int = 0,
 )
 
+internal data class SameNameSearchPage(
+    val results: List<CoverHubResult>,
+    val continuation: String? = null,
+)
+
 internal object CoverHubSearchEngine {
     suspend fun searchCovers(
         title: String,
@@ -136,50 +141,84 @@ internal object CoverHubSearchEngine {
         title: String,
         currentYouTubeId: String?,
         geminiConfig: GeminiCoverVerificationConfig?,
-    ): List<CoverHubResult> = coroutineScope {
+    ): SameNameSearchPage = coroutineScope {
         val clean = title.trim()
-        if (clean.isBlank()) return@coroutineScope emptyList()
-        val target = canonicalTitle(clean)
+        if (clean.isBlank()) return@coroutineScope SameNameSearchPage(emptyList())
 
-        val queries = linkedSetOf(
-            clean,
-            "\"$clean\"",
-            "$clean song",
-            "$clean audio",
-            "$clean official audio",
-            "$clean music",
-            "$clean track",
-            "$clean remaster",
-            "$clean live",
-            "$clean cover",
+        val page = YouTube.search(clean, YouTube.SearchFilter.FILTER_SONG).getOrThrow()
+        val raw = sameNameResults(
+            songs = page.items.filterIsInstance<SongItem>(),
+            title = clean,
+            currentYouTubeId = currentYouTubeId,
+            seenIds = emptySet(),
         )
+        val enriched = orderOldestFirst(enrichYears(raw, geminiConfig))
+            .distinctBy { it.song.id }
+            .take(MAX_SAME_NAME_RESULTS)
 
-        val songs = linkedMapOf<String, SongItem>()
-        for (batch in queries.chunked(5)) {
-            batch.map { query ->
-                async(Dispatchers.IO) {
-                    YouTube.searchSummary(query, incognito = true).getOrNull()
-                }
-            }.awaitAll().filterNotNull().forEach { page ->
-                page.summaries
-                    .flatMap { it.items }
-                    .filterIsInstance<SongItem>()
-                    .forEach { song ->
-                        if (song.id != currentYouTubeId && canonicalTitle(song.title) == target) {
-                            songs.putIfAbsent(song.id, song)
-                        }
-                    }
-            }
+        SameNameSearchPage(
+            results = enriched,
+            continuation = page.continuation.takeIf { enriched.size < MAX_SAME_NAME_RESULTS },
+        )
+    }
+
+    suspend fun searchSameNameMore(
+        title: String,
+        continuation: String,
+        currentYouTubeId: String?,
+        existingResults: List<CoverHubResult>,
+        geminiConfig: GeminiCoverVerificationConfig?,
+    ): SameNameSearchPage = coroutineScope {
+        if (existingResults.size >= MAX_SAME_NAME_RESULTS) {
+            return@coroutineScope SameNameSearchPage(
+                results = existingResults.take(MAX_SAME_NAME_RESULTS),
+                continuation = null,
+            )
         }
 
-        val raw = songs.values.map {
+        val page = YouTube.searchContinuation(continuation).getOrThrow()
+        val seenIds = existingResults.mapTo(mutableSetOf()) { it.song.id }
+        val fresh = sameNameResults(
+            songs = page.items.filterIsInstance<SongItem>(),
+            title = title,
+            currentYouTubeId = currentYouTubeId,
+            seenIds = seenIds,
+        )
+        val enrichedFresh = enrichYears(fresh, geminiConfig)
+        val merged = orderOldestFirst(existingResults + enrichedFresh)
+            .distinctBy { it.song.id }
+            .take(MAX_SAME_NAME_RESULTS)
+
+        SameNameSearchPage(
+            results = merged,
+            continuation = page.continuation.takeIf { merged.size < MAX_SAME_NAME_RESULTS },
+        )
+    }
+
+    private fun sameNameResults(
+        songs: List<SongItem>,
+        title: String,
+        currentYouTubeId: String?,
+        seenIds: Set<String>,
+    ): List<CoverHubResult> {
+        val target = canonicalTitle(title)
+        val unique = linkedMapOf<String, SongItem>()
+        songs.forEach { song ->
+            if (
+                song.id != currentYouTubeId &&
+                song.id !in seenIds &&
+                canonicalTitle(song.title) == target
+            ) {
+                unique.putIfAbsent(song.id, song)
+            }
+        }
+        return unique.values.map {
             CoverHubResult(
                 song = it,
                 source = "Stesso nome",
                 score = 1.0,
             )
         }
-        orderOldestFirst(enrichYears(raw, geminiConfig)).take(MAX_RESULTS)
     }
 
     private data class Ref(
@@ -447,6 +486,7 @@ internal object CoverHubSearchEngine {
     }
 
     private const val MAX_RESULTS = 120
+    private const val MAX_SAME_NAME_RESULTS = 100
 
     private val TITLE_NOISE_REGEX = Regex(
         "\\b(official|video|audio|lyrics?|lyric|cover|acoustic|unplugged|live|version|versione|versión|versao|versão|rendition|interpretation|reinterpretation|tribute|performance|session|remaster(?:ed)?|studio)\\b",
