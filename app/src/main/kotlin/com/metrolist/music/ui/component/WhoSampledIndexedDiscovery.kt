@@ -55,7 +55,7 @@ internal object WhoSampledIndexedDiscovery {
         }
         if (originalTitle.isBlank()) return@withContext emptyList()
 
-        val cacheKey = "${config.model}|${originalTitle.trim()}|${originalArtist.trim()}"
+        val cacheKey = "v1|${config.model}|${originalTitle.trim()}|${originalArtist.trim()}"
         cache[cacheKey]
             ?.takeIf { it.expiresAtMs > System.currentTimeMillis() }
             ?.let { return@withContext it.covers }
