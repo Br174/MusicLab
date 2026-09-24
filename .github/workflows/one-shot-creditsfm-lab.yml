@@ -24,175 +24,42 @@ jobs:
           ref: lab/musiclab-creditsfm-01
           fetch-depth: 0
 
-      - name: Patch Cover Hub additively
-        shell: bash
+      - name: Apply isolated Credits.fm patch
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          engine_path = Path('app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt')
-          screen_path = Path('app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt')
-
-          engine = engine_path.read_text(encoding='utf-8')
-
-          def replace_once(text, old, new, label):
-              if old not in text:
-                  raise SystemExit(f'Patch anchor missing: {label}')
-              return text.replace(old, new, 1)
-
-          engine = replace_once(
-              engine,
-              '    val whoSampledStatus: WhoSampledStatus = WhoSampledStatus.NETWORK_ERROR,\n    val secondHandSongsStatus: SecondHandSongsStatus = SecondHandSongsStatus.NETWORK_ERROR,',
-              '    val whoSampledStatus: WhoSampledStatus = WhoSampledStatus.NETWORK_ERROR,\n    val creditsFmStatus: CreditsFmStatus = CreditsFmStatus.NETWORK_ERROR,\n    val secondHandSongsStatus: SecondHandSongsStatus = SecondHandSongsStatus.NETWORK_ERROR,',
-              'Credits.fm outcome status',
-          )
-          engine = replace_once(
-              engine,
-              '    val whoSampledStats: CoverSourceStats = CoverSourceStats(),\n    val secondHandSongsStats: CoverSourceStats = CoverSourceStats(),',
-              '    val whoSampledStats: CoverSourceStats = CoverSourceStats(),\n    val creditsFmStats: CoverSourceStats = CoverSourceStats(),\n    val secondHandSongsStats: CoverSourceStats = CoverSourceStats(),',
-              'Credits.fm outcome stats',
-          )
-
-          core_anchor = '''        val broad = broadDeferred.await()
-
-        val all = buildList {'''
-          core_replacement = '''        val broad = broadDeferred.await()
-
-        // Credits.fm is deliberately additive: start it only after every
-        // Mother/core provider and its YouTube resolution have completed.
-        // A slow or unavailable Credits.fm therefore cannot regress them.
-        val credits = async(Dispatchers.IO) {
-            runCatching { CreditsFmCoverSource.lookup(cleanTitle, originalArtist) }
-                .getOrElse { CreditsFmLookup(emptyList(), CreditsFmStatus.NETWORK_ERROR) }
-        }.await()
-        val creditsResolved = resolveReferences(
-            references = credits.covers.map {
-                Ref(
-                    title = it.title,
-                    artist = it.artist,
-                    year = it.year,
-                    source = "Credits.fm",
-                    confirmed = true,
-                )
-            },
-            originalArtist = originalArtist,
-            durationSec = durationSec,
-            currentYouTubeId = currentYouTubeId,
-            maxRefs = 64,
-        )
-
-        val all = buildList {'''
-          engine = replace_once(engine, core_anchor, core_replacement, 'additive Credits.fm lookup')
-
-          engine = replace_once(
-              engine,
-              '            addAll(broad)\n        }',
-              '            addAll(broad)\n            addAll(creditsResolved)\n        }',
-              'append Credits.fm results',
-          )
-          engine = replace_once(
-              engine,
-              '            whoSampledStatus = who.status,\n            secondHandSongsStatus = secondHandSongs.status,',
-              '            whoSampledStatus = who.status,\n            creditsFmStatus = credits.status,\n            secondHandSongsStatus = secondHandSongs.status,',
-              'Credits.fm status output',
-          )
-          stats_anchor = '''            whoSampledStats = CoverSourceStats(
-                found = who.covers.size,
-                resolved = whoResolved.size,
-                used = whoUsed,
-            ),
-            secondHandSongsStats = CoverSourceStats('''
-          stats_replacement = '''            whoSampledStats = CoverSourceStats(
-                found = who.covers.size,
-                resolved = whoResolved.size,
-                used = whoUsed,
-            ),
-            creditsFmStats = CoverSourceStats(
-                found = credits.covers.size,
-                resolved = creditsResolved.size,
-                used = used("Credits.fm"),
-            ),
-            secondHandSongsStats = CoverSourceStats('''
-          engine = replace_once(engine, stats_anchor, stats_replacement, 'Credits.fm stats output')
-          engine_path.write_text(engine, encoding='utf-8')
-
-          screen = screen_path.read_text(encoding='utf-8')
-          who_block = '''    fun whoState(status: WhoSampledStatus): String = when (status) {
-        WhoSampledStatus.OK -> "ok"
-        WhoSampledStatus.NO_MATCH -> "nessuna relazione"
-        WhoSampledStatus.BLOCKED -> "bloccato da verifica"
-        WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
-        WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
-    }
-
-    fun secondState'''
-          credits_block = '''    fun whoState(status: WhoSampledStatus): String = when (status) {
-        WhoSampledStatus.OK -> "ok"
-        WhoSampledStatus.NO_MATCH -> "nessuna relazione"
-        WhoSampledStatus.BLOCKED -> "bloccato da verifica"
-        WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
-        WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
-    }
-
-    fun creditsState(status: CreditsFmStatus): String = when (status) {
-        CreditsFmStatus.OK -> "ok"
-        CreditsFmStatus.NO_MATCH -> "nessuna relazione"
-        CreditsFmStatus.AUTH_REQUIRED -> "autenticazione richiesta"
-        CreditsFmStatus.RATE_LIMITED -> "limite temporaneo"
-        CreditsFmStatus.NETWORK_ERROR -> "non disponibile"
-    }
-
-    fun secondState'''
-          screen = replace_once(screen, who_block, credits_block, 'Credits.fm diagnostic state')
-
-          diagnostic_anchor = '''                        Text("WhoSampled: ${whoState(coverOutcome.whoSampledStatus)}", style = MaterialTheme.typography.bodyMedium)
-                        Text(statsText(coverOutcome.whoSampledStats), style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(6.dp))
-                        Text("SecondHandSongs:'''
-          diagnostic_replacement = '''                        Text("WhoSampled: ${whoState(coverOutcome.whoSampledStatus)}", style = MaterialTheme.typography.bodyMedium)
-                        Text(statsText(coverOutcome.whoSampledStats), style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(6.dp))
-                        Text("Credits.fm: ${creditsState(coverOutcome.creditsFmStatus)}", style = MaterialTheme.typography.bodyMedium)
-                        Text(statsText(coverOutcome.creditsFmStats), style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(6.dp))
-                        Text("SecondHandSongs:'''
-          screen = replace_once(screen, diagnostic_anchor, diagnostic_replacement, 'Credits.fm diagnostic row')
-          screen_path.write_text(screen, encoding='utf-8')
-          PY
+          python3 tools/one-shot-creditsfm-patch.py
           echo '[UAB_PROGRESS=30] Correzione Credits.fm applicata alla LAB'
 
-      - name: Commit clean atomic LAB source
+      - name: Commit corrected LAB source
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/one-shot-creditsfm-lab.yml
           git config user.name 'Br174'
           git config user.email 'brunoverlezza@gmail.com'
-          git add app/src/main/kotlin/com/metrolist/music/ui/component/CreditsFmCoverSource.kt \
-                  app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt \
-                  app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
-          git commit -m 'feat(covers): add isolated Credits.fm composition discovery'
+          git add app/src/main/kotlin/com/metrolist/music/ui/component/CreditsFmCoverSource.kt
+          git add app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt
+          git add app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
+          git commit -m 'feat(covers): integrate Credits.fm additively from Mother'
           git push origin HEAD:lab/musiclab-creditsfm-01
           echo "LAB_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          echo '[UAB_PROGRESS=45] LAB atomica salvata; strumento temporaneo rimosso'
+          echo '[UAB_PROGRESS=45] Sorgente LAB corretto salvato'
 
-      - name: Verify exact LAB change-set against Mother
+      - name: Verify app change-set against Mother
         shell: bash
         run: |
           set -euo pipefail
-          git diff --name-only 770849ff543289de3adffe5bab62bc09528d19f4 HEAD | sort > /tmp/changed.txt
-          cat >/tmp/expected.txt <<'EOF'
+          git diff --name-only 770849ff543289de3adffe5bab62bc09528d19f4 HEAD -- app/src/main | sort > /tmp/app-changed.txt
+          cat >/tmp/app-expected.txt <<'EOF'
           app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt
           app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
           app/src/main/kotlin/com/metrolist/music/ui/component/CreditsFmCoverSource.kt
           EOF
-          sort -o /tmp/expected.txt /tmp/expected.txt
-          diff -u /tmp/expected.txt /tmp/changed.txt
-          if git diff --name-only 770849ff543289de3adffe5bab62bc09528d19f4 HEAD | grep -Ei 'player|playback|audio|service|innertube' ; then
+          sort -o /tmp/app-expected.txt /tmp/app-expected.txt
+          diff -u /tmp/app-expected.txt /tmp/app-changed.txt
+          if grep -Ei 'player|playback|audio|service|innertube' /tmp/app-changed.txt; then
             echo '::error::La LAB ha toccato un file vietato del percorso audio/player.'
             exit 21
           fi
-          echo '[UAB_PROGRESS=60] Diff verificato: solo tre file cover, zero audio/player'
+          echo '[UAB_PROGRESS=60] App diff verificato: solo tre file cover, zero audio/player'
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -222,14 +89,11 @@ jobs:
             chmod 600 app/persistent-debug.keystore
           else
             mkdir -p "$HOME/.android"
-            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -keypass android -alias androiddebugkey \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname 'CN=Android Debug,O=Android,C=US'
+            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=Android,C=US'
             chmod 600 "$HOME/.android/debug.keystore"
           fi
 
-      - name: Prepare UAB V1.1 temporary build config
+      - name: Prepare temporary UAB V1.1 build config
         shell: bash
         run: |
           cp uab-project.env /tmp/uab-creditsfm.env
@@ -252,7 +116,7 @@ jobs:
           bash tools/universal-apk-builder/build-apk.sh .
           echo '[UAB_PROGRESS=75] Compilazione LAB completata'
 
-      - name: Verify APK and package isolation
+      - name: Verify APK and parallel package
         shell: bash
         run: |
           set -euo pipefail
@@ -276,7 +140,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Complete
+      - name: Progress 100% - complete
         run: |
           echo "LAB source SHA: $LAB_SHA"
           echo '[UAB_PROGRESS=100] LAB Credits.fm compilata e verificata; nessuna MADRE/Release modificata'
