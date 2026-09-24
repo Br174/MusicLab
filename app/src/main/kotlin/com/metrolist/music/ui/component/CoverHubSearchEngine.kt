@@ -36,10 +36,14 @@ internal data class CoverSourceStats(
 internal data class CoverHubOutcome(
     val results: List<CoverHubResult>,
     val whoSampledStatus: WhoSampledStatus = WhoSampledStatus.NETWORK_ERROR,
+    val creditsFmStatus: CreditsFmStatus = CreditsFmStatus.NETWORK_ERROR,
+    val coverInfoStatus: CoverInfoStatus = CoverInfoStatus.NETWORK_ERROR,
     val secondHandSongsStatus: SecondHandSongsStatus = SecondHandSongsStatus.NETWORK_ERROR,
     val musicBrainzStatus: MusicBrainzStatus = MusicBrainzStatus.NETWORK_ERROR,
     val geminiConfigured: Boolean = false,
     val whoSampledStats: CoverSourceStats = CoverSourceStats(),
+    val creditsFmStats: CoverSourceStats = CoverSourceStats(),
+    val coverInfoStats: CoverSourceStats = CoverSourceStats(),
     val secondHandSongsStats: CoverSourceStats = CoverSourceStats(),
     val musicBrainzStats: CoverSourceStats = CoverSourceStats(),
     val geminiStats: CoverSourceStats = CoverSourceStats(),
@@ -67,9 +71,16 @@ internal object CoverHubSearchEngine {
         val cleanTitle = coverLookupTitle(title, originalArtist)
         if (cleanTitle.isBlank()) return@coroutineScope CoverHubOutcome(emptyList())
 
-        val whoDeferred = async(Dispatchers.IO) {
-            runCatching { WhoSampledCoverSource.lookup(cleanTitle, originalArtist) }
-                .getOrElse { WhoSampledLookup(emptyList(), WhoSampledStatus.NETWORK_ERROR) }
+        // WhoSampled is intentionally not launched in this LAB. Credits.fm and
+        // COVER.INFO are tested in parallel while the already-working engines
+        // remain untouched.
+        val creditsDeferred = async(Dispatchers.IO) {
+            runCatching { CreditsFmCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { CreditsFmLookup(emptyList(), CreditsFmStatus.NETWORK_ERROR) }
+        }
+        val coverInfoDeferred = async(Dispatchers.IO) {
+            runCatching { CoverInfoCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { CoverInfoLookup(emptyList(), CoverInfoStatus.NETWORK_ERROR) }
         }
         val secondHandSongsDeferred = async(Dispatchers.IO) {
             runCatching { SecondHandSongsCoverSource.lookup(cleanTitle, originalArtist) }
@@ -104,55 +115,44 @@ internal object CoverHubSearchEngine {
             )
         }
 
-        val directWho = whoDeferred.await()
-        val indexedWho =
-            if (
-                directWho.covers.isEmpty() &&
-                directWho.status != WhoSampledStatus.OK &&
-                geminiConfig != null
-            ) {
-                runCatching {
-                    WhoSampledIndexedDiscovery.discover(
-                        originalTitle = cleanTitle,
-                        originalArtist = originalArtist,
-                        config = geminiConfig,
-                    )
-                }.getOrDefault(emptyList())
-            } else {
-                emptyList()
-            }
-        val whoFromIndex = indexedWho.isNotEmpty()
-        val who =
-            if (whoFromIndex) {
-                WhoSampledLookup(
-                    covers = indexedWho,
-                    status = WhoSampledStatus.OK,
-                    sourceUrl = indexedWho.firstOrNull()?.url,
-                )
-            } else {
-                directWho
-            }
-        val whoSource = if (whoFromIndex) "WhoSampled · indice web" else "WhoSampled"
-
+        val credits = creditsDeferred.await()
+        val coverInfo = coverInfoDeferred.await()
         val secondHandSongs = secondHandSongsDeferred.await()
         val mb = mbDeferred.await()
         val gemini = geminiDeferred?.await().orEmpty()
 
-        val whoResolvedDeferred = async {
+        val creditsResolvedDeferred = async {
             resolveReferences(
-                references = who.covers.map {
+                references = credits.covers.map {
                     Ref(
                         title = it.title,
                         artist = it.artist,
-                        year = null,
-                        source = whoSource,
-                        confirmed = !whoFromIndex,
+                        year = it.year,
+                        source = "Credits.fm",
+                        confirmed = true,
                     )
                 },
                 originalArtist = originalArtist,
                 durationSec = durationSec,
                 currentYouTubeId = currentYouTubeId,
-                maxRefs = 60,
+                maxRefs = 80,
+            )
+        }
+        val coverInfoResolvedDeferred = async {
+            resolveReferences(
+                references = coverInfo.covers.map {
+                    Ref(
+                        title = it.title,
+                        artist = it.artist,
+                        year = it.year,
+                        source = "COVER.INFO",
+                        confirmed = true,
+                    )
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 90,
             )
         }
         val secondHandSongsResolvedDeferred = async {
@@ -199,14 +199,16 @@ internal object CoverHubSearchEngine {
             )
         }
 
-        val whoResolved = whoResolvedDeferred.await()
+        val creditsResolved = creditsResolvedDeferred.await()
+        val coverInfoResolved = coverInfoResolvedDeferred.await()
         val secondHandSongsResolved = secondHandSongsResolvedDeferred.await()
         val mbResolved = mbResolvedDeferred.await()
         val geminiResolved = geminiResolvedDeferred.await()
         val broad = broadDeferred.await()
 
         val all = buildList {
-            addAll(whoResolved)
+            addAll(creditsResolved)
+            addAll(coverInfoResolved)
             addAll(secondHandSongsResolved)
             addAll(mbResolved)
             addAll(geminiResolved)
@@ -219,19 +221,26 @@ internal object CoverHubSearchEngine {
 
         fun used(source: String): Int = ordered.count { hasSource(it, source) }
 
-        val whoUsed = used("WhoSampled")
         val geminiUsed = used("Gemini AI")
 
         CoverHubOutcome(
             results = ordered,
-            whoSampledStatus = who.status,
+            whoSampledStatus = WhoSampledStatus.NO_MATCH,
+            creditsFmStatus = credits.status,
+            coverInfoStatus = coverInfo.status,
             secondHandSongsStatus = secondHandSongs.status,
             musicBrainzStatus = mb.status,
             geminiConfigured = geminiConfig != null,
-            whoSampledStats = CoverSourceStats(
-                found = who.covers.size,
-                resolved = whoResolved.size,
-                used = whoUsed,
+            whoSampledStats = CoverSourceStats(),
+            creditsFmStats = CoverSourceStats(
+                found = credits.covers.size,
+                resolved = creditsResolved.size,
+                used = used("Credits.fm"),
+            ),
+            coverInfoStats = CoverSourceStats(
+                found = coverInfo.covers.size,
+                resolved = coverInfoResolved.size,
+                used = used("COVER.INFO"),
             ),
             secondHandSongsStats = CoverSourceStats(
                 found = secondHandSongs.covers.size,
@@ -253,7 +262,7 @@ internal object CoverHubSearchEngine {
                 resolved = broad.size,
                 used = used("YouTube Music"),
             ),
-            whoSampledCount = whoUsed,
+            whoSampledCount = 0,
             geminiCount = gemini.size,
         )
     }
@@ -601,9 +610,11 @@ internal object CoverHubSearchEngine {
     private fun priority(result: CoverHubResult): Int {
         val sourcePriority = sourceNames(result.source).maxOfOrNull { source ->
             when {
-                source == "WhoSampled" -> 5
+                source == "Credits.fm" -> 5
+                source == "COVER.INFO" -> 5
                 source == "SecondHandSongs" -> 5
                 source == "MusicBrainz" -> 4
+                source == "WhoSampled" -> 4
                 source.startsWith("WhoSampled") -> 4
                 else -> 1
             }
