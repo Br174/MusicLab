@@ -1,4 +1,0 @@
-Canonical UAB Mother alias: mother/musiclab-112726
-Source stable ref: stable-musiclab-lab01-build52
-Source commit: 770849ff543289de3adffe5bab62bc09528d19f4
-Do not edit or overwrite this Mother in place.
