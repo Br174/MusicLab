@@ -60,6 +60,12 @@ import kotlinx.coroutines.launch
 
 private val CoverHubGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 
+private enum class CoverSearchMode {
+    COVERS,
+    SAME_NAME,
+    FOREIGN,
+}
+
 /**
  * Full-screen persistent search hub. Normal taps play a result without closing
  * the search; long press opens the standard MusicLab song menu.
@@ -79,27 +85,36 @@ fun CoverSearchDialog(
     val menuState = LocalMenuState.current
     val coroutineScope = rememberCoroutineScope()
 
-    var mode by remember { mutableStateOf(CoverHubMode.COVERS) }
+    var mode by remember { mutableStateOf(CoverSearchMode.COVERS) }
+
     var coverLoading by remember { mutableStateOf(true) }
+    var coverLoaded by remember { mutableStateOf(false) }
+    var coverFailed by remember { mutableStateOf(false) }
+    var coverOutcome by remember { mutableStateOf(CoverHubOutcome(emptyList())) }
+
     var sameNameLoading by remember { mutableStateOf(false) }
     var sameNameLoadingMore by remember { mutableStateOf(false) }
-    var coverLoaded by remember { mutableStateOf(false) }
     var sameNameLoaded by remember { mutableStateOf(false) }
-    var coverOutcome by remember { mutableStateOf(CoverHubOutcome(emptyList())) }
+    var sameNameFailed by remember { mutableStateOf(false) }
+    var sameNameMoreFailed by remember { mutableStateOf(false) }
     var sameNameResults by remember { mutableStateOf<List<CoverHubResult>>(emptyList()) }
     var sameNameContinuation by remember { mutableStateOf<String?>(null) }
     var sameNameLastScanPages by remember { mutableStateOf(0) }
     var sameNameLastAdded by remember { mutableStateOf(0) }
     var sameNameScannedMore by remember { mutableStateOf(false) }
-    var coverFailed by remember { mutableStateOf(false) }
-    var sameNameFailed by remember { mutableStateOf(false) }
-    var sameNameMoreFailed by remember { mutableStateOf(false) }
+
+    var foreignLoading by remember { mutableStateOf(false) }
+    var foreignLoaded by remember { mutableStateOf(false) }
+    var foreignFailed by remember { mutableStateOf(false) }
+    var foreignOutcome by remember { mutableStateOf(ForeignVersionsOutcome(emptyList())) }
+
     var showKeyDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var keyDraft by remember { mutableStateOf("") }
 
     val coverListState = rememberLazyListState()
     val sameNameListState = rememberLazyListState()
+    val foreignListState = rememberLazyListState()
 
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
     val sharedApiKey by rememberPreference(OpenRouterApiKey, "")
@@ -110,7 +125,11 @@ fun CoverSearchDialog(
         it.isNotBlank() && (aiProvider == "Gemini" || it.trim().startsWith("AIza"))
     }.orEmpty()
     val effectiveKey = dedicatedGeminiKey.ifBlank { sharedGoogleKey }
-    val effectiveModel = if (aiProvider == "Gemini" && sharedModel.isNotBlank() && !sharedModel.contains('/')) {
+    val effectiveModel = if (
+        aiProvider == "Gemini" &&
+        sharedModel.isNotBlank() &&
+        !sharedModel.contains('/')
+    ) {
         sharedModel
     } else {
         "gemini-2.5-flash-lite"
@@ -146,6 +165,7 @@ fun CoverSearchDialog(
                     showKeyDialog = false
                     coverLoaded = false
                     sameNameLoaded = false
+                    foreignLoaded = false
                 }) { Text("Salva") }
             },
             dismissButton = {
@@ -154,7 +174,15 @@ fun CoverSearchDialog(
         )
     }
 
-    LaunchedEffect(title, originalArtist, durationSec, currentYouTubeId, effectiveKey, effectiveModel, coverLoaded) {
+    LaunchedEffect(
+        title,
+        originalArtist,
+        durationSec,
+        currentYouTubeId,
+        effectiveKey,
+        effectiveModel,
+        coverLoaded,
+    ) {
         if (coverLoaded) return@LaunchedEffect
         coverLoading = true
         coverFailed = false
@@ -174,8 +202,15 @@ fun CoverSearchDialog(
         coverLoaded = true
     }
 
-    LaunchedEffect(mode, title, currentYouTubeId, effectiveKey, effectiveModel, sameNameLoaded) {
-        if (mode != CoverHubMode.SAME_NAME || sameNameLoaded) return@LaunchedEffect
+    LaunchedEffect(
+        mode,
+        title,
+        currentYouTubeId,
+        effectiveKey,
+        effectiveModel,
+        sameNameLoaded,
+    ) {
+        if (mode != CoverSearchMode.SAME_NAME || sameNameLoaded) return@LaunchedEffect
         sameNameLoading = true
         sameNameFailed = false
         sameNameMoreFailed = false
@@ -201,6 +236,33 @@ fun CoverSearchDialog(
         sameNameLoaded = true
     }
 
+    LaunchedEffect(
+        mode,
+        title,
+        originalArtist,
+        currentYouTubeId,
+        effectiveKey,
+        effectiveModel,
+        foreignLoaded,
+    ) {
+        if (mode != CoverSearchMode.FOREIGN || foreignLoaded) return@LaunchedEffect
+        foreignLoading = true
+        foreignFailed = false
+        foreignOutcome = try {
+            ForeignVersionsSearchEngine.search(
+                title = title,
+                originalArtist = originalArtist,
+                currentYouTubeId = currentYouTubeId,
+                geminiConfig = geminiConfig,
+            )
+        } catch (_: Exception) {
+            foreignFailed = true
+            ForeignVersionsOutcome(emptyList())
+        }
+        foreignLoading = false
+        foreignLoaded = true
+    }
+
     fun play(song: SongItem) {
         if (playerConnection != null) {
             playerConnection.playNext(song.toMediaItem())
@@ -215,28 +277,30 @@ fun CoverSearchDialog(
         return "${stats.found} trovati · $notResolved non risolti · ${stats.resolved} risolti · ${stats.used} usati"
     }
 
-    if (showDiagnosticsDialog) {
-        val whoState = when (coverOutcome.whoSampledStatus) {
-            WhoSampledStatus.OK -> "ok"
-            WhoSampledStatus.NO_MATCH -> "nessuna relazione"
-            WhoSampledStatus.BLOCKED -> "bloccato da verifica"
-            WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
-            WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
-        }
-        val secondState = when (coverOutcome.secondHandSongsStatus) {
-            SecondHandSongsStatus.OK -> "ok"
-            SecondHandSongsStatus.NO_MATCH -> "nessuna relazione"
-            SecondHandSongsStatus.BLOCKED -> "bloccato"
-            SecondHandSongsStatus.AUTH_REQUIRED -> "autenticazione richiesta"
-            SecondHandSongsStatus.RATE_LIMITED -> "limite temporaneo"
-            SecondHandSongsStatus.NETWORK_ERROR -> "non disponibile"
-        }
-        val mbState = when (coverOutcome.musicBrainzStatus) {
-            MusicBrainzStatus.OK -> "ok"
-            MusicBrainzStatus.NO_MATCH -> "nessuna relazione"
-            MusicBrainzStatus.NETWORK_ERROR -> "non disponibile"
-        }
+    fun whoState(status: WhoSampledStatus): String = when (status) {
+        WhoSampledStatus.OK -> "ok"
+        WhoSampledStatus.NO_MATCH -> "nessuna relazione"
+        WhoSampledStatus.BLOCKED -> "bloccato da verifica"
+        WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
+        WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
+    }
 
+    fun secondState(status: SecondHandSongsStatus): String = when (status) {
+        SecondHandSongsStatus.OK -> "ok"
+        SecondHandSongsStatus.NO_MATCH -> "nessuna relazione"
+        SecondHandSongsStatus.BLOCKED -> "bloccato"
+        SecondHandSongsStatus.AUTH_REQUIRED -> "autenticazione richiesta"
+        SecondHandSongsStatus.RATE_LIMITED -> "limite temporaneo"
+        SecondHandSongsStatus.NETWORK_ERROR -> "non disponibile"
+    }
+
+    fun mbState(status: MusicBrainzStatus): String = when (status) {
+        MusicBrainzStatus.OK -> "ok"
+        MusicBrainzStatus.NO_MATCH -> "nessuna relazione"
+        MusicBrainzStatus.NETWORK_ERROR -> "non disponibile"
+    }
+
+    if (showDiagnosticsDialog) {
         AlertDialog(
             onDismissRequest = { showDiagnosticsDialog = false },
             title = { Text("Verifica motori") },
@@ -246,38 +310,70 @@ fun CoverSearchDialog(
                         Text("Ricerca cover ancora in corso…", style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(8.dp))
                     }
-                    Text("WhoSampled: $whoState", style = MaterialTheme.typography.bodyMedium)
+
+                    Text("Cover", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(6.dp))
+                    Text("WhoSampled: ${whoState(coverOutcome.whoSampledStatus)}", style = MaterialTheme.typography.bodyMedium)
                     Text(statsText(coverOutcome.whoSampledStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
-
-                    Text("SecondHandSongs: $secondState", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("SecondHandSongs: ${secondState(coverOutcome.secondHandSongsStatus)}", style = MaterialTheme.typography.bodyMedium)
                     Text(statsText(coverOutcome.secondHandSongsStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
-
-                    Text("MusicBrainz: $mbState", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("MusicBrainz: ${mbState(coverOutcome.musicBrainzStatus)}", style = MaterialTheme.typography.bodyMedium)
                     Text(statsText(coverOutcome.musicBrainzStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
-
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         if (coverOutcome.geminiConfigured) "Gemini AI: attivo" else "Gemini AI: non configurato",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(statsText(coverOutcome.geminiStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
-
+                    Spacer(Modifier.height(6.dp))
                     Text("YouTube Music", style = MaterialTheme.typography.bodyMedium)
                     Text(statsText(coverOutcome.youtubeMusicStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(10.dp))
-
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         "Risultati finali cover: ${coverOutcome.results.size}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
 
+                    if (foreignLoaded || foreignLoading) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Versioni straniere", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        if (foreignLoading) {
+                            Text("Ricerca ancora in corso…", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Spacer(Modifier.height(6.dp))
+                            Text("WhoSampled: ${whoState(foreignOutcome.whoSampledStatus)}", style = MaterialTheme.typography.bodyMedium)
+                            Text(statsText(foreignOutcome.whoSampledStats), style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(6.dp))
+                            Text("SecondHandSongs: ${secondState(foreignOutcome.secondHandSongsStatus)}", style = MaterialTheme.typography.bodyMedium)
+                            Text(statsText(foreignOutcome.secondHandSongsStats), style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(6.dp))
+                            Text("MusicBrainz: ${mbState(foreignOutcome.musicBrainzStatus)}", style = MaterialTheme.typography.bodyMedium)
+                            Text(statsText(foreignOutcome.musicBrainzStats), style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                if (foreignOutcome.geminiConfigured) "Gemini AI: attivo" else "Gemini AI: non configurato",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(statsText(foreignOutcome.geminiStats), style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "YouTube Music: ${foreignOutcome.results.size} versioni riproducibili",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "Risultati finali stranieri: ${foreignOutcome.results.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+
                     if (sameNameLoaded) {
-                        Spacer(Modifier.height(10.dp))
-                        Text("Stesso nome · YouTube Music", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(12.dp))
+                        Text("Stesso nome · YouTube Music", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                         Text(
                             "${sameNameResults.size} risultati · $sameNameLastScanPages pagine nell'ultimo blocco · $sameNameLastAdded aggiunti",
                             style = MaterialTheme.typography.bodySmall,
@@ -328,73 +424,126 @@ fun CoverSearchDialog(
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     FilterChip(
-                        selected = mode == CoverHubMode.COVERS,
-                        onClick = { mode = CoverHubMode.COVERS },
-                        label = { Text("Cover") },
+                        selected = mode == CoverSearchMode.COVERS,
+                        onClick = { mode = CoverSearchMode.COVERS },
+                        label = { Text("Cover", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.weight(0.8f),
                     )
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(6.dp))
                     FilterChip(
-                        selected = mode == CoverHubMode.SAME_NAME,
-                        onClick = { mode = CoverHubMode.SAME_NAME },
-                        label = { Text("Stesso nome") },
+                        selected = mode == CoverSearchMode.SAME_NAME,
+                        onClick = { mode = CoverSearchMode.SAME_NAME },
+                        label = { Text("Stesso nome", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.weight(1.05f),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    FilterChip(
+                        selected = mode == CoverSearchMode.FOREIGN,
+                        onClick = { mode = CoverSearchMode.FOREIGN },
+                        label = {
+                            Text(
+                                "Versioni straniere",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 2,
+                            )
+                        },
+                        modifier = Modifier.weight(1.35f),
                     )
                 }
 
-                if (mode == CoverHubMode.COVERS) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = if (geminiConfig != null) "Gemini: attivo" else "Gemini: non configurato",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (geminiConfig != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = {
-                            keyDraft = dedicatedGeminiKey.ifBlank { sharedGoogleKey }
-                            showKeyDialog = true
-                        }) { Text("Chiave AI") }
+                when (mode) {
+                    CoverSearchMode.COVERS -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = if (geminiConfig != null) "Gemini: attivo" else "Gemini: non configurato",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (geminiConfig != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = {
+                                keyDraft = dedicatedGeminiKey.ifBlank { sharedGoogleKey }
+                                showKeyDialog = true
+                            }) { Text("Chiave AI") }
+                        }
                     }
-                } else {
-                    Text(
-                        text = "Tutte le canzoni trovate con lo stesso titolo, anche se non sono cover.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
-                    )
-                    if (!sameNameLoading && sameNameLoaded) {
-                        if (sameNameScannedMore && sameNameLastAdded == 0 && sameNameContinuation != null) {
+
+                    CoverSearchMode.SAME_NAME -> {
+                        Text(
+                            text = "Tutte le canzoni trovate con lo stesso titolo, anche se non sono cover.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                        )
+                        if (!sameNameLoading && sameNameLoaded) {
+                            if (sameNameScannedMore && sameNameLastAdded == 0 && sameNameContinuation != null) {
+                                Text(
+                                    text = "Nessun nuovo risultato in questo blocco; puoi premere Cerca ancora.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                            } else if (sameNameScannedMore && sameNameLastAdded > 0) {
+                                Text(
+                                    text = "+$sameNameLastAdded nuovi risultati.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                            } else if (sameNameContinuation == null && sameNameResults.isNotEmpty()) {
+                                Text(
+                                    text = "Fine dei risultati disponibili.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    CoverSearchMode.FOREIGN -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
                             Text(
-                                text = "Nessun nuovo risultato in questo blocco; puoi premere Cerca ancora.",
+                                text = "Adattamenti e traduzioni in altre lingue della stessa composizione.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 4.dp),
+                                modifier = Modifier.weight(1f),
                             )
-                        } else if (sameNameScannedMore && sameNameLastAdded > 0) {
-                            Text(
-                                text = "+$sameNameLastAdded nuovi risultati.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(bottom = 4.dp),
-                            )
-                        } else if (sameNameContinuation == null && sameNameResults.isNotEmpty()) {
-                            Text(
-                                text = "Fine dei risultati disponibili.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 4.dp),
-                            )
+                            TextButton(onClick = {
+                                keyDraft = dedicatedGeminiKey.ifBlank { sharedGoogleKey }
+                                showKeyDialog = true
+                            }) { Text("Chiave AI") }
                         }
                     }
                 }
 
                 Spacer(Modifier.height(6.dp))
 
-                val loading = if (mode == CoverHubMode.COVERS) coverLoading else sameNameLoading
-                val failed = if (mode == CoverHubMode.COVERS) coverFailed else sameNameFailed
-                val results = if (mode == CoverHubMode.COVERS) coverOutcome.results else sameNameResults
-                val listState = if (mode == CoverHubMode.COVERS) coverListState else sameNameListState
+                val loading = when (mode) {
+                    CoverSearchMode.COVERS -> coverLoading
+                    CoverSearchMode.SAME_NAME -> sameNameLoading
+                    CoverSearchMode.FOREIGN -> foreignLoading
+                }
+                val failed = when (mode) {
+                    CoverSearchMode.COVERS -> coverFailed
+                    CoverSearchMode.SAME_NAME -> sameNameFailed
+                    CoverSearchMode.FOREIGN -> foreignFailed
+                }
+                val results = when (mode) {
+                    CoverSearchMode.COVERS -> coverOutcome.results
+                    CoverSearchMode.SAME_NAME -> sameNameResults
+                    CoverSearchMode.FOREIGN -> foreignOutcome.results
+                }
+                val listState = when (mode) {
+                    CoverSearchMode.COVERS -> coverListState
+                    CoverSearchMode.SAME_NAME -> sameNameListState
+                    CoverSearchMode.FOREIGN -> foreignListState
+                }
 
                 when {
                     loading -> Box(
@@ -412,7 +561,11 @@ fun CoverSearchDialog(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            if (mode == CoverHubMode.COVERS) "Nessuna interpretazione affidabile trovata" else "Nessun altro brano con lo stesso nome trovato",
+                            when (mode) {
+                                CoverSearchMode.COVERS -> "Nessuna interpretazione affidabile trovata"
+                                CoverSearchMode.SAME_NAME -> "Nessun altro brano con lo stesso nome trovato"
+                                CoverSearchMode.FOREIGN -> "Nessuna versione straniera verificabile trovata"
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -509,7 +662,11 @@ fun CoverSearchDialog(
                             }
                         }
 
-                        if (mode == CoverHubMode.SAME_NAME && sameNameContinuation != null && sameNameResults.size < 100) {
+                        if (
+                            mode == CoverSearchMode.SAME_NAME &&
+                            sameNameContinuation != null &&
+                            sameNameResults.size < 100
+                        ) {
                             TextButton(
                                 enabled = !sameNameLoadingMore,
                                 modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -554,7 +711,7 @@ fun CoverSearchDialog(
                             }
                         }
 
-                        if (mode == CoverHubMode.SAME_NAME && sameNameMoreFailed) {
+                        if (mode == CoverSearchMode.SAME_NAME && sameNameMoreFailed) {
                             Text(
                                 text = "Impossibile caricare altri risultati. Puoi riprovare.",
                                 style = MaterialTheme.typography.labelSmall,
