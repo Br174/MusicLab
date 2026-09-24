@@ -358,6 +358,14 @@ internal fun CoverSearchScreen(
         WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
     }
 
+    fun creditsState(status: CreditsFmStatus): String = when (status) {
+        CreditsFmStatus.OK -> "ok"
+        CreditsFmStatus.NO_MATCH -> "nessuna relazione"
+        CreditsFmStatus.AUTH_REQUIRED -> "autenticazione richiesta"
+        CreditsFmStatus.RATE_LIMITED -> "limite temporaneo"
+        CreditsFmStatus.NETWORK_ERROR -> "non disponibile"
+    }
+
     fun secondState(status: SecondHandSongsStatus): String = when (status) {
         SecondHandSongsStatus.OK -> "ok"
         SecondHandSongsStatus.NO_MATCH -> "nessuna relazione"
@@ -386,6 +394,9 @@ internal fun CoverSearchScreen(
                         Spacer(Modifier.height(6.dp))
                         Text("WhoSampled: ${whoState(coverOutcome.whoSampledStatus)}", style = MaterialTheme.typography.bodyMedium)
                         Text(statsText(coverOutcome.whoSampledStats), style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(6.dp))
+                        Text("Credits.fm: ${creditsState(coverOutcome.creditsFmStatus)}", style = MaterialTheme.typography.bodyMedium)
+                        Text(statsText(coverOutcome.creditsFmStats), style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(6.dp))
                         Text("SecondHandSongs: ${secondState(coverOutcome.secondHandSongsStatus)}", style = MaterialTheme.typography.bodyMedium)
                         Text(statsText(coverOutcome.secondHandSongsStats), style = MaterialTheme.typography.bodySmall)

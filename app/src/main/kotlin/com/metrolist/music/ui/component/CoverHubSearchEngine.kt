@@ -36,10 +36,12 @@ internal data class CoverSourceStats(
 internal data class CoverHubOutcome(
     val results: List<CoverHubResult>,
     val whoSampledStatus: WhoSampledStatus = WhoSampledStatus.NETWORK_ERROR,
+    val creditsFmStatus: CreditsFmStatus = CreditsFmStatus.NETWORK_ERROR,
     val secondHandSongsStatus: SecondHandSongsStatus = SecondHandSongsStatus.NETWORK_ERROR,
     val musicBrainzStatus: MusicBrainzStatus = MusicBrainzStatus.NETWORK_ERROR,
     val geminiConfigured: Boolean = false,
     val whoSampledStats: CoverSourceStats = CoverSourceStats(),
+    val creditsFmStats: CoverSourceStats = CoverSourceStats(),
     val secondHandSongsStats: CoverSourceStats = CoverSourceStats(),
     val musicBrainzStats: CoverSourceStats = CoverSourceStats(),
     val geminiStats: CoverSourceStats = CoverSourceStats(),
@@ -205,12 +207,36 @@ internal object CoverHubSearchEngine {
         val geminiResolved = geminiResolvedDeferred.await()
         val broad = broadDeferred.await()
 
+        // Credits.fm is deliberately additive: start it only after every
+        // Mother/core provider and its YouTube resolution have completed.
+        // A slow or unavailable Credits.fm therefore cannot regress them.
+        val credits = async(Dispatchers.IO) {
+            runCatching { CreditsFmCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { CreditsFmLookup(emptyList(), CreditsFmStatus.NETWORK_ERROR) }
+        }.await()
+        val creditsResolved = resolveReferences(
+            references = credits.covers.map {
+                Ref(
+                    title = it.title,
+                    artist = it.artist,
+                    year = it.year,
+                    source = "Credits.fm",
+                    confirmed = true,
+                )
+            },
+            originalArtist = originalArtist,
+            durationSec = durationSec,
+            currentYouTubeId = currentYouTubeId,
+            maxRefs = 64,
+        )
+
         val all = buildList {
             addAll(whoResolved)
             addAll(secondHandSongsResolved)
             addAll(mbResolved)
             addAll(geminiResolved)
             addAll(broad)
+            addAll(creditsResolved)
         }
 
         val merged = mergeResults(all)
@@ -225,6 +251,7 @@ internal object CoverHubSearchEngine {
         CoverHubOutcome(
             results = ordered,
             whoSampledStatus = who.status,
+            creditsFmStatus = credits.status,
             secondHandSongsStatus = secondHandSongs.status,
             musicBrainzStatus = mb.status,
             geminiConfigured = geminiConfig != null,
@@ -232,6 +259,11 @@ internal object CoverHubSearchEngine {
                 found = who.covers.size,
                 resolved = whoResolved.size,
                 used = whoUsed,
+            ),
+            creditsFmStats = CoverSourceStats(
+                found = credits.covers.size,
+                resolved = creditsResolved.size,
+                used = used("Credits.fm"),
             ),
             secondHandSongsStats = CoverSourceStats(
                 found = secondHandSongs.covers.size,
