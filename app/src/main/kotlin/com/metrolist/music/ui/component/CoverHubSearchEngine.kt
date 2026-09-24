@@ -27,9 +27,24 @@ internal data class CoverHubResult(
     val score: Double = 0.0,
 )
 
+internal data class CoverSourceStats(
+    val found: Int = 0,
+    val resolved: Int = 0,
+    val used: Int = 0,
+)
+
 internal data class CoverHubOutcome(
     val results: List<CoverHubResult>,
     val whoSampledStatus: WhoSampledStatus = WhoSampledStatus.NETWORK_ERROR,
+    val secondHandSongsStatus: SecondHandSongsStatus = SecondHandSongsStatus.NETWORK_ERROR,
+    val musicBrainzStatus: MusicBrainzStatus = MusicBrainzStatus.NETWORK_ERROR,
+    val geminiConfigured: Boolean = false,
+    val whoSampledStats: CoverSourceStats = CoverSourceStats(),
+    val secondHandSongsStats: CoverSourceStats = CoverSourceStats(),
+    val musicBrainzStats: CoverSourceStats = CoverSourceStats(),
+    val geminiStats: CoverSourceStats = CoverSourceStats(),
+    val youtubeMusicStats: CoverSourceStats = CoverSourceStats(),
+    // Kept for compatibility with older callers/UI while diagnostics migrate.
     val whoSampledCount: Int = 0,
     val geminiCount: Int = 0,
 )
@@ -37,6 +52,8 @@ internal data class CoverHubOutcome(
 internal data class SameNameSearchPage(
     val results: List<CoverHubResult>,
     val continuation: String? = null,
+    val scannedPages: Int = 0,
+    val addedCount: Int = 0,
 )
 
 internal object CoverHubSearchEngine {
@@ -53,6 +70,15 @@ internal object CoverHubSearchEngine {
         val whoDeferred = async(Dispatchers.IO) {
             runCatching { WhoSampledCoverSource.lookup(cleanTitle, originalArtist) }
                 .getOrElse { WhoSampledLookup(emptyList(), WhoSampledStatus.NETWORK_ERROR) }
+        }
+        val secondHandSongsDeferred = async(Dispatchers.IO) {
+            runCatching { SecondHandSongsCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse {
+                    SecondHandSongsLookup(
+                        emptyList(),
+                        SecondHandSongsStatus.NETWORK_ERROR,
+                    )
+                }
         }
         val mbDeferred = async(Dispatchers.IO) {
             runCatching { MusicBrainzCoverSource.lookup(cleanTitle, originalArtist) }
@@ -79,21 +105,7 @@ internal object CoverHubSearchEngine {
         }
 
         val who = whoDeferred.await()
-        val secondHandSongsDeferred = if (who.status == WhoSampledStatus.OK && who.covers.isNotEmpty()) {
-            null
-        } else {
-            async(Dispatchers.IO) {
-                runCatching { SecondHandSongsCoverSource.lookup(cleanTitle, originalArtist) }
-                    .getOrElse {
-                        SecondHandSongsLookup(
-                            emptyList(),
-                            SecondHandSongsStatus.NETWORK_ERROR,
-                        )
-                    }
-            }
-        }
-        val secondHandSongs = secondHandSongsDeferred?.await()
-            ?: SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH)
+        val secondHandSongs = secondHandSongsDeferred.await()
         val mb = mbDeferred.await()
         val gemini = geminiDeferred?.await().orEmpty()
 
@@ -150,22 +162,61 @@ internal object CoverHubSearchEngine {
             )
         }
 
+        val whoResolved = whoResolvedDeferred.await()
+        val secondHandSongsResolved = secondHandSongsResolvedDeferred.await()
+        val mbResolved = mbResolvedDeferred.await()
+        val geminiResolved = geminiResolvedDeferred.await()
+        val broad = broadDeferred.await()
+
         val all = buildList {
-            addAll(whoResolvedDeferred.await())
-            addAll(secondHandSongsResolvedDeferred.await())
-            addAll(mbResolvedDeferred.await())
-            addAll(geminiResolvedDeferred.await())
-            addAll(broadDeferred.await())
+            addAll(whoResolved)
+            addAll(secondHandSongsResolved)
+            addAll(mbResolved)
+            addAll(geminiResolved)
+            addAll(broad)
         }
 
         val merged = mergeResults(all)
         val enriched = enrichYears(merged, geminiConfig)
         val ordered = orderOldestFirst(enriched).take(MAX_RESULTS)
 
+        fun used(source: String): Int = ordered.count { it.source == source }
+
+        val whoUsed = ordered.count { it.source.startsWith("WhoSampled") }
+        val geminiUsed = ordered.count { it.source.startsWith("Gemini") }
+
         CoverHubOutcome(
             results = ordered,
             whoSampledStatus = who.status,
-            whoSampledCount = ordered.count { it.source.startsWith("WhoSampled") },
+            secondHandSongsStatus = secondHandSongs.status,
+            musicBrainzStatus = mb.status,
+            geminiConfigured = geminiConfig != null,
+            whoSampledStats = CoverSourceStats(
+                found = who.covers.size,
+                resolved = whoResolved.size,
+                used = whoUsed,
+            ),
+            secondHandSongsStats = CoverSourceStats(
+                found = secondHandSongs.covers.size,
+                resolved = secondHandSongsResolved.size,
+                used = used("SecondHandSongs"),
+            ),
+            musicBrainzStats = CoverSourceStats(
+                found = mb.covers.size,
+                resolved = mbResolved.size,
+                used = used("MusicBrainz"),
+            ),
+            geminiStats = CoverSourceStats(
+                found = gemini.size,
+                resolved = geminiResolved.size,
+                used = geminiUsed,
+            ),
+            youtubeMusicStats = CoverSourceStats(
+                found = broad.size,
+                resolved = broad.size,
+                used = used("YouTube Music"),
+            ),
+            whoSampledCount = whoUsed,
             geminiCount = gemini.size,
         )
     }
@@ -178,20 +229,52 @@ internal object CoverHubSearchEngine {
         val clean = title.trim()
         if (clean.isBlank()) return@coroutineScope SameNameSearchPage(emptyList())
 
-        val page = YouTube.search(clean, YouTube.SearchFilter.FILTER_SONG).getOrThrow()
-        val raw = sameNameResults(
-            songs = page.items.filterIsInstance<SongItem>(),
+        val firstPage = YouTube.search(clean, YouTube.SearchFilter.FILTER_SONG).getOrThrow()
+        val collected = linkedMapOf<String, CoverHubResult>()
+        val seenIds = mutableSetOf<String>()
+        var continuation = firstPage.continuation
+        var scannedPages = 1
+
+        sameNameResults(
+            songs = firstPage.items.filterIsInstance<SongItem>(),
             title = clean,
             currentYouTubeId = currentYouTubeId,
-            seenIds = emptySet(),
-        )
-        val enriched = orderOldestFirst(enrichYears(raw, geminiConfig))
+            seenIds = seenIds,
+        ).forEach { result ->
+            collected.putIfAbsent(result.song.id, result)
+            seenIds += result.song.id
+        }
+
+        val seenContinuations = mutableSetOf<String>()
+        while (
+            continuation != null &&
+            collected.size < INITIAL_SAME_NAME_TARGET &&
+            scannedPages < MAX_SAME_NAME_PAGES_PER_BATCH &&
+            seenContinuations.add(continuation)
+        ) {
+            val page = YouTube.searchContinuation(continuation).getOrThrow()
+            scannedPages++
+            sameNameResults(
+                songs = page.items.filterIsInstance<SongItem>(),
+                title = clean,
+                currentYouTubeId = currentYouTubeId,
+                seenIds = seenIds,
+            ).forEach { result ->
+                collected.putIfAbsent(result.song.id, result)
+                seenIds += result.song.id
+            }
+            continuation = page.continuation
+        }
+
+        val enriched = orderOldestFirst(enrichYears(collected.values.toList(), geminiConfig))
             .distinctBy { it.song.id }
             .take(MAX_SAME_NAME_RESULTS)
 
         SameNameSearchPage(
             results = enriched,
-            continuation = page.continuation.takeIf { enriched.size < MAX_SAME_NAME_RESULTS },
+            continuation = continuation.takeIf { enriched.size < MAX_SAME_NAME_RESULTS },
+            scannedPages = scannedPages,
+            addedCount = enriched.size,
         )
     }
 
@@ -209,22 +292,44 @@ internal object CoverHubSearchEngine {
             )
         }
 
-        val page = YouTube.searchContinuation(continuation).getOrThrow()
-        val seenIds = existingResults.mapTo(mutableSetOf()) { it.song.id }
-        val fresh = sameNameResults(
-            songs = page.items.filterIsInstance<SongItem>(),
-            title = title,
-            currentYouTubeId = currentYouTubeId,
-            seenIds = seenIds,
-        )
-        val enrichedFresh = enrichYears(fresh, geminiConfig)
+        val existingIds = existingResults.mapTo(mutableSetOf()) { it.song.id }
+        val fresh = linkedMapOf<String, CoverHubResult>()
+        val seenIds = existingIds.toMutableSet()
+        val seenContinuations = mutableSetOf<String>()
+        var nextContinuation: String? = continuation
+        var scannedPages = 0
+
+        while (
+            nextContinuation != null &&
+            fresh.size < MORE_SAME_NAME_TARGET &&
+            scannedPages < MAX_SAME_NAME_PAGES_PER_BATCH &&
+            seenContinuations.add(nextContinuation)
+        ) {
+            val page = YouTube.searchContinuation(nextContinuation).getOrThrow()
+            scannedPages++
+            sameNameResults(
+                songs = page.items.filterIsInstance<SongItem>(),
+                title = title,
+                currentYouTubeId = currentYouTubeId,
+                seenIds = seenIds,
+            ).forEach { result ->
+                fresh.putIfAbsent(result.song.id, result)
+                seenIds += result.song.id
+            }
+            nextContinuation = page.continuation
+        }
+
+        val enrichedFresh = enrichYears(fresh.values.toList(), geminiConfig)
         val merged = orderOldestFirst(existingResults + enrichedFresh)
             .distinctBy { it.song.id }
             .take(MAX_SAME_NAME_RESULTS)
+        val addedCount = merged.count { it.song.id !in existingIds }
 
         SameNameSearchPage(
             results = merged,
-            continuation = page.continuation.takeIf { merged.size < MAX_SAME_NAME_RESULTS },
+            continuation = nextContinuation.takeIf { merged.size < MAX_SAME_NAME_RESULTS },
+            scannedPages = scannedPages,
+            addedCount = addedCount,
         )
     }
 
@@ -235,23 +340,22 @@ internal object CoverHubSearchEngine {
         seenIds: Set<String>,
     ): List<CoverHubResult> {
         val target = canonicalTitle(title)
-        val unique = linkedMapOf<String, SongItem>()
+        val unique = linkedMapOf<String, CoverHubResult>()
         songs.forEach { song ->
-            if (
-                song.id != currentYouTubeId &&
-                song.id !in seenIds &&
-                canonicalTitle(song.title) == target
-            ) {
-                unique.putIfAbsent(song.id, song)
-            }
-        }
-        return unique.values.map {
-            CoverHubResult(
-                song = it,
-                source = "Stesso nome",
-                score = 1.0,
+            if (song.id == currentYouTubeId || song.id in seenIds) return@forEach
+            val candidateTitle = canonicalTitle(song.title)
+            val similarity = titleSimilarity(target, candidateTitle)
+            if (similarity < SAME_NAME_MIN_SIMILARITY) return@forEach
+            unique.putIfAbsent(
+                song.id,
+                CoverHubResult(
+                    song = song,
+                    source = "Stesso nome · YouTube Music",
+                    score = similarity,
+                ),
             )
         }
+        return unique.values.toList()
     }
 
     private data class Ref(
@@ -384,7 +488,7 @@ internal object CoverHubSearchEngine {
             if (durationScore < 0.15 && titleScore < 0.92) return@mapNotNull null
             CoverHubResult(
                 song = song,
-                source = "MusicLab",
+                source = "YouTube Music",
                 confirmed = false,
                 score = titleScore * 0.78 + durationScore * 0.22,
             )
@@ -521,6 +625,10 @@ internal object CoverHubSearchEngine {
 
     private const val MAX_RESULTS = 120
     private const val MAX_SAME_NAME_RESULTS = 100
+    private const val INITIAL_SAME_NAME_TARGET = 40
+    private const val MORE_SAME_NAME_TARGET = 30
+    private const val MAX_SAME_NAME_PAGES_PER_BATCH = 12
+    private const val SAME_NAME_MIN_SIMILARITY = 0.94
 
     private val TITLE_NOISE_REGEX = Regex(
         "\\b(official|video|audio|lyrics?|lyric|cover|acoustic|unplugged|live|version|versione|versión|versao|versão|rendition|interpretation|reinterpretation|tribute|performance|session|remaster(?:ed)?|studio)\\b",
