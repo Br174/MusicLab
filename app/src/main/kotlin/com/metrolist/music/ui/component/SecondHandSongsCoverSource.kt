@@ -186,10 +186,11 @@ internal object SecondHandSongsCoverSource {
         if (id.isBlank()) return null
         return when (val response = fetchJson("$BASE_URL/performance/$id")) {
             is FetchJson.Error -> null
-            is FetchJson.Ok -> parseJson(response.body)
-                ?.let(::collectPerformanceRefs)
-                ?.firstOrNull { it.id == id }
-                ?: parseJson(response.body)?.let(::performanceFromObject)
+            is FetchJson.Ok -> {
+                val root = parseJson(response.body) ?: return null
+                collectPerformanceRefs(root).firstOrNull { it.id == id }
+                    ?: (root as? JSONObject)?.let(::performanceFromObject)
+            }
         }
     }
 
