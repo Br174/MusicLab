@@ -18,7 +18,7 @@ workflows:
       groups:
         - uab_delivery
       vars:
-        UAB_OUTPUT_NAME: "MusicLab-LAB-01"
+        UAB_OUTPUT_NAME: "MusicLab-LAB"
         UAB_MANIFEST_REPOSITORY: "Br174/Chatgpt"
         UAB_MANIFEST_BRANCH: "main"
         UAB_MANIFEST_PATH: "uab-artifacts/{project}/latest.json"
