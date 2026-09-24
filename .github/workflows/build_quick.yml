@@ -9,7 +9,7 @@ on:
       - ".github/workflows/build_quick.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: uab-musiclab-github-fallback
@@ -83,15 +83,108 @@ jobs:
           CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
           CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
 
-      - name: Upload APK and ZIP
+      - name: Prepare stable Android delivery assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/uab/stable
+
+          APK="$(find dist/uab/apk -maxdepth 1 -type f -name '*.apk' | sort | head -n 1)"
+          test -n "$APK"
+          test -s "$APK"
+
+          # APK is itself a ZIP container. This catches truncated/corrupted APKs.
+          unzip -tq "$APK" >/dev/null
+
+          APK_SIZE="$(stat -c%s "$APK")"
+          if [ "$APK_SIZE" -lt 10000000 ]; then
+            echo "APK unexpectedly small: $APK_SIZE bytes" >&2
+            exit 31
+          fi
+
+          cp "$APK" dist/uab/stable/MusicLab-LAB-LATEST.apk
+
+          python3 <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          apk = Path('dist/uab/stable/MusicLab-LAB-LATEST.apk')
+          out = Path('dist/uab/stable/MusicLab-LAB-LATEST.zip')
+          data = apk.read_bytes()
+
+          info = zipfile.ZipInfo('MusicLab.apk', date_time=(2026, 1, 1, 0, 0, 0))
+          info.create_system = 0
+          info.compress_type = zipfile.ZIP_STORED
+          info.external_attr = 0
+          info.extra = b''
+          info.comment = b''
+
+          with zipfile.ZipFile(out, 'w', allowZip64=False) as zf:
+              zf.writestr(info, data)
+
+          with zipfile.ZipFile(out, 'r') as zf:
+              assert zf.testzip() is None
+              assert zf.namelist() == ['MusicLab.apk']
+              assert len(zf.read('MusicLab.apk')) == len(data)
+          PY
+
+          (
+            cd dist/uab/stable
+            sha256sum MusicLab-LAB-LATEST.apk MusicLab-LAB-LATEST.zip > SHA256SUMS.txt
+            unzip -tq MusicLab-LAB-LATEST.zip >/dev/null
+            ls -lh MusicLab-LAB-LATEST.apk MusicLab-LAB-LATEST.zip SHA256SUMS.txt
+          )
+
+      - name: Publish stable UAB Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="uab-musiclab-lab-latest"
+          TITLE="MusicLab LAB - Latest"
+          NOTES_FILE="$(mktemp)"
+          {
+            echo "Authoritative UAB delivery for the latest MusicLab LAB."
+            echo
+            echo "Source commit: $GITHUB_SHA"
+            echo "Workflow run: $GITHUB_RUN_ID"
+            echo
+            echo "Use MusicLab-LAB-LATEST.apk for direct Android installation."
+            echo "Use MusicLab-LAB-LATEST.zip only when a ZIP container is preferred."
+          } > "$NOTES_FILE"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              dist/uab/stable/MusicLab-LAB-LATEST.apk \
+              dist/uab/stable/MusicLab-LAB-LATEST.zip \
+              dist/uab/stable/SHA256SUMS.txt \
+              --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE" \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" \
+              dist/uab/stable/MusicLab-LAB-LATEST.apk \
+              dist/uab/stable/MusicLab-LAB-LATEST.zip \
+              dist/uab/stable/SHA256SUMS.txt \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,assets,url
+
+      - name: Upload temporary verification artifact
         uses: actions/upload-artifact@v4
         with:
           name: MusicLab-LAB-UAB
           path: |
-            dist/uab/apk/*.apk
-            dist/uab/*.zip
+            dist/uab/stable/MusicLab-LAB-LATEST.apk
+            dist/uab/stable/MusicLab-LAB-LATEST.zip
+            dist/uab/stable/SHA256SUMS.txt
             dist/uab/logs/*.log
           if-no-files-found: error
           retention-days: 14
-
-# Trigger: repaired cover providers 2026-09-24
