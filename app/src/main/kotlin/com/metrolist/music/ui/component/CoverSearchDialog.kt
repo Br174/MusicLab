@@ -95,6 +95,7 @@ fun CoverSearchDialog(
     var sameNameFailed by remember { mutableStateOf(false) }
     var sameNameMoreFailed by remember { mutableStateOf(false) }
     var showKeyDialog by remember { mutableStateOf(false) }
+    var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var keyDraft by remember { mutableStateOf("") }
 
     val coverListState = rememberLazyListState()
@@ -209,8 +210,86 @@ fun CoverSearchDialog(
         }
     }
 
-    fun statsText(stats: CoverSourceStats): String =
-        "${stats.found} trovati · ${stats.resolved} risolti · ${stats.used} usati"
+    fun statsText(stats: CoverSourceStats): String {
+        val notResolved = (stats.found - stats.resolved).coerceAtLeast(0)
+        return "${stats.found} trovati · $notResolved non risolti · ${stats.resolved} risolti · ${stats.used} usati"
+    }
+
+    if (showDiagnosticsDialog) {
+        val whoState = when (coverOutcome.whoSampledStatus) {
+            WhoSampledStatus.OK -> "ok"
+            WhoSampledStatus.NO_MATCH -> "nessuna relazione"
+            WhoSampledStatus.BLOCKED -> "bloccato da verifica"
+            WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
+            WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
+        }
+        val secondState = when (coverOutcome.secondHandSongsStatus) {
+            SecondHandSongsStatus.OK -> "ok"
+            SecondHandSongsStatus.NO_MATCH -> "nessuna relazione"
+            SecondHandSongsStatus.BLOCKED -> "bloccato"
+            SecondHandSongsStatus.AUTH_REQUIRED -> "autenticazione richiesta"
+            SecondHandSongsStatus.RATE_LIMITED -> "limite temporaneo"
+            SecondHandSongsStatus.NETWORK_ERROR -> "non disponibile"
+        }
+        val mbState = when (coverOutcome.musicBrainzStatus) {
+            MusicBrainzStatus.OK -> "ok"
+            MusicBrainzStatus.NO_MATCH -> "nessuna relazione"
+            MusicBrainzStatus.NETWORK_ERROR -> "non disponibile"
+        }
+
+        AlertDialog(
+            onDismissRequest = { showDiagnosticsDialog = false },
+            title = { Text("Verifica motori") },
+            text = {
+                Column {
+                    if (coverLoading) {
+                        Text("Ricerca cover ancora in corso…", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Text("WhoSampled: $whoState", style = MaterialTheme.typography.bodyMedium)
+                    Text(statsText(coverOutcome.whoSampledStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+
+                    Text("SecondHandSongs: $secondState", style = MaterialTheme.typography.bodyMedium)
+                    Text(statsText(coverOutcome.secondHandSongsStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+
+                    Text("MusicBrainz: $mbState", style = MaterialTheme.typography.bodyMedium)
+                    Text(statsText(coverOutcome.musicBrainzStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        if (coverOutcome.geminiConfigured) "Gemini AI: attivo" else "Gemini AI: non configurato",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(statsText(coverOutcome.geminiStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+
+                    Text("YouTube Music", style = MaterialTheme.typography.bodyMedium)
+                    Text(statsText(coverOutcome.youtubeMusicStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(10.dp))
+
+                    Text(
+                        "Risultati finali cover: ${coverOutcome.results.size}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+
+                    if (sameNameLoaded) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("Stesso nome · YouTube Music", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${sameNameResults.size} risultati · $sameNameLastScanPages pagine nell'ultimo blocco · $sameNameLastAdded aggiunti",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDiagnosticsDialog = false }) { Text("Chiudi") }
+            },
+        )
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -234,6 +313,7 @@ fun CoverSearchDialog(
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.weight(1f),
                     )
+                    TextButton(onClick = { showDiagnosticsDialog = true }) { Text("ⓘ") }
                     TextButton(onClick = onDismiss) { Text("Chiudi") }
                 }
 
@@ -276,65 +356,6 @@ fun CoverSearchDialog(
                             showKeyDialog = true
                         }) { Text("Chiave AI") }
                     }
-
-                    if (!coverLoading) {
-                        val diagnosticStyle = MaterialTheme.typography.labelSmall
-                        val diagnosticColor = MaterialTheme.colorScheme.onSurfaceVariant
-
-                        val whoState = when (coverOutcome.whoSampledStatus) {
-                            WhoSampledStatus.OK -> "ok"
-                            WhoSampledStatus.NO_MATCH -> "nessuna relazione"
-                            WhoSampledStatus.BLOCKED -> "bloccato da verifica"
-                            WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
-                            WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
-                        }
-                        Text(
-                            "WhoSampled: $whoState · ${statsText(coverOutcome.whoSampledStats)}",
-                            style = diagnosticStyle,
-                            color = diagnosticColor,
-                        )
-
-                        val secondState = when (coverOutcome.secondHandSongsStatus) {
-                            SecondHandSongsStatus.OK -> "ok"
-                            SecondHandSongsStatus.NO_MATCH -> "nessuna relazione"
-                            SecondHandSongsStatus.BLOCKED -> "bloccato"
-                            SecondHandSongsStatus.AUTH_REQUIRED -> "autenticazione richiesta"
-                            SecondHandSongsStatus.RATE_LIMITED -> "limite temporaneo"
-                            SecondHandSongsStatus.NETWORK_ERROR -> "non disponibile"
-                        }
-                        Text(
-                            "SecondHandSongs: $secondState · ${statsText(coverOutcome.secondHandSongsStats)}",
-                            style = diagnosticStyle,
-                            color = diagnosticColor,
-                        )
-
-                        val mbState = when (coverOutcome.musicBrainzStatus) {
-                            MusicBrainzStatus.OK -> "ok"
-                            MusicBrainzStatus.NO_MATCH -> "nessuna relazione"
-                            MusicBrainzStatus.NETWORK_ERROR -> "non disponibile"
-                        }
-                        Text(
-                            "MusicBrainz: $mbState · ${statsText(coverOutcome.musicBrainzStats)}",
-                            style = diagnosticStyle,
-                            color = diagnosticColor,
-                        )
-
-                        Text(
-                            text = if (coverOutcome.geminiConfigured) {
-                                "Gemini AI: attivo · ${statsText(coverOutcome.geminiStats)}"
-                            } else {
-                                "Gemini AI: non configurato · 0 trovati · 0 risolti · 0 usati"
-                            },
-                            style = diagnosticStyle,
-                            color = diagnosticColor,
-                        )
-
-                        Text(
-                            "YouTube Music: ${statsText(coverOutcome.youtubeMusicStats)}",
-                            style = diagnosticStyle,
-                            color = diagnosticColor,
-                        )
-                    }
                 } else {
                     Text(
                         text = "Tutte le canzoni trovate con lo stesso titolo, anche se non sono cover.",
@@ -343,29 +364,23 @@ fun CoverSearchDialog(
                         modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                     )
                     if (!sameNameLoading && sameNameLoaded) {
-                        Text(
-                            text = "YouTube Music: ${sameNameResults.size} risultati · $sameNameLastScanPages pagine analizzate nell'ultimo blocco",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 4.dp),
-                        )
                         if (sameNameScannedMore && sameNameLastAdded == 0 && sameNameContinuation != null) {
                             Text(
-                                text = "Nessun nuovo titolo in queste $sameNameLastScanPages pagine; puoi premere Cerca ancora per continuare.",
+                                text = "Nessun nuovo risultato in questo blocco; puoi premere Cerca ancora.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(bottom = 4.dp),
                             )
                         } else if (sameNameScannedMore && sameNameLastAdded > 0) {
                             Text(
-                                text = "+$sameNameLastAdded nuovi risultati trovati nell'ultimo blocco.",
+                                text = "+$sameNameLastAdded nuovi risultati.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(bottom = 4.dp),
                             )
                         } else if (sameNameContinuation == null && sameNameResults.isNotEmpty()) {
                             Text(
-                                text = "Fine dei risultati disponibili per questa ricerca.",
+                                text = "Fine dei risultati disponibili.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(bottom = 4.dp),
