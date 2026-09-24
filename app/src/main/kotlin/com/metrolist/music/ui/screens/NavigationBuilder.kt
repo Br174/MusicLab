@@ -25,6 +25,8 @@ import androidx.navigation.compose.dialog
 import androidx.navigation.navArgument
 import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.PureBlackKey
+import com.metrolist.music.ui.component.CoverNavigationBridge
+import com.metrolist.music.ui.component.CoverSearchScreen
 import com.metrolist.music.ui.screens.artist.ArtistAlbumsScreen
 import com.metrolist.music.ui.screens.artist.ArtistItemsScreen
 import com.metrolist.music.ui.screens.artist.ArtistScreen
@@ -67,8 +69,6 @@ import com.metrolist.music.ui.screens.settings.integrations.LastFMSettings
 import com.metrolist.music.ui.screens.settings.integrations.ListenTogetherSettings
 import com.metrolist.music.ui.screens.settings.integrations.SpotifyPreloadScreen
 import com.metrolist.music.ui.screens.settings.integrations.SpotifySettings
-import com.metrolist.music.ui.screens.recognition.RecognitionScreen
-import com.metrolist.music.ui.screens.recognition.RecognitionHistoryScreen
 import com.metrolist.music.ui.screens.wrapped.WrappedScreen
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
@@ -81,8 +81,19 @@ fun NavGraphBuilder.navigationBuilder(
     activity: Activity,
     snackbarHostState: SnackbarHostState,
 ) {
+    CoverNavigationBridge.bind(navController)
+
     composable(Screens.Home.route) {
         HomeScreen(navController = navController, snackbarHostState = snackbarHostState)
+    }
+
+    composable(CoverNavigationBridge.ROUTE) {
+        CoverNavigationBridge.currentRequest?.let { request ->
+            CoverSearchScreen(
+                request = request,
+                navController = navController,
+            )
+        }
     }
 
     composable(Screens.Search.route) { backStackEntry ->
@@ -190,7 +201,6 @@ fun NavGraphBuilder.navigationBuilder(
             navController = navController,
             savedStateHandle = backStackEntry.savedStateHandle
         )
-
     }
 
     composable(
@@ -475,9 +485,6 @@ fun NavGraphBuilder.navigationBuilder(
     ) { backStack ->
         val rawUri = backStack.arguments?.getString("folderUri").orEmpty()
         val rawName = backStack.arguments?.getString("name")
-        // Both args were URL-encoded by the caller (URI contains ':' and '/'; name
-        // can contain spaces or unicode). Decode here so we hand the unmodified
-        // values to the API and the AppBar.
         val folderUri = java.net.URLDecoder.decode(rawUri, Charsets.UTF_8.name())
         val folderName = rawName?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }
         SpotifyFolderScreen(navController, folderUri, folderName)
