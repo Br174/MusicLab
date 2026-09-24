@@ -16,6 +16,7 @@ internal enum class SecondHandSongsStatus {
     OK,
     NO_MATCH,
     BLOCKED,
+    AUTH_REQUIRED,
     RATE_LIMITED,
     NETWORK_ERROR,
 }
@@ -35,18 +36,20 @@ internal data class SecondHandSongsLookup(
 )
 
 /**
- * Structured fallback for cover/version discovery through SecondHandSongs.
+ * Structured source for cover/version discovery through SecondHandSongs.
  *
- * The public API returns JSON when Accept: application/json is requested.
- * No API key is required for the basic metadata used here. MusicLab does not
- * request or depend on SecondHandSongs' external YouTube/Spotify links: each
- * discovered performance is resolved to a playable item through YouTube Music.
+ * MusicLab first searches by title + performer and, if that is too strict,
+ * retries by title only. It then follows the native performance relations:
+ * current performance -> original performance -> covers. The work versions
+ * endpoint remains an additional fallback. No CAPTCHA/access-control bypass is
+ * attempted and no API key is hardcoded in the application.
  */
 internal object SecondHandSongsCoverSource {
     private const val BASE_URL = "https://secondhandsongs.com"
     private const val REQUEST_TIMEOUT_MS = 7_500
-    private const val MAX_SEARCH_CANDIDATES = 5
-    private const val MAX_DISCOVERED_COVERS = 80
+    private const val MAX_SEARCH_CANDIDATES = 6
+    private const val MAX_DISCOVERED_COVERS = 100
+    private const val MAX_ORIGINAL_EXPANSIONS = 2
     private const val CACHE_TTL_MS = 12L * 60L * 60L * 1000L
     private const val ERROR_CACHE_TTL_MS = 10L * 60L * 1000L
     private const val USER_AGENT = "MusicLab/0.8.9 (https://github.com/Br174/MusicLab)"
@@ -99,72 +102,116 @@ internal object SecondHandSongsCoverSource {
     }
 
     private fun lookupFresh(title: String, artist: String): SecondHandSongsLookup {
-        val searchUrl = buildString {
-            append("$BASE_URL/search/performance?title=")
-            append(URLEncoder.encode(title, "UTF-8"))
-            if (artist.isNotBlank()) {
-                append("&performer=")
-                append(URLEncoder.encode(artist, "UTF-8"))
-            }
-            append("&pageSize=10&page=1")
-        }
+        val candidates = linkedMapOf<String, PerformanceRef>()
+        var lastUrl: String? = null
+        var lastStatus: SecondHandSongsStatus? = null
 
-        val search = fetchJson(searchUrl)
-        if (search is FetchJson.Error) {
-            return SecondHandSongsLookup(emptyList(), search.status, search.url)
-        }
-        search as FetchJson.Ok
+        val searchArtists = buildList {
+            if (artist.isNotBlank()) add(artist)
+            add("")
+        }.distinct()
 
-        val searchRoot = parseJson(search.body)
-            ?: return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NETWORK_ERROR, search.url)
-        val candidates = collectPerformanceRefs(searchRoot)
-            .filter { ref ->
-                val titleScore = textSimilarity(title, ref.title)
-                val artistScore = if (artist.isBlank()) 1.0 else textSimilarity(artist, ref.artist)
-                titleScore >= 0.60 && (artist.isBlank() || artistScore >= 0.28 || titleScore >= 0.94)
+        for (searchArtist in searchArtists) {
+            val searchUrl = buildSearchUrl(title, searchArtist)
+            lastUrl = searchUrl
+            when (val search = fetchJson(searchUrl)) {
+                is FetchJson.Error -> {
+                    lastStatus = search.status
+                    if (
+                        search.status == SecondHandSongsStatus.BLOCKED ||
+                        search.status == SecondHandSongsStatus.AUTH_REQUIRED ||
+                        search.status == SecondHandSongsStatus.RATE_LIMITED
+                    ) {
+                        return SecondHandSongsLookup(emptyList(), search.status, search.url)
+                    }
+                }
+
+                is FetchJson.Ok -> {
+                    val root = parseJson(search.body) ?: run {
+                        lastStatus = SecondHandSongsStatus.NETWORK_ERROR
+                        continue
+                    }
+                    collectPerformanceRefs(root)
+                        .filter { ref ->
+                            val titleScore = textSimilarity(title, ref.title)
+                            val artistScore = if (artist.isBlank()) 1.0 else textSimilarity(artist, ref.artist)
+                            titleScore >= 0.60 &&
+                                (searchArtist.isBlank() || artistScore >= 0.24 || titleScore >= 0.94)
+                        }
+                        .sortedByDescending { ref ->
+                            textSimilarity(title, ref.title) * 0.80 +
+                                (if (artist.isBlank()) 1.0 else textSimilarity(artist, ref.artist)) * 0.20
+                        }
+                        .forEach { ref -> candidates.putIfAbsent(ref.id, ref) }
+                }
             }
-            .sortedByDescending { ref ->
-                textSimilarity(title, ref.title) * 0.78 +
-                    (if (artist.isBlank()) 1.0 else textSimilarity(artist, ref.artist)) * 0.22
-            }
-            .distinctBy { it.id }
-            .take(MAX_SEARCH_CANDIDATES)
+            if (candidates.size >= MAX_SEARCH_CANDIDATES) break
+        }
 
         if (candidates.isEmpty()) {
-            return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, search.url)
+            return SecondHandSongsLookup(
+                emptyList(),
+                lastStatus ?: SecondHandSongsStatus.NO_MATCH,
+                lastUrl,
+            )
         }
 
-        for (candidate in candidates) {
-            val detailed = if (candidate.workIds.isNotEmpty()) {
-                candidate
-            } else {
-                fetchPerformance(candidate.id) ?: candidate
+        for (candidate in candidates.values.take(MAX_SEARCH_CANDIDATES)) {
+            val detailRoot = fetchPerformanceRoot(candidate.id)
+            val detailed = detailRoot
+                ?.let(::collectPerformanceRefs)
+                ?.firstOrNull { it.id == candidate.id }
+                ?: candidate
+            val workId = detailed.workIds.firstOrNull().orEmpty()
+
+            val relationRefs = linkedMapOf<String, PerformanceRef>()
+            detailRoot?.let { root ->
+                collectPerformanceRefs(root)
+                    .filter { it.id != candidate.id }
+                    .forEach { relationRefs.putIfAbsent(it.id, it) }
+
+                originalPerformanceIds(root)
+                    .take(MAX_ORIGINAL_EXPANSIONS)
+                    .forEach { originalId ->
+                        fetchPerformanceRoot(originalId)?.let { originalRoot ->
+                            collectPerformanceRefs(originalRoot)
+                                .filter { it.id != candidate.id }
+                                .forEach { relationRefs.putIfAbsent(it.id, it) }
+                        }
+                    }
             }
 
-            val workId = detailed.workIds.firstOrNull() ?: continue
+            val relationCovers = relationRefs.values
+                .mapNotNull { ref -> ref.toCover(workId) }
+                .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
+                .take(MAX_DISCOVERED_COVERS)
+
+            if (relationCovers.isNotEmpty()) {
+                return SecondHandSongsLookup(
+                    covers = relationCovers,
+                    status = SecondHandSongsStatus.OK,
+                    sourceUrl = "$BASE_URL/performance/${candidate.id}",
+                )
+            }
+
+            if (workId.isBlank()) continue
             val workUrl = "$BASE_URL/work/$workId"
             when (val workResponse = fetchJson(workUrl)) {
                 is FetchJson.Error -> {
-                    if (workResponse.status == SecondHandSongsStatus.BLOCKED ||
+                    if (
+                        workResponse.status == SecondHandSongsStatus.BLOCKED ||
+                        workResponse.status == SecondHandSongsStatus.AUTH_REQUIRED ||
                         workResponse.status == SecondHandSongsStatus.RATE_LIMITED
                     ) {
                         return SecondHandSongsLookup(emptyList(), workResponse.status, workUrl)
                     }
                 }
+
                 is FetchJson.Ok -> {
                     val root = parseJson(workResponse.body) ?: continue
                     val versions = collectPerformanceRefs(root)
                         .filter { it.id != candidate.id }
-                        .mapNotNull { ref ->
-                            if (ref.title.isBlank() || ref.artist.isBlank()) return@mapNotNull null
-                            SecondHandSongsCover(
-                                title = ref.title,
-                                artist = ref.artist,
-                                performanceId = ref.id,
-                                workId = workId,
-                                year = ref.year,
-                            )
-                        }
+                        .mapNotNull { ref -> ref.toCover(workId) }
                         .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
                         .take(MAX_DISCOVERED_COVERS)
 
@@ -179,19 +226,41 @@ internal object SecondHandSongsCoverSource {
             }
         }
 
-        return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, search.url)
+        return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, lastUrl)
     }
 
-    private fun fetchPerformance(id: String): PerformanceRef? {
+    private fun buildSearchUrl(title: String, artist: String): String = buildString {
+        append("$BASE_URL/search/performance?title=")
+        append(URLEncoder.encode(title, "UTF-8"))
+        if (artist.isNotBlank()) {
+            append("&performer=")
+            append(URLEncoder.encode(artist, "UTF-8"))
+        }
+        append("&pageSize=20&page=1")
+    }
+
+    private fun fetchPerformanceRoot(id: String): JSONObject? {
         if (id.isBlank()) return null
         return when (val response = fetchJson("$BASE_URL/performance/$id")) {
             is FetchJson.Error -> null
-            is FetchJson.Ok -> {
-                val root = parseJson(response.body) ?: return null
-                collectPerformanceRefs(root).firstOrNull { it.id == id }
-                    ?: (root as? JSONObject)?.let(::performanceFromObject)
-            }
+            is FetchJson.Ok -> parseJson(response.body) as? JSONObject
         }
+    }
+
+    private fun originalPerformanceIds(root: JSONObject): List<String> {
+        val originals = root.optJSONArray("originals") ?: return emptyList()
+        return collectPerformanceRefs(originals).map { it.id }.distinct()
+    }
+
+    private fun PerformanceRef.toCover(fallbackWorkId: String): SecondHandSongsCover? {
+        if (title.isBlank() || artist.isBlank()) return null
+        return SecondHandSongsCover(
+            title = title,
+            artist = artist,
+            performanceId = id,
+            workId = workIds.firstOrNull().orEmpty().ifBlank { fallbackWorkId },
+            year = year,
+        )
     }
 
     private fun fetchJson(url: String): FetchJson = runCatching {
@@ -203,14 +272,32 @@ internal object SecondHandSongsCoverSource {
             .ignoreHttpErrors(true)
             .execute()
 
+        val body = response.body()
         when (response.statusCode()) {
-            in 200..299 -> FetchJson.Ok(response.body(), response.url().toString())
+            in 200..299 -> when {
+                body.trim().startsWith("{") || body.trim().startsWith("[") ->
+                    FetchJson.Ok(body, response.url().toString())
+                looksLikeChallenge(body) ->
+                    FetchJson.Error(SecondHandSongsStatus.BLOCKED, response.url().toString())
+                else ->
+                    FetchJson.Error(SecondHandSongsStatus.NETWORK_ERROR, response.url().toString())
+            }
+            401 -> FetchJson.Error(SecondHandSongsStatus.AUTH_REQUIRED, response.url().toString())
             403 -> FetchJson.Error(SecondHandSongsStatus.BLOCKED, response.url().toString())
             429 -> FetchJson.Error(SecondHandSongsStatus.RATE_LIMITED, response.url().toString())
             else -> FetchJson.Error(SecondHandSongsStatus.NETWORK_ERROR, response.url().toString())
         }
     }.getOrElse {
         FetchJson.Error(SecondHandSongsStatus.NETWORK_ERROR, url)
+    }
+
+    private fun looksLikeChallenge(body: String): Boolean {
+        val text = body.lowercase()
+        return text.contains("captcha") ||
+            text.contains("verify you are human") ||
+            text.contains("access denied") ||
+            text.contains("cloudflare") ||
+            text.contains("security check")
     }
 
     private fun parseJson(body: String): Any? {
@@ -266,13 +353,12 @@ internal object SecondHandSongsCoverSource {
             }
         }
 
-        val year = parseYear(obj)
         return PerformanceRef(
             id = id,
             title = title,
             artist = performer,
             workIds = workIds.distinct(),
-            year = year,
+            year = parseYear(obj),
         )
     }
 
