@@ -141,60 +141,77 @@ Use null when reliable evidence is insufficient."""
     private fun GeminiCoverVerificationConfig.isUsable(): Boolean =
         apiKey.isNotBlank() && MODEL_REGEX.matches(model.trim())
 
+    /**
+     * The UI historically defaulted to Gemini 2.5 Flash-Lite. Google currently
+     * recommends the newer stable Flash-Lite model for new workloads. Keep the
+     * legacy model as a transparent fallback so existing explicit settings are
+     * not broken while the old default automatically benefits from the current
+     * model.
+     */
+    private fun modelCandidates(requestedModel: String): List<String> =
+        if (requestedModel == LEGACY_DEFAULT_MODEL) {
+            listOf(CURRENT_DEFAULT_MODEL, LEGACY_DEFAULT_MODEL)
+        } else {
+            listOf(requestedModel)
+        }
+
     private fun executeGrounded(
         prompt: String,
         config: GeminiCoverVerificationConfig,
         maxOutputTokens: Int,
     ): GroundedText? {
-        val model = config.model.trim()
-        val body =
-            buildJsonObject {
-                put(
-                    "contents",
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("role", "user")
-                                put(
-                                    "parts",
-                                    buildJsonArray {
-                                        add(buildJsonObject { put("text", prompt) })
-                                    },
-                                )
-                            },
-                        )
-                    },
-                )
-                put(
-                    "tools",
-                    buildJsonArray {
-                        add(buildJsonObject { put("google_search", buildJsonObject {}) })
-                    },
-                )
-                put(
-                    "generationConfig",
-                    buildJsonObject {
-                        put("temperature", 0.0)
-                        put("maxOutputTokens", maxOutputTokens)
-                    },
-                )
-            }
+        for (model in modelCandidates(config.model.trim())) {
+            val body =
+                buildJsonObject {
+                    put(
+                        "contents",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("role", "user")
+                                    put(
+                                        "parts",
+                                        buildJsonArray {
+                                            add(buildJsonObject { put("text", prompt) })
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                    put(
+                        "tools",
+                        buildJsonArray {
+                            add(buildJsonObject { put("google_search", buildJsonObject {}) })
+                        },
+                    )
+                    put(
+                        "generationConfig",
+                        buildJsonObject {
+                            put("maxOutputTokens", maxOutputTokens)
+                        },
+                    )
+                }
 
-        val request =
-            Request
-                .Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
-                .addHeader("x-goog-api-key", config.apiKey.trim())
-                .addHeader("Content-Type", "application/json")
-                .post(body.toString().toRequestBody(jsonMediaType))
-                .build()
+            val request =
+                Request
+                    .Builder()
+                    .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
+                    .addHeader("x-goog-api-key", config.apiKey.trim())
+                    .addHeader("Content-Type", "application/json")
+                    .post(body.toString().toRequestBody(jsonMediaType))
+                    .build()
 
-        return runCatching {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                response.body?.string()?.let(::parseGroundedResponse)
-            }
-        }.getOrNull()
+            val grounded = runCatching {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    response.body?.string()?.let(::parseGroundedResponse)
+                }
+            }.getOrNull()
+
+            if (grounded != null) return grounded
+        }
+        return null
     }
 
     private fun parseGroundedResponse(responseBody: String): GroundedText? {
@@ -283,7 +300,14 @@ Use null when reliable evidence is insufficient."""
             }
         }
 
-        return GroundedText(text, supportedSources.size)
+        // GroundingSupports maps exact answer spans to citations, but for JSON
+        // discovery some valid grounded responses expose only GroundingChunks.
+        // A retrieved web chunk is sufficient to prove that Google Search ran;
+        // final candidates are still resolved against YouTube Music later.
+        val webSourceCount =
+            if (supportedSources.isNotEmpty()) supportedSources.size else chunkKeys.values.distinct().size
+
+        return GroundedText(text, webSourceCount)
     }
 
     internal fun parseDiscoveryText(text: String): List<GeminiDiscoveredCover> {
@@ -366,5 +390,7 @@ Use null when reliable evidence is insufficient."""
 
     private const val CACHE_TTL_MS = 12L * 60L * 60L * 1000L
     private const val MAX_DISCOVERY_RESULTS = 36
+    private const val LEGACY_DEFAULT_MODEL = "gemini-2.5-flash-lite"
+    private const val CURRENT_DEFAULT_MODEL = "gemini-3.5-flash-lite"
     private val MODEL_REGEX = Regex("[A-Za-z0-9._-]+")
 }
