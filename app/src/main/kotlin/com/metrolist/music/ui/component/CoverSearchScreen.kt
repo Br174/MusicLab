@@ -105,7 +105,7 @@ private object CoverSearchSessionStore {
     private val sessions = ConcurrentHashMap<String, CoverSearchSession>()
 
     fun get(key: String): CoverSearchSession {
-        if (sessions.size > 12 && key !in sessions) {
+        if (sessions.size > 12 && !sessions.containsKey(key)) {
             sessions.keys.firstOrNull()?.let(sessions::remove)
         }
         return sessions.getOrPut(key) { CoverSearchSession() }
@@ -342,9 +342,6 @@ internal fun CoverSearchScreen(
         val connection = playerConnection ?: return
         connection.playNext(result.song.toMediaItem())
         connection.seekToNext()
-        // Cover remains in the NavHost underneath. Expanding the existing player
-        // brings it visually above this screen; collapsing it reveals the same
-        // search results and scroll state immediately.
         PlayerBottomSheetBridge.expandSoft()
     }
 
@@ -460,7 +457,6 @@ internal fun CoverSearchScreen(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
         ) {
-            // The only drag-to-close target. Dragging the results list never closes the screen.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
