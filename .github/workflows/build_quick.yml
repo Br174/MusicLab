@@ -2,6 +2,11 @@ name: Universal APK Builder - GitHub fallback
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - lab-cover-repair-from-build52
+    paths:
+      - ".github/workflows/build_quick.yml"
 
 permissions:
   contents: read
