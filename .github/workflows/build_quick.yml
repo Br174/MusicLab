@@ -38,6 +38,7 @@ jobs:
           fetch-depth: 1
 
       - name: Detect lifecycle stage
+        id: stage
         shell: bash
         run: |
           set -euo pipefail
@@ -48,6 +49,7 @@ jobs:
             *) UAB_STAGE="LAB" ;;
           esac
           echo "UAB_STAGE=$UAB_STAGE" >> "$GITHUB_ENV"
+          echo "stage=$UAB_STAGE" >> "$GITHUB_OUTPUT"
           echo "[UAB_PROGRESS=15] Stage=$UAB_STAGE; MADRE di riferimento mother/musiclab-112726 protetta"
 
       - name: Set up Java 21
@@ -123,12 +125,11 @@ jobs:
           unzip -tq "$APK" >/dev/null
           APK_SIZE="$(stat -c%s "$APK")"
           test "$APK_SIZE" -ge 10000000
-          SAFE_STAGE="$(printf '%s' "$UAB_STAGE" | tr '[:lower:]' '[:upper:]')"
-          cp "$APK" "dist/uab/lifecycle/MusicLab-${SAFE_STAGE}.apk"
+          cp "$APK" "dist/uab/lifecycle/MusicLab-${UAB_STAGE}.apk"
           python3 <<'PY'
           from pathlib import Path
           import os, zipfile
-          stage = os.environ['UAB_STAGE'].upper()
+          stage = os.environ['UAB_STAGE']
           apk = Path(f'dist/uab/lifecycle/MusicLab-{stage}.apk')
           out = Path(f'dist/uab/lifecycle/MusicLab-{stage}.zip')
           data = apk.read_bytes()
@@ -145,24 +146,24 @@ jobs:
               assert zf.namelist() == ['MusicLab.apk']
               assert zf.read('MusicLab.apk') == data
           PY
-          (cd dist/uab/lifecycle && sha256sum MusicLab-"$SAFE_STAGE".apk MusicLab-"$SAFE_STAGE".zip > SHA256SUMS.txt)
+          (cd dist/uab/lifecycle && sha256sum "MusicLab-${UAB_STAGE}.apk" "MusicLab-${UAB_STAGE}.zip" > SHA256SUMS.txt)
           echo "[UAB_PROGRESS=85] APK/ZIP $UAB_STAGE verificati"
 
       - name: Upload temporary LAB/CANDIDATA artifact
-        if: env.UAB_STAGE != 'MADRE'
+        if: steps.stage.outputs.stage != 'MADRE'
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-${{ env.UAB_STAGE }}-${{ github.run_number }}
+          name: MusicLab-${{ steps.stage.outputs.stage }}-${{ github.run_number }}
           path: |
-            dist/uab/lifecycle/MusicLab-${{ env.UAB_STAGE }}.apk
-            dist/uab/lifecycle/MusicLab-${{ env.UAB_STAGE }}.zip
+            dist/uab/lifecycle/MusicLab-${{ steps.stage.outputs.stage }}.apk
+            dist/uab/lifecycle/MusicLab-${{ steps.stage.outputs.stage }}.zip
             dist/uab/lifecycle/SHA256SUMS.txt
             dist/uab/logs/*.log
           if-no-files-found: error
           retention-days: 14
 
       - name: Publish immutable MADRE release
-        if: env.UAB_STAGE == 'MADRE'
+        if: steps.stage.outputs.stage == 'MADRE'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -177,6 +178,10 @@ jobs:
           fi
           cp dist/uab/lifecycle/MusicLab-MADRE.apk "dist/uab/lifecycle/MusicLab-MADRE-${SUFFIX}.apk"
           cp dist/uab/lifecycle/MusicLab-MADRE.zip "dist/uab/lifecycle/MusicLab-MADRE-${SUFFIX}.zip"
+          (
+            cd dist/uab/lifecycle
+            sha256sum "MusicLab-MADRE-${SUFFIX}.apk" "MusicLab-MADRE-${SUFFIX}.zip" > "SHA256SUMS-${SUFFIX}.txt"
+          )
           cat > /tmp/mother-notes.md <<EOF
           MusicLab MADRE approvata: ${SUFFIX}
           Source commit: $GITHUB_SHA
@@ -186,12 +191,13 @@ jobs:
           gh release create "$TAG" \
             "dist/uab/lifecycle/MusicLab-MADRE-${SUFFIX}.apk" \
             "dist/uab/lifecycle/MusicLab-MADRE-${SUFFIX}.zip" \
-            dist/uab/lifecycle/SHA256SUMS.txt \
+            "dist/uab/lifecycle/SHA256SUMS-${SUFFIX}.txt" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$TITLE" \
             --notes-file /tmp/mother-notes.md \
             --latest
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,name,url,assets
 
       - name: Progress 95% - handoff/promotion ready
         shell: bash
