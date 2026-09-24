@@ -400,7 +400,8 @@ internal fun CoverSearchScreen(
                         Text(
                             "percorso: ${coverOutcome.creditsFmSourceCandidates} ISRC sorgente · " +
                                 "${coverOutcome.creditsFmWorksFound} ISWC · " +
-                                "${coverOutcome.creditsFmLinkedRecordings} registrazioni collegate",
+                                "${coverOutcome.creditsFmLinkedRecordings} registrazioni collegate · " +
+                                "${coverOutcome.creditsFmTitleMatchedRecordings} da ricerca titolo",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Spacer(Modifier.height(6.dp))

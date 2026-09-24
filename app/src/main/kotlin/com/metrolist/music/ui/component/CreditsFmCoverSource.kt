@@ -34,6 +34,7 @@ internal data class CreditsFmLookup(
     val sourceCandidates: Int = 0,
     val worksFound: Int = 0,
     val linkedRecordings: Int = 0,
+    val titleMatchedRecordings: Int = 0,
 )
 
 /**
@@ -205,6 +206,52 @@ internal object CreditsFmCoverSource {
             if (related.size >= MAX_RELATED_ISRCS) break
         }
 
+        // Q2 quantity expansion: the title-focused Credits.fm search is paginated up to
+        // 1000 rows. Keep only recordings explicitly tied to one of the ISWCs already
+        // discovered from the trusted source candidates. This broadens coverage without
+        // admitting unrelated same-title songs.
+        var titleMatchedRecordings = 0
+        if (worksSeen.isNotEmpty()) {
+            val sourceIsrcs = candidates.mapTo(linkedSetOf()) { it.isrc }
+
+            fun absorbTitleMatches(root: Any): Int {
+                var added = 0
+                collectRecordingRefsForWorks(root, worksSeen).forEach { ref ->
+                    if (ref.isrc in sourceIsrcs) return@forEach
+                    if (similarity(title, ref.title) < 0.42) return@forEach
+                    val previous = related[ref.isrc]
+                    related[ref.isrc] = mergeRecordingRef(previous, ref)
+                    if (previous == null) added++
+                }
+                return added
+            }
+
+            titleMatchedRecordings += absorbTitleMatches(searchRoot)
+            var offset = 100
+            var hasMore = searchHasMore(searchRoot) != false
+            while (hasMore && offset < 1000 && related.size < MAX_RELATED_ISRCS) {
+                val pageUrl = "$BASE_URL/search?q=$encoded&type=isrc&match=recording_title&exclude_lyrics=true&limit=100&offset=$offset&nocache=1"
+                lastUrl = pageUrl
+                when (val response = fetchJson(pageUrl)) {
+                    is FetchJson.Error -> {
+                        terminalStatus = response.status
+                        hasMore = false
+                    }
+                    is FetchJson.Ok -> {
+                        val root = parseJson(response.body)
+                        if (root == null) {
+                            hasMore = false
+                        } else {
+                            val pageRecordingCount = collectRecordingRefs(root).size
+                            titleMatchedRecordings += absorbTitleMatches(root)
+                            hasMore = searchHasMore(root) ?: (pageRecordingCount > 0)
+                            offset += 100
+                        }
+                    }
+                }
+            }
+        }
+
         if (related.isEmpty()) {
             return CreditsFmLookup(
                 covers = emptyList(),
@@ -213,6 +260,7 @@ internal object CreditsFmCoverSource {
                 sourceCandidates = sourceCandidateCount,
                 worksFound = worksSeen.size,
                 linkedRecordings = 0,
+                titleMatchedRecordings = titleMatchedRecordings,
             )
         }
 
@@ -256,6 +304,7 @@ internal object CreditsFmCoverSource {
                 sourceCandidates = sourceCandidateCount,
                 worksFound = worksSeen.size,
                 linkedRecordings = related.size,
+                titleMatchedRecordings = titleMatchedRecordings,
             )
         } else {
             CreditsFmLookup(
@@ -265,6 +314,7 @@ internal object CreditsFmCoverSource {
                 sourceCandidates = sourceCandidateCount,
                 worksFound = worksSeen.size,
                 linkedRecordings = related.size,
+                titleMatchedRecordings = titleMatchedRecordings,
             )
         }
     }
@@ -318,6 +368,64 @@ internal object CreditsFmCoverSource {
 
         visit(root)
         return result.values.toList()
+    }
+
+    private fun collectRecordingRefsForWorks(root: Any, allowedWorks: Set<String>): List<RecordingRef> {
+        val result = linkedMapOf<String, RecordingRef>()
+
+        fun visit(value: Any?) {
+            when (value) {
+                is JSONObject -> {
+                    val ref = recordingFromObject(value)
+                    if (ref != null) {
+                        val objectWorks = collectIswcs(value)
+                        if (objectWorks.any { it in allowedWorks }) {
+                            result[ref.isrc] = mergeRecordingRef(result[ref.isrc], ref)
+                        }
+                    }
+                    value.keys().forEach { key -> visit(value.opt(key)) }
+                }
+                is JSONArray -> for (index in 0 until value.length()) visit(value.opt(index))
+            }
+        }
+
+        visit(root)
+        return result.values.toList()
+    }
+
+    private fun searchHasMore(root: Any): Boolean? {
+        var result: Boolean? = null
+
+        fun visit(value: Any?) {
+            if (result != null) return
+            when (value) {
+                is JSONObject -> value.keys().forEach { key ->
+                    if (key.equals("has_more", ignoreCase = true)) {
+                        result = when (val raw = value.opt(key)) {
+                            is Boolean -> raw
+                            is String -> raw.equals("true", ignoreCase = true)
+                            else -> null
+                        }
+                    } else {
+                        visit(value.opt(key))
+                    }
+                }
+                is JSONArray -> for (index in 0 until value.length()) visit(value.opt(index))
+            }
+        }
+
+        visit(root)
+        return result
+    }
+
+    private fun mergeRecordingRef(existing: RecordingRef?, candidate: RecordingRef): RecordingRef {
+        if (existing == null) return candidate
+        return RecordingRef(
+            isrc = candidate.isrc,
+            title = candidate.title.ifBlank { existing.title },
+            artist = candidate.artist.ifBlank { existing.artist },
+            year = candidate.year ?: existing.year,
+        )
     }
 
     private fun collectIswcs(root: Any): List<String> {
