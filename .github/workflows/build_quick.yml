@@ -93,3 +93,5 @@ jobs:
             dist/uab/logs/*.log
           if-no-files-found: error
           retention-days: 14
+
+# Trigger: repaired cover providers 2026-09-24
