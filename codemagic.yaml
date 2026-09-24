@@ -11,9 +11,6 @@ workflows:
         - pattern: 'universal-apk-builder'
           include: true
           source: true
-        - pattern: 'lab-cover-repair-from-build52'
-          include: true
-          source: true
       cancel_previous_builds: true
 
     environment:
