@@ -71,16 +71,14 @@ internal object CoverHubSearchEngine {
         val cleanTitle = coverLookupTitle(title, originalArtist)
         if (cleanTitle.isBlank()) return@coroutineScope CoverHubOutcome(emptyList())
 
-        // WhoSampled is intentionally not launched in this LAB. Credits.fm and
-        // COVER.INFO are tested in parallel while the already-working engines
-        // remain untouched.
-        val creditsDeferred = async(Dispatchers.IO) {
-            runCatching { CreditsFmCoverSource.lookup(cleanTitle, originalArtist) }
-                .getOrElse { CreditsFmLookup(emptyList(), CreditsFmStatus.NETWORK_ERROR) }
-        }
-        val coverInfoDeferred = async(Dispatchers.IO) {
-            runCatching { CoverInfoCoverSource.lookup(cleanTitle, originalArtist) }
-                .getOrElse { CoverInfoLookup(emptyList(), CoverInfoStatus.NETWORK_ERROR) }
+        // Core providers: preserve the known-good 112726 behavior. The
+        // experimental providers are intentionally started only after the
+        // core lookups and reference resolution have completed, so a slow
+        // or failing new provider cannot starve/regress MusicBrainz,
+        // SecondHandSongs, Gemini or YouTube Music.
+        val whoDeferred = async(Dispatchers.IO) {
+            runCatching { WhoSampledCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { WhoSampledLookup(emptyList(), WhoSampledStatus.NETWORK_ERROR) }
         }
         val secondHandSongsDeferred = async(Dispatchers.IO) {
             runCatching { SecondHandSongsCoverSource.lookup(cleanTitle, originalArtist) }
@@ -115,44 +113,55 @@ internal object CoverHubSearchEngine {
             )
         }
 
-        val credits = creditsDeferred.await()
-        val coverInfo = coverInfoDeferred.await()
+        val directWho = whoDeferred.await()
+        val indexedWho =
+            if (
+                directWho.covers.isEmpty() &&
+                directWho.status != WhoSampledStatus.OK &&
+                geminiConfig != null
+            ) {
+                runCatching {
+                    WhoSampledIndexedDiscovery.discover(
+                        originalTitle = cleanTitle,
+                        originalArtist = originalArtist,
+                        config = geminiConfig,
+                    )
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+        val whoFromIndex = indexedWho.isNotEmpty()
+        val who =
+            if (whoFromIndex) {
+                WhoSampledLookup(
+                    covers = indexedWho,
+                    status = WhoSampledStatus.OK,
+                    sourceUrl = indexedWho.firstOrNull()?.url,
+                )
+            } else {
+                directWho
+            }
+        val whoSource = if (whoFromIndex) "WhoSampled · indice web" else "WhoSampled"
+
         val secondHandSongs = secondHandSongsDeferred.await()
         val mb = mbDeferred.await()
         val gemini = geminiDeferred?.await().orEmpty()
 
-        val creditsResolvedDeferred = async {
+        val whoResolvedDeferred = async {
             resolveReferences(
-                references = credits.covers.map {
+                references = who.covers.map {
                     Ref(
                         title = it.title,
                         artist = it.artist,
-                        year = it.year,
-                        source = "Credits.fm",
-                        confirmed = true,
+                        year = null,
+                        source = whoSource,
+                        confirmed = !whoFromIndex,
                     )
                 },
                 originalArtist = originalArtist,
                 durationSec = durationSec,
                 currentYouTubeId = currentYouTubeId,
-                maxRefs = 80,
-            )
-        }
-        val coverInfoResolvedDeferred = async {
-            resolveReferences(
-                references = coverInfo.covers.map {
-                    Ref(
-                        title = it.title,
-                        artist = it.artist,
-                        year = it.year,
-                        source = "COVER.INFO",
-                        confirmed = true,
-                    )
-                },
-                originalArtist = originalArtist,
-                durationSec = durationSec,
-                currentYouTubeId = currentYouTubeId,
-                maxRefs = 90,
+                maxRefs = 60,
             )
         }
         val secondHandSongsResolvedDeferred = async {
@@ -199,20 +208,58 @@ internal object CoverHubSearchEngine {
             )
         }
 
-        val creditsResolved = creditsResolvedDeferred.await()
-        val coverInfoResolved = coverInfoResolvedDeferred.await()
+        val whoResolved = whoResolvedDeferred.await()
         val secondHandSongsResolved = secondHandSongsResolvedDeferred.await()
         val mbResolved = mbResolvedDeferred.await()
         val geminiResolved = geminiResolvedDeferred.await()
         val broad = broadDeferred.await()
 
+        // Additive providers. They start only after the stable core has
+        // finished, so failures here cannot change the core statuses.
+        val creditsDeferred = async(Dispatchers.IO) {
+            runCatching { CreditsFmCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { CreditsFmLookup(emptyList(), CreditsFmStatus.NETWORK_ERROR) }
+        }
+        val coverInfoDeferred = async(Dispatchers.IO) {
+            runCatching { CoverInfoCoverSource.lookup(cleanTitle, originalArtist) }
+                .getOrElse { CoverInfoLookup(emptyList(), CoverInfoStatus.NETWORK_ERROR) }
+        }
+        val credits = creditsDeferred.await()
+        val coverInfo = coverInfoDeferred.await()
+
+        val creditsResolvedDeferred = async {
+            resolveReferences(
+                references = credits.covers.map {
+                    Ref(it.title, it.artist, it.year, "Credits.fm", true)
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 64,
+            )
+        }
+        val coverInfoResolvedDeferred = async {
+            resolveReferences(
+                references = coverInfo.covers.map {
+                    Ref(it.title, it.artist, it.year, "COVER.INFO", true)
+                },
+                originalArtist = originalArtist,
+                durationSec = durationSec,
+                currentYouTubeId = currentYouTubeId,
+                maxRefs = 72,
+            )
+        }
+        val creditsResolved = creditsResolvedDeferred.await()
+        val coverInfoResolved = coverInfoResolvedDeferred.await()
+
         val all = buildList {
-            addAll(creditsResolved)
-            addAll(coverInfoResolved)
+            addAll(whoResolved)
             addAll(secondHandSongsResolved)
             addAll(mbResolved)
             addAll(geminiResolved)
             addAll(broad)
+            addAll(creditsResolved)
+            addAll(coverInfoResolved)
         }
 
         val merged = mergeResults(all)
@@ -221,17 +268,22 @@ internal object CoverHubSearchEngine {
 
         fun used(source: String): Int = ordered.count { hasSource(it, source) }
 
+        val whoUsed = used("WhoSampled")
         val geminiUsed = used("Gemini AI")
 
         CoverHubOutcome(
             results = ordered,
-            whoSampledStatus = WhoSampledStatus.NO_MATCH,
+            whoSampledStatus = who.status,
             creditsFmStatus = credits.status,
             coverInfoStatus = coverInfo.status,
             secondHandSongsStatus = secondHandSongs.status,
             musicBrainzStatus = mb.status,
             geminiConfigured = geminiConfig != null,
-            whoSampledStats = CoverSourceStats(),
+            whoSampledStats = CoverSourceStats(
+                found = who.covers.size,
+                resolved = whoResolved.size,
+                used = whoUsed,
+            ),
             creditsFmStats = CoverSourceStats(
                 found = credits.covers.size,
                 resolved = creditsResolved.size,
@@ -262,7 +314,7 @@ internal object CoverHubSearchEngine {
                 resolved = broad.size,
                 used = used("YouTube Music"),
             ),
-            whoSampledCount = 0,
+            whoSampledCount = whoUsed,
             geminiCount = gemini.size,
         )
     }

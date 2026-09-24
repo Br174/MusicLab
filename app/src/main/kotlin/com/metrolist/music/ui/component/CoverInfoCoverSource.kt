@@ -97,9 +97,11 @@ internal object CoverInfoCoverSource {
             val quotedArtist = quoteForSearch(artist)
             if (artist.isNotBlank()) {
                 add("site:cover.info/en/song $quotedTitle $quotedArtist")
+                add("site:cover.info/de/song $quotedTitle $quotedArtist")
                 add("site:cover.info/en/song $quotedTitle $quotedArtist Cover")
             }
             add("site:cover.info/en/song $quotedTitle")
+            add("site:cover.info/de/song $quotedTitle")
         }
 
         val hits = linkedMapOf<String, IndexHit>()
@@ -158,7 +160,7 @@ internal object CoverInfoCoverSource {
                 is FetchHtml.Ok -> {
                     val doc = Jsoup.parse(page.body, page.url)
                     if (!pageMatches(doc.title(), doc.body()?.text().orEmpty(), title, artist)) continue
-                    val covers = parseExplicitCovers(doc.select("a[href*='/en/song/']"), page.url, artist)
+                    val covers = parseExplicitCovers(doc.select("a[href*='/song/']"), page.url, artist)
                     if (covers.isNotEmpty()) {
                         return CoverInfoLookup(
                             covers = covers.take(MAX_COVERS),
@@ -339,7 +341,7 @@ internal object CoverInfoCoverSource {
     private fun isCoverInfoSongUrl(url: String): Boolean = runCatching {
         val uri = URI(url)
         val host = uri.host?.lowercase().orEmpty().removePrefix("www.")
-        host == "cover.info" && uri.path.orEmpty().contains("/en/song/")
+        host == "cover.info" && Regex("/(?:en|de)/song/").containsMatchIn(uri.path.orEmpty())
     }.getOrDefault(false)
 
     private fun artistFromSongUrl(url: String): String = runCatching {

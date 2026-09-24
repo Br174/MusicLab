@@ -106,8 +106,13 @@ internal object MusicBrainzCoverSource {
             cache.remove(key)
         }
 
-        val lookup = lookupFresh(cleanTitle, cleanArtist)
-        cache[key] = CacheEntry(now, lookup)
+        var lookup = lookupFresh(cleanTitle, cleanArtist)
+        if (lookup.status == MusicBrainzStatus.NETWORK_ERROR) {
+            lookup = lookupFresh(cleanTitle, cleanArtist)
+        }
+        if (lookup.status != MusicBrainzStatus.NETWORK_ERROR) {
+            cache[key] = CacheEntry(now, lookup)
+        }
         return lookup
     }
 

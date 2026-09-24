@@ -94,23 +94,32 @@ internal object CreditsFmCoverSource {
 
     private fun lookupFresh(title: String, artist: String): CreditsFmLookup {
         val query = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
-        val searchUrl = buildString {
-            append("$BASE_URL/search?q=")
-            append(URLEncoder.encode(query, "UTF-8"))
-            append("&type=isrc&match=recording_title&exclude_lyrics=true&limit=24")
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        val searchUrls = listOf(
+            "$BASE_URL/search?q=$encoded&type=isrc&match=recording_title&exclude_lyrics=true&limit=100&nocache=1",
+            "$BASE_URL/graph/search?q=$encoded&type=recording&limit=50&exclude_lyrics=true&nocache=1",
+        )
+
+        val candidateMap = linkedMapOf<String, RecordingRef>()
+        var terminalStatus: CreditsFmStatus? = null
+        var lastUrl = searchUrls.first()
+        for (searchUrl in searchUrls) {
+            lastUrl = searchUrl
+            when (val response = fetchJson(searchUrl)) {
+                is FetchJson.Error -> terminalStatus = response.status
+                is FetchJson.Ok -> {
+                    val root = parseJson(response.body) ?: continue
+                    collectRecordingRefs(root).forEach { ref -> candidateMap.putIfAbsent(ref.isrc, ref) }
+                }
+            }
+            if (candidateMap.size >= MAX_RECORDING_CANDIDATES) break
         }
 
-        val searchRoot = when (val response = fetchJson(searchUrl)) {
-            is FetchJson.Error -> return CreditsFmLookup(emptyList(), response.status, response.url)
-            is FetchJson.Ok -> parseJson(response.body)
-                ?: return CreditsFmLookup(emptyList(), CreditsFmStatus.NETWORK_ERROR, response.url)
-        }
-
-        val candidates = collectRecordingRefs(searchRoot)
+        val candidates = candidateMap.values
             .filter { candidate ->
                 val titleScore = similarity(title, candidate.title)
                 val artistScore = if (artist.isBlank()) 1.0 else similarity(artist, candidate.artist)
-                titleScore >= 0.62 && (artist.isBlank() || artistScore >= 0.28 || titleScore >= 0.96)
+                titleScore >= 0.58 && (artist.isBlank() || artistScore >= 0.24 || titleScore >= 0.96)
             }
             .sortedByDescending { candidate ->
                 similarity(title, candidate.title) * 0.78 +
@@ -120,25 +129,29 @@ internal object CreditsFmCoverSource {
             .take(MAX_RECORDING_CANDIDATES)
 
         if (candidates.isEmpty()) {
-            return CreditsFmLookup(emptyList(), CreditsFmStatus.NO_MATCH, searchUrl)
+            return CreditsFmLookup(emptyList(), terminalStatus ?: CreditsFmStatus.NO_MATCH, lastUrl)
         }
 
         val related = linkedMapOf<String, RecordingRef>()
-        var lastUrl: String = searchUrl
-        var terminalStatus: CreditsFmStatus? = null
-
         for (candidate in candidates) {
-            val relationshipUrl = "$BASE_URL/isrc/${candidate.isrc}/relationships?type=cover&direction=both&limit=200"
-            lastUrl = relationshipUrl
-            when (val response = fetchJson(relationshipUrl)) {
-                is FetchJson.Error -> {
-                    terminalStatus = response.status
-                    if (response.status == CreditsFmStatus.AUTH_REQUIRED || response.status == CreditsFmStatus.RATE_LIMITED) break
-                }
-                is FetchJson.Ok -> {
-                    val root = parseJson(response.body) ?: continue
+            val graphUrl = "$BASE_URL/graph/isrc/${candidate.isrc}?depth=1&per_hop=25&max_nodes=120&people=0"
+            lastUrl = graphUrl
+            when (val response = fetchJson(graphUrl)) {
+                is FetchJson.Error -> terminalStatus = response.status
+                is FetchJson.Ok -> parseJson(response.body)?.let { root ->
                     collectCoverRelationshipRefs(root, candidate.isrc).forEach { ref ->
-                        if (ref.isrc != candidate.isrc) {
+                        related.putIfAbsent(ref.isrc, ref)
+                    }
+                }
+            }
+
+            if (related.isEmpty()) {
+                val relUrl = "$BASE_URL/isrc/${candidate.isrc}/relationships?limit=200"
+                lastUrl = relUrl
+                when (val response = fetchJson(relUrl)) {
+                    is FetchJson.Error -> terminalStatus = response.status
+                    is FetchJson.Ok -> parseJson(response.body)?.let { root ->
+                        collectCoverRelationshipRefs(root, candidate.isrc).forEach { ref ->
                             related.putIfAbsent(ref.isrc, ref)
                         }
                     }
@@ -148,11 +161,7 @@ internal object CreditsFmCoverSource {
         }
 
         if (related.isEmpty()) {
-            return CreditsFmLookup(
-                emptyList(),
-                terminalStatus ?: CreditsFmStatus.NO_MATCH,
-                lastUrl,
-            )
+            return CreditsFmLookup(emptyList(), terminalStatus ?: CreditsFmStatus.NO_MATCH, lastUrl)
         }
 
         var metadataFetches = 0
@@ -163,10 +172,8 @@ internal object CreditsFmCoverSource {
                 metadataFetches++
                 val detailUrl = "$BASE_URL/isrc/$isrc?contribute=false"
                 when (val detail = fetchJson(detailUrl)) {
-                    is FetchJson.Ok -> {
-                        parseJson(detail.body)?.let { root ->
-                            collectRecordingRefs(root).firstOrNull { it.isrc == isrc }?.let { resolved = it }
-                        }
+                    is FetchJson.Ok -> parseJson(detail.body)?.let { root ->
+                        collectRecordingRefs(root).firstOrNull { it.isrc == isrc }?.let { resolved = it }
                     }
                     is FetchJson.Error -> Unit
                 }
@@ -174,11 +181,7 @@ internal object CreditsFmCoverSource {
 
             if (resolved.title.isBlank() || resolved.artist.isBlank()) continue
             if (artist.isNotBlank() && similarity(artist, resolved.artist) >= 0.92) continue
-
-            // Cover relations can point in either direction. Keep only recordings
-            // whose displayed title still resembles the requested composition;
-            // this drops most unrelated graph neighbors without inventing data.
-            if (similarity(title, resolved.title) < 0.48) continue
+            if (similarity(title, resolved.title) < 0.44) continue
 
             covers.putIfAbsent(
                 isrc,
