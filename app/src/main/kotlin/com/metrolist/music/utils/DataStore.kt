@@ -6,6 +6,7 @@
 package com.metrolist.music.utils
 
 import android.content.Context
+import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
@@ -31,15 +32,15 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "se
 /**
  * In-memory mirror of the Preferences DataStore.
  *
- * Why: the legacy `get(key)` operator was implemented as `runBlocking(IO) { data.first() }`
- * and is called ~500 times across the app, many of them from Composable init paths and
- * Service lifecycle methods on the main thread. Each call subscribes to the flow, awaits
- * first emission, unsubscribes — a few ms per call, but cumulative (and the very first
- * call blocks on disk I/O for 200ms-2s).
+ * The legacy synchronous getter is used by a large amount of old UI/service code. Once
+ * the snapshot collector has emitted, reads are simple in-memory lookups. Before that
+ * first emission we must never wait for DataStore disk I/O from Android's main thread:
+ * doing so can stall input dispatch long enough for the system ANR dialog to appear.
  *
- * After [installSnapshotCollector] runs, every subsequent read is a Map lookup. Reads
- * that happen before the collector has emitted still fall back to the original blocking
- * path, so behavior is unchanged for early-boot reads.
+ * Background callers retain the old blocking fallback so one-shot worker/service reads
+ * still obtain the persisted value. Main-thread callers temporarily receive null/default;
+ * Compose preference readers are backed by the DataStore flow and update as soon as the
+ * first real preferences snapshot arrives.
  */
 @Volatile
 private var prefsSnapshot: Preferences? = null
@@ -53,8 +54,11 @@ fun installPreferencesSnapshotCollector(
     }
 }
 
+private fun isMainThread(): Boolean = Looper.myLooper() == Looper.getMainLooper()
+
 operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? {
     prefsSnapshot?.let { return it[key] }
+    if (isMainThread()) return null
     return runBlocking(Dispatchers.IO) {
         data.first()[key]
     }
@@ -65,6 +69,7 @@ fun <T> DataStore<Preferences>.get(
     defaultValue: T,
 ): T {
     prefsSnapshot?.let { return it[key] ?: defaultValue }
+    if (isMainThread()) return defaultValue
     return runBlocking(Dispatchers.IO) {
         data.first()[key] ?: defaultValue
     }
