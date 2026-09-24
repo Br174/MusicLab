@@ -64,7 +64,7 @@ internal object CoverHubSearchEngine {
         currentYouTubeId: String?,
         geminiConfig: GeminiCoverVerificationConfig?,
     ): CoverHubOutcome = coroutineScope {
-        val cleanTitle = title.trim()
+        val cleanTitle = coverLookupTitle(title, originalArtist)
         if (cleanTitle.isBlank()) return@coroutineScope CoverHubOutcome(emptyList())
 
         val whoDeferred = async(Dispatchers.IO) {
@@ -151,7 +151,7 @@ internal object CoverHubSearchEngine {
                         title = it.title,
                         artist = it.artist,
                         year = it.year,
-                        source = "Gemini · web",
+                        source = "Gemini AI",
                         confirmed = false,
                     )
                 },
@@ -180,10 +180,10 @@ internal object CoverHubSearchEngine {
         val enriched = enrichYears(merged, geminiConfig)
         val ordered = orderOldestFirst(enriched).take(MAX_RESULTS)
 
-        fun used(source: String): Int = ordered.count { it.source == source }
+        fun used(source: String): Int = ordered.count { hasSource(it, source) }
 
-        val whoUsed = ordered.count { it.source.startsWith("WhoSampled") }
-        val geminiUsed = ordered.count { it.source.startsWith("Gemini") }
+        val whoUsed = used("WhoSampled")
+        val geminiUsed = used("Gemini AI")
 
         CoverHubOutcome(
             results = ordered,
@@ -266,7 +266,9 @@ internal object CoverHubSearchEngine {
             continuation = page.continuation
         }
 
-        val enriched = orderOldestFirst(enrichYears(collected.values.toList(), geminiConfig))
+        // Same-name discovery is intentionally kept fast: album metadata may
+        // still provide a year, but we avoid one Gemini/web lookup per result.
+        val enriched = orderOldestFirst(enrichYears(collected.values.toList(), null))
             .distinctBy { it.song.id }
             .take(MAX_SAME_NAME_RESULTS)
 
@@ -319,7 +321,8 @@ internal object CoverHubSearchEngine {
             nextContinuation = page.continuation
         }
 
-        val enrichedFresh = enrichYears(fresh.values.toList(), geminiConfig)
+        // Keep "Cerca ancora" responsive as well: no per-item AI year lookup.
+        val enrichedFresh = enrichYears(fresh.values.toList(), null)
         val merged = orderOldestFirst(existingResults + enrichedFresh)
             .distinctBy { it.song.id }
             .take(MAX_SAME_NAME_RESULTS)
@@ -495,31 +498,74 @@ internal object CoverHubSearchEngine {
         }.sortedByDescending { it.score }.take(120)
     }
 
+    /**
+     * Merge duplicate playable songs without losing provenance. If two or more
+     * engines discovered the same result, the strongest candidate still owns
+     * the score/year while the source label keeps every contributing engine.
+     */
     private fun mergeResults(values: List<CoverHubResult>): List<CoverHubResult> {
         val byId = linkedMapOf<String, CoverHubResult>()
         values.forEach { candidate ->
-            val existing = byId[candidate.song.id]
-            if (existing == null || priority(candidate) > priority(existing) ||
-                (priority(candidate) == priority(existing) && candidate.score > existing.score)
-            ) {
-                byId[candidate.song.id] = candidate
-            }
+            byId[candidate.song.id] = mergeCandidate(byId[candidate.song.id], candidate)
         }
 
         return byId.values
             .groupBy {
                 "${canonicalTitle(it.song.title)}|${it.song.artists.joinToString("|") { a -> canonicalArtist(a.name) }}"
             }
-            .map { (_, versions) -> versions.maxWithOrNull(compareBy<CoverHubResult> { priority(it) }.thenBy { it.score })!! }
+            .map { (_, versions) ->
+                versions.drop(1).fold(versions.first()) { accumulated, candidate ->
+                    mergeCandidate(accumulated, candidate)
+                }
+            }
     }
 
-    private fun priority(result: CoverHubResult): Int = when {
-        result.source == "WhoSampled" -> 5
-        result.source == "SecondHandSongs" -> 5
-        result.source.startsWith("WhoSampled") -> 4
-        result.source == "MusicBrainz" -> 4
-        result.confirmed -> 3
-        else -> 1
+    private fun mergeCandidate(
+        existing: CoverHubResult?,
+        candidate: CoverHubResult,
+    ): CoverHubResult {
+        if (existing == null) return candidate
+
+        val candidateWins =
+            priority(candidate) > priority(existing) ||
+                (priority(candidate) == priority(existing) && candidate.score > existing.score)
+        val winner = if (candidateWins) candidate else existing
+        val other = if (candidateWins) existing else candidate
+
+        return winner.copy(
+            year = winner.year ?: other.year,
+            source = combineSources(winner.source, other.source),
+            confirmed = winner.confirmed || other.confirmed,
+            score = maxOf(winner.score, other.score),
+        )
+    }
+
+    private fun sourceNames(source: String): List<String> =
+        source.split(SOURCE_DELIMITER)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    private fun combineSources(primary: String, secondary: String): String =
+        linkedSetOf<String>().apply {
+            addAll(sourceNames(primary))
+            addAll(sourceNames(secondary))
+        }.joinToString(SOURCE_DELIMITER)
+
+    private fun hasSource(result: CoverHubResult, source: String): Boolean =
+        sourceNames(result.source).any { it.equals(source, ignoreCase = true) }
+
+    private fun priority(result: CoverHubResult): Int {
+        val sourcePriority = sourceNames(result.source).maxOfOrNull { source ->
+            when {
+                source == "WhoSampled" -> 5
+                source == "SecondHandSongs" -> 5
+                source == "MusicBrainz" -> 4
+                source.startsWith("WhoSampled") -> 4
+                else -> 1
+            }
+        } ?: 1
+        return maxOf(sourcePriority, if (result.confirmed) 3 else 1)
     }
 
     private suspend fun enrichYears(
@@ -571,6 +617,35 @@ internal object CoverHubSearchEngine {
                 .thenByDescending { priority(it) }
                 .thenByDescending { it.score },
         )
+
+    /**
+     * Structured sources work best with the composition title, not a YouTube
+     * display title such as "Artist - Song (Remastered 2023) (Official Audio)".
+     * Keep the original text whenever an annotation is not clearly technical.
+     */
+    private fun coverLookupTitle(value: String, originalArtist: String): String {
+        val original = value.trim()
+        if (original.isBlank()) return original
+        var clean = original
+
+        val artist = originalArtist.trim()
+        if (artist.isNotBlank()) {
+            val artistPrefix = Regex(
+                "^\\s*${Regex.escape(artist)}\\s*[-–—:|]\\s*",
+                RegexOption.IGNORE_CASE,
+            )
+            clean = clean.replaceFirst(artistPrefix, "").trim()
+        }
+
+        clean = TECHNICAL_ANNOTATION_REGEX.replace(clean) { match ->
+            val inner = match.value.drop(1).dropLast(1)
+            if (TECHNICAL_ANNOTATION_MARKERS.containsMatchIn(inner)) " " else match.value
+        }
+        clean = clean.replace(TRAILING_TECHNICAL_SUFFIX_REGEX, " ")
+        clean = clean.replace(Regex("\\s+"), " ").trim(' ', '-', '–', '—', ':', '|')
+
+        return clean.ifBlank { original }
+    }
 
     private fun canonicalTitle(value: String): String {
         val clean = Normalizer.normalize(value, Normalizer.Form.NFD)
@@ -629,6 +704,17 @@ internal object CoverHubSearchEngine {
     private const val MORE_SAME_NAME_TARGET = 30
     private const val MAX_SAME_NAME_PAGES_PER_BATCH = 12
     private const val SAME_NAME_MIN_SIMILARITY = 0.94
+    private const val SOURCE_DELIMITER = " + "
+
+    private val TECHNICAL_ANNOTATION_REGEX = Regex("\\([^)]*\\)|\\[[^]]*]")
+    private val TECHNICAL_ANNOTATION_MARKERS = Regex(
+        "\\b(remaster(?:ed)?|official|video|audio|lyrics?|lyric|live|version|visualizer|hd|4k)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+    private val TRAILING_TECHNICAL_SUFFIX_REGEX = Regex(
+        "\\s*[-–—:|]\\s*(?:official\\s*)?(?:music\\s*)?(?:video|audio|lyrics?|lyric|visualizer).*$",
+        RegexOption.IGNORE_CASE,
+    )
 
     private val TITLE_NOISE_REGEX = Regex(
         "\\b(official|video|audio|lyrics?|lyric|cover|acoustic|unplugged|live|version|versione|versión|versao|versão|rendition|interpretation|reinterpretation|tribute|performance|session|remaster(?:ed)?|studio)\\b",
