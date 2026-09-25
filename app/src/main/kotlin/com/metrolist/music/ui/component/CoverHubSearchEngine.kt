@@ -46,6 +46,7 @@ internal data class CoverHubOutcome(
     val creditsFmWorksFound: Int = 0,
     val creditsFmLinkedRecordings: Int = 0,
     val creditsFmTitleMatchedRecordings: Int = 0,
+    val creditsFmTitleBatchChecked: Int = 0,
     val secondHandSongsStats: CoverSourceStats = CoverSourceStats(),
     val musicBrainzStats: CoverSourceStats = CoverSourceStats(),
     val geminiStats: CoverSourceStats = CoverSourceStats(),
@@ -273,6 +274,7 @@ internal object CoverHubSearchEngine {
             creditsFmWorksFound = credits.worksFound,
             creditsFmLinkedRecordings = credits.linkedRecordings,
             creditsFmTitleMatchedRecordings = credits.titleMatchedRecordings,
+            creditsFmTitleBatchChecked = credits.titleBatchChecked,
             secondHandSongsStats = CoverSourceStats(
                 found = secondHandSongs.covers.size,
                 resolved = secondHandSongsResolved.size,

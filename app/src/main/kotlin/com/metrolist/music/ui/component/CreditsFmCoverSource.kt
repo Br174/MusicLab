@@ -6,6 +6,7 @@ package com.metrolist.music.ui.component
 
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jsoup.Connection
 import org.jsoup.Jsoup
 import java.net.URLEncoder
 import java.text.Normalizer
@@ -35,6 +36,7 @@ internal data class CreditsFmLookup(
     val worksFound: Int = 0,
     val linkedRecordings: Int = 0,
     val titleMatchedRecordings: Int = 0,
+    val titleBatchChecked: Int = 0,
 )
 
 /**
@@ -55,6 +57,7 @@ internal object CreditsFmCoverSource {
     private const val MAX_RELATED_ISRCS = 240
     private const val MAX_METADATA_FETCHES = 80
     private const val MAX_COVERS = 120
+    private const val MAX_TITLE_SEARCH_CANDIDATES = 500
     private const val CACHE_TTL_MS = 6L * 60L * 60L * 1000L
     private const val NO_MATCH_CACHE_TTL_MS = 60L * 60L * 1000L
     private const val USER_AGENT = "MusicLab/0.8.9 (Android; Credits.fm public read client)"
@@ -71,6 +74,11 @@ internal object CreditsFmCoverSource {
         val title: String,
         val artist: String,
         val year: Int? = null,
+    )
+
+    private data class BatchRecording(
+        val ref: RecordingRef,
+        val works: Set<String>,
     )
 
     private sealed interface FetchJson {
@@ -206,30 +214,31 @@ internal object CreditsFmCoverSource {
             if (related.size >= MAX_RELATED_ISRCS) break
         }
 
-        // Q2 quantity expansion: the title-focused Credits.fm search is paginated up to
-        // 1000 rows. Keep only recordings explicitly tied to one of the ISWCs already
-        // discovered from the trusted source candidates. This broadens coverage without
-        // admitting unrelated same-title songs.
+        // Q3 quantity expansion: search finds candidate ISRCs; the public batch API
+        // then resolves up to 100 at a time to authoritative ISWC/title/artist metadata.
+        // Only recordings tied to an already trusted source ISWC are admitted.
         var titleMatchedRecordings = 0
+        var titleBatchChecked = 0
         if (worksSeen.isNotEmpty()) {
             val sourceIsrcs = candidates.mapTo(linkedSetOf()) { it.isrc }
+            val titleCandidates = linkedMapOf<String, RecordingRef>()
 
-            fun absorbTitleMatches(root: Any): Int {
-                var added = 0
-                collectRecordingRefsForWorks(root, worksSeen).forEach { ref ->
+            fun absorbSearchCandidates(root: Any) {
+                collectRecordingRefs(root).forEach { ref ->
                     if (ref.isrc in sourceIsrcs) return@forEach
                     if (similarity(title, ref.title) < 0.42) return@forEach
-                    val previous = related[ref.isrc]
-                    related[ref.isrc] = mergeRecordingRef(previous, ref)
-                    if (previous == null) added++
+                    titleCandidates[ref.isrc] = mergeRecordingRef(titleCandidates[ref.isrc], ref)
                 }
-                return added
             }
 
-            titleMatchedRecordings += absorbTitleMatches(searchRoot)
+            absorbSearchCandidates(searchRoot)
             var offset = 100
             var hasMore = searchHasMore(searchRoot) != false
-            while (hasMore && offset < 1000 && related.size < MAX_RELATED_ISRCS) {
+            while (
+                hasMore &&
+                offset < 1000 &&
+                titleCandidates.size < MAX_TITLE_SEARCH_CANDIDATES
+            ) {
                 val pageUrl = "$BASE_URL/search?q=$encoded&type=isrc&match=recording_title&exclude_lyrics=true&limit=100&offset=$offset&nocache=1"
                 lastUrl = pageUrl
                 when (val response = fetchJson(pageUrl)) {
@@ -242,10 +251,51 @@ internal object CreditsFmCoverSource {
                         if (root == null) {
                             hasMore = false
                         } else {
+                            val before = titleCandidates.size
+                            absorbSearchCandidates(root)
                             val pageRecordingCount = collectRecordingRefs(root).size
-                            titleMatchedRecordings += absorbTitleMatches(root)
-                            hasMore = searchHasMore(root) ?: (pageRecordingCount > 0)
+                            hasMore = searchHasMore(root) ?: (pageRecordingCount > 0 && titleCandidates.size > before)
                             offset += 100
+                        }
+                    }
+                }
+            }
+
+            val batchUrl = "$BASE_URL/batch"
+            val toCheck = titleCandidates.values
+                .take(MAX_TITLE_SEARCH_CANDIDATES)
+
+            for (chunk in toCheck.chunked(100)) {
+                if (related.size >= MAX_RELATED_ISRCS) break
+
+                val ids = JSONArray()
+                chunk.forEach { ids.put(it.isrc) }
+                val body = JSONObject()
+                    .put("isrcs", ids)
+                    .put("contribute", false)
+
+                titleBatchChecked += chunk.size
+                lastUrl = batchUrl
+                when (val response = postJson(batchUrl, body)) {
+                    is FetchJson.Error -> terminalStatus = response.status
+                    is FetchJson.Ok -> parseJson(response.body)?.let { root ->
+                        val requested = chunk.mapTo(linkedSetOf()) { it.isrc }
+                        val batchRecords = collectBatchRecordings(root, requested)
+                        for ((isrc, batch) in batchRecords) {
+                            if (batch.works.none { it in worksSeen }) continue
+
+                            val searchRef = titleCandidates[isrc]
+                            val resolved = if (searchRef == null) {
+                                batch.ref
+                            } else {
+                                mergeRecordingRef(searchRef, batch.ref)
+                            }
+                            if (similarity(title, resolved.title) < 0.42) continue
+
+                            val previous = related[isrc]
+                            related[isrc] = mergeRecordingRef(previous, resolved)
+                            if (previous == null) titleMatchedRecordings++
+                            if (related.size >= MAX_RELATED_ISRCS) break
                         }
                     }
                 }
@@ -261,6 +311,7 @@ internal object CreditsFmCoverSource {
                 worksFound = worksSeen.size,
                 linkedRecordings = 0,
                 titleMatchedRecordings = titleMatchedRecordings,
+                titleBatchChecked = titleBatchChecked,
             )
         }
 
@@ -305,6 +356,7 @@ internal object CreditsFmCoverSource {
                 worksFound = worksSeen.size,
                 linkedRecordings = related.size,
                 titleMatchedRecordings = titleMatchedRecordings,
+                titleBatchChecked = titleBatchChecked,
             )
         } else {
             CreditsFmLookup(
@@ -315,6 +367,7 @@ internal object CreditsFmCoverSource {
                 worksFound = worksSeen.size,
                 linkedRecordings = related.size,
                 titleMatchedRecordings = titleMatchedRecordings,
+                titleBatchChecked = titleBatchChecked,
             )
         }
     }
@@ -332,6 +385,34 @@ internal object CreditsFmCoverSource {
         when (response.statusCode()) {
             in 200..299 -> if (body.trim().startsWith("{") || body.trim().startsWith("[")) {
                 FetchJson.Ok(body, response.url().toString())
+            } else {
+                FetchJson.Error(CreditsFmStatus.NETWORK_ERROR, response.url().toString())
+            }
+            401, 403 -> FetchJson.Error(CreditsFmStatus.AUTH_REQUIRED, response.url().toString())
+            404 -> FetchJson.Error(CreditsFmStatus.NO_MATCH, response.url().toString())
+            429 -> FetchJson.Error(CreditsFmStatus.RATE_LIMITED, response.url().toString())
+            else -> FetchJson.Error(CreditsFmStatus.NETWORK_ERROR, response.url().toString())
+        }
+    }.getOrElse {
+        FetchJson.Error(CreditsFmStatus.NETWORK_ERROR, url)
+    }
+
+    private fun postJson(url: String, body: JSONObject): FetchJson = runCatching {
+        val response = Jsoup.connect(url)
+            .userAgent(USER_AGENT)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .requestBody(body.toString())
+            .method(Connection.Method.POST)
+            .timeout(REQUEST_TIMEOUT_MS)
+            .ignoreContentType(true)
+            .ignoreHttpErrors(true)
+            .execute()
+
+        val responseBody = response.body()
+        when (response.statusCode()) {
+            in 200..299 -> if (responseBody.trim().startsWith("{") || responseBody.trim().startsWith("[")) {
+                FetchJson.Ok(responseBody, response.url().toString())
             } else {
                 FetchJson.Error(CreditsFmStatus.NETWORK_ERROR, response.url().toString())
             }
@@ -368,6 +449,46 @@ internal object CreditsFmCoverSource {
 
         visit(root)
         return result.values.toList()
+    }
+
+    private fun collectBatchRecordings(
+        root: Any,
+        requested: Set<String>,
+    ): Map<String, BatchRecording> {
+        val result = linkedMapOf<String, BatchRecording>()
+
+        fun visit(value: Any?, keyHint: String = "") {
+            when (value) {
+                is JSONObject -> {
+                    val direct = recordingFromObject(value)
+                    val keyIsrc = normalizeIsrc(keyHint)
+                    val isrc = (direct?.isrc ?: keyIsrc)?.takeIf { it in requested }
+                    if (isrc != null) {
+                        val ref = direct ?: RecordingRef(
+                            isrc = isrc,
+                            title = firstText(value, "recording_title", "song_title", "track_title", "title", "name"),
+                            artist = artistText(value),
+                            year = firstYear(value),
+                        )
+                        val works = collectIswcs(value).toSet()
+                        val previous = result[isrc]
+                        result[isrc] = if (previous == null) {
+                            BatchRecording(ref, works)
+                        } else {
+                            BatchRecording(
+                                ref = mergeRecordingRef(previous.ref, ref),
+                                works = previous.works + works,
+                            )
+                        }
+                    }
+                    value.keys().forEach { key -> visit(value.opt(key), key) }
+                }
+                is JSONArray -> for (index in 0 until value.length()) visit(value.opt(index), keyHint)
+            }
+        }
+
+        visit(root)
+        return result
     }
 
     private fun collectRecordingRefsForWorks(root: Any, allowedWorks: Set<String>): List<RecordingRef> {
