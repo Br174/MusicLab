@@ -776,7 +776,7 @@ class MainActivity : ComponentActivity() {
                     // immediately return the player to its mini state so the destination
                     // is never hidden behind the expanded player.
                     if (!playerBottomSheetState.isCollapsed && !playerBottomSheetState.isDismissed) {
-                        playerBottomSheetState.collapseSoft()
+                        playerBottomSheetState.collapse(tween(durationMillis = 120))
                     }
 
                     if (inSearchScreen) {
