@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  patch-build-test:
+  build-test:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -27,127 +27,24 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Apply atomic swipe/player sync patch
+      - name: Verify atomic LAB source state
         shell: bash
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          path = Path('app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt')
-          text = path.read_text(encoding='utf-8')
-
-          import_anchor = 'import androidx.compose.runtime.setValue\n'
-          snapshot_import = 'import androidx.compose.runtime.snapshotFlow\n'
-          if snapshot_import not in text:
-              if import_anchor not in text:
-                  raise SystemExit('snapshotFlow import anchor not found')
-              text = text.replace(import_anchor, import_anchor + snapshot_import, 1)
-
-          start_marker = '    // Current item tracking - derived state for efficiency\n'
-          end_marker = '    // Update position when song changes\n'
-          start = text.find(start_marker)
-          end = text.find(end_marker, start)
-          if start < 0 or end < 0:
-              raise SystemExit('Expected swipe handler markers not found; refusing non-atomic patch')
-
-          old_region = text[start:end]
-          required_old = 'LaunchedEffect(itemScrollOffset)'
-          if required_old not in old_region:
-              raise SystemExit('Expected legacy swipe handler not found; refusing patch')
-
-          lines = [
-              '    // Current item tracking - derived state for efficiency',
-              '    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }',
-              '',
-              '    // Handle swipe to change song.',
-              '    // The old implementation required isScrollInProgress == true AND offset == 0 in the',
-              '    // same composition frame. At the end of a snap Compose can flip isScrollInProgress',
-              '    // to false before that frame is observed, leaving the new artwork visible while the',
-              '    // previous song keeps playing. Observe all three pieces of scroll state together and',
-              '    // treat offset == 0 after actual movement as the committed snap target.',
-              '    LaunchedEffect(',
-              '        thumbnailLazyGridState,',
-              '        swipeThumbnail,',
-              '        mediaMetadata?.id,',
-              '        currentMediaIndex,',
-              '        canSkipNext,',
-              '        canSkipPrevious,',
-              '    ) {',
-              '        var swipeMoved = false',
-              '',
-              '        snapshotFlow {',
-              '            Triple(',
-              '                thumbnailLazyGridState.isScrollInProgress,',
-              '                thumbnailLazyGridState.firstVisibleItemIndex,',
-              '                thumbnailLazyGridState.firstVisibleItemScrollOffset,',
-              '            )',
-              '        }.collect { (isScrolling, visibleIndex, scrollOffset) ->',
-              '            if (!swipeThumbnail || currentMediaIndex < 0) {',
-              '                swipeMoved = false',
-              '                return@collect',
-              '            }',
-              '',
-              '            // Arm only after the carousel has really moved away from centre.',
-              '            if (isScrolling && (visibleIndex != currentMediaIndex || scrollOffset != 0)) {',
-              '                swipeMoved = true',
-              '            }',
-              '',
-              '            // A zero offset after movement is the committed snap target, even when',
-              '            // isScrollInProgress has already become false.',
-              '            if (!swipeMoved || scrollOffset != 0) return@collect',
-              '            swipeMoved = false',
-              '',
-              '            val player = playerConnection.player',
-              '            val keepPlaying = player.playWhenReady',
-              '            val changed =',
-              '                when {',
-              '                    visibleIndex > currentMediaIndex && canSkipNext -> {',
-              '                        player.seekToNextMediaItem()',
-              '                        true',
-              '                    }',
-              '                    visibleIndex < currentMediaIndex && canSkipPrevious -> {',
-              '                        player.seekToPreviousMediaItem()',
-              '                        true',
-              '                    }',
-              '                    else -> false',
-              '                }',
-              '',
-              '            if (changed) {',
-              '                // Prepare immediately if needed and preserve the user play/pause state.',
-              '                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {',
-              '                    player.prepare()',
-              '                }',
-              '                player.playWhenReady = keepPlaying',
-              '            }',
-              '        }',
-              '    }',
-              '',
-          ]
-          replacement = '\n'.join(lines) + '\n'
-          text = text[:start] + replacement + text[end:]
-          path.write_text(text, encoding='utf-8')
-          PY
-
-      - name: Verify atomic source diff
-        shell: bash
-        run: |
-          git diff --check
-          mapfile -t changed < <(git diff --name-only)
-          printf 'Changed files:\n%s\n' "${changed[*]}"
-          test "${#changed[@]}" -eq 1
-          test "${changed[0]}" = "app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt"
-          grep -q 'snapshotFlow' app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
-          grep -q 'seekToNextMediaItem()' app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
-          grep -q 'seekToPreviousMediaItem()' app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
-
-      - name: Commit atomic LAB source change
-        shell: bash
-        run: |
-          git config user.name "UAB Bot"
-          git config user.email "uab-bot@users.noreply.github.com"
-          git add app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
-          git commit -m "fix(player): keep thumbnail swipe and playback in sync"
-          git push origin HEAD:lab/musiclab-swipe-player-sync-01
+          git fetch origin mother/musiclab-112726 --depth=1
+          git diff --check origin/mother/musiclab-112726...HEAD
+          mapfile -t app_changed < <(git diff --name-only origin/mother/musiclab-112726...HEAD -- app/src)
+          printf 'App source files changed vs Mother:\n%s\n' "${app_changed[*]}"
+          test "${#app_changed[@]}" -eq 1
+          test "${app_changed[0]}" = "app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt"
+          FILE="app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt"
+          grep -q 'import androidx.compose.runtime.snapshotFlow' "$FILE"
+          grep -q 'var swipeMoved = false' "$FILE"
+          grep -q 'seekToNextMediaItem()' "$FILE"
+          grep -q 'seekToPreviousMediaItem()' "$FILE"
+          if grep -q 'LaunchedEffect(itemScrollOffset)' "$FILE"; then
+            echo 'Legacy intermittent swipe handler still present' >&2
+            exit 1
+          fi
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -166,6 +63,23 @@ jobs:
       - name: Configure Android SDK path
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Create isolated debug keystore
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          rm -f "$HOME/.android/debug.keystore"
+          keytool -genkeypair \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -noprompt
+          test -s "$HOME/.android/debug.keystore"
 
       - name: Prepare isolated UAB LAB config
         shell: bash
@@ -224,6 +138,8 @@ jobs:
         if: success()
         shell: bash
         run: |
+          git config user.name "UAB Bot"
+          git config user.email "uab-bot@users.noreply.github.com"
           git rm -f .github/workflows/uab-swipe-player-sync-lab.yml
           git commit -m "chore(uab): remove temporary swipe sync workflow"
           git push origin HEAD:lab/musiclab-swipe-player-sync-01
