@@ -297,6 +297,20 @@ fun BottomSheetPlayer(
         state.collapseSoft()
     }
 
+    // Whenever the user leaves the expanded player for another app destination,
+    // collapse it to the mini-player so the requested screen is immediately visible.
+    DisposableEffect(navController, state) {
+        val destinationListener = NavController.OnDestinationChangedListener { _, _, _ ->
+            if (state.isExpanded) {
+                state.snapTo(state.collapsedBound)
+            }
+        }
+        navController.addOnDestinationChangedListener(destinationListener)
+        onDispose {
+            navController.removeOnDestinationChangedListener(destinationListener)
+        }
+    }
+
     val onBackgroundColor =
         when (playerBackground) {
             PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.secondary
