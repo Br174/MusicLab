@@ -1,0 +1,238 @@
+name: UAB Swipe Player Sync LAB
+
+on:
+  push:
+    branches:
+      - lab/musiclab-swipe-player-sync-01
+    paths:
+      - .github/workflows/uab-swipe-player-sync-lab.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: uab-musiclab-swipe-player-sync-01
+  cancel-in-progress: true
+
+jobs:
+  patch-build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout LAB
+        uses: actions/checkout@v4
+        with:
+          ref: lab/musiclab-swipe-player-sync-01
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Apply atomic swipe/player sync patch
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt')
+          text = path.read_text(encoding='utf-8')
+
+          import_anchor = 'import androidx.compose.runtime.setValue\n'
+          snapshot_import = 'import androidx.compose.runtime.snapshotFlow\n'
+          if snapshot_import not in text:
+              if import_anchor not in text:
+                  raise SystemExit('snapshotFlow import anchor not found')
+              text = text.replace(import_anchor, import_anchor + snapshot_import, 1)
+
+          old = '''    // Current item tracking - derived state for efficiency
+    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
+    val itemScrollOffset by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemScrollOffset } }
+
+    // Handle swipe to change song
+    LaunchedEffect(itemScrollOffset) {
+        if (!thumbnailLazyGridState.isScrollInProgress || !swipeThumbnail || itemScrollOffset != 0 || currentMediaIndex < 0) return@LaunchedEffect
+
+        if (currentItem > currentMediaIndex && canSkipNext) {
+            playerConnection.player.seekToNext()
+        } else if (currentItem < currentMediaIndex && canSkipPrevious) {
+            playerConnection.player.seekToPreviousMediaItem()
+        }
+    }
+'''
+
+          new = '''    // Current item tracking - derived state for efficiency
+    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
+
+    // Handle swipe to change song.
+    // The old implementation required isScrollInProgress == true AND offset == 0 in the
+    // same composition frame. At the end of a snap Compose can flip isScrollInProgress
+    // to false before that frame is observed, leaving the new artwork visible while the
+    // previous song keeps playing. Observe all three pieces of scroll state together and
+    // treat offset == 0 after actual movement as the committed snap target.
+    LaunchedEffect(
+        thumbnailLazyGridState,
+        swipeThumbnail,
+        mediaMetadata?.id,
+        currentMediaIndex,
+        canSkipNext,
+        canSkipPrevious,
+    ) {
+        var swipeMoved = false
+
+        snapshotFlow {
+            Triple(
+                thumbnailLazyGridState.isScrollInProgress,
+                thumbnailLazyGridState.firstVisibleItemIndex,
+                thumbnailLazyGridState.firstVisibleItemScrollOffset,
+            )
+        }.collect { (isScrolling, visibleIndex, scrollOffset) ->
+            if (!swipeThumbnail || currentMediaIndex < 0) {
+                swipeMoved = false
+                return@collect
+            }
+
+            // Do not arm on the initial touch while still perfectly centred. Arm only
+            // after the carousel has actually moved away from the current item.
+            if (isScrolling && (visibleIndex != currentMediaIndex || scrollOffset != 0)) {
+                swipeMoved = true
+            }
+
+            // A zero offset after real movement means the carousel has reached a snap
+            // position. This works whether Compose still reports scrolling or has just
+            // switched it to false, eliminating the intermittent missed transition.
+            if (!swipeMoved || scrollOffset != 0) return@collect
+            swipeMoved = false
+
+            val player = playerConnection.player
+            val keepPlaying = player.playWhenReady
+            val changed =
+                when {
+                    visibleIndex > currentMediaIndex && canSkipNext -> {
+                        player.seekToNextMediaItem()
+                        true
+                    }
+                    visibleIndex < currentMediaIndex && canSkipPrevious -> {
+                        player.seekToPreviousMediaItem()
+                        true
+                    }
+                    else -> false
+                }
+
+            if (changed) {
+                // If the player happens to be idle/ended, prepare immediately instead of
+                // waiting for a later control path. Preserve the user's play/pause state.
+                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                    player.prepare()
+                }
+                player.playWhenReady = keepPlaying
+            }
+        }
+    }
+'''
+
+          if old not in text:
+              raise SystemExit('Expected swipe handler not found; refusing non-atomic patch')
+
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify atomic source diff
+        shell: bash
+        run: |
+          git diff --check
+          mapfile -t changed < <(git diff --name-only)
+          printf 'Changed files:\n%s\n' "${changed[*]}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt"
+          grep -q 'snapshotFlow' app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
+          grep -q 'seekToNextMediaItem()' app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
+          grep -q 'seekToPreviousMediaItem()' app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
+
+      - name: Commit atomic LAB source change
+        shell: bash
+        run: |
+          git config user.name "UAB Bot"
+          git config user.email "uab-bot@users.noreply.github.com"
+          git add app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
+          git commit -m "fix(player): keep thumbnail swipe and playback in sync"
+          git push origin HEAD:lab/musiclab-swipe-player-sync-01
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK path
+        shell: bash
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Prepare isolated UAB LAB config
+        shell: bash
+        run: |
+          cat > /tmp/uab-swipe-player-sync.env <<'EOF'
+          UAB_TASK=":app:assembleFossDebug"
+          UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
+          UAB_OUTPUT_NAME="MusicLab-SWIPE-PLAYER-SYNC-LAB-01"
+          UAB_GRADLE_ARGS="-x lint"
+          UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
+          UAB_PARALLEL_INSTALL="on"
+          UAB_APPLICATION_ID_BASE="it.verlezza.musiclab.lab"
+          UAB_APPLICATION_ID_ENV="METROLIST_APPLICATION_ID"
+          UAB_APP_NAME_BASE="MusicLab Swipe LAB"
+          UAB_APP_NAME_ENV="METROLIST_APP_NAME"
+          export PULL_REQUEST="false"
+          EOF
+
+      - name: UAB preflight diagnostics
+        shell: bash
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build isolated LAB APK and ZIP
+        shell: bash
+        env:
+          UAB_CONFIG_FILE: /tmp/uab-swipe-player-sync.env
+          UAB_BUILD_ID: swipeplayersync01
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+        run: bash tools/universal-apk-builder/build-apk.sh .
+
+      - name: Verify parallel package identity
+        shell: bash
+        run: |
+          APK="$(find dist/uab/apk -maxdepth 1 -name '*.apk' -type f | head -n 1)"
+          test -n "$APK"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$AAPT"
+          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
+          grep -q "package: name='it.verlezza.musiclab.lab.swipeplayersync01'" /tmp/apk-badging.txt
+
+      - name: Upload LAB APK and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-SWIPE-PLAYER-SYNC-LAB-01
+          path: |
+            dist/uab/apk/*.apk
+            dist/uab/*.zip
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary workflow from LAB branch
+        if: always()
+        shell: bash
+        run: |
+          git status --short
+          git rm -f .github/workflows/uab-swipe-player-sync-lab.yml
+          git commit -m "chore(uab): remove temporary swipe sync workflow" || true
+          git push origin HEAD:lab/musiclab-swipe-player-sync-01 || true
