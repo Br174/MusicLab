@@ -43,96 +43,88 @@ jobs:
                   raise SystemExit('snapshotFlow import anchor not found')
               text = text.replace(import_anchor, import_anchor + snapshot_import, 1)
 
-          old = '''    // Current item tracking - derived state for efficiency
-    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
-    val itemScrollOffset by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemScrollOffset } }
+          start_marker = '    // Current item tracking - derived state for efficiency\n'
+          end_marker = '    // Update position when song changes\n'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('Expected swipe handler markers not found; refusing non-atomic patch')
 
-    // Handle swipe to change song
-    LaunchedEffect(itemScrollOffset) {
-        if (!thumbnailLazyGridState.isScrollInProgress || !swipeThumbnail || itemScrollOffset != 0 || currentMediaIndex < 0) return@LaunchedEffect
+          old_region = text[start:end]
+          required_old = 'LaunchedEffect(itemScrollOffset)'
+          if required_old not in old_region:
+              raise SystemExit('Expected legacy swipe handler not found; refusing patch')
 
-        if (currentItem > currentMediaIndex && canSkipNext) {
-            playerConnection.player.seekToNext()
-        } else if (currentItem < currentMediaIndex && canSkipPrevious) {
-            playerConnection.player.seekToPreviousMediaItem()
-        }
-    }
-'''
-
-          new = '''    // Current item tracking - derived state for efficiency
-    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
-
-    // Handle swipe to change song.
-    // The old implementation required isScrollInProgress == true AND offset == 0 in the
-    // same composition frame. At the end of a snap Compose can flip isScrollInProgress
-    // to false before that frame is observed, leaving the new artwork visible while the
-    // previous song keeps playing. Observe all three pieces of scroll state together and
-    // treat offset == 0 after actual movement as the committed snap target.
-    LaunchedEffect(
-        thumbnailLazyGridState,
-        swipeThumbnail,
-        mediaMetadata?.id,
-        currentMediaIndex,
-        canSkipNext,
-        canSkipPrevious,
-    ) {
-        var swipeMoved = false
-
-        snapshotFlow {
-            Triple(
-                thumbnailLazyGridState.isScrollInProgress,
-                thumbnailLazyGridState.firstVisibleItemIndex,
-                thumbnailLazyGridState.firstVisibleItemScrollOffset,
-            )
-        }.collect { (isScrolling, visibleIndex, scrollOffset) ->
-            if (!swipeThumbnail || currentMediaIndex < 0) {
-                swipeMoved = false
-                return@collect
-            }
-
-            // Do not arm on the initial touch while still perfectly centred. Arm only
-            // after the carousel has actually moved away from the current item.
-            if (isScrolling && (visibleIndex != currentMediaIndex || scrollOffset != 0)) {
-                swipeMoved = true
-            }
-
-            // A zero offset after real movement means the carousel has reached a snap
-            // position. This works whether Compose still reports scrolling or has just
-            // switched it to false, eliminating the intermittent missed transition.
-            if (!swipeMoved || scrollOffset != 0) return@collect
-            swipeMoved = false
-
-            val player = playerConnection.player
-            val keepPlaying = player.playWhenReady
-            val changed =
-                when {
-                    visibleIndex > currentMediaIndex && canSkipNext -> {
-                        player.seekToNextMediaItem()
-                        true
-                    }
-                    visibleIndex < currentMediaIndex && canSkipPrevious -> {
-                        player.seekToPreviousMediaItem()
-                        true
-                    }
-                    else -> false
-                }
-
-            if (changed) {
-                // If the player happens to be idle/ended, prepare immediately instead of
-                // waiting for a later control path. Preserve the user's play/pause state.
-                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                    player.prepare()
-                }
-                player.playWhenReady = keepPlaying
-            }
-        }
-    }
-'''
-
-          if old not in text:
-              raise SystemExit('Expected swipe handler not found; refusing non-atomic patch')
-
-          text = text.replace(old, new, 1)
+          lines = [
+              '    // Current item tracking - derived state for efficiency',
+              '    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }',
+              '',
+              '    // Handle swipe to change song.',
+              '    // The old implementation required isScrollInProgress == true AND offset == 0 in the',
+              '    // same composition frame. At the end of a snap Compose can flip isScrollInProgress',
+              '    // to false before that frame is observed, leaving the new artwork visible while the',
+              '    // previous song keeps playing. Observe all three pieces of scroll state together and',
+              '    // treat offset == 0 after actual movement as the committed snap target.',
+              '    LaunchedEffect(',
+              '        thumbnailLazyGridState,',
+              '        swipeThumbnail,',
+              '        mediaMetadata?.id,',
+              '        currentMediaIndex,',
+              '        canSkipNext,',
+              '        canSkipPrevious,',
+              '    ) {',
+              '        var swipeMoved = false',
+              '',
+              '        snapshotFlow {',
+              '            Triple(',
+              '                thumbnailLazyGridState.isScrollInProgress,',
+              '                thumbnailLazyGridState.firstVisibleItemIndex,',
+              '                thumbnailLazyGridState.firstVisibleItemScrollOffset,',
+              '            )',
+              '        }.collect { (isScrolling, visibleIndex, scrollOffset) ->',
+              '            if (!swipeThumbnail || currentMediaIndex < 0) {',
+              '                swipeMoved = false',
+              '                return@collect',
+              '            }',
+              '',
+              '            // Arm only after the carousel has really moved away from centre.',
+              '            if (isScrolling && (visibleIndex != currentMediaIndex || scrollOffset != 0)) {',
+              '                swipeMoved = true',
+              '            }',
+              '',
+              '            // A zero offset after movement is the committed snap target, even when',
+              '            // isScrollInProgress has already become false.',
+              '            if (!swipeMoved || scrollOffset != 0) return@collect',
+              '            swipeMoved = false',
+              '',
+              '            val player = playerConnection.player',
+              '            val keepPlaying = player.playWhenReady',
+              '            val changed =',
+              '                when {',
+              '                    visibleIndex > currentMediaIndex && canSkipNext -> {',
+              '                        player.seekToNextMediaItem()',
+              '                        true',
+              '                    }',
+              '                    visibleIndex < currentMediaIndex && canSkipPrevious -> {',
+              '                        player.seekToPreviousMediaItem()',
+              '                        true',
+              '                    }',
+              '                    else -> false',
+              '                }',
+              '',
+              '            if (changed) {',
+              '                // Prepare immediately if needed and preserve the user play/pause state.',
+              '                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {',
+              '                    player.prepare()',
+              '                }',
+              '                player.playWhenReady = keepPlaying',
+              '            }',
+              '        }',
+              '    }',
+              '',
+          ]
+          replacement = '\n'.join(lines) + '\n'
+          text = text[:start] + replacement + text[end:]
           path.write_text(text, encoding='utf-8')
           PY
 
@@ -178,19 +170,19 @@ jobs:
       - name: Prepare isolated UAB LAB config
         shell: bash
         run: |
-          cat > /tmp/uab-swipe-player-sync.env <<'EOF'
-          UAB_TASK=":app:assembleFossDebug"
-          UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
-          UAB_OUTPUT_NAME="MusicLab-SWIPE-PLAYER-SYNC-LAB-01"
-          UAB_GRADLE_ARGS="-x lint"
-          UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
-          UAB_PARALLEL_INSTALL="on"
-          UAB_APPLICATION_ID_BASE="it.verlezza.musiclab.lab"
-          UAB_APPLICATION_ID_ENV="METROLIST_APPLICATION_ID"
-          UAB_APP_NAME_BASE="MusicLab Swipe LAB"
-          UAB_APP_NAME_ENV="METROLIST_APP_NAME"
-          export PULL_REQUEST="false"
-          EOF
+          printf '%s\n' \
+            'UAB_TASK=":app:assembleFossDebug"' \
+            'UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"' \
+            'UAB_OUTPUT_NAME="MusicLab-SWIPE-PLAYER-SYNC-LAB-01"' \
+            'UAB_GRADLE_ARGS="-x lint"' \
+            'UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"' \
+            'UAB_PARALLEL_INSTALL="on"' \
+            'UAB_APPLICATION_ID_BASE="it.verlezza.musiclab.lab"' \
+            'UAB_APPLICATION_ID_ENV="METROLIST_APPLICATION_ID"' \
+            'UAB_APP_NAME_BASE="MusicLab Swipe LAB"' \
+            'UAB_APP_NAME_ENV="METROLIST_APP_NAME"' \
+            'export PULL_REQUEST="false"' \
+            > /tmp/uab-swipe-player-sync.env
 
       - name: UAB preflight diagnostics
         shell: bash
@@ -229,10 +221,9 @@ jobs:
           retention-days: 14
 
       - name: Remove temporary workflow from LAB branch
-        if: always()
+        if: success()
         shell: bash
         run: |
-          git status --short
           git rm -f .github/workflows/uab-swipe-player-sync-lab.yml
-          git commit -m "chore(uab): remove temporary swipe sync workflow" || true
-          git push origin HEAD:lab/musiclab-swipe-player-sync-01 || true
+          git commit -m "chore(uab): remove temporary swipe sync workflow"
+          git push origin HEAD:lab/musiclab-swipe-player-sync-01
