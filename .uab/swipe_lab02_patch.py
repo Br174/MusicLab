@@ -3,29 +3,34 @@ from pathlib import Path
 path = Path('app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt')
 text = path.read_text(encoding='utf-8')
 
-imports = [
-    ('import androidx.compose.runtime.setValue\n', 'import androidx.compose.runtime.snapshotFlow\n'),
-    ('import androidx.compose.ui.input.pointer.pointerInput\n', 'import androidx.compose.ui.input.pointer.PointerEventPass\nimport androidx.compose.ui.input.pointer.awaitPointerEventScope\n'),
-    ('import kotlinx.coroutines.delay\n', 'import kotlin.math.abs\n'),
-]
-for anchor, addition in imports:
-    if addition not in text:
-        if anchor not in text:
-            raise SystemExit(f'Import anchor not found: {anchor!r}')
-        text = text.replace(anchor, anchor + addition, 1)
+# Compose in this project exposes awaitPointerEventScope as a PointerInputScope member,
+# not as an importable top-level symbol. Remove the incompatible import if present.
+text = text.replace('import androidx.compose.ui.input.pointer.awaitPointerEventScope\n', '')
 
-start_marker = '    // Current item tracking - derived state for efficiency\n'
-end_marker = '    // Update position when song changes\n'
-start = text.find(start_marker)
-end = text.find(end_marker, start)
-if start < 0 or end < 0:
-    raise SystemExit('Swipe handler markers not found; refusing non-atomic patch')
+if 'userSwipeArmed' not in text:
+    imports = [
+        ('import androidx.compose.runtime.setValue\n', 'import androidx.compose.runtime.snapshotFlow\n'),
+        ('import androidx.compose.ui.input.pointer.pointerInput\n', 'import androidx.compose.ui.input.pointer.PointerEventPass\n'),
+        ('import kotlinx.coroutines.delay\n', 'import kotlin.math.abs\n'),
+    ]
+    for anchor, addition in imports:
+        if addition not in text:
+            if anchor not in text:
+                raise SystemExit(f'Import anchor not found: {anchor!r}')
+            text = text.replace(anchor, anchor + addition, 1)
 
-old_region = text[start:end]
-if 'LaunchedEffect(itemScrollOffset)' not in old_region:
-    raise SystemExit('Expected Mother swipe handler not found; refusing patch')
+    start_marker = '    // Current item tracking - derived state for efficiency\n'
+    end_marker = '    // Update position when song changes\n'
+    start = text.find(start_marker)
+    end = text.find(end_marker, start)
+    if start < 0 or end < 0:
+        raise SystemExit('Swipe handler markers not found; refusing non-atomic patch')
 
-new_region = '''    // Current item tracking - derived state for efficiency
+    old_region = text[start:end]
+    if 'LaunchedEffect(itemScrollOffset)' not in old_region:
+        raise SystemExit('Expected Mother swipe handler not found; refusing patch')
+
+    new_region = '''    // Current item tracking - derived state for efficiency
     val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
 
     // Only a genuine horizontal finger drag can arm a song change. Programmatic
@@ -121,22 +126,22 @@ new_region = '''    // Current item tracking - derived state for efficiency
     }
 
 '''
-text = text[:start] + new_region + text[end:]
+    text = text[:start] + new_region + text[end:]
 
-old_modifier = '''                        modifier = if (isLandscape) {
+    old_modifier = '''                        modifier = if (isLandscape) {
                             Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
                         } else {
                             Modifier.fillMaxSize()
                         }
 '''
-new_modifier = '''                        modifier = (if (isLandscape) {
+    new_modifier = '''                        modifier = (if (isLandscape) {
                             Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
                         } else {
                             Modifier.fillMaxSize()
                         }).then(userSwipePointerModifier)
 '''
-if old_modifier not in text:
-    raise SystemExit('LazyHorizontalGrid modifier anchor not found; refusing patch')
-text = text.replace(old_modifier, new_modifier, 1)
+    if old_modifier not in text:
+        raise SystemExit('LazyHorizontalGrid modifier anchor not found; refusing patch')
+    text = text.replace(old_modifier, new_modifier, 1)
 
 path.write_text(text, encoding='utf-8')
