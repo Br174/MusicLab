@@ -24,6 +24,7 @@ import kotlin.math.abs
  * @param lazyGridState The state of the LazyHorizontalGrid
  * @param positionInLayout Function to calculate the desired snap position
  * @param velocityThreshold Minimum velocity required to trigger directional snap
+ * @param distanceThresholdFraction Fraction of one item that must be dragged before a low-velocity gesture commits to the adjacent item
  */
 @ExperimentalFoundationApi
 fun ThumbnailSnapLayoutInfoProvider(
@@ -32,6 +33,7 @@ fun ThumbnailSnapLayoutInfoProvider(
         (layoutSize / 2f - itemSize / 2f)
     },
     velocityThreshold: Float = 1000f,
+    distanceThresholdFraction: Float = 0.5f,
 ): SnapLayoutInfoProvider = object : SnapLayoutInfoProvider {
     private val layoutInfo: LazyGridLayoutInfo
         get() = lazyGridState.layoutInfo
@@ -40,21 +42,36 @@ fun ThumbnailSnapLayoutInfoProvider(
     
     override fun calculateSnapOffset(velocity: Float): Float {
         val bounds = calculateSnappingOffsetBounds()
+        val lower = bounds.start
+        val upper = bounds.endInclusive
 
-        // Only snap when velocity exceeds threshold
-        if (abs(velocity) < velocityThreshold) {
-            return if (abs(bounds.start) < abs(bounds.endInclusive)) {
-                bounds.start
-            } else {
-                bounds.endInclusive
+        // At a queue boundary there may be only one finite snap candidate.
+        if (!lower.isFinite() || !upper.isFinite()) {
+            return listOf(lower, upper)
+                .filter { it.isFinite() }
+                .minByOrNull { abs(it) }
+                ?: 0f
+        }
+
+        // A real fling keeps the original directional behavior.
+        if (abs(velocity) >= velocityThreshold) {
+            return when {
+                velocity < 0 -> lower
+                velocity > 0 -> upper
+                else -> 0f
             }
         }
 
-        return when {
-            velocity < 0 -> bounds.start
-            velocity > 0 -> bounds.endInclusive
-            else -> 0f
-        }
+        // For a slower drag, do not require crossing the 50% midpoint. The nearest
+        // bound is the item we started from; once it has moved by the configured
+        // fraction of an item, finish the gesture toward the adjacent item instead.
+        val nearestIsLower = abs(lower) <= abs(upper)
+        val nearest = if (nearestIsLower) lower else upper
+        val adjacent = if (nearestIsLower) upper else lower
+        val itemDistance = abs(upper - lower)
+        val threshold = itemDistance * distanceThresholdFraction.coerceIn(0f, 0.5f)
+
+        return if (abs(nearest) >= threshold) adjacent else nearest
     }
 
     private fun calculateSnappingOffsetBounds(): ClosedFloatingPointRange<Float> {
