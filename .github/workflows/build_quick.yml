@@ -1,18 +1,22 @@
-name: Universal APK Builder - GitHub fallback
+name: UAB CORE - MusicLab LAB/CANDIDATA
 
 on:
+  push:
+    branches:
+      - 'lab/**'
+      - 'candidate/**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: uab-musiclab-github-fallback
+  group: uab-musiclab-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: UAB MusicLab LAB
+    name: UAB MusicLab LAB/CANDIDATA
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -57,7 +61,7 @@ jobs:
       - name: Upload APK and ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-UAB
+          name: MusicLab-UAB-${{ github.ref_name }}
           path: |
             dist/uab/apk/*.apk
             dist/uab/*.zip
