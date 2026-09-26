@@ -269,7 +269,8 @@ fun Thumbnail(
             positionInLayout = { layoutSize, itemSize ->
                 (layoutSize / 2f - itemSize / 2f)
             },
-            velocityThreshold = 120f
+            velocityThreshold = 120f,
+            distanceThresholdFraction = 0.20f,
         )
     }
 
@@ -345,7 +346,6 @@ fun Thumbnail(
 
             val targetIndex = thumbnailLazyGridState.firstVisibleItemIndex
             val player = playerConnection.player
-            val keepPlaying = player.playWhenReady
             val changed =
                 when {
                     targetIndex > currentMediaIndex && canSkipNext -> {
@@ -363,7 +363,7 @@ fun Thumbnail(
                 if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
                     player.prepare()
                 }
-                player.playWhenReady = keepPlaying
+                player.play()
             }
         }
     }
