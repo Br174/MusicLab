@@ -43,7 +43,7 @@ jobs:
           printf '%s\n' "${changed[@]}" | grep -qx 'app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt'
           grep -q '!playerBottomSheetState.isCollapsed && !playerBottomSheetState.isDismissed' app/src/main/kotlin/com/metrolist/music/MainActivity.kt
           grep -q 'velocityThreshold = 120f' app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
-          grep -A4 'find_covers' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt | grep -q 'playerBottomSheetState.collapseSoft()'
+          grep -A24 'find_covers' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt | grep -q 'playerBottomSheetState.collapseSoft()'
           ! grep -q 'collapsePlayerBeforeNavigation' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
 
       - name: Commit candidate polish source changes
