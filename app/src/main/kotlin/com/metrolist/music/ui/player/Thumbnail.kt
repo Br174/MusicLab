@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +53,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.awaitPointerEventScope
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -93,6 +96,7 @@ import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.innertube.utils.parseCookieString
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 /**
  * Pre-calculated thumbnail dimensions to avoid repeated calculations during recomposition.
@@ -272,16 +276,96 @@ fun Thumbnail(
 
     // Current item tracking - derived state for efficiency
     val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
-    val itemScrollOffset by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemScrollOffset } }
 
-    // Handle swipe to change song
-    LaunchedEffect(itemScrollOffset) {
-        if (!thumbnailLazyGridState.isScrollInProgress || !swipeThumbnail || itemScrollOffset != 0 || currentMediaIndex < 0) return@LaunchedEffect
+    // Only a genuine horizontal finger drag can arm a song change. Programmatic
+    // movements (player opening, metadata updates, automatic centering) never arm it.
+    var userPointerDown by remember { mutableStateOf(false) }
+    var userSwipeArmed by remember { mutableStateOf(false) }
 
-        if (currentItem > currentMediaIndex && canSkipNext) {
-            playerConnection.player.seekToNext()
-        } else if (currentItem < currentMediaIndex && canSkipPrevious) {
-            playerConnection.player.seekToPreviousMediaItem()
+    val userSwipePointerModifier =
+        Modifier.pointerInput(swipeThumbnail) {
+            if (!swipeThumbnail) return@pointerInput
+            val touchSlop = viewConfiguration.touchSlop
+
+            awaitPointerEventScope {
+                var gestureActive = false
+                var startX = 0f
+                var startY = 0f
+
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Final)
+
+                    if (!gestureActive) {
+                        val down = event.changes.firstOrNull { it.pressed && !it.previousPressed }
+                        if (down != null) {
+                            gestureActive = true
+                            startX = down.position.x
+                            startY = down.position.y
+                            userPointerDown = true
+                            userSwipeArmed = false
+                        }
+                        continue
+                    }
+
+                    val pressedChange = event.changes.firstOrNull { it.pressed }
+                    if (pressedChange != null) {
+                        val dx = abs(pressedChange.position.x - startX)
+                        val dy = abs(pressedChange.position.y - startY)
+                        if (dx > touchSlop && dx > dy) {
+                            userSwipeArmed = true
+                        }
+                    }
+
+                    if (event.changes.none { it.pressed }) {
+                        gestureActive = false
+                        userPointerDown = false
+                    }
+                }
+            }
+        }
+
+    // Commit at most one skip after the real finger gesture has ended and the
+    // carousel has settled. Automatic scroll/centering can never reach this path
+    // because it cannot set userSwipeArmed.
+    LaunchedEffect(
+        thumbnailLazyGridState,
+        swipeThumbnail,
+        currentMediaIndex,
+        canSkipNext,
+        canSkipPrevious,
+    ) {
+        snapshotFlow {
+            !thumbnailLazyGridState.isScrollInProgress &&
+                !userPointerDown &&
+                userSwipeArmed
+        }.collect { shouldCommit ->
+            if (!shouldCommit) return@collect
+
+            userSwipeArmed = false
+            if (!swipeThumbnail || currentMediaIndex < 0) return@collect
+
+            val targetIndex = thumbnailLazyGridState.firstVisibleItemIndex
+            val player = playerConnection.player
+            val keepPlaying = player.playWhenReady
+            val changed =
+                when {
+                    targetIndex > currentMediaIndex && canSkipNext -> {
+                        player.seekToNextMediaItem()
+                        true
+                    }
+                    targetIndex < currentMediaIndex && canSkipPrevious -> {
+                        player.seekToPreviousMediaItem()
+                        true
+                    }
+                    else -> false
+                }
+
+            if (changed) {
+                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                    player.prepare()
+                }
+                player.playWhenReady = keepPlaying
+            }
         }
     }
 
@@ -392,11 +476,11 @@ fun Thumbnail(
                         rows = GridCells.Fixed(1),
                         flingBehavior = rememberSnapFlingBehavior(thumbnailSnapLayoutInfoProvider),
                         userScrollEnabled = isScrollEnabled,
-                        modifier = if (isLandscape) {
+                        modifier = (if (isLandscape) {
                             Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
                         } else {
                             Modifier.fillMaxSize()
-                        }
+                        }).then(userSwipePointerModifier)
                     ) {
                         items(
                             items = mediaItems,
