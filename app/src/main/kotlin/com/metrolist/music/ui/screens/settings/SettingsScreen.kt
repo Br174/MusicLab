@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -32,13 +35,15 @@ import androidx.navigation.NavController
 import com.metrolist.music.BuildConfig
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
+import com.metrolist.music.constants.ArtworkSize
+import com.metrolist.music.constants.ArtworkSizeKey
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.ReleaseNotesCard
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.Updater
-import androidx.compose.runtime.remember
+import com.metrolist.music.utils.rememberEnumPreference
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +54,8 @@ fun SettingsScreen(
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val isAndroid12OrLater = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val showArtworkSizeDialog = remember { mutableStateOf(false) }
+    val (artworkSize, onArtworkSizeChange) = rememberEnumPreference(ArtworkSizeKey, ArtworkSize.MEDIUM)
     val hasAndroidAuto = remember {
         try {
             context.packageManager.getPackageInfo(
@@ -58,6 +65,50 @@ fun SettingsScreen(
         } catch (e: Exception) {
             false
         }
+    }
+
+    if (showArtworkSizeDialog.value) {
+        AlertDialog(
+            onDismissRequest = { showArtworkSizeDialog.value = false },
+            title = { Text("Dimensione copertine") },
+            text = {
+                Column {
+                    ArtworkSize.entries.forEach { size ->
+                        val label = when (size) {
+                            ArtworkSize.SMALL -> "Piccola"
+                            ArtworkSize.MEDIUM -> "Media"
+                            ArtworkSize.LARGE -> "Grande"
+                            ArtworkSize.VERY_LARGE -> "Molto grande"
+                        }
+                        TextButton(
+                            onClick = {
+                                onArtworkSizeChange(size)
+                                showArtworkSizeDialog.value = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            RadioButton(
+                                selected = artworkSize == size,
+                                onClick = null,
+                            )
+                            Text(label, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showArtworkSizeDialog.value = false }) {
+                    Text("Chiudi")
+                }
+            },
+        )
+    }
+
+    val artworkSizeLabel = when (artworkSize) {
+        ArtworkSize.SMALL -> "Piccola"
+        ArtworkSize.MEDIUM -> "Media"
+        ArtworkSize.LARGE -> "Grande"
+        ArtworkSize.VERY_LARGE -> "Molto grande"
     }
 
     Column(
@@ -82,6 +133,18 @@ fun SettingsScreen(
                     icon = painterResource(R.drawable.palette),
                     title = { Text(stringResource(R.string.appearance)) },
                     onClick = { navController.navigate("settings/appearance") }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.album),
+                    title = { Text("Dimensione copertine") },
+                    description = {
+                        Text(
+                            text = artworkSizeLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    onClick = { showArtworkSizeDialog.value = true },
                 )
             )
         )
@@ -261,7 +324,7 @@ fun SettingsScreen(
                 }
             }
         )
-    if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
+        if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
             Spacer(modifier = Modifier.height(16.dp))
             ReleaseNotesCard()
         }
