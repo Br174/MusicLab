@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -830,8 +831,8 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                 onClick = {
                                     when {
                                         navigationArtists.size == 1 -> {
+                                            playerBottomSheetState.collapse(tween(durationMillis = 120))
                                             navController.navigate("artist/${navigationArtists[0].id}")
-                                            playerBottomSheetState.collapseSoft()
                                             onDismiss()
                                         }
                                         navigationArtists.size > 1 -> {
@@ -869,12 +870,12 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                     if (albumId.isNullOrBlank()) {
                                         Toast.makeText(context, R.string.album_unavailable, Toast.LENGTH_SHORT).show()
                                     } else {
+                                        playerBottomSheetState.collapse(tween(durationMillis = 120))
                                         if (navigationAlbumIsPodcast) {
                                             navController.navigate("online_podcast/$albumId")
                                         } else {
                                             navController.navigate("album/$albumId")
                                         }
-                                        playerBottomSheetState.collapseSoft()
                                         onDismiss()
                                     }
                                 },
@@ -930,6 +931,7 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         )
                                     },
                                     onClick = {
+                                        playerBottomSheetState.collapse(tween(durationMillis = 120))
                                         navController.navigate("equalizer")
                                         onDismiss()
                                     },
