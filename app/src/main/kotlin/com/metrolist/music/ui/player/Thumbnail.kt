@@ -269,7 +269,7 @@ fun Thumbnail(
             positionInLayout = { layoutSize, itemSize ->
                 (layoutSize / 2f - itemSize / 2f)
             },
-            velocityThreshold = 500f
+            velocityThreshold = 120f
         )
     }
 

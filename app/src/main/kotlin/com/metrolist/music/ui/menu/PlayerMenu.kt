@@ -139,14 +139,6 @@ fun PlayerMenu(
     val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
 
-    // Navigation from the expanded player must leave the player in its mini state.
-    // collapseSoft() updates the saved anchor; snapTo() makes the visual transition
-    // immediate so the destination is never hidden behind the full player.
-    fun collapsePlayerBeforeNavigation() {
-        playerBottomSheetState.collapseSoft()
-        playerBottomSheetState.snapTo(playerBottomSheetState.collapsedBound)
-    }
-
     val download by LocalDownloadUtil.current
         .getDownload(mediaMetadata.id)
         .collectAsState(initial = null)
@@ -325,7 +317,6 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                             .fillParentMaxWidth()
                             .height(ListItemHeight)
                             .clickable {
-                                collapsePlayerBeforeNavigation()
                                 navController.navigate("artist/${artist.id}")
                                 showSelectArtistDialog = false
                                 playerBottomSheetState.collapseSoft()
@@ -545,7 +536,6 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                     },
                                     onClick = {
                                         if (mediaMetadata.artists.size == 1) {
-                                            collapsePlayerBeforeNavigation()
                                             navController.navigate("artist/${mediaMetadata.artists[0].id}")
                                             playerBottomSheetState.collapseSoft()
                                             onDismiss()
@@ -576,10 +566,8 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                     },
                                     onClick = {
                                         if (isPodcast) {
-                                            collapsePlayerBeforeNavigation()
                                             navController.navigate("online_podcast/${mediaMetadata.album.id}")
                                         } else {
-                                            collapsePlayerBeforeNavigation()
                                             navController.navigate("album/${mediaMetadata.album.id}")
                                         }
                                         playerBottomSheetState.collapseSoft()
@@ -842,7 +830,6 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                 onClick = {
                                     when {
                                         navigationArtists.size == 1 -> {
-                                            collapsePlayerBeforeNavigation()
                                             navController.navigate("artist/${navigationArtists[0].id}")
                                             playerBottomSheetState.collapseSoft()
                                             onDismiss()
@@ -883,10 +870,8 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         Toast.makeText(context, R.string.album_unavailable, Toast.LENGTH_SHORT).show()
                                     } else {
                                         if (navigationAlbumIsPodcast) {
-                                            collapsePlayerBeforeNavigation()
                                             navController.navigate("online_podcast/$albumId")
                                         } else {
-                                            collapsePlayerBeforeNavigation()
                                             navController.navigate("album/$albumId")
                                         }
                                         playerBottomSheetState.collapseSoft()
@@ -907,7 +892,10 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         modifier = Modifier.size(24.dp),
                                     )
                                 },
-                                onClick = { showCoverSearchDialog = true },
+                                onClick = {
+                                    playerBottomSheetState.collapseSoft()
+                                    showCoverSearchDialog = true
+                                },
                             ),
                         )
 
@@ -942,7 +930,6 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         )
                                     },
                                     onClick = {
-                                        collapsePlayerBeforeNavigation()
                                         navController.navigate("equalizer")
                                         onDismiss()
                                     },

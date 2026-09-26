@@ -772,6 +772,13 @@ class MainActivity : ComponentActivity() {
 
                 // Navigation tracking
                 LaunchedEffect(navBackStackEntry) {
+                    // If the user opens another screen while the full player is visible,
+                    // immediately return the player to its mini state so the destination
+                    // is never hidden behind the expanded player.
+                    if (!playerBottomSheetState.isCollapsed && !playerBottomSheetState.isDismissed) {
+                        playerBottomSheetState.collapseSoft()
+                    }
+
                     if (inSearchScreen) {
                         val searchQuery =
                             withContext(Dispatchers.IO) {
