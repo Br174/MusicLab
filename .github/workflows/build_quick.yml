@@ -77,7 +77,7 @@ jobs:
       - name: Upload APK and ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-UAB-${{ github.ref_name }}
+          name: MusicLab-LAB-SWIPE-FLUID-PLAY-01
           path: |
             dist/uab/apk/*.apk
             dist/uab/*.zip
