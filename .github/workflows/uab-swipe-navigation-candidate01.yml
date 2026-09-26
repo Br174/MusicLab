@@ -29,8 +29,8 @@ jobs:
       - name: Verify candidate diff
         shell: bash
         run: |
-          git diff --check mother/musiclab-112726...HEAD
-          mapfile -t changed < <(git diff --name-only mother/musiclab-112726...HEAD | grep '^app/' || true)
+          git diff --check origin/mother/musiclab-112726...HEAD
+          mapfile -t changed < <(git diff --name-only origin/mother/musiclab-112726...HEAD | grep '^app/' || true)
           printf 'App files changed:\n%s\n' "${changed[*]}"
           test "${#changed[@]}" -eq 2
           printf '%s\n' "${changed[@]}" | grep -qx 'app/src/main/kotlin/com/metrolist/music/ui/player/Player.kt'
