@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -272,16 +273,67 @@ fun Thumbnail(
 
     // Current item tracking - derived state for efficiency
     val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
-    val itemScrollOffset by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemScrollOffset } }
 
-    // Handle swipe to change song
-    LaunchedEffect(itemScrollOffset) {
-        if (!thumbnailLazyGridState.isScrollInProgress || !swipeThumbnail || itemScrollOffset != 0 || currentMediaIndex < 0) return@LaunchedEffect
+    // Handle swipe to change song.
+    // The old implementation required isScrollInProgress == true AND offset == 0 in the
+    // same composition frame. At the end of a snap Compose can flip isScrollInProgress
+    // to false before that frame is observed, leaving the new artwork visible while the
+    // previous song keeps playing. Observe all three pieces of scroll state together and
+    // treat offset == 0 after actual movement as the committed snap target.
+    LaunchedEffect(
+        thumbnailLazyGridState,
+        swipeThumbnail,
+        mediaMetadata?.id,
+        currentMediaIndex,
+        canSkipNext,
+        canSkipPrevious,
+    ) {
+        var swipeMoved = false
 
-        if (currentItem > currentMediaIndex && canSkipNext) {
-            playerConnection.player.seekToNext()
-        } else if (currentItem < currentMediaIndex && canSkipPrevious) {
-            playerConnection.player.seekToPreviousMediaItem()
+        snapshotFlow {
+            Triple(
+                thumbnailLazyGridState.isScrollInProgress,
+                thumbnailLazyGridState.firstVisibleItemIndex,
+                thumbnailLazyGridState.firstVisibleItemScrollOffset,
+            )
+        }.collect { (isScrolling, visibleIndex, scrollOffset) ->
+            if (!swipeThumbnail || currentMediaIndex < 0) {
+                swipeMoved = false
+                return@collect
+            }
+
+            // Arm only after the carousel has really moved away from centre.
+            if (isScrolling && (visibleIndex != currentMediaIndex || scrollOffset != 0)) {
+                swipeMoved = true
+            }
+
+            // A zero offset after movement is the committed snap target, even when
+            // isScrollInProgress has already become false.
+            if (!swipeMoved || scrollOffset != 0) return@collect
+            swipeMoved = false
+
+            val player = playerConnection.player
+            val keepPlaying = player.playWhenReady
+            val changed =
+                when {
+                    visibleIndex > currentMediaIndex && canSkipNext -> {
+                        player.seekToNextMediaItem()
+                        true
+                    }
+                    visibleIndex < currentMediaIndex && canSkipPrevious -> {
+                        player.seekToPreviousMediaItem()
+                        true
+                    }
+                    else -> false
+                }
+
+            if (changed) {
+                // Prepare immediately if needed and preserve the user play/pause state.
+                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                    player.prepare()
+                }
+                player.playWhenReady = keepPlaying
+            }
         }
     }
 
