@@ -297,31 +297,6 @@ fun BottomSheetPlayer(
         state.collapseSoft()
     }
 
-    // Keep the full player from remaining persistently over a newly opened page.
-    // Opening the player itself does not trigger this: we collapse only when the
-    // NavController actually moves from one destination to another.
-    DisposableEffect(navController, state) {
-        var lastDestinationId = navController.currentDestination?.id
-        val destinationListener =
-            NavController.OnDestinationChangedListener { _, destination, _ ->
-                val previousDestinationId = lastDestinationId
-                lastDestinationId = destination.id
-
-                if (
-                    previousDestinationId != null &&
-                    destination.id != previousDestinationId &&
-                    state.isExpanded
-                ) {
-                    state.collapseSoft()
-                }
-            }
-
-        navController.addOnDestinationChangedListener(destinationListener)
-        onDispose {
-            navController.removeOnDestinationChangedListener(destinationListener)
-        }
-    }
-
     val onBackgroundColor =
         when (playerBackground) {
             PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.secondary
