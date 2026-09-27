@@ -40,10 +40,12 @@ jobs:
           import java.util.concurrent.TimeUnit
 
           class ParadisoBeachDiagnosticsTest {
-              private val http = OkHttpClient.Builder()
-                  .connectTimeout(15, TimeUnit.SECONDS)
-                  .readTimeout(15, TimeUnit.SECONDS)
-                  .build()
+              private val http by lazy {
+                  OkHttpClient.Builder()
+                      .connectTimeout(15, TimeUnit.SECONDS)
+                      .readTimeout(15, TimeUnit.SECONDS)
+                      .build()
+              }
 
               private fun queryParam(url: String, key: String): String? =
                   runCatching {
@@ -62,6 +64,11 @@ jobs:
                       println(s)
                       out.appendText(s + "\n")
                   }
+
+                  val visitor = YouTube.visitorData().getOrNull()
+                  YouTube.visitorData = visitor
+                  emit("VISITOR_DATA=${if (visitor == null) "UNAVAILABLE" else "AVAILABLE"}")
+                  check(visitor != null) { "Could not bootstrap YouTube visitorData" }
 
                   val query = "Paradiso beach Cartoon Band"
                   val search = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrThrow()
@@ -139,7 +146,7 @@ jobs:
           rc=$?
           if [ "$rc" -ne 0 ]; then
             echo '--- compact Gradle failure ---'
-            grep -nE '(^e: |error:|Unresolved reference|FAILURE:|What went wrong|Compilation error|FAILED)' innertube/build/reports/yt403/gradle.log | tail -120 || true
+            grep -nE '(^e: |error:|Unresolved reference|FAILURE:|What went wrong|Compilation error|FAILED|ClientRequestException|IllegalStateException)' innertube/build/reports/yt403/gradle.log | tail -160 || true
           fi
           exit "$rc"
 
