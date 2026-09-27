@@ -17,17 +17,17 @@ jobs:
         with:
           ref: uab-build/musiclab-global-ai-engine-11
           fetch-depth: 0
-      - name: Applica patch sorgenti
-        run: python3 tools/lab11_patch_source.py
+      - name: Applica patch PlayerMenu
+        run: python3 tools/lab11_patch_player.py
       - name: Commit patch
         shell: bash
         run: |
           git config user.name "MusicLab LAB bot"
           git config user.email "actions@users.noreply.github.com"
-          git add app/src/main/kotlin/com/metrolist/music/ui/menu/SongMenu.kt app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt
+          git add app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
           if git diff --cached --quiet; then
             echo "Nessuna modifica da applicare"
             exit 0
           fi
-          git commit -m "LAB11: resolver canonico globale nei menu e controllo Originali"
+          git commit -m "LAB11: navigazione canonica AI nel menu player"
           git push origin HEAD:uab-build/musiclab-global-ai-engine-11
