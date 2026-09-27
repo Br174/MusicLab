@@ -411,7 +411,7 @@ fun Thumbnail(
                 PlaybackError(
                     error = playbackError,
                     isLoggedIn = isYouTubeLoggedIn,
-                    retry = playerConnection.player::prepare,
+                    retry = playerConnection::retryCurrentPlayback,
                 )
             }
         }
