@@ -67,8 +67,6 @@ internal object OriginalVersionSearchEngine {
         currentYouTubeId: String,
         geminiConfig: GeminiCoverVerificationConfig?,
     ): OriginalVersionSearchResult = coroutineScope {
-        // Originali is intentionally AI-led. No cover database or secondary service is
-        // allowed to overrule the performer/title selected by Gemini.
         if (geminiConfig == null) {
             return@coroutineScope OriginalVersionSearchResult(
                 original = null,
@@ -128,10 +126,6 @@ internal object OriginalVersionSearchEngine {
             )
         }
 
-        // YouTube Music and YouTube are discovery only. They do not decide who the
-        // original performer is: they merely find playable appearances of the artist
-        // already chosen by AI. Duets, groups and collaborations remain valid whenever
-        // at least one credited performer is the AI-selected original artist.
         val youtubeMusicDeferred = async {
             searchAiArtistVersions(
                 identity = identity,
@@ -158,13 +152,12 @@ internal object OriginalVersionSearchEngine {
         youtubeMusic.results.forEach { mergeInto(merged, it) }
         youtube.results.forEach { mergeInto(merged, it) }
 
-        // The starting item is included only if it already satisfies the AI decision.
         if (currentYouTubeId.isNotBlank()) {
             runCatching {
                 YouTube.queue(listOf(currentYouTubeId)).getOrNull()?.firstOrNull()
             }.getOrNull()?.let { song ->
                 if (
-                    exactBaseTitle(song.title) == targetTitle &&
+                    matchesAiTitle(song.title, targetTitle, originalArtists) &&
                     hasAnyOriginalArtist(song, originalArtists)
                 ) {
                     mergeInto(
@@ -300,7 +293,7 @@ internal object OriginalVersionSearchEngine {
         while (true) {
             pages++
             page.items.filterIsInstance<SongItem>().forEach { song ->
-                if (exactBaseTitle(song.title) != targetTitle) return@forEach
+                if (!matchesAiTitle(song.title, targetTitle, originalArtists)) return@forEach
                 if (!hasAnyOriginalArtist(song, originalArtists)) return@forEach
                 if (DISALLOWED_REGEX.containsMatchIn(song.title.lowercase())) return@forEach
 
@@ -383,6 +376,19 @@ internal object OriginalVersionSearchEngine {
         val lower = value.lowercase()
         return !VERSION_MARKER_REGEX.containsMatchIn(lower) &&
             !DISALLOWED_REGEX.containsMatchIn(lower)
+    }
+
+    private fun matchesAiTitle(
+        value: String,
+        targetTitle: String,
+        originalArtists: Set<String>,
+    ): Boolean {
+        val candidate = exactBaseTitle(value)
+        if (candidate == targetTitle) return true
+        return originalArtists.any { artist ->
+            candidate == "$artist $targetTitle" ||
+                candidate == "$targetTitle $artist"
+        }
     }
 
     private fun mergeInto(
