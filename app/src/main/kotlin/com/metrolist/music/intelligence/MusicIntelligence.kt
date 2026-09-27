@@ -1,6 +1,8 @@
 package com.metrolist.music.intelligence
 
 import android.content.Context
+import androidx.datastore.preferences.core.stringPreferencesKey
+import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.DEFAULT_MUSIC_AI_CLOUD_ENDPOINT
 import com.metrolist.music.constants.MusicAiAlbumResolverEnabledKey
 import com.metrolist.music.constants.MusicAiArtistResolverEnabledKey
@@ -14,13 +16,18 @@ import com.metrolist.music.constants.MusicAiForeignEnabledKey
 import com.metrolist.music.constants.MusicAiLiveEnabledKey
 import com.metrolist.music.constants.MusicAiOriginalsEnabledKey
 import com.metrolist.music.constants.MusicAiRemixEnabledKey
+import com.metrolist.music.constants.OpenRouterApiKey
+import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -36,9 +43,8 @@ import java.text.Normalizer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/**
- * Configurazione unica del cervello musicale. Il master switch prevale sempre.
- */
+private val LegacyCoverGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
+
 data class MusicIntelligenceSettings(
     val enabled: Boolean,
     val credits: Boolean,
@@ -99,8 +105,8 @@ data class CanonicalMusicMetadata(
 )
 
 /**
- * Client cloud non bloccante rispetto al player. Questa classe non viene mai chiamata
- * dal percorso critico che prepara/avvia lo stream audio/video.
+ * Resolver globale. Viene chiamato soltanto fuori dal percorso critico del player:
+ * il video/audio può partire subito; identità, crediti e destinazioni arrivano dopo.
  */
 object MusicIntelligenceClient {
     private val client = OkHttpClient.Builder()
@@ -123,10 +129,32 @@ object MusicIntelligenceClient {
     ): CanonicalMusicMetadata? = withContext(Dispatchers.IO) {
         memory[playbackId]?.let { return@withContext it }
         val settings = MusicIntelligenceSettings.from(context)
-        if (!settings.enabled || !settings.backgroundMetadata || settings.endpoint.isBlank()) {
-            return@withContext null
-        }
+        if (!settings.enabled || !settings.backgroundMetadata) return@withContext null
 
+        // Cloudflare è la corsia primaria. Finché il Worker non è configurato o se
+        // temporaneamente non risponde, la LAB resta testabile usando Gemini diretto.
+        var result = if (settings.endpoint.isNotBlank()) {
+            resolveFromCloud(settings, playbackId, title, artist, album)
+        } else {
+            null
+        }
+        if (result == null) {
+            result = resolveDirectGemini(context, playbackId, title, artist, album, settings.credits)
+        }
+        if (result == null) return@withContext null
+
+        val enriched = enrichTechnicalDestinations(result, settings)
+        memory[playbackId] = enriched
+        enriched
+    }
+
+    private fun resolveFromCloud(
+        settings: MusicIntelligenceSettings,
+        playbackId: String,
+        title: String,
+        artist: String,
+        album: String?,
+    ): CanonicalMusicMetadata? {
         val body = buildJsonObject {
             put("playbackId", playbackId)
             put("title", title)
@@ -142,8 +170,7 @@ object MusicIntelligenceClient {
             .post(body.toString().toRequestBody(mediaType))
             .addHeader("Content-Type", "application/json")
             .build()
-
-        val result = runCatching {
+        return runCatching {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use null
                 val root = response.body?.string()?.let { json.parseToJsonElement(it).jsonObject }
@@ -151,8 +178,116 @@ object MusicIntelligenceClient {
                 root.toCanonical(playbackId)
             }
         }.getOrNull()
-        if (result != null) memory[playbackId] = result
-        result
+    }
+
+    private fun resolveDirectGemini(
+        context: Context,
+        playbackId: String,
+        title: String,
+        artist: String,
+        album: String?,
+        wantCredits: Boolean,
+    ): CanonicalMusicMetadata? {
+        val ds = context.dataStore
+        val provider = ds.get(AiProviderKey, "OpenRouter")
+        val sharedKey = ds.get(OpenRouterApiKey, "")
+        val dedicatedKey = ds.get(LegacyCoverGeminiApiKey, "")
+        val apiKey = dedicatedKey.ifBlank {
+            sharedKey.takeIf { provider == "Gemini" || it.startsWith("AIza") }.orEmpty()
+        }
+        if (apiKey.isBlank()) return null
+
+        val configuredModel = ds.get(OpenRouterModelKey, "")
+            .takeIf { provider == "Gemini" && it.isNotBlank() && !it.contains('/') }
+        val models = listOfNotNull(configuredModel, "gemini-2.5-flash-lite").distinct()
+        val creditsRule = if (wantCredits) {
+            "Compila autori, compositori, parolieri, produttori ed etichetta quando li conosci."
+        } else {
+            "I crediti non sono richiesti: restituisci gli array vuoti e label null."
+        }
+        val prompt = """Sei il resolver musicale canonico di MusicLab.
+L'AI è l'unica autorità editoriale. Il nome osservato può provenire da un uploader YouTube e NON va assunto automaticamente come artista reale.
+
+Playback tecnico: $playbackId
+Titolo osservato: $title
+Artista osservato: $artist
+Album osservato: ${album.orEmpty().ifBlank { "non disponibile" }}
+
+Identifica la specifica registrazione musicale reale. Restituisci titolo canonico, artista reale, album reale se esiste, anno, lingua e categoria (originale, cover, live, remix o adattamento).
+$creditsRule
+Se un dato non è noto usa null o []. Non inventare una pagina YouTube né un browse id.
+Rispondi SOLO JSON:
+{"title":"","artist":"","album":null,"year":null,"language":null,"category":null,"credits":{"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}}
+"""
+
+        for (model in models) {
+            val body = buildJsonObject {
+                put("contents", buildJsonArray {
+                    add(buildJsonObject {
+                        put("role", "user")
+                        put("parts", buildJsonArray { add(buildJsonObject { put("text", prompt) }) })
+                    })
+                })
+                put("generationConfig", buildJsonObject {
+                    put("temperature", 0.08)
+                    put("maxOutputTokens", 1600)
+                    put("responseMimeType", "application/json")
+                })
+            }
+            val request = Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
+                .addHeader("x-goog-api-key", apiKey)
+                .addHeader("Content-Type", "application/json")
+                .post(body.toString().toRequestBody(mediaType))
+                .build()
+            val result = runCatching {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    val root = response.body?.string()?.let { json.parseToJsonElement(it).jsonObject }
+                        ?: return@use null
+                    val text = root["candidates"]?.jsonArray?.firstOrNull()?.jsonObject
+                        ?.get("content")?.jsonObject?.get("parts")?.jsonArray
+                        ?.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.contentOrNull }
+                        ?.joinToString("\n")?.trim()
+                        ?: return@use null
+                    extractObject(text)?.toCanonical(playbackId)?.copy(source = "ai-diretta")
+                }
+            }.getOrNull()
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private suspend fun enrichTechnicalDestinations(
+        metadata: CanonicalMusicMetadata,
+        settings: MusicIntelligenceSettings,
+    ): CanonicalMusicMetadata = coroutineScope {
+        val artistJob = if (settings.artistResolver && metadata.artistBrowseId.isNullOrBlank()) {
+            async(Dispatchers.IO) { CanonicalDestinationResolver.artistBrowseId(metadata.artist) }
+        } else null
+        val albumJob = if (
+            settings.albumResolver &&
+            metadata.albumBrowseId.isNullOrBlank() &&
+            !metadata.album.isNullOrBlank()
+        ) {
+            async(Dispatchers.IO) {
+                CanonicalDestinationResolver.albumBrowseId(metadata.album, metadata.artist)
+            }
+        } else null
+        metadata.copy(
+            artistBrowseId = metadata.artistBrowseId ?: artistJob?.await(),
+            albumBrowseId = metadata.albumBrowseId ?: albumJob?.await(),
+        )
+    }
+
+    private fun extractObject(text: String): JsonObject? {
+        val cleaned = text.replace("```json", "", ignoreCase = true).replace("```", "").trim()
+        val start = cleaned.indexOf('{')
+        val end = cleaned.lastIndexOf('}')
+        if (start < 0 || end <= start) return null
+        return runCatching {
+            json.parseToJsonElement(cleaned.substring(start, end + 1)).jsonObject
+        }.getOrNull()
     }
 
     private fun JsonObject.toCanonical(fallbackPlaybackId: String): CanonicalMusicMetadata? {
@@ -166,7 +301,9 @@ object MusicIntelligenceClient {
             title = title,
             artist = artist,
             album = metadata.nullableString("album"),
-            year = metadata["year"]?.runCatching { jsonPrimitive }?.getOrNull()?.let { it.intOrNull ?: it.contentOrNull?.toIntOrNull() },
+            year = metadata["year"]?.runCatching { jsonPrimitive }?.getOrNull()?.let {
+                it.intOrNull ?: it.contentOrNull?.toIntOrNull()
+            },
             language = metadata.nullableString("language"),
             category = metadata.nullableString("category"),
             credits = CanonicalCredits(
