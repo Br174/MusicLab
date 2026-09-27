@@ -2,13 +2,32 @@
 package com.metrolist.music.ui.component
 
 import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.SongItem
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import java.text.Normalizer
 
+internal data class OriginalVersionDiagnostics(
+    val searchedTitle: String = "",
+    val coverOutcome: CoverHubOutcome = CoverHubOutcome(emptyList()),
+    val sameNameFound: Int = 0,
+    val sameNamePages: Int = 0,
+    val targetedArtistFound: Int = 0,
+    val targetedArtistPages: Int = 0,
+    val exactTitleFound: Int = 0,
+    val datedFound: Int = 0,
+    val finalVersions: Int = 0,
+)
+
 internal data class OriginalVersionSearchResult(
     val original: CoverHubResult?,
     val versions: List<CoverHubResult>,
+    val diagnostics: OriginalVersionDiagnostics = OriginalVersionDiagnostics(),
+)
+
+private data class OriginalArtistSearchOutcome(
+    val results: List<CoverHubResult>,
+    val pages: Int,
 )
 
 internal object OriginalVersionSearchEngine {
@@ -18,82 +37,243 @@ internal object OriginalVersionSearchEngine {
         durationSec: Int,
         currentYouTubeId: String,
     ): OriginalVersionSearchResult = coroutineScope {
-        val targetTitle = exactBaseTitle(title)
+        // A YouTube display title may describe a TV performance or a cover rather than
+        // the composition itself (for example: “Il mondo” di Jimmy Fontana secondo Jacopo | X Factor 2022).
+        // Originali must search the composition title, not the entire display string.
+        val lookupTitle = compositionLookupTitle(title, currentArtist)
+        val targetTitle = exactBaseTitle(lookupTitle)
         if (targetTitle.isBlank()) {
-            return@coroutineScope OriginalVersionSearchResult(null, emptyList())
+            return@coroutineScope OriginalVersionSearchResult(
+                original = null,
+                versions = emptyList(),
+                diagnostics = OriginalVersionDiagnostics(searchedTitle = lookupTitle),
+            )
         }
 
-        // Structured cover sources help when the currently playing track is itself a cover.
-        // Same-name YouTube Music discovery supplies alternate releases, live versions,
-        // remasters and collaborations. Everything is filtered again below by exact base title.
+        // Start from the same discovery engines already used by Cover. This is useful
+        // when the currently playing item is itself a cover, because structured cover
+        // sources may lead back to the original performer/composition.
         val coversDeferred = async {
             runCatching {
                 CoverHubSearchEngine.searchCovers(
-                    title = title,
+                    title = lookupTitle,
                     originalArtist = currentArtist,
                     durationSec = durationSec,
                     currentYouTubeId = currentYouTubeId,
                     geminiConfig = null,
-                ).results
-            }.getOrDefault(emptyList())
+                )
+            }.getOrDefault(CoverHubOutcome(emptyList()))
         }
         val sameDeferred = async {
             runCatching {
                 CoverHubSearchEngine.searchSameName(
-                    title = title,
+                    title = lookupTitle,
                     currentYouTubeId = currentYouTubeId,
                     geminiConfig = null,
                 )
             }.getOrNull()
         }
         val startingDeferred = async {
-            runCatching {
-                YouTube.queue(listOf(currentYouTubeId)).getOrNull()?.firstOrNull()
-            }.getOrNull()
+            if (currentYouTubeId.isBlank()) {
+                null
+            } else {
+                runCatching {
+                    YouTube.queue(listOf(currentYouTubeId)).getOrNull()?.firstOrNull()
+                }.getOrNull()
+            }
         }
 
-        val discovered = linkedMapOf<String, CoverHubResult>()
-        coversDeferred.await().forEach { discovered.putIfAbsent(it.song.id, it) }
+        val coverOutcome = coversDeferred.await()
 
+        val sameName = linkedMapOf<String, CoverHubResult>()
         var page = sameDeferred.await()
-        page?.results.orEmpty().forEach { discovered.putIfAbsent(it.song.id, it) }
+        page?.results.orEmpty().forEach { result -> mergeInto(sameName, result) }
+        var sameNamePages = page?.scannedPages ?: 0
         var continuation = page?.continuation
         var passes = 0
-        while (continuation != null && discovered.size < 120 && passes < 6) {
+        while (continuation != null && sameName.size < 120 && passes < 6) {
             passes++
             page = runCatching {
                 CoverHubSearchEngine.searchSameNameMore(
-                    title = title,
+                    title = lookupTitle,
                     continuation = continuation!!,
                     currentYouTubeId = currentYouTubeId,
-                    existingResults = discovered.values.toList(),
+                    existingResults = sameName.values.toList(),
                     geminiConfig = null,
                 )
             }.getOrNull() ?: break
-            page.results.forEach { discovered[it.song.id] = it }
+            page.results.forEach { result -> mergeInto(sameName, result) }
+            sameNamePages += page.scannedPages
             continuation = page.continuation
         }
 
-        // The track used to open Originali must also participate in chronology.
-        // Search engines intentionally exclude currentYouTubeId to avoid duplicates,
-        // so add it back here after discovery whenever it is a real YouTube item.
+        val discovered = linkedMapOf<String, CoverHubResult>()
+        coverOutcome.results.forEach { result -> mergeInto(discovered, result) }
+        sameName.values.forEach { result -> mergeInto(discovered, result) }
+
+        // Keep the starting item available for chronology only when its real title is
+        // the exact composition title. The screen still shows it separately regardless.
         startingDeferred.await()?.let { song ->
-            discovered[song.id] = CoverHubResult(
-                song = song,
-                source = "Versione di partenza",
-                confirmed = true,
+            mergeInto(
+                discovered,
+                CoverHubResult(
+                    song = song,
+                    source = "Versione di partenza",
+                    confirmed = true,
+                ),
             )
         }
 
-        // Never accept a partial-title hit. Only genuine version annotations such as
-        // Live/Remastered/Remix/Official Audio are ignored. Meaningful parenthetical
-        // text remains part of the title, so e.g. "Sweet Dreams (Are Made of This)"
-        // cannot collapse to "Sweet Dreams".
+        // Never accept a partial-title hit. Technical version annotations and pure year
+        // tags are ignored, while meaningful parenthetical title text is preserved.
         val exact = discovered.values
             .filter { exactBaseTitle(it.song.title) == targetTitle }
             .distinctBy { it.song.id }
 
-        val enriched = exact.map { result ->
+        var enriched = enrichYears(exact)
+
+        // The oldest dated exact-title candidate is the only one we call "Originale".
+        // If no date is verifiable we keep the candidates visible instead of deleting them.
+        var original = enriched
+            .filter { it.year != null }
+            .minWithOrNull(originalOrder)
+
+        var targetedOutcome = OriginalArtistSearchOutcome(emptyList(), 0)
+        if (original != null) {
+            targetedOutcome = searchOriginalArtistVersions(
+                title = lookupTitle,
+                original = original,
+                currentYouTubeId = currentYouTubeId,
+            )
+
+            // Targeted YouTube Music searches usually expose live, remastered, duet,
+            // reissue and alternate releases that a generic title search can miss.
+            val merged = linkedMapOf<String, CoverHubResult>()
+            enriched.forEach { result -> mergeInto(merged, result) }
+            targetedOutcome.results.forEach { result -> mergeInto(merged, result) }
+            enriched = enrichYears(merged.values.toList())
+
+            val originalArtists = original.song.artists
+                .map { canonicalArtist(it.name) }
+                .filter { it.isNotBlank() }
+                .toSet()
+
+            // Re-evaluate the oldest release only among the performer(s) already identified
+            // as the original artist, so unrelated songs with a generic identical title
+            // cannot steal the "Originale" label.
+            original = enriched
+                .filter { it.year != null }
+                .filter { result -> hasAnyOriginalArtist(result.song, originalArtists) }
+                .minWithOrNull(originalOrder)
+        }
+
+        val orderedAll = enriched
+            .sortedWith(versionOrder)
+            .distinctBy { it.song.id }
+
+        val versions = if (original == null) {
+            // Important: lack of a verified date is not the same as lack of results.
+            // Show what was found and let diagnostics explain why no original is certified yet.
+            orderedAll
+        } else {
+            val originalArtists = original.song.artists
+                .map { canonicalArtist(it.name) }
+                .filter { it.isNotBlank() }
+                .toSet()
+
+            orderedAll
+                .asSequence()
+                .filter { it.song.id != original.song.id }
+                .filter { result -> hasAnyOriginalArtist(result.song, originalArtists) }
+                .toList()
+        }
+
+        OriginalVersionSearchResult(
+            original = original,
+            versions = versions,
+            diagnostics = OriginalVersionDiagnostics(
+                searchedTitle = lookupTitle,
+                coverOutcome = coverOutcome,
+                sameNameFound = sameName.size,
+                sameNamePages = sameNamePages,
+                targetedArtistFound = targetedOutcome.results.size,
+                targetedArtistPages = targetedOutcome.pages,
+                exactTitleFound = orderedAll.size,
+                datedFound = orderedAll.count { it.year != null },
+                finalVersions = versions.size + if (original != null) 1 else 0,
+            ),
+        )
+    }
+
+    private suspend fun searchOriginalArtistVersions(
+        title: String,
+        original: CoverHubResult,
+        currentYouTubeId: String,
+    ): OriginalArtistSearchOutcome {
+        val targetTitle = exactBaseTitle(title)
+        val artistNames = original.song.artists
+            .map { it.name.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy(::canonicalArtist)
+            .take(3)
+        val originalArtists = artistNames.map(::canonicalArtist).filter { it.isNotBlank() }.toSet()
+        if (targetTitle.isBlank() || artistNames.isEmpty() || originalArtists.isEmpty()) {
+            return OriginalArtistSearchOutcome(emptyList(), 0)
+        }
+
+        val found = linkedMapOf<String, CoverHubResult>()
+        var pages = 0
+
+        artistNames.forEach { artistName ->
+            var page = runCatching {
+                YouTube.search("$title $artistName", YouTube.SearchFilter.FILTER_SONG).getOrNull()
+            }.getOrNull() ?: return@forEach
+
+            var continuation = page.continuation
+            var artistPages = 0
+            val seenContinuations = mutableSetOf<String>()
+
+            while (true) {
+                pages++
+                artistPages++
+                page.items.filterIsInstance<SongItem>().forEach { song ->
+                    if (song.id == currentYouTubeId) return@forEach
+                    if (exactBaseTitle(song.title) != targetTitle) return@forEach
+                    if (!hasAnyOriginalArtist(song, originalArtists)) return@forEach
+                    mergeInto(
+                        found,
+                        CoverHubResult(
+                            song = song,
+                            source = "YouTube Music · ricerca artista originale",
+                            confirmed = true,
+                        ),
+                    )
+                }
+
+                if (
+                    continuation == null ||
+                    artistPages >= MAX_TARGETED_PAGES_PER_ARTIST ||
+                    found.size >= MAX_TARGETED_RESULTS ||
+                    !seenContinuations.add(continuation)
+                ) {
+                    break
+                }
+
+                page = runCatching {
+                    YouTube.searchContinuation(continuation).getOrNull()
+                }.getOrNull() ?: break
+                continuation = page.continuation
+            }
+        }
+
+        return OriginalArtistSearchOutcome(
+            results = found.values.toList(),
+            pages = pages,
+        )
+    }
+
+    private suspend fun enrichYears(results: List<CoverHubResult>): List<CoverHubResult> =
+        results.map { result ->
             if (result.year != null) {
                 result
             } else {
@@ -102,50 +282,88 @@ internal object OriginalVersionSearchEngine {
             }
         }
 
-        // "Originale" is the oldest verifiable release. If no result has a year,
-        // do not claim that any candidate is certainly the oldest.
-        val original = enriched
-            .filter { it.year != null }
-            .minWithOrNull(
-                compareBy<CoverHubResult> { it.year ?: Int.MAX_VALUE }
-                    .thenByDescending { it.confirmed }
-                    .thenByDescending { it.score },
-            )
-
-        if (original == null) {
-            return@coroutineScope OriginalVersionSearchResult(null, emptyList())
+    private fun mergeInto(
+        target: MutableMap<String, CoverHubResult>,
+        candidate: CoverHubResult,
+    ) {
+        val previous = target[candidate.song.id]
+        if (previous == null) {
+            target[candidate.song.id] = candidate
+            return
         }
 
-        val originalArtists = original.song.artists
-            .map { canonicalArtist(it.name) }
+        val sources = listOf(previous.source, candidate.source)
+            .map { it.trim() }
             .filter { it.isNotBlank() }
-            .toSet()
+            .distinct()
+            .joinToString(" + ")
 
-        // Every secondary result must contain at least one original performer.
-        // This includes duet/feat/group/quartet releases as long as the original
-        // artist is still present among the credited performers.
-        val versions = enriched
-            .asSequence()
-            .filter { it.song.id != original.song.id }
-            .filter { result ->
-                originalArtists.isNotEmpty() && result.song.artists.any { artist ->
-                    val candidate = canonicalArtist(artist.name)
-                    originalArtists.any { originalArtist -> artistContains(candidate, originalArtist) }
-                }
-            }
-            .sortedWith(
-                compareBy<CoverHubResult> { if (it.year == null) 1 else 0 }
-                    .thenBy { it.year ?: Int.MAX_VALUE }
-                    .thenByDescending { it.confirmed }
-                    .thenByDescending { it.score },
-            )
-            .distinctBy { it.song.id }
-            .toList()
-
-        OriginalVersionSearchResult(
-            original = original,
-            versions = versions,
+        target[candidate.song.id] = previous.copy(
+            year = previous.year ?: candidate.year,
+            source = sources,
+            confirmed = previous.confirmed || candidate.confirmed,
+            score = maxOf(previous.score, candidate.score),
         )
+    }
+
+    private fun hasAnyOriginalArtist(song: SongItem, originalArtists: Set<String>): Boolean {
+        if (originalArtists.isEmpty()) return false
+        return song.artists.any { artist ->
+            val candidate = canonicalArtist(artist.name)
+            originalArtists.any { originalArtist -> artistContains(candidate, originalArtist) }
+        }
+    }
+
+    /**
+     * Convert a YouTube display title into the composition title used by Originali.
+     * Quoted titles are especially useful for television/performance uploads.
+     */
+    private fun compositionLookupTitle(value: String, currentArtist: String): String {
+        val original = value.trim()
+        if (original.isBlank()) return original
+
+        QUOTED_TITLE_REGEX.find(original)?.groupValues?.getOrNull(1)
+            ?.trim()
+            ?.takeIf { it.length >= 2 }
+            ?.let { return stripDisplayMetadata(it) }
+
+        var clean = original
+
+        val artist = currentArtist.trim()
+        if (artist.isNotBlank()) {
+            clean = clean.replace(
+                Regex("^\\s*${Regex.escape(artist)}\\s*[-–—:]\\s*", RegexOption.IGNORE_CASE),
+                "",
+            )
+        }
+
+        clean = clean.replace(
+            Regex("^(.+?)\\s+di\\s+.+?\\s+secondo\\s+.+$", RegexOption.IGNORE_CASE),
+            "$1",
+        )
+        clean = clean.replace(
+            Regex("\\s+cover\\s+(?:di|by)\\s+.+$", RegexOption.IGNORE_CASE),
+            "",
+        )
+        clean = clean.substringBefore('|').trim()
+        return stripDisplayMetadata(clean)
+    }
+
+    private fun stripDisplayMetadata(value: String): String {
+        var clean = value.trim().trim('"', '“', '”', '«', '»')
+        clean = BRACKETED_BLOCK_REGEX.replace(clean) { match ->
+            val inner = match.value.drop(1).dropLast(1).trim()
+            if (
+                VERSION_MARKER_REGEX.containsMatchIn(inner.lowercase()) ||
+                YEAR_ONLY_REGEX.matches(inner)
+            ) {
+                " "
+            } else {
+                match.value
+            }
+        }
+        clean = stripTrailingVersionSuffixPreservingCase(clean)
+        return clean.trim().replace(Regex("\\s+"), " ")
     }
 
     /**
@@ -159,18 +377,19 @@ internal object OriginalVersionSearchEngine {
             .lowercase()
             .trim()
 
-        // Remove parenthetical/bracketed blocks only when they are clearly metadata
-        // about the recording/version. Meaningful subtitle text is preserved.
         clean = BRACKETED_BLOCK_REGEX.replace(clean) { match ->
-            val inner = match.value.drop(1).dropLast(1)
-            if (VERSION_MARKER_REGEX.containsMatchIn(inner)) " " else match.value
+            val inner = match.value.drop(1).dropLast(1).trim()
+            if (
+                VERSION_MARKER_REGEX.containsMatchIn(inner) ||
+                YEAR_ONLY_REGEX.matches(inner)
+            ) {
+                " "
+            } else {
+                match.value
+            }
         }
 
-        // Featuring credits appended to a title are performer metadata, not title text.
         clean = clean.replace(Regex("\\b(feat|ft|featuring)\\.?\\s+.*$"), " ")
-
-        // Remove only the rightmost separator suffix that clearly identifies a variant.
-        // Example: "Song - Part 2 - Live" -> "Song - Part 2", never just "Song".
         clean = stripTrailingVersionSuffix(clean)
 
         clean = clean.replace(Regex("[^a-z0-9]+"), " ")
@@ -183,7 +402,20 @@ internal object OriginalVersionSearchEngine {
             val separators = VERSION_SEPARATOR_REGEX.findAll(clean).toList()
             val removable = separators.asReversed().firstOrNull { match ->
                 val suffix = clean.substring(match.range.last + 1).trim()
-                VERSION_MARKER_REGEX.containsMatchIn(suffix)
+                VERSION_MARKER_REGEX.containsMatchIn(suffix) || YEAR_ONLY_REGEX.matches(suffix)
+            } ?: break
+            clean = clean.substring(0, removable.range.first).trim()
+        }
+        return clean
+    }
+
+    private fun stripTrailingVersionSuffixPreservingCase(value: String): String {
+        var clean = value
+        while (true) {
+            val separators = VERSION_SEPARATOR_REGEX.findAll(clean).toList()
+            val removable = separators.asReversed().firstOrNull { match ->
+                val suffix = clean.substring(match.range.last + 1).trim()
+                VERSION_MARKER_REGEX.containsMatchIn(suffix.lowercase()) || YEAR_ONLY_REGEX.matches(suffix)
             } ?: break
             clean = clean.substring(0, removable.range.first).trim()
         }
@@ -207,11 +439,27 @@ internal object OriginalVersionSearchEngine {
             candidate.contains(" $original ")
     }
 
+    private val originalOrder =
+        compareBy<CoverHubResult> { it.year ?: Int.MAX_VALUE }
+            .thenByDescending { it.confirmed }
+            .thenByDescending { it.score }
+
+    private val versionOrder =
+        compareBy<CoverHubResult> { if (it.year == null) 1 else 0 }
+            .thenBy { it.year ?: Int.MAX_VALUE }
+            .thenByDescending { it.confirmed }
+            .thenByDescending { it.score }
+
     private val BRACKETED_BLOCK_REGEX = Regex("\\([^)]*\\)|\\[[^]]*]")
+    private val QUOTED_TITLE_REGEX = Regex("[“\\\"«„]([^”\\\"»‟]{2,160})[”\\\"»‟]")
+    private val YEAR_ONLY_REGEX = Regex("^(?:18|19|20)\\d{2}$")
 
     private val VERSION_MARKER_REGEX = Regex(
-        "\\b(official|music\\s+video|video|audio|lyrics?|lyric|visualizer|live|remaster(?:ed)?|remix|mix|acoustic|unplugged|version|versione|radio\\s+edit|edit|mono|stereo|deluxe|bonus\\s+track|session|performance|studio|feat|ft|featuring)\\b",
+        "\\b(official|music\\s+video|video|audio|lyrics?|lyric|visualizer|live|remaster(?:ed)?|remix|mix|acoustic|unplugged|version|versione|original|originale|radio\\s+edit|edit|mono|stereo|deluxe|bonus\\s+track|session|performance|studio|feat|ft|featuring|cover|karaoke|hd|hq|testo)\\b",
     )
 
     private val VERSION_SEPARATOR_REGEX = Regex("\\s+[-–—]\\s+|\\s*[:|]\\s*")
+
+    private const val MAX_TARGETED_PAGES_PER_ARTIST = 5
+    private const val MAX_TARGETED_RESULTS = 100
 }
