@@ -224,6 +224,7 @@ val QobuzAudioQualityKey = stringPreferencesKey("qobuzAudioQuality")
 val QobuzBackendKey = stringPreferencesKey("qobuzBackend")
 val QobuzCountryKey = stringPreferencesKey("qobuzCountry")
 val QobuzMatchOverridesKey = stringPreferencesKey("qobuzMatchOverrides")
+val YouTubeMatchOverridesKey = stringPreferencesKey("youtubeMatchOverrides")
 
 // Optional user overrides for the resolver base URLs. Blank = use the built-in
 // default. Lets users point at a self-hosted squid.wtf instance when the public

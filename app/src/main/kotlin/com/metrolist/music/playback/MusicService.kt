@@ -100,6 +100,7 @@ import com.metrolist.music.constants.QobuzKennyEndpointKey
 import com.metrolist.music.constants.QobuzMatchOverridesKey
 import com.metrolist.music.constants.QobuzSquidEndpointKey
 import com.metrolist.music.constants.QobuzTryptEndpointKey
+import com.metrolist.music.constants.YouTubeMatchOverridesKey
 import com.metrolist.music.qobuz.QobuzAudioProvider
 import com.metrolist.music.qobuz.QobuzMatchOverride
 import com.metrolist.music.qobuz.QobuzMatchOverrides
@@ -3433,7 +3434,7 @@ class MusicService :
                     } else {
                         Timber.tag(PRECACHE_TAG).d("[PRECACHE] Fetching fresh stream URL for: $title ($mediaId)")
                         val playbackData = YTPlayerUtils.playerResponseForPlayback(
-                            mediaId,
+                            resolveYouTubePlaybackId(mediaId),
                             audioQuality = audioQuality,
                             connectivityManager = connectivityManager,
                         ).getOrNull()
@@ -3968,7 +3969,7 @@ class MusicService :
                     try {
                         withTimeout(30_000L) {
                             YTPlayerUtils.playerResponseForPlayback(
-                                mediaId,
+                                resolveYouTubePlaybackId(mediaId),
                                 audioQuality = audioQuality,
                                 connectivityManager = connectivityManager,
                             )
@@ -4541,6 +4542,49 @@ class MusicService :
      * Returns the persisted manual Qobuz override for [mediaId], or null when
      * the auto-matcher is in charge.
      */
+    /** Return the user-selected YouTube source for a MusicLab media id. */
+    suspend fun getYouTubeMatchOverride(mediaId: String): YouTubeMatchOverride? =
+        withContext(Dispatchers.IO) {
+            YouTubeMatchOverrides.decode(dataStore.get(YouTubeMatchOverridesKey, ""))[mediaId]
+        }
+
+    private suspend fun resolveYouTubePlaybackId(mediaId: String): String =
+        getYouTubeMatchOverride(mediaId)?.videoId?.takeIf { it.isNotBlank() } ?: mediaId
+
+    /**
+     * Store or clear a universal YouTube source override. The queue item and its metadata
+     * keep the original media id; only stream resolution changes to the selected video.
+     */
+    fun setYouTubeMatchOverride(mediaId: String, override: YouTubeMatchOverride?) {
+        if (mediaId.isBlank()) return
+        scope.launch(Dispatchers.IO) {
+            dataStore.edit { prefs ->
+                val current = YouTubeMatchOverrides.decode(prefs[YouTubeMatchOverridesKey])
+                if (override == null || override.videoId == mediaId) current.remove(mediaId)
+                else current[mediaId] = override
+                prefs[YouTubeMatchOverridesKey] = YouTubeMatchOverrides.encode(current)
+            }
+            songUrlCache.remove(mediaId)
+            try {
+                playerCache.removeResource(mediaId)
+                downloadCache.removeResource(mediaId)
+            } catch (e: Exception) {
+                Timber.tag("MusicService").w(e, "Failed to clear cache after YouTube override for %s", mediaId)
+            }
+            bypassCacheForQualityChange.add(mediaId)
+            withContext(Dispatchers.Main) {
+                if (player.currentMediaItem?.mediaId == mediaId) {
+                    val index = player.currentMediaItemIndex
+                    val wasPlaying = player.playWhenReady
+                    player.stop()
+                    player.seekTo(index, 0L)
+                    player.prepare()
+                    if (wasPlaying) player.play()
+                }
+            }
+        }
+    }
+
     suspend fun getQobuzMatchOverride(mediaId: String): QobuzMatchOverride? =
         withContext(Dispatchers.IO) {
             QobuzMatchOverrides.decode(dataStore.get(QobuzMatchOverridesKey, ""))[mediaId]
@@ -4642,7 +4686,7 @@ class MusicService :
                 val playbackData =
                     YTPlayerUtils
                         .playerResponseForPlayback(
-                            videoId = mediaId,
+                            videoId = resolveYouTubePlaybackId(mediaId),
                             audioQuality = audioQuality,
                             connectivityManager = connectivityManager,
                         ).getOrNull()

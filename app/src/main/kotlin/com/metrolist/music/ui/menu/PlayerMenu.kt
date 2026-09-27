@@ -486,6 +486,46 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                 onDismiss()
                             },
                         ),
+                        NewAction(
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.album),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(32.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            text = "Originali",
+                            onClick = {
+                                val opened = com.metrolist.music.ui.component.OriginalVersionNavigationBridge.open(
+                                    com.metrolist.music.ui.component.OriginalVersionRequest(
+                                        title = mediaMetadata.title,
+                                        artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                                        durationSec = mediaMetadata.duration,
+                                        currentYouTubeId = mediaMetadata.id,
+                                    ),
+                                )
+                                if (opened) {
+                                    playerBottomSheetState.collapseSoft()
+                                    onDismiss()
+                                }
+                            },
+                        ),
+                        NewAction(
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.link),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(32.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            text = "Cover",
+                            onClick = {
+                                playerBottomSheetState.collapseSoft()
+                                showCoverSearchDialog = true
+                            },
+                        ),
                     ) + if (com.metrolist.spotify.Spotify.isAuthenticated()) {
                         listOf(
                             NewAction(
@@ -770,25 +810,6 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
             Material3MenuGroup(
                 items =
                     buildList {
-                        if (resolvedSpotifyMatch != null && !qobuzEnabled) {
-                            add(
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.change_youtube_version)) },
-                                    description = { Text(text = stringResource(R.string.change_youtube_version_desc)) },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.link),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        showYouTubeMatchDialog = true
-                                    },
-                                ),
-                            )
-                        }
-
                         if (qobuzEnabled) {
                             add(
                                 Material3MenuItemData(
@@ -878,24 +899,6 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         }
                                         onDismiss()
                                     }
-                                },
-                            ),
-                        )
-
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.find_covers)) },
-                                description = { Text(text = stringResource(R.string.find_covers_desc)) },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.link),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                },
-                                onClick = {
-                                    playerBottomSheetState.collapseSoft()
-                                    showCoverSearchDialog = true
                                 },
                             ),
                         )

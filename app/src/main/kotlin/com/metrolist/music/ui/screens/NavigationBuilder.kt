@@ -82,6 +82,7 @@ fun NavGraphBuilder.navigationBuilder(
     snackbarHostState: SnackbarHostState,
 ) {
     CoverNavigationBridge.bind(navController)
+    com.metrolist.music.ui.component.OriginalVersionNavigationBridge.bind(navController)
 
     composable(Screens.Home.route) {
         HomeScreen(navController = navController, snackbarHostState = snackbarHostState)
@@ -90,6 +91,15 @@ fun NavGraphBuilder.navigationBuilder(
     composable(CoverNavigationBridge.ROUTE) {
         CoverNavigationBridge.currentRequest?.let { request ->
             CoverSearchScreen(
+                request = request,
+                navController = navController,
+            )
+        }
+    }
+
+    composable(com.metrolist.music.ui.component.OriginalVersionNavigationBridge.ROUTE) {
+        com.metrolist.music.ui.component.OriginalVersionNavigationBridge.currentRequest?.let { request ->
+            com.metrolist.music.ui.component.OriginalVersionScreen(
                 request = request,
                 navController = navController,
             )
