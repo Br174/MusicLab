@@ -7,11 +7,20 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import java.text.Normalizer
 
+internal enum class OriginalSearchStageStatus {
+    OK,
+    NO_RESULTS,
+    ERROR,
+    NOT_RUN,
+}
+
 internal data class OriginalVersionDiagnostics(
     val searchedTitle: String = "",
     val coverOutcome: CoverHubOutcome = CoverHubOutcome(emptyList()),
+    val sameNameStatus: OriginalSearchStageStatus = OriginalSearchStageStatus.NOT_RUN,
     val sameNameFound: Int = 0,
     val sameNamePages: Int = 0,
+    val targetedArtistStatus: OriginalSearchStageStatus = OriginalSearchStageStatus.NOT_RUN,
     val targetedArtistFound: Int = 0,
     val targetedArtistPages: Int = 0,
     val exactTitleFound: Int = 0,
@@ -28,6 +37,7 @@ internal data class OriginalVersionSearchResult(
 private data class OriginalArtistSearchOutcome(
     val results: List<CoverHubResult>,
     val pages: Int,
+    val status: OriginalSearchStageStatus,
 )
 
 internal object OriginalVersionSearchEngine {
@@ -71,7 +81,7 @@ internal object OriginalVersionSearchEngine {
                     currentYouTubeId = currentYouTubeId,
                     geminiConfig = null,
                 )
-            }.getOrNull()
+            }
         }
         val startingDeferred = async {
             if (currentYouTubeId.isBlank()) {
@@ -86,14 +96,16 @@ internal object OriginalVersionSearchEngine {
         val coverOutcome = coversDeferred.await()
 
         val sameName = linkedMapOf<String, CoverHubResult>()
-        var page = sameDeferred.await()
+        val firstSameAttempt = sameDeferred.await()
+        var sameNameFailed = firstSameAttempt.isFailure
+        var page = firstSameAttempt.getOrNull()
         page?.results.orEmpty().forEach { result -> mergeInto(sameName, result) }
         var sameNamePages = page?.scannedPages ?: 0
         var continuation = page?.continuation
         var passes = 0
         while (continuation != null && sameName.size < 120 && passes < 6) {
             passes++
-            page = runCatching {
+            val moreAttempt = runCatching {
                 CoverHubSearchEngine.searchSameNameMore(
                     title = lookupTitle,
                     continuation = continuation!!,
@@ -101,10 +113,20 @@ internal object OriginalVersionSearchEngine {
                     existingResults = sameName.values.toList(),
                     geminiConfig = null,
                 )
-            }.getOrNull() ?: break
+            }
+            if (moreAttempt.isFailure) {
+                sameNameFailed = true
+                break
+            }
+            page = moreAttempt.getOrNull() ?: break
             page.results.forEach { result -> mergeInto(sameName, result) }
             sameNamePages += page.scannedPages
             continuation = page.continuation
+        }
+        val sameNameStatus = when {
+            sameName.isNotEmpty() -> OriginalSearchStageStatus.OK
+            sameNameFailed -> OriginalSearchStageStatus.ERROR
+            else -> OriginalSearchStageStatus.NO_RESULTS
         }
 
         val discovered = linkedMapOf<String, CoverHubResult>()
@@ -132,13 +154,30 @@ internal object OriginalVersionSearchEngine {
 
         var enriched = enrichYears(exact)
 
-        // The oldest dated exact-title candidate is the only one we call "Originale".
-        // If no date is verifiable we keep the candidates visible instead of deleting them.
-        var original = enriched
-            .filter { it.year != null }
-            .minWithOrNull(originalOrder)
+        // "Partire dalle Cover" means that a dated candidate discovered by the Cover
+        // relationship engines has priority over a generic same-title hit. Within that
+        // group, confirmed structured relations are preferred. Generic same-title search
+        // remains the fallback when the Cover engines cannot identify a dated candidate.
+        val coverExactIds = coverOutcome.results
+            .asSequence()
+            .filter { exactBaseTitle(it.song.title) == targetTitle }
+            .map { it.song.id }
+            .toSet()
+        val confirmedCoverDated = enriched.filter {
+            it.song.id in coverExactIds && it.year != null && it.confirmed
+        }
+        val coverDated = enriched.filter {
+            it.song.id in coverExactIds && it.year != null
+        }
+        var original = confirmedCoverDated.minWithOrNull(originalOrder)
+            ?: coverDated.minWithOrNull(originalOrder)
+            ?: enriched.filter { it.year != null }.minWithOrNull(originalOrder)
 
-        var targetedOutcome = OriginalArtistSearchOutcome(emptyList(), 0)
+        var targetedOutcome = OriginalArtistSearchOutcome(
+            results = emptyList(),
+            pages = 0,
+            status = OriginalSearchStageStatus.NOT_RUN,
+        )
         if (original != null) {
             targetedOutcome = searchOriginalArtistVersions(
                 title = lookupTitle,
@@ -194,8 +233,10 @@ internal object OriginalVersionSearchEngine {
             diagnostics = OriginalVersionDiagnostics(
                 searchedTitle = lookupTitle,
                 coverOutcome = coverOutcome,
+                sameNameStatus = sameNameStatus,
                 sameNameFound = sameName.size,
                 sameNamePages = sameNamePages,
+                targetedArtistStatus = targetedOutcome.status,
                 targetedArtistFound = targetedOutcome.results.size,
                 targetedArtistPages = targetedOutcome.pages,
                 exactTitleFound = orderedAll.size,
@@ -218,16 +259,28 @@ internal object OriginalVersionSearchEngine {
             .take(3)
         val originalArtists = artistNames.map(::canonicalArtist).filter { it.isNotBlank() }.toSet()
         if (targetTitle.isBlank() || artistNames.isEmpty() || originalArtists.isEmpty()) {
-            return OriginalArtistSearchOutcome(emptyList(), 0)
+            return OriginalArtistSearchOutcome(
+                results = emptyList(),
+                pages = 0,
+                status = OriginalSearchStageStatus.NOT_RUN,
+            )
         }
 
         val found = linkedMapOf<String, CoverHubResult>()
         var pages = 0
+        var hadSuccessfulRequest = false
+        var hadFailedRequest = false
 
-        artistNames.forEach { artistName ->
-            var page = runCatching {
-                YouTube.search("$title $artistName", YouTube.SearchFilter.FILTER_SONG).getOrNull()
-            }.getOrNull() ?: return@forEach
+        artistNames.forEach artistLoop@ { artistName ->
+            val firstAttempt = runCatching {
+                YouTube.search("$title $artistName", YouTube.SearchFilter.FILTER_SONG).getOrThrow()
+            }
+            if (firstAttempt.isFailure) {
+                hadFailedRequest = true
+                return@artistLoop
+            }
+            var page = firstAttempt.getOrNull() ?: return@artistLoop
+            hadSuccessfulRequest = true
 
             var continuation = page.continuation
             var artistPages = 0
@@ -236,10 +289,10 @@ internal object OriginalVersionSearchEngine {
             while (true) {
                 pages++
                 artistPages++
-                page.items.filterIsInstance<SongItem>().forEach { song ->
-                    if (song.id == currentYouTubeId) return@forEach
-                    if (exactBaseTitle(song.title) != targetTitle) return@forEach
-                    if (!hasAnyOriginalArtist(song, originalArtists)) return@forEach
+                page.items.filterIsInstance<SongItem>().forEach songLoop@ { song ->
+                    if (song.id == currentYouTubeId) return@songLoop
+                    if (exactBaseTitle(song.title) != targetTitle) return@songLoop
+                    if (!hasAnyOriginalArtist(song, originalArtists)) return@songLoop
                     mergeInto(
                         found,
                         CoverHubResult(
@@ -259,16 +312,30 @@ internal object OriginalVersionSearchEngine {
                     break
                 }
 
-                page = runCatching {
-                    YouTube.searchContinuation(continuation).getOrNull()
-                }.getOrNull() ?: break
+                val continuationAttempt = runCatching {
+                    YouTube.searchContinuation(continuation).getOrThrow()
+                }
+                if (continuationAttempt.isFailure) {
+                    hadFailedRequest = true
+                    break
+                }
+                page = continuationAttempt.getOrNull() ?: break
+                hadSuccessfulRequest = true
                 continuation = page.continuation
             }
+        }
+
+        val status = when {
+            found.isNotEmpty() -> OriginalSearchStageStatus.OK
+            hadFailedRequest -> OriginalSearchStageStatus.ERROR
+            hadSuccessfulRequest -> OriginalSearchStageStatus.NO_RESULTS
+            else -> OriginalSearchStageStatus.NOT_RUN
         }
 
         return OriginalArtistSearchOutcome(
             results = found.values.toList(),
             pages = pages,
+            status = status,
         )
     }
 
