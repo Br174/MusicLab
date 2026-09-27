@@ -84,6 +84,9 @@ import com.metrolist.music.db.entities.PodcastEntity
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.intelligence.CanonicalMusicMetadata
+import com.metrolist.music.intelligence.MusicIntelligenceClient
+import com.metrolist.music.intelligence.MusicIntelligenceSettings
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.YouTubeQueue
@@ -169,6 +172,32 @@ fun SongMenu(
     var showYouTubeMatchDialog by rememberSaveable { mutableStateOf(false) }
 
     val qobuzEnabled by rememberPreference(EnableQobuzKey, defaultValue = false)
+
+    // LAB11: identità musicale canonica caricata solo quando il menu è aperto.
+    // Non partecipa mai alla preparazione o all'avvio dello stream audio/video.
+    val musicIntelligenceSettings = MusicIntelligenceSettings.from(context)
+    val canonicalMetadata by produceState<CanonicalMusicMetadata?>(
+        initialValue = MusicIntelligenceClient.cached(song.id),
+        key1 = song.id,
+        key2 = song.song.title,
+        key3 = song.artists.firstOrNull()?.name,
+    ) {
+        if (
+            musicIntelligenceSettings.enabled &&
+            musicIntelligenceSettings.backgroundMetadata &&
+            !song.song.isEpisode
+        ) {
+            value = withContext(Dispatchers.IO) {
+                MusicIntelligenceClient.resolve(
+                    context = context,
+                    playbackId = song.id,
+                    title = song.song.title,
+                    artist = song.artists.firstOrNull()?.name.orEmpty(),
+                    album = song.song.albumName,
+                )
+            }
+        }
+    }
 
     // Resolve the Spotify match — either explicitly supplied or looked up via the YouTube ID
     val resolvedSpotifyMatch by produceState<com.metrolist.music.db.entities.SpotifyMatchEntity?>(
@@ -1048,12 +1077,21 @@ fun SongMenu(
             Material3MenuGroup(
                 items =
                     buildList {
-                        // Don't show "View Artist" for podcast episodes
+                        // LAB11: se il resolver AI è attivo, "Vai all'artista" usa esclusivamente
+                        // l'identità canonica AI + il browse ID tecnico risolto successivamente.
                         if (!song.song.isEpisode) {
+                            val useCanonicalArtist = musicIntelligenceSettings.enabled && musicIntelligenceSettings.artistResolver
+                            val canonicalArtistName = canonicalMetadata?.artist
+                            val canonicalArtistId = canonicalMetadata?.artistBrowseId
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(R.string.view_artist)) },
-                                    description = { Text(text = song.artists.joinToString { it.name }) },
+                                    description = {
+                                        Text(
+                                            text = canonicalArtistName
+                                                ?: song.artists.joinToString { it.name },
+                                        )
+                                    },
                                     icon = {
                                         Icon(
                                             painter = painterResource(R.drawable.artist),
@@ -1061,7 +1099,18 @@ fun SongMenu(
                                         )
                                     },
                                     onClick = {
-                                        if (song.artists.size == 1) {
+                                        if (useCanonicalArtist) {
+                                            if (!canonicalArtistId.isNullOrBlank()) {
+                                                navController.navigate("artist/$canonicalArtistId")
+                                                onDismiss()
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Sto identificando la pagina corretta dell'artista…",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                        } else if (song.artists.size == 1) {
                                             navController.navigate("artist/${song.artists[0].id}")
                                             onDismiss()
                                         } else {
@@ -1071,14 +1120,24 @@ fun SongMenu(
                                 ),
                             )
                         }
-                        if (song.song.albumId != null) {
-                            // Show "View Podcast" for episodes, "View Album" for songs
+                        val useCanonicalAlbum =
+                            !song.song.isEpisode &&
+                                musicIntelligenceSettings.enabled &&
+                                musicIntelligenceSettings.albumResolver
+                        if (
+                            song.song.albumId != null ||
+                            (useCanonicalAlbum && !canonicalMetadata?.album.isNullOrBlank())
+                        ) {
+                            // I podcast conservano la navigazione classica. Per i brani il motore AI,
+                            // quando attivo, impedisce di aprire per errore playlist/canali dell'uploader.
                             val isPodcast = song.song.isEpisode
+                            val canonicalAlbumName = canonicalMetadata?.album
+                            val canonicalAlbumId = canonicalMetadata?.albumBrowseId
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(if (isPodcast) R.string.view_podcast else R.string.view_album)) },
                                     description = {
-                                        song.song.albumName?.let {
+                                        (canonicalAlbumName ?: song.song.albumName)?.let {
                                             Text(text = it)
                                         }
                                     },
@@ -1089,10 +1148,22 @@ fun SongMenu(
                                         )
                                     },
                                     onClick = {
-                                        onDismiss()
                                         if (isPodcast) {
+                                            onDismiss()
                                             navController.navigate("online_podcast/${song.song.albumId}")
+                                        } else if (useCanonicalAlbum) {
+                                            if (!canonicalAlbumId.isNullOrBlank()) {
+                                                onDismiss()
+                                                navController.navigate("album/$canonicalAlbumId")
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Sto identificando l'album corretto…",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
                                         } else {
+                                            onDismiss()
                                             navController.navigate("album/${song.song.albumId}")
                                         }
                                     },

@@ -46,6 +46,8 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.AiProviderKey
+import com.metrolist.music.constants.MusicAiEngineEnabledKey
+import com.metrolist.music.constants.MusicAiOriginalsEnabledKey
 import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.extensions.toMediaItem
@@ -72,6 +74,9 @@ internal fun OriginalVersionScreen(
 ) {
     val connection = LocalPlayerConnection.current
     val service = connection?.service
+
+    val aiMasterEnabled by rememberPreference(MusicAiEngineEnabledKey, true)
+    val originalsAiEnabled by rememberPreference(MusicAiOriginalsEnabledKey, true)
 
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
     val sharedApiKey by rememberPreference(OpenRouterApiKey, "")
@@ -139,7 +144,17 @@ internal fun OriginalVersionScreen(
         request.artist,
         effectiveKey,
         effectiveModel,
+        aiMasterEnabled,
+        originalsAiEnabled,
     ) {
+        if (!aiMasterEnabled || !originalsAiEnabled) {
+            loading = false
+            backgroundLoading = false
+            creditsLoading = false
+            searchResult = OriginalVersionSearchResult(null, emptyList())
+            return@LaunchedEffect
+        }
+
         loading = true
         backgroundLoading = false
         creditsLoading = false
