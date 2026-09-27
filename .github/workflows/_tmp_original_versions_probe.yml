@@ -1,0 +1,32 @@
+name: TMP Original Versions Probe
+on:
+  push:
+    branches:
+      - lab/musiclab-playback-403-recovery-01
+    paths:
+      - .github/workflows/_tmp_original_versions_probe.yml
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe anchors
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== COVER BRIDGE BIND/ROUTE ==='
+          grep -R -n "CoverNavigationBridge" app/src/main/kotlin | head -80 || true
+          echo '=== COVER SEARCH SCREEN ==='
+          grep -R -n "CoverSearchScreen" app/src/main/kotlin | head -80 || true
+          echo '=== YOUTUBE MATCH MENU ==='
+          grep -n -B12 -A45 "change_youtube_version" app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt || true
+          echo '=== PREFERENCE KEYS ==='
+          grep -n -B4 -A8 "QobuzMatchOverridesKey" app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt || true
+          echo '=== QOBUZ OVERRIDE METHODS ==='
+          grep -n -B8 -A80 "setQobuzMatchOverride\|getQobuzMatchOverride" app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt | head -220 || true
+          echo '=== PLAYER RESPONSE CALLS ==='
+          grep -n -B6 -A12 "playerResponseForPlayback" app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt | head -260 || true
+          echo '=== IT STRINGS ==='
+          grep -n -B3 -A12 "change_youtube_version" app/src/main/res/values-it/metrolist_strings.xml || true
