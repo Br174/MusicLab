@@ -1,0 +1,234 @@
+name: TEMP - Patch authenticated cipher recovery
+
+on:
+  push:
+    branches:
+      - 'uab-build/musiclab-playback-403-recovery-01'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lab/musiclab-playback-403-recovery-01
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Apply narrowly-scoped authenticated cipher recovery patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          cipher_path = Path('app/src/main/kotlin/com/metrolist/music/utils/cipher/CipherDeobfuscator.kt')
+          yt_path = Path('app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt')
+
+          cipher = cipher_path.read_text()
+          yt = yt_path.read_text()
+
+          pattern = re.compile(
+              r'    suspend fun deobfuscateStreamUrl\(signatureCipher: String, videoId: String\): String\? = deobfuscateMutex\.withLock \{\n.*?\n    \}\n\n    /\*\*\n     \* Called when a deciphered stream URL',
+              re.S,
+          )
+          replacement = '''    suspend fun deobfuscateStreamUrl(signatureCipher: String, videoId: String): String? = deobfuscateMutex.withLock {
+              val firstAttempt = try {
+                  deobfuscateInternal(signatureCipher, videoId, isRetry = false)
+              } catch (e: CancellationException) {
+                  throw e
+              } catch (e: CipherRendererGoneException) {
+                  onRendererGone(e, "deobfuscate")
+                  return@withLock null
+              } catch (e: Exception) {
+                  Timber.tag(TAG).e(e, "Cipher deobfuscation failed, retrying with fresh JS: ${e.message}")
+                  try {
+                      PlayerJsFetcher.invalidateCache()
+                      closeWebView()
+                      deobfuscateInternal(signatureCipher, videoId, isRetry = true)
+                  } catch (retryE: CancellationException) {
+                      throw retryE
+                  } catch (retryE: CipherRendererGoneException) {
+                      onRendererGone(retryE, "deobfuscate-retry")
+                      return@withLock null
+                  } catch (retryE: Exception) {
+                      Timber.tag(TAG).e(retryE, "Cipher deobfuscation retry also failed: ${retryE.message}")
+                      return@withLock null
+                  }
+              }
+
+              if (firstAttempt != null) {
+                  rendererRecoveryPolicy.onSuccess()
+                  return@withLock firstAttempt
+              }
+
+              // A null result is different from an exception: it commonly means the current
+              // player/config pair cannot produce a usable decipher function. Previously this
+              // silently fell through, which made authenticated WEB_CREATOR-only videos fail
+              // before a URL existed and therefore before the normal 403 recovery could run.
+              // Refresh the config registry, discard the stale JS/WebView pair and retry once.
+              Timber.tag(TAG).w("Cipher deobfuscation returned null; refreshing player config and retrying once")
+              try {
+                  PlayerConfigStore.refreshAfterStreamRejection()
+              } catch (refreshE: CancellationException) {
+                  throw refreshE
+              } catch (refreshE: Exception) {
+                  Timber.tag(TAG).w(refreshE, "Cipher config refresh after null result failed: ${refreshE.message}")
+              }
+
+              PlayerJsFetcher.invalidateCache()
+              closeWebView()
+
+              try {
+                  deobfuscateInternal(signatureCipher, videoId, isRetry = true)
+                      ?.also { rendererRecoveryPolicy.onSuccess() }
+              } catch (retryE: CancellationException) {
+                  throw retryE
+              } catch (retryE: CipherRendererGoneException) {
+                  onRendererGone(retryE, "deobfuscate-null-retry")
+                  null
+              } catch (retryE: Exception) {
+                  Timber.tag(TAG).e(retryE, "Cipher null-result retry failed: ${retryE.message}")
+                  null
+              }
+          }
+
+          /**
+           * Called when a deciphered stream URL'''
+          cipher2, n = pattern.subn(replacement, cipher)
+          if n != 1:
+              raise SystemExit(f'Cipher function replacement count={n}, expected 1')
+
+          old_creator = '            val creatorResponse = YouTube.player(videoId, playlistId, WEB_CREATOR, null, null).getOrNull()'
+          new_creator = '''            // WEB_CREATOR is the authenticated escape hatch for LOGIN_REQUIRED/age-gated
+              // responses. Keep its /player request on the same player generation that will
+              // decipher its signatureCipher; a mismatched STS can mint a cipher our WebView
+              // cannot solve even though the account is valid.
+              val creatorSignatureTimestamp =
+                  CipherDeobfuscator.signatureTimestamp() ?: signatureTimestamp.timestamp
+              val creatorResponse = YouTube.player(
+                  videoId,
+                  playlistId,
+                  WEB_CREATOR,
+                  creatorSignatureTimestamp,
+                  null,
+              ).getOrNull()'''
+          if yt.count(old_creator) != 1:
+              raise SystemExit(f'WEB_CREATOR direct-call anchor count={yt.count(old_creator)}, expected 1')
+          yt = yt.replace(old_creator, new_creator, 1)
+
+          old_sts = '                val clientSigTimestamp = if (wasOriginallyAgeRestricted) null else signatureTimestamp.timestamp'
+          new_sts = '''                val clientSigTimestamp = when {
+                  // Authenticated WEB_CREATOR returns signatureCipher formats; request them with
+                  // the exact STS used by our cipher engine so the two halves stay aligned.
+                  client == WEB_CREATOR && isLoggedIn ->
+                      CipherDeobfuscator.signatureTimestamp() ?: signatureTimestamp.timestamp
+                  wasOriginallyAgeRestricted -> null
+                  else -> signatureTimestamp.timestamp
+              }'''
+          if yt.count(old_sts) != 1:
+              raise SystemExit(f'Fallback STS anchor count={yt.count(old_sts)}, expected 1')
+          yt = yt.replace(old_sts, new_sts, 1)
+
+          old_errors = '''        if (streamExpiresInSeconds == null) {
+              Timber.tag(logTag).e("Missing stream expire time")
+              logCascade("exhausted")
+              Fix403.e(fx, "resolve.failed", Fix403.kv("videoId" to videoId, "why" to "missingExpireTime"))
+              throw Exception("Missing stream expire time")
+          }
+
+          if (format == null) {
+              Timber.tag(logTag).e("Could not find format")
+              logCascade("exhausted")
+              Fix403.e(fx, "resolve.failed", Fix403.kv("videoId" to videoId, "why" to "noFormat"))
+              throw Exception("Could not find format")
+          }
+
+          if (streamUrl == null) {
+              Timber.tag(logTag).e("Could not find stream url")
+              logCascade("exhausted")
+              Fix403.e(fx, "resolve.failed", Fix403.kv("videoId" to videoId, "why" to "noStreamUrl"))
+              throw Exception("Could not find stream url")
+          }'''
+          new_errors = '''        // Report the real resolver failure before cache metadata. A missing URL/format
+          // necessarily leaves expiry unset too; checking expiry first used to mask the actual
+          // failure as "Missing stream expire time".
+          if (format == null) {
+              Timber.tag(logTag).e("Could not find format")
+              logCascade("exhausted")
+              Fix403.e(fx, "resolve.failed", Fix403.kv("videoId" to videoId, "why" to "noFormat"))
+              throw Exception("Could not find format")
+          }
+
+          if (streamUrl == null) {
+              Timber.tag(logTag).e("Could not find stream url")
+              logCascade("exhausted")
+              Fix403.e(fx, "resolve.failed", Fix403.kv("videoId" to videoId, "why" to "noStreamUrl"))
+              throw Exception("Could not find stream url")
+          }
+
+          if (streamExpiresInSeconds == null) {
+              Timber.tag(logTag).e("Missing stream expire time")
+              logCascade("exhausted")
+              Fix403.e(fx, "resolve.failed", Fix403.kv("videoId" to videoId, "why" to "missingExpireTime"))
+              throw Exception("Missing stream expire time")
+          }'''
+          if yt.count(old_errors) != 1:
+              raise SystemExit(f'Final-error block anchor count={yt.count(old_errors)}, expected 1')
+          yt = yt.replace(old_errors, new_errors, 1)
+
+          cipher_path.write_text(cipher2)
+          yt_path.write_text(yt)
+          PY
+
+      - name: Ten targeted source checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          c = Path('app/src/main/kotlin/com/metrolist/music/utils/cipher/CipherDeobfuscator.kt').read_text()
+          y = Path('app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt').read_text()
+          checks = [
+              ('null cipher recovery log', 'Cipher deobfuscation returned null; refreshing player config and retrying once' in c),
+              ('config refresh on null', 'PlayerConfigStore.refreshAfterStreamRejection()' in c),
+              ('invalidate stale player JS', 'PlayerJsFetcher.invalidateCache()' in c),
+              ('drop stale WebView', 'closeWebView()' in c),
+              ('single fresh retry path', 'deobfuscate-null-retry' in c),
+              ('creator uses cipher STS', 'val creatorSignatureTimestamp' in y and 'CipherDeobfuscator.signatureTimestamp() ?: signatureTimestamp.timestamp' in y),
+              ('fallback WEB_CREATOR uses cipher STS', 'client == WEB_CREATOR && isLoggedIn' in y),
+              ('protected NewPipe guard preserved', 'Skipping NewPipe for age-restricted content' in y),
+              ('no-stream error preserved', '"why" to "noStreamUrl"' in y),
+              ('real failure checked before expiry', y.index('if (streamUrl == null)') < y.index('if (streamExpiresInSeconds == null)')),
+          ]
+          bad=[name for name, ok in checks if not ok]
+          for i,(name,ok) in enumerate(checks,1): print(f'CHECK {i:02d}: {"PASS" if ok else "FAIL"} - {name}')
+          if bad: raise SystemExit('Failed checks: ' + ', '.join(bad))
+          PY
+          git diff --check
+
+      - name: Compile and run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:compileFossDebugKotlin :innertube:testDebugUnitTest --no-daemon
+
+      - name: Commit patch to LAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Br174'
+          git config user.email 'brunoverlezza@gmail.com'
+          git add app/src/main/kotlin/com/metrolist/music/utils/cipher/CipherDeobfuscator.kt app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
+          git diff --cached --quiet && { echo 'No changes to commit'; exit 0; }
+          git commit -m 'fix(playback): recover authenticated cipher-only streams'
+          git push origin HEAD:lab/musiclab-playback-403-recovery-01
