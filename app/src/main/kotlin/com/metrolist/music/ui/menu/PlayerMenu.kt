@@ -486,64 +486,67 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                 onDismiss()
                             },
                         ),
-                        NewAction(
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.album),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            text = "Originali",
-                            onClick = {
-                                val opened = com.metrolist.music.ui.component.OriginalVersionNavigationBridge.open(
-                                    com.metrolist.music.ui.component.OriginalVersionRequest(
-                                        title = mediaMetadata.title,
-                                        artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
-                                        durationSec = mediaMetadata.duration,
-                                        currentYouTubeId = mediaMetadata.id,
-                                    ),
-                                )
-                                if (opened) {
-                                    playerBottomSheetState.collapseSoft()
-                                    onDismiss()
-                                }
-                            },
-                        ),
-                        NewAction(
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.link),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            text = "Cover",
-                            onClick = {
-                                playerBottomSheetState.collapseSoft()
-                                showCoverSearchDialog = true
-                            },
-                        ),
-                    ) + if (com.metrolist.spotify.Spotify.isAuthenticated()) {
+                    ) +
+                        (if (com.metrolist.spotify.Spotify.isAuthenticated()) {
+                            listOf(
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.spotify),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(32.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.spotify_add_to_playlist),
+                                    onClick = { showAddToSpotifyPlaylist = true },
+                                ),
+                            )
+                        } else {
+                            emptyList()
+                        }) +
                         listOf(
                             NewAction(
                                 icon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.spotify),
+                                        painter = painterResource(R.drawable.album),
                                         contentDescription = null,
                                         modifier = Modifier.size(32.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 },
-                                text = stringResource(R.string.spotify_add_to_playlist),
-                                onClick = { showAddToSpotifyPlaylist = true },
+                                text = "Originali",
+                                onClick = {
+                                    val opened = com.metrolist.music.ui.component.OriginalVersionNavigationBridge.open(
+                                        com.metrolist.music.ui.component.OriginalVersionRequest(
+                                            title = mediaMetadata.title,
+                                            artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                                            durationSec = mediaMetadata.duration,
+                                            currentYouTubeId = mediaMetadata.id,
+                                        ),
+                                    )
+                                    if (opened) {
+                                        playerBottomSheetState.collapseSoft()
+                                        onDismiss()
+                                    }
+                                },
                             ),
-                        )
-                    } else {
-                        emptyList()
-                    },
+                            NewAction(
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.link),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(32.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                text = "Cover",
+                                onClick = {
+                                    playerBottomSheetState.collapseSoft()
+                                    showCoverSearchDialog = true
+                                },
+                            ),
+                        ),
                 columns = if (isListenTogetherGuest) 2 else 3,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
             )
