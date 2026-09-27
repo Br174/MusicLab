@@ -1,5 +1,5 @@
 /**
- * Resolves AI-decided cover/remix/live candidates to playable media.
+ * Resolves AI-decided cover/remix/live/foreign candidates to playable media.
  * YouTube and YouTube Music are playback locators only; editorial metadata stays AI-owned.
  */
 package com.metrolist.music.ui.component
@@ -43,7 +43,7 @@ internal object AiCoverSearchEngine {
         var musicHits = 0
         var videoHits = 0
 
-        for ((batchIndex, batch) in candidates.distinctBy { it.stableKey }.chunked(4).withIndex()) {
+        for ((batchIndex, batch) in candidates.distinctBy { it.stableKey }.chunked(5).withIndex()) {
             val batchResolved = batch.map { candidate ->
                 async(Dispatchers.IO) { resolveOne(candidate, currentYouTubeId) }
             }.awaitAll().filterNotNull()
@@ -55,7 +55,7 @@ internal object AiCoverSearchEngine {
                 }
             }
 
-            if (pauseBetweenBatches && batchIndex < candidates.chunked(4).lastIndex) {
+            if (pauseBetweenBatches && batchIndex < candidates.chunked(5).lastIndex) {
                 delay(BACKGROUND_PAUSE_MS)
             }
         }
@@ -75,10 +75,15 @@ internal object AiCoverSearchEngine {
         candidate: AiCoverCandidate,
         currentYouTubeId: String?,
     ): AiCoverPlayable? {
+        val languageSuffix = candidate.language?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
         val queries = when (candidate.category) {
             AiCoverCategory.COVER -> listOf(
                 "${candidate.title} ${candidate.artist}",
                 "${candidate.title} ${candidate.artist} official audio",
+            )
+            AiCoverCategory.FOREIGN -> listOf(
+                "${candidate.title} ${candidate.artist}$languageSuffix",
+                "${candidate.title} ${candidate.artist} official audio$languageSuffix",
             )
             AiCoverCategory.REMIX -> listOf(
                 "${candidate.title} ${candidate.artist} remix",
@@ -101,6 +106,7 @@ internal object AiCoverSearchEngine {
                     }
                 }
                 AiCoverCategory.COVER,
+                AiCoverCategory.FOREIGN,
                 AiCoverCategory.REMIX,
                 -> {
                     searchAndPick(query, YouTube.SearchFilter.FILTER_SONG, candidate, currentYouTubeId)?.let {
@@ -153,21 +159,20 @@ internal object AiCoverSearchEngine {
         val artistNames = song.artists.map { canonicalArtist(it.name) }
         val titleHasArtist = tokenPhrase(songTitle, targetArtist)
         val artistMatch = artistNames.any { artistSimilar(it, targetArtist) } || titleHasArtist
-
         if (!artistMatch) return 0
 
         val raw = song.title.lowercase()
-        val candidateRaw = candidate.title.lowercase()
-        val liveLike = LIVE_MARKER.containsMatchIn(raw) || LIVE_MARKER.containsMatchIn(candidateRaw)
-        val remixLike = REMIX_MARKER.containsMatchIn(raw) || REMIX_MARKER.containsMatchIn(candidateRaw)
+        val liveLike = LIVE_MARKER.containsMatchIn(raw)
+        val remixLike = REMIX_MARKER.containsMatchIn(raw)
 
+        // La categoria è decisa dall'AI. I metadati YouTube possono soltanto scartare
+        // una contraddizione evidente, non stabilire la categoria editoriale.
         when (candidate.category) {
-            // Studio covers must not silently resolve to a concert/performance or a remix.
-            AiCoverCategory.COVER -> if (liveLike || remixLike) return 0
-            // A live candidate must resolve to an explicitly identifiable performance.
-            AiCoverCategory.LIVE -> if (!liveLike) return 0
-            // A remix candidate must resolve to a clearly marked remix/rework/mix.
-            AiCoverCategory.REMIX -> if (!remixLike) return 0
+            AiCoverCategory.COVER,
+            AiCoverCategory.FOREIGN,
+            -> if (liveLike || remixLike) return 0
+            AiCoverCategory.LIVE -> if (remixLike) return 0
+            AiCoverCategory.REMIX -> if (liveLike && !remixLike) return 0
         }
 
         var score = 35
@@ -179,8 +184,9 @@ internal object AiCoverSearchEngine {
         }
 
         when (candidate.category) {
-            AiCoverCategory.LIVE -> score += 14
-            AiCoverCategory.REMIX -> score += 14
+            AiCoverCategory.LIVE -> if (liveLike) score += 16 else score += 5
+            AiCoverCategory.REMIX -> if (remixLike) score += 16 else score += 5
+            AiCoverCategory.FOREIGN -> score += 10
             AiCoverCategory.COVER -> score += 8
         }
         if (DISALLOWED.containsMatchIn(raw)) score -= 90
@@ -237,6 +243,6 @@ internal object AiCoverSearchEngine {
         "\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b",
     )
 
-    private const val MIN_SCORE = 70
-    private const val BACKGROUND_PAUSE_MS = 80L
+    private const val MIN_SCORE = 68
+    private const val BACKGROUND_PAUSE_MS = 45L
 }
