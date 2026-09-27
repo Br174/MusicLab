@@ -2,6 +2,7 @@ package com.metrolist.music.ui.component
 
 import android.net.Uri
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -54,6 +56,13 @@ import kotlinx.coroutines.withContext
 // Reuse the same dedicated Gemini key already configured by Cerca cover.
 private val OriginalGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 
+private enum class OriginalResultsTab {
+    VERSIONS,
+    LIVE,
+    WITH_OTHERS,
+    REMIX,
+}
+
 @Composable
 internal fun OriginalVersionScreen(
     request: OriginalVersionRequest,
@@ -78,18 +87,20 @@ internal fun OriginalVersionScreen(
     ) {
         sharedModel
     } else {
-        "gemini-2.5-flash-lite"
+        "gemini-3.5-flash-lite"
     }
     val geminiConfig = effectiveKey.takeIf { it.isNotBlank() }?.let {
         GeminiCoverVerificationConfig(apiKey = it, model = effectiveModel)
     }
 
     var loading by remember(request.currentYouTubeId) { mutableStateOf(true) }
+    var backgroundLoading by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var searchResult by remember(request.currentYouTubeId) {
         mutableStateOf(OriginalVersionSearchResult(null, emptyList()))
     }
     var failed by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var showDiagnosticsDialog by remember(request.currentYouTubeId) { mutableStateOf(false) }
+    var selectedTab by remember(request.currentYouTubeId) { mutableStateOf(OriginalResultsTab.VERSIONS) }
 
     var link by remember(request.currentYouTubeId) { mutableStateOf("") }
     var manualCandidate by remember(request.currentYouTubeId) { mutableStateOf<SongItem?>(null) }
@@ -99,13 +110,8 @@ internal fun OriginalVersionScreen(
     var currentOverride by remember(request.currentYouTubeId) { mutableStateOf<YouTubeMatchOverride?>(null) }
     var startingVersion by remember(request.currentYouTubeId) { mutableStateOf<CoverHubResult?>(null) }
 
-    LaunchedEffect(
-        request.currentYouTubeId,
-        request.title,
-        request.artist,
-        effectiveKey,
-        effectiveModel,
-    ) {
+    // Load the starting version independently: it must never delay the AI or the first results.
+    LaunchedEffect(request.currentYouTubeId) {
         currentOverride = service?.getYouTubeMatchOverride(request.currentYouTubeId)
         val startingId = currentOverride?.videoId?.takeIf { it.isNotBlank() } ?: request.currentYouTubeId
         startingVersion = withContext(Dispatchers.IO) {
@@ -113,26 +119,65 @@ internal fun OriginalVersionScreen(
             song?.let {
                 CoverHubResult(
                     song = it,
-                    year = runCatching { CoverYearResolver.resolve(it) }.getOrNull(),
                     source = "Versione di partenza",
                     confirmed = true,
                 )
             }
         }
+    }
 
+    // Progressive pipeline: AI -> first useful results -> extended search in background.
+    LaunchedEffect(
+        request.currentYouTubeId,
+        request.title,
+        request.artist,
+        effectiveKey,
+        effectiveModel,
+    ) {
         loading = true
+        backgroundLoading = false
         failed = false
-        searchResult = runCatching {
-            OriginalVersionSearchEngine.findVersions(
+        selectedTab = OriginalResultsTab.VERSIONS
+
+        val identified = runCatching {
+            OriginalVersionSearchEngine.identifyOriginal(
                 title = request.title,
                 currentArtist = request.artist,
-                durationSec = request.durationSec,
-                currentYouTubeId = request.currentYouTubeId,
                 geminiConfig = geminiConfig,
             )
         }.onFailure { failed = true }
             .getOrDefault(OriginalVersionSearchResult(null, emptyList()))
+
+        searchResult = identified
+        val identity = identified.aiIdentity
+        if (identity == null) {
+            loading = false
+            return@LaunchedEffect
+        }
+
+        val initial = runCatching {
+            OriginalVersionSearchEngine.findInitialVersions(
+                identity = identity,
+                currentYouTubeId = request.currentYouTubeId,
+            )
+        }.onFailure { failed = true }
+            .getOrElse { identified }
+
+        searchResult = initial
         loading = false
+        backgroundLoading = true
+
+        val expanded = runCatching {
+            OriginalVersionSearchEngine.findExpandedVersions(
+                identity = identity,
+                currentYouTubeId = request.currentYouTubeId,
+                seed = initial,
+            )
+        }.onFailure { failed = true }
+            .getOrNull()
+
+        if (expanded != null) searchResult = expanded
+        backgroundLoading = false
     }
 
     LaunchedEffect(link) {
@@ -187,14 +232,8 @@ internal fun OriginalVersionScreen(
                         Text(
                             text = when (mode) {
                                 GeminiOriginalMode.GOOGLE_SEARCH -> "Modalità AI: ricerca Google"
-                                GeminiOriginalMode.MODEL_KNOWLEDGE -> "Modalità AI: conoscenza del modello"
+                                GeminiOriginalMode.MODEL_KNOWLEDGE -> "Modalità AI: conoscenza diretta del modello"
                             },
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    if (diagnostics.aiWebSources > 0) {
-                        Text(
-                            "Fonti web viste dall'AI: ${diagnostics.aiWebSources}",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -212,6 +251,24 @@ internal fun OriginalVersionScreen(
                     }
 
                     Spacer(Modifier.height(10.dp))
+                    Text(
+                        if (diagnostics.backgroundComplete) {
+                            "Ricerca estesa: completata"
+                        } else if (diagnostics.initialVisible > 0) {
+                            "Ricerca estesa: in background"
+                        } else {
+                            "Ricerca estesa: non ancora avviata"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    if (diagnostics.initialVisible > 0) {
+                        Text(
+                            "Primi risultati mostrati subito: ${diagnostics.initialVisible}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         "YouTube Music: ${originalStageState(diagnostics.youtubeMusicStatus)}",
                         style = MaterialTheme.typography.bodyMedium,
@@ -231,9 +288,8 @@ internal fun OriginalVersionScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Versioni finali mostrate: ${diagnostics.finalVersions}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        "Versioni: ${diagnostics.finalVersions} · Live: ${diagnostics.liveFound} · Con altri: ${diagnostics.withOthersFound} · Remix: ${diagnostics.remixFound}",
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             },
@@ -310,6 +366,28 @@ internal fun OriginalVersionScreen(
                     }
                 }
 
+                searchResult.aiIdentity?.let { identity ->
+                    item {
+                        VersionSectionTitle("Identificato dall'AI")
+                        Text(
+                            text = "${identity.title} · ${identity.originalArtists.joinToString(", ")}",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = identity.year?.let { "Prima pubblicazione: $it" } ?: "Prima pubblicazione: anno non indicato dall'AI",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        AiCreditsBlock(identity)
+                        Text(
+                            text = "L'AI decide direttamente originale, anno e crediti quando li conosce. YouTube e YouTube Music servono solo a trovare le versioni riproducibili in cui compare l'interprete originale.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 5.dp, bottom = 12.dp),
+                        )
+                    }
+                }
+
                 if (loading) {
                     item {
                         Row(
@@ -318,32 +396,16 @@ internal fun OriginalVersionScreen(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(10.dp))
-                            Text("L'AI identifica l'originale e cerco tutte le sue versioni…")
+                            Text(
+                                if (searchResult.aiIdentity == null) {
+                                    "L'AI identifica l'originale…"
+                                } else {
+                                    "Cerco i primi risultati…"
+                                },
+                            )
                         }
                     }
                 } else {
-                    searchResult.aiIdentity?.let { identity ->
-                        item {
-                            VersionSectionTitle("Identificato dall'AI")
-                            Text(
-                                text = "${identity.title} · ${identity.originalArtists.joinToString(", ")}",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                text = identity.year?.let { "Prima pubblicazione: $it" } ?: "Prima pubblicazione: anno non indicato",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            AiCreditsBlock(identity)
-                            Text(
-                                text = "L'AI decide l'originale; YouTube e YouTube Music servono solo a trovare le versioni riproducibili in cui compare questo interprete.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 5.dp, bottom = 12.dp),
-                            )
-                        }
-                    }
-
                     val original = searchResult.original
                     if (original != null) {
                         item {
@@ -355,38 +417,72 @@ internal fun OriginalVersionScreen(
                             )
                             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                         }
+                    }
 
-                        if (searchResult.versions.isNotEmpty()) {
-                            item {
-                                VersionSectionTitle("Altre versioni dello stesso cantante")
+                    if (searchResult.versions.isNotEmpty()) {
+                        item {
+                            VersionSectionTitle("Altre versioni dello stesso cantante")
+                            OriginalResultsTabs(
+                                selected = selectedTab,
+                                versionsCount = searchResult.versions.size,
+                                liveCount = searchResult.liveVersions.size,
+                                withOthersCount = searchResult.withOthersVersions.size,
+                                remixCount = searchResult.remixVersions.size,
+                                onSelected = { selectedTab = it },
+                            )
+                            if (backgroundLoading) {
+                                Row(
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "Altri risultati stanno arrivando in background…",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            } else {
                                 Text(
-                                    text = "Sono incluse live, duetti, collaborazioni e altre versioni della stessa canzone, purché sia presente il cantante originale indicato dall'AI.",
+                                    text = "Sempre e solo versioni in cui compare il cantante originale scelto dall'AI.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(bottom = 6.dp),
-                                )
-                            }
-                            items(
-                                items = searchResult.versions,
-                                key = { it.song.id },
-                            ) { version ->
-                                OriginalVersionRow(
-                                    result = version,
-                                    onPreview = { preview(version.song) },
-                                    onReplace = { replaceWith(version.song) },
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-                        } else {
-                            item {
-                                Text(
-                                    text = "L'AI ha identificato l'originale, ma non ho trovato altre versioni riproducibili con lo stesso cantante.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 7.dp, bottom = 6.dp),
                                 )
                             }
                         }
-                    } else if (searchResult.aiIdentity != null) {
+
+                        val visibleVersions = when (selectedTab) {
+                            OriginalResultsTab.VERSIONS -> searchResult.versions
+                            OriginalResultsTab.LIVE -> searchResult.liveVersions
+                            OriginalResultsTab.WITH_OTHERS -> searchResult.withOthersVersions
+                            OriginalResultsTab.REMIX -> searchResult.remixVersions
+                        }
+
+                        items(
+                            items = visibleVersions,
+                            key = { "${selectedTab.name}-${it.song.id}" },
+                        ) { version ->
+                            OriginalVersionRow(
+                                result = version,
+                                onPreview = { preview(version.song) },
+                                onReplace = { replaceWith(version.song) },
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    } else if (backgroundLoading) {
+                        item {
+                            Row(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Cerco altre versioni in background…")
+                            }
+                        }
+                    } else if (searchResult.aiIdentity != null && searchResult.original == null) {
                         item {
                             Text(
                                 text = "L'AI ha identificato titolo e cantante originale, ma YouTube/YouTube Music non hanno restituito una versione riproducibile che riporti quel cantante tra gli interpreti.",
@@ -394,10 +490,18 @@ internal fun OriginalVersionScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    } else if (searchResult.aiIdentity != null) {
+                        item {
+                            Text(
+                                text = "L'AI ha identificato l'originale, ma non ho trovato altre versioni riproducibili con lo stesso cantante.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     } else if (searchResult.diagnostics.aiStatus == OriginalAiStatus.NOT_CONFIGURED) {
                         item {
                             Text(
-                                "Gemini AI non è configurata. Originali ora funziona esclusivamente con l'intelligenza artificiale e non usa motori alternativi.",
+                                "Gemini AI non è configurata. Originali funziona esclusivamente con l'intelligenza artificiale e non usa motori alternativi.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -455,6 +559,83 @@ internal fun OriginalVersionScreen(
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
+}
+
+@Composable
+private fun OriginalResultsTabs(
+    selected: OriginalResultsTab,
+    versionsCount: Int,
+    liveCount: Int,
+    withOthersCount: Int,
+    remixCount: Int,
+    onSelected: (OriginalResultsTab) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OriginalResultChip(
+            label = "Versioni",
+            count = versionsCount,
+            selected = selected == OriginalResultsTab.VERSIONS,
+            onClick = { onSelected(OriginalResultsTab.VERSIONS) },
+        )
+        if (liveCount > 0) {
+            OriginalResultChip(
+                label = "Live",
+                count = liveCount,
+                selected = selected == OriginalResultsTab.LIVE,
+                onClick = { onSelected(OriginalResultsTab.LIVE) },
+            )
+        }
+        if (withOthersCount > 0) {
+            OriginalResultChip(
+                label = "Con altri",
+                count = withOthersCount,
+                selected = selected == OriginalResultsTab.WITH_OTHERS,
+                onClick = { onSelected(OriginalResultsTab.WITH_OTHERS) },
+            )
+        }
+        if (remixCount > 0) {
+            OriginalResultChip(
+                label = "Remix",
+                count = remixCount,
+                selected = selected == OriginalResultsTab.REMIX,
+                onClick = { onSelected(OriginalResultsTab.REMIX) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun OriginalResultChip(
+    label: String,
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Text(
+            text = "$label · $count",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
     }
 }
 
