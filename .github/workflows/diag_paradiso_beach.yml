@@ -1,4 +1,4 @@
-name: TEMP - Diagnose Paradiso beach playback
+name: TEMP - Diagnose Paradiso beach extraction paths
 
 on:
   push:
@@ -23,101 +23,94 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Resolve Paradiso beach video id with yt-dlp
+      - name: Resolve exact video and probe latest yt-dlp
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p diag
           python3 -m pip install --quiet --upgrade yt-dlp
-          yt-dlp \
-            --flat-playlist \
-            --no-warnings \
+          yt-dlp --flat-playlist --no-warnings \
             --print '%(id)s|%(title)s|%(channel)s|%(duration_string)s' \
-            'ytsearch10:Paradiso beach Cartoon Band' \
-            > diag/search-results.txt 2> diag/yt-dlp-error.txt
-          echo '--- YouTube search results ---'
-          cat diag/search-results.txt
+            'ytsearch10:Paradiso beach Cartoon Band' > diag/search-results.txt 2> diag/search-error.txt
           python3 - <<'PY'
           from pathlib import Path
           rows=[]
           for line in Path('diag/search-results.txt').read_text(errors='replace').splitlines():
               p=line.split('|',3)
-              if len(p) >= 3:
-                  rows.append(p)
+              if len(p)>=3: rows.append(p)
           def score(r):
-              vid,title,channel,*rest=r
-              t=title.casefold().strip(); c=channel.casefold().strip(); s=0
-              if t == 'paradiso beach': s += 100
-              elif 'paradiso beach' in t: s += 50
-              if 'cartoon band' in c: s += 40
-              if 'topic' in c: s += 5
+              t=r[1].casefold().strip(); c=r[2].casefold().strip(); s=0
+              if t=='paradiso beach': s+=100
+              elif 'paradiso beach' in t: s+=50
+              if 'cartoon band' in c: s+=40
+              if 'topic' in c: s+=5
               return s
-          if not rows:
-              raise SystemExit('No YouTube search results returned')
           rows.sort(key=score, reverse=True)
+          if not rows or score(rows[0])<50: raise SystemExit('No exact track')
           best=rows[0]
-          if score(best) < 50:
-              raise SystemExit(f'No credible Paradiso beach candidate: {best}')
           Path('diag/video-id.txt').write_text(best[0])
           Path('diag/selected.txt').write_text('|'.join(best))
-          print('SELECTED=' + '|'.join(best))
+          print('SELECTED='+'|'.join(best))
           PY
           echo "VIDEO_ID=$(cat diag/video-id.txt)" >> "$GITHUB_ENV"
+          set +e
+          yt-dlp -v --skip-download -F "https://www.youtube.com/watch?v=$(cat diag/video-id.txt)" > diag/ytdlp-formats.txt 2> diag/ytdlp-verbose.txt
+          echo $? > diag/ytdlp-exit.txt
+          set -e
+          echo '--- yt-dlp selected ---'; cat diag/selected.txt; echo
+          echo '--- yt-dlp formats ---'; cat diag/ytdlp-formats.txt || true
+          echo '--- yt-dlp key verbose lines ---'
+          grep -Ei 'player client|client|po.?token|sabr|format|login|required|unavailable|unplayable|webpage|extractor|warning|error' diag/ytdlp-verbose.txt | tail -180 || true
 
-      - name: Patch diagnostic harness only to exact video and current clients
+      - name: Create standalone NewPipe exact-video probe
         shell: bash
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('innertube/src/test/kotlin/com/metrolist/innertube/PlaybackForbiddenDiagnosticsTest.kt')
-          s=p.read_text()
-          old='(System.getProperty("yt403.videoIds") ?: "dQw4w9WgXcQ")'
-          new='(System.getenv("VIDEO_ID") ?: "dQw4w9WgXcQ")'
-          if s.count(old) != 1:
-              raise SystemExit(f'video id anchor count={s.count(old)}')
-          s=s.replace(old,new,1)
-          anchor='''            "WEB_REMIX(MAIN)" to YouTubeClient.WEB_REMIX,\n'''
-          extra='''            "WEB_REMIX(MAIN)" to YouTubeClient.WEB_REMIX,\n            "VISIONOS(CURRENT)" to YouTubeClient.VISIONOS,\n            "ANDROID_VR_1_65_10(CURRENT)" to YouTubeClient.ANDROID_VR_1_65_10,\n'''
-          if s.count(anchor) != 1:
-              raise SystemExit(f'client anchor count={s.count(anchor)}')
-          s=s.replace(anchor,extra,1)
-          p.write_text(s)
-          PY
-          grep -F 'System.getenv("VIDEO_ID")' innertube/src/test/kotlin/com/metrolist/innertube/PlaybackForbiddenDiagnosticsTest.kt
-          grep -F 'VISIONOS(CURRENT)' innertube/src/test/kotlin/com/metrolist/innertube/PlaybackForbiddenDiagnosticsTest.kt
-          grep -F 'ANDROID_VR_1_65_10(CURRENT)' innertube/src/test/kotlin/com/metrolist/innertube/PlaybackForbiddenDiagnosticsTest.kt
+          cat > innertube/src/test/kotlin/com/metrolist/innertube/ParadisoStandaloneNewPipeTest.kt <<'KOT'
+          package com.metrolist.innertube
 
-      - name: Run exact current-client playback matrix
+          import okhttp3.OkHttpClient
+          import okhttp3.Request
+          import org.junit.Test
+          import java.util.concurrent.TimeUnit
+
+          class ParadisoStandaloneNewPipeTest {
+              @Test
+              fun exactVideo() {
+                  val id = System.getenv("VIDEO_ID") ?: error("VIDEO_ID missing")
+                  println("NP_VIDEO=$id")
+                  val sts = NewPipeExtractor.getSignatureTimestamp(id)
+                  println("NP_STS success=${sts.isSuccess} value=${sts.getOrNull()} error=${sts.exceptionOrNull()?.message}")
+                  val urls = runCatching { NewPipeExtractor.newPipePlayer(id) }
+                  println("NP_PLAYER success=${urls.isSuccess} error=${urls.exceptionOrNull()?.javaClass?.simpleName}:${urls.exceptionOrNull()?.message}")
+                  val list = urls.getOrDefault(emptyList())
+                  println("NP_URLS count=${list.size} itags=${list.joinToString { it.first.toString() }}")
+                  val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
+                  list.take(12).forEach { (itag, url) ->
+                      val code = runCatching {
+                          val req = Request.Builder().url(url).header("Range", "bytes=0-524287").build()
+                          http.newCall(req).execute().use { it.code }
+                      }.getOrDefault(-1)
+                      println("NP_STREAM itag=$itag code=$code hasExpire=${Regex("[?&]expire=").containsMatchIn(url)}")
+                  }
+              }
+          }
+          KOT
+
+      - name: Run standalone NewPipe probe
         shell: bash
         run: |
           set +e
-          ./gradlew \
-            :innertube:testDebugUnitTest \
-            --tests '*PlaybackForbiddenDiagnosticsTest.clientStreamMatrixBaseline' \
-            --tests '*PlaybackForbiddenDiagnosticsTest.newPipeRewriteDoesNotDowngradeAWorkingAndroidVrUrl' \
-            -i > diag/gradle.log 2>&1
+          ./gradlew :innertube:testDebugUnitTest --tests '*ParadisoStandaloneNewPipeTest*' -i > diag/newpipe-gradle.log 2>&1
           rc=$?
-          echo '--- selected video ---'
-          cat diag/selected.txt || true
-          echo
-          echo '--- exact playback matrix ---'
-          cat innertube/build/reports/yt403/playback-403-matrix.txt || true
-          echo '--- key Gradle diagnostics ---'
-          grep -nE 'videoIds|CLIENT x STREAM STATUS MATRIX|VISIONOS|ANDROID_VR_1_65_10|2xx media GET|403 media GET|no usable url|ANDROID_VR itag|after newPipePlayer|FAILED|HTTP 403|NewPipe' diag/gradle.log | tail -240 || true
+          grep -nE 'NP_VIDEO|NP_STS|NP_PLAYER|NP_URLS|NP_STREAM|FAILED|Exception' diag/newpipe-gradle.log | tail -200 || true
           exit "$rc"
 
-      - name: Upload diagnostic evidence
+      - name: Upload extraction evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: paradiso-beach-exact-current-clients
+          name: paradiso-beach-extraction-paths
           path: |
-            diag/search-results.txt
-            diag/selected.txt
-            diag/video-id.txt
-            diag/yt-dlp-error.txt
-            diag/gradle.log
-            innertube/build/reports/yt403/playback-403-matrix.txt
+            diag/*
           if-no-files-found: warn
           retention-days: 7
