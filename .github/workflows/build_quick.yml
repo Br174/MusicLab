@@ -1,4 +1,4 @@
-name: UAB CORE - MusicLab 403 Recovery LAB
+name: UAB CORE - MusicLab Stream Expiry LAB
 
 on:
   push:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    name: UAB MusicLab 403 Recovery LAB
+    name: UAB MusicLab Stream Expiry LAB
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -22,7 +22,7 @@ jobs:
       - name: Checkout exact LAB source
         uses: actions/checkout@v4
         with:
-          ref: 1ba5fd2123a5c6268180c959cdddb202edcc496d
+          ref: a8f5009e9b046f11171852273d0f03f26575806e
           submodules: recursive
           fetch-depth: 1
 
@@ -50,15 +50,15 @@ jobs:
           cat > uab-project.env <<'EOF'
           UAB_TASK=":app:assembleFossDebug"
           UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
-          UAB_FILE_VERSION="PLAYBACK-403-RECOVERY-01"
+          UAB_FILE_VERSION="STREAM-EXPIRY-02"
           UAB_OUTPUT_NAME="MusicLab-LAB-${UAB_FILE_VERSION}"
-          UAB_BUILD_ID="playback403recovery01"
+          UAB_BUILD_ID="streamexpiry02"
           UAB_GRADLE_ARGS="-x lint --build-cache"
           UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
           UAB_PARALLEL_INSTALL="on"
           UAB_APPLICATION_ID_BASE="it.verlezza.musiclab.lab"
           UAB_APPLICATION_ID_ENV="METROLIST_APPLICATION_ID"
-          UAB_APP_NAME_BASE="MusicLab LAB 403 Recovery"
+          UAB_APP_NAME_BASE="MusicLab LAB Stream Expiry 02"
           UAB_APP_NAME_ENV="METROLIST_APP_NAME"
           export PULL_REQUEST="false"
           EOF
@@ -95,7 +95,7 @@ jobs:
       - name: Upload LAB APK and ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-PLAYBACK-403-RECOVERY-01
+          name: MusicLab-LAB-STREAM-EXPIRY-02
           path: |
             dist/uab/apk/*.apk
             dist/uab/*.zip
