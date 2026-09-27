@@ -1,0 +1,758 @@
+name: TEMP - Final YouTube version picker
+
+on:
+  push:
+    branches:
+      - 'uab-build/musiclab-playback-403-recovery-01'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lab/musiclab-playback-403-recovery-01
+          fetch-depth: 0
+          submodules: recursive
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Apply final YouTube picker patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin mother/musiclab-swipe-fluid-play-01
+          git checkout origin/mother/musiclab-swipe-fluid-play-01 -- app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          pref = Path('app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt')
+          service = Path('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt')
+          menu = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt')
+          dialog = Path('app/src/main/kotlin/com/metrolist/music/ui/component/YouTubeMatchDialog.kt')
+          helper = Path('app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverrides.kt')
+          strings_base = Path('app/src/main/res/values/metrolist_strings.xml')
+          strings_it = Path('app/src/main/res/values-it/metrolist_strings.xml')
+
+          p = pref.read_text()
+          s = service.read_text()
+          m = menu.read_text()
+          base = strings_base.read_text()
+          it = strings_it.read_text()
+
+          # Persistent manual YouTube source mapping.
+          key_anchor = 'val QobuzMatchOverridesKey = stringPreferencesKey("qobuzMatchOverrides")'
+          if 'YouTubeMatchOverridesKey' not in p:
+              if p.count(key_anchor) != 1:
+                  raise SystemExit(f'Preference key anchor count={p.count(key_anchor)}')
+              p = p.replace(
+                  key_anchor,
+                  key_anchor + '\nval YouTubeMatchOverridesKey = stringPreferencesKey("youtubeMatchOverrides")',
+                  1,
+              )
+
+          helper.write_text('''package com.metrolist.music.playback\n\nimport org.json.JSONObject\n\n/** Persistent manual mapping from an original media id to a user-selected YouTube source. */\nobject YouTubeMatchOverrides {\n    @Volatile private var cachedRaw: String? = null\n    @Volatile private var cachedMap: Map<String, String> = emptyMap()\n\n    fun decode(value: String?): MutableMap<String, String> {\n        if (value.isNullOrBlank()) return mutableMapOf()\n        val snapshot = if (value == cachedRaw) {\n            cachedMap\n        } else {\n            val parsed = runCatching {\n                val root = JSONObject(value)\n                buildMap<String, String> {\n                    root.keys().forEach { mediaId ->\n                        val target = root.optString(mediaId).takeIf { it.isNotBlank() }\n                        if (target != null) put(mediaId, target)\n                    }\n                }\n            }.getOrDefault(emptyMap())\n            cachedRaw = value\n            cachedMap = parsed\n            parsed\n        }\n        return LinkedHashMap(snapshot)\n    }\n\n    fun encode(overrides: Map<String, String>): String {\n        val root = JSONObject()\n        overrides.forEach { (mediaId, youtubeId) ->\n            if (mediaId.isNotBlank() && youtubeId.isNotBlank()) root.put(mediaId, youtubeId)\n        }\n        return root.toString()\n    }\n}\n''')
+
+          # Service integration: use the selected source while preserving the original MediaItem identity.
+          import_anchor = 'import com.metrolist.music.constants.QobuzMatchOverridesKey\n'
+          if 'import com.metrolist.music.constants.YouTubeMatchOverridesKey' not in s:
+              if s.count(import_anchor) != 1:
+                  raise SystemExit(f'MusicService import anchor count={s.count(import_anchor)}')
+              s = s.replace(
+                  import_anchor,
+                  import_anchor + 'import com.metrolist.music.constants.YouTubeMatchOverridesKey\n',
+                  1,
+              )
+
+          qobuz_doc_anchor = '    /**\n     * Returns the persisted manual Qobuz override for [mediaId], or null when\n'
+          if 'fun setYouTubeMatchOverride(' not in s:
+              if s.count(qobuz_doc_anchor) != 1:
+                  raise SystemExit(f'Qobuz method anchor count={s.count(qobuz_doc_anchor)}')
+              methods = '''    private fun resolveYouTubePlaybackId(mediaId: String): String =\n        YouTubeMatchOverrides.decode(dataStore.get(YouTubeMatchOverridesKey, ""))[mediaId]\n            ?.takeIf { it.isNotBlank() }\n            ?: mediaId\n\n    suspend fun getYouTubeMatchOverride(mediaId: String): String? =\n        withContext(Dispatchers.IO) {\n            YouTubeMatchOverrides.decode(dataStore.get(YouTubeMatchOverridesKey, ""))[mediaId]\n        }\n\n    /**\n     * Stores or clears a manual YouTube source override while keeping the original MediaItem.\n     * Title, album, queue identity and history remain tied to the original song.\n     */\n    fun setYouTubeMatchOverride(mediaId: String, youtubeId: String?) {\n        if (mediaId.isBlank()) return\n        scope.launch(Dispatchers.IO) {\n            dataStore.edit { prefs ->\n                val current = YouTubeMatchOverrides.decode(prefs[YouTubeMatchOverridesKey])\n                if (youtubeId.isNullOrBlank() || youtubeId == mediaId) {\n                    current.remove(mediaId)\n                } else {\n                    current[mediaId] = youtubeId\n                }\n                prefs[YouTubeMatchOverridesKey] = YouTubeMatchOverrides.encode(current)\n            }\n\n            songUrlCache.remove(mediaId)\n            runCatching { playerCache.removeResource(mediaId) }\n            runCatching { downloadCache.removeResource(mediaId) }\n\n            withContext(Dispatchers.Main) {\n                if (::player.isInitialized && player.currentMediaItem?.mediaId == mediaId) {\n                    val currentIndex = player.currentMediaItemIndex\n                    val shouldPlay = player.playWhenReady\n                    player.stop()\n                    player.seekTo(currentIndex, 0L)\n                    player.prepare()\n                    if (shouldPlay) player.play()\n                }\n            }\n        }\n    }\n\n'''
+              s = s.replace(qobuz_doc_anchor, methods + qobuz_doc_anchor, 1)
+
+          # Route YouTube resolution through the selected source id.
+          pattern = re.compile(r'YTPlayerUtils\.playerResponseForPlayback\(\n(?P<indent>\s*)mediaId,')
+          s, replace_count = pattern.subn(
+              lambda x: 'YTPlayerUtils.playerResponseForPlayback(\n' + x.group('indent') + 'resolveYouTubePlaybackId(mediaId),',
+              s,
+          )
+          if replace_count < 1 and 'resolveYouTubePlaybackId(mediaId)' not in s:
+              raise SystemExit('No MusicService playback resolver calls were patched')
+
+          create_anchor = '            val mediaId = stripQobuzCacheKeyPrefix(dataSpec.key ?: error("No media id"))\n'
+          if 'val manualYouTubePlaybackId = resolveYouTubePlaybackId(mediaId)' not in s:
+              if s.count(create_anchor) != 1:
+                  raise SystemExit(f'createDataSource mediaId anchor count={s.count(create_anchor)}')
+              s = s.replace(
+                  create_anchor,
+                  create_anchor + '            val manualYouTubePlaybackId = resolveYouTubePlaybackId(mediaId)\n',
+                  1,
+              )
+
+          create_start = s.index('    private fun createDataSourceFactory(): DataSource.Factory')
+          create_tail = s[create_start:]
+          qobuz_if = '            if (qobuzEnabled) {'
+          if 'if (qobuzEnabled && manualYouTubePlaybackId == mediaId)' not in create_tail:
+              idx = create_tail.find(qobuz_if)
+              if idx < 0:
+                  raise SystemExit('Qobuz condition inside createDataSourceFactory not found')
+              absolute = create_start + idx
+              s = (
+                  s[:absolute]
+                  + '            if (qobuzEnabled && manualYouTubePlaybackId == mediaId) {'
+                  + s[absolute + len(qobuz_if):]
+              )
+
+          # Player menu: universal item, placed as the very last row.
+          spotify_state_anchor = '''    val resolvedSpotifyMatch by produceState<com.metrolist.music.db.entities.SpotifyMatchEntity?>(\n        initialValue = null,\n        mediaMetadata.id,\n    ) {\n        kotlinx.coroutines.withContext(Dispatchers.IO) {\n            value = database.getSpotifyMatchByYouTubeId(mediaMetadata.id)\n        }\n    }\n'''
+          if 'val manualYouTubeOverride by produceState<String?>' not in m:
+              if m.count(spotify_state_anchor) != 1:
+                  raise SystemExit(f'PlayerMenu Spotify state anchor count={m.count(spotify_state_anchor)}')
+              m = m.replace(
+                  spotify_state_anchor,
+                  spotify_state_anchor + '''\n    val manualYouTubeOverride by produceState<String?>(\n        initialValue = null,\n        mediaMetadata.id,\n    ) {\n        value = playerConnection.service.getYouTubeMatchOverride(mediaMetadata.id)\n    }\n''',
+                  1,
+              )
+
+          dialog_call = '        YouTubeMatchDialog(\n'
+          if 'sourceMediaId = mediaMetadata.id' not in m:
+              if m.count(dialog_call) != 1:
+                  raise SystemExit(f'YouTubeMatchDialog call count={m.count(dialog_call)}')
+              m = m.replace(
+                  dialog_call,
+                  dialog_call
+                  + '            sourceMediaId = mediaMetadata.id,\n'
+                  + '            searchTitle = mediaMetadata.title,\n'
+                  + '            searchArtist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),\n',
+                  1,
+              )
+
+          old_current = '            currentYouTubeId = resolvedSpotifyMatch?.youtubeId,'
+          new_current = '            currentYouTubeId = manualYouTubeOverride ?: resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id,'
+          if old_current in m:
+              m = m.replace(old_current, new_current, 1)
+          elif new_current not in m:
+              raise SystemExit('PlayerMenu currentYouTubeId anchor not found')
+
+          onconfirm_pattern = re.compile(
+              r'            onConfirm = \{ result ->\n.*?\n            \},\n            onDismiss = \{ showYouTubeMatchDialog = false \},',
+              re.S,
+          )
+          new_onconfirm = '''            onConfirm = { result ->\n                playerConnection.service.setYouTubeMatchOverride(mediaMetadata.id, result.videoId)\n\n                resolvedSpotifyMatch?.spotifyId?.let { sid ->\n                    coroutineScope.launch(Dispatchers.IO) {\n                        mapper.overrideMatch(\n                            spotifyId = sid,\n                            youtubeId = result.videoId,\n                            title = result.title,\n                            artist = result.artist,\n                        )\n                    }\n                }\n            },\n            onDismiss = { showYouTubeMatchDialog = false },'''
+          m, n = onconfirm_pattern.subn(new_onconfirm, m, count=1)
+          if n != 1:
+              raise SystemExit(f'PlayerMenu onConfirm replacement count={n}')
+
+          old_start = '                        if (resolvedSpotifyMatch != null && !qobuzEnabled) {'
+          if old_start in m:
+              start = m.index(old_start)
+              next_anchor = '\n                        if (qobuzEnabled) {'
+              end = m.find(next_anchor, start)
+              if end < 0:
+                  raise SystemExit('Could not locate end of historic YouTube item')
+              m = m[:start] + m[end + 1:]
+
+          universal_marker = 'title = { Text(text = stringResource(R.string.change_youtube_version)) }'
+          if universal_marker not in m:
+              closing = '                    },\n            )\n        }\n    }\n}\n\n@Composable\nfun TempoPitchDialog'
+              pos = m.rfind(closing)
+              if pos < 0:
+                  raise SystemExit('Final PlayerMenu buildList closing anchor not found')
+              universal_item = '''                        if (!mediaMetadata.id.startsWith("local:")) {\n                            add(\n                                Material3MenuItemData(\n                                    title = { Text(text = stringResource(R.string.change_youtube_version)) },\n                                    description = { Text(text = stringResource(R.string.change_youtube_version_desc)) },\n                                    icon = {\n                                        Icon(\n                                            painter = painterResource(R.drawable.link),\n                                            contentDescription = null,\n                                            modifier = Modifier.size(24.dp),\n                                        )\n                                    },\n                                    onClick = { showYouTubeMatchDialog = true },\n                                ),\n                            )\n                        }\n'''
+              m = m[:pos] + universal_item + m[pos:]
+
+          # Replace the dialog with a compact manual+automatic picker.
+          dialog.write_text(r'''/**
+ * Metrolist Project (C) 2026
+ * Licensed under GPL-3.0 | See git history for contributors
+ */
+
+package com.metrolist.music.ui.component
+
+import android.net.Uri
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.SongItem
+import com.metrolist.music.LocalPlayerConnection
+import com.metrolist.music.R
+import com.metrolist.music.extensions.toMediaItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.Normalizer
+
+data class YouTubeMatchResult(
+    val videoId: String,
+    val title: String,
+    val artist: String,
+    val thumbnail: String?,
+)
+
+@Composable
+fun YouTubeMatchDialog(
+    currentYouTubeId: String?,
+    onConfirm: (YouTubeMatchResult) -> Unit,
+    onDismiss: () -> Unit,
+    sourceMediaId: String? = null,
+    searchTitle: String = "",
+    searchArtist: String = "",
+) {
+    val context = LocalContext.current
+    val playerConnection = LocalPlayerConnection.current
+    val player = playerConnection?.player
+    val scope = rememberCoroutineScope()
+
+    var url by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var manualPreview by remember { mutableStateOf<SongItem?>(null) }
+    var selectedCandidate by remember { mutableStateOf<SongItem?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    var currentMatchInfo by remember { mutableStateOf<SongItem?>(null) }
+    var isLoadingCurrent by remember { mutableStateOf(currentYouTubeId != null) }
+
+    var autoResults by remember { mutableStateOf<List<SongItem>>(emptyList()) }
+    var autoLoading by remember { mutableStateOf(false) }
+    var autoSearchRequested by remember { mutableIntStateOf(0) }
+    var autoSearchDone by remember { mutableStateOf(false) }
+
+    val originalMediaItem = remember(sourceMediaId) { player?.currentMediaItem }
+    val originalIndex = remember(sourceMediaId) { player?.currentMediaItemIndex ?: -1 }
+    val originalPosition = remember(sourceMediaId) { player?.currentPosition ?: 0L }
+    val originalPlayWhenReady = remember(sourceMediaId) { player?.playWhenReady ?: false }
+    var temporaryPreviewActive by remember(sourceMediaId) { mutableStateOf(false) }
+
+    fun restoreOriginal(restorePreviousPlaybackState: Boolean) {
+        val p = player ?: return
+        val item = originalMediaItem ?: return
+        if (!temporaryPreviewActive || originalIndex !in 0 until p.mediaItemCount) return
+        p.replaceMediaItem(originalIndex, item)
+        p.seekTo(originalIndex, if (restorePreviousPlaybackState) originalPosition else 0L)
+        p.prepare()
+        if (restorePreviousPlaybackState) {
+            if (originalPlayWhenReady) p.play() else p.pause()
+        } else {
+            p.play()
+        }
+        temporaryPreviewActive = false
+    }
+
+    fun playTemporary(song: SongItem) {
+        val p = player ?: return
+        if (sourceMediaId == null || originalMediaItem == null || originalIndex !in 0 until p.mediaItemCount) return
+        selectedCandidate = song
+        p.replaceMediaItem(originalIndex, song.toMediaItem())
+        p.seekTo(originalIndex, 0L)
+        p.prepare()
+        p.play()
+        temporaryPreviewActive = true
+    }
+
+    fun dismissAndRestore() {
+        restoreOriginal(restorePreviousPlaybackState = true)
+        onDismiss()
+    }
+
+    LaunchedEffect(currentYouTubeId) {
+        if (currentYouTubeId == null) {
+            isLoadingCurrent = false
+            return@LaunchedEffect
+        }
+        isLoadingCurrent = true
+        currentMatchInfo = try {
+            withContext(Dispatchers.IO) {
+                YouTube.queue(listOf(currentYouTubeId)).getOrNull()?.firstOrNull()
+            }
+        } catch (_: Exception) {
+            null
+        }
+        isLoadingCurrent = false
+    }
+
+    fun extractVideoId(input: String): String? {
+        val trimmed = input.trim()
+        if (trimmed.matches(Regex("^[a-zA-Z0-9_-]{11}$"))) return trimmed
+        return try {
+            val uri = Uri.parse(trimmed)
+            when {
+                uri.host == "youtu.be" -> uri.pathSegments.firstOrNull()
+                uri.host?.contains("youtube.com") == true && uri.path == "/watch" -> uri.getQueryParameter("v")
+                uri.host?.contains("youtube.com") == true && uri.pathSegments.firstOrNull() == "shorts" -> uri.pathSegments.getOrNull(1)
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    LaunchedEffect(url) {
+        val videoId = extractVideoId(url)
+        if (videoId == null) {
+            manualPreview = null
+            errorMessage = null
+            return@LaunchedEffect
+        }
+        isLoading = true
+        errorMessage = null
+        manualPreview = null
+        try {
+            val song = withContext(Dispatchers.IO) {
+                YouTube.queue(listOf(videoId)).getOrNull()?.firstOrNull()
+            }
+            if (song != null) {
+                manualPreview = song
+                selectedCandidate = song
+            } else {
+                errorMessage = context.getString(R.string.youtube_video_not_found)
+            }
+        } catch (_: Exception) {
+            errorMessage = context.getString(R.string.youtube_fetch_failed)
+        }
+        isLoading = false
+    }
+
+    LaunchedEffect(autoSearchRequested) {
+        if (autoSearchRequested == 0) return@LaunchedEffect
+        val query = listOf(searchTitle, searchArtist).filter { it.isNotBlank() }.joinToString(" ")
+        if (query.isBlank()) return@LaunchedEffect
+        autoLoading = true
+        autoSearchDone = false
+        autoResults = try {
+            withContext(Dispatchers.IO) {
+                val raw = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG)
+                    .getOrNull()
+                    ?.items
+                    ?.filterIsInstance<SongItem>()
+                    .orEmpty()
+                    .filter { it.id != currentYouTubeId && it.id != sourceMediaId }
+                    .filterNot(::isObviousNonOriginalVersion)
+                    .distinctBy { it.id }
+
+                val strict = raw.filter { isLikelySameSong(it, searchTitle, searchArtist) }
+                val relaxed = raw.filter { isLikelySameArtist(it, searchArtist) }
+                (strict + relaxed).distinctBy { it.id }.take(6)
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        autoSearchDone = true
+        autoLoading = false
+    }
+
+    DefaultDialog(
+        onDismiss = ::dismissAndRestore,
+        title = { Text(text = stringResource(R.string.change_youtube_version)) },
+        buttons = {
+            TextButton(onClick = ::dismissAndRestore) {
+                Text(text = stringResource(android.R.string.cancel))
+            }
+            val chosen = selectedCandidate
+            IconButton(
+                enabled = chosen != null && chosen.id != currentYouTubeId,
+                onClick = {
+                    val song = selectedCandidate ?: return@IconButton
+                    restoreOriginal(restorePreviousPlaybackState = false)
+                    onConfirm(
+                        YouTubeMatchResult(
+                            videoId = song.id,
+                            title = song.title,
+                            artist = song.artists.joinToString(", ") { it.name },
+                            thumbnail = song.thumbnail,
+                        ),
+                    )
+                    onDismiss()
+                },
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.sync),
+                    contentDescription = stringResource(R.string.youtube_replace_version),
+                )
+            }
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (currentYouTubeId != null) {
+                Text(
+                    text = stringResource(R.string.current_match),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                if (isLoadingCurrent) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = stringResource(R.string.searching), style = MaterialTheme.typography.bodySmall)
+                    }
+                } else {
+                    SongPreviewRow(song = currentMatchInfo, youtubeId = currentYouTubeId)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = { Text(stringResource(R.string.paste_youtube_url)) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                ),
+                trailingIcon = {
+                    if (autoLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        IconButton(
+                            enabled = searchTitle.isNotBlank(),
+                            onClick = { autoSearchRequested++ },
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.search),
+                                contentDescription = stringResource(R.string.youtube_find_alternatives),
+                            )
+                        }
+                    }
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = KeyboardType.Uri),
+                keyboardActions = KeyboardActions(onDone = {}),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            when {
+                isLoading -> {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = stringResource(R.string.searching), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                errorMessage != null -> {
+                    Text(
+                        text = errorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                manualPreview != null -> {
+                    val song = manualPreview!!
+                    Text(
+                        text = stringResource(R.string.new_match),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SongPreviewRow(
+                        song = song,
+                        youtubeId = song.id,
+                        selected = selectedCandidate?.id == song.id,
+                        onClick = { playTemporary(song) },
+                    )
+                }
+            }
+
+            if (autoResults.isNotEmpty()) {
+                if (manualPreview != null || isLoading || errorMessage != null) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(autoResults, key = { it.id }) { song ->
+                        val selected = selectedCandidate?.id == song.id
+                        AsyncImage(
+                            model = ImageRequest.Builder(context).data(song.thumbnail).build(),
+                            contentDescription = song.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(82.dp)
+                                .border(
+                                    width = if (selected) 2.dp else 0.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    selectedCandidate = song
+                                    playTemporary(song)
+                                },
+                        )
+                    }
+                }
+            } else if (autoSearchDone && !autoLoading) {
+                Text(
+                    text = stringResource(R.string.youtube_no_alternatives),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SongPreviewRow(
+    song: SongItem?,
+    youtubeId: String,
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    if (song != null) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(vertical = 2.dp),
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current).data(song.thumbnail).build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(48.dp)
+                    .border(
+                        width = if (selected) 2.dp else 0.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(5.dp),
+                    )
+                    .clip(RoundedCornerShape(5.dp)),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = song.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = song.artists.joinToString(", ") { it.name },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    } else {
+        Text(
+            text = "music.youtube.com/watch?v=$youtubeId",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun normalizeMatchText(value: String): String =
+    Normalizer.normalize(value.lowercase(), Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+
+private fun isObviousNonOriginalVersion(song: SongItem): Boolean {
+    val text = normalizeMatchText(
+        song.title + " " + song.artists.joinToString(" ") { it.name },
+    )
+    return listOf("cover", "karaoke", "tribute").any { it in text }
+}
+
+private fun isLikelySameArtist(song: SongItem, expectedArtist: String): Boolean {
+    val expected = normalizeMatchText(expectedArtist)
+    if (expected.isBlank()) return true
+    return song.artists.any { artist ->
+        val actual = normalizeMatchText(artist.name)
+        actual == expected || actual.contains(expected) || expected.contains(actual)
+    }
+}
+
+private fun isLikelySameSong(song: SongItem, expectedTitle: String, expectedArtist: String): Boolean {
+    if (!isLikelySameArtist(song, expectedArtist)) return false
+    val expectedTokens = normalizeMatchText(expectedTitle)
+        .split(" ")
+        .filter { it.length >= 3 }
+        .distinct()
+    if (expectedTokens.isEmpty()) return true
+    val actualTitle = normalizeMatchText(song.title)
+    val matches = expectedTokens.count { token -> token in actualTitle }
+    return matches >= maxOf(1, (expectedTokens.size + 1) / 2)
+}
+''')
+
+          def upsert_string(xml, key, value):
+              pat = re.compile(rf'\s*<string name="{re.escape(key)}">.*?</string>')
+              entry = f'    <string name="{key}">{value}</string>'
+              if pat.search(xml):
+                  return pat.sub('\n' + entry, xml, count=1)
+              if '</resources>' not in xml:
+                  raise SystemExit(f'No resources closing tag for {key}')
+              return xml.replace('</resources>', entry + '\n</resources>', 1)
+
+          base_entries = {
+              'youtube_find_alternatives': 'Find alternative versions',
+              'youtube_replace_version': 'Replace YouTube version',
+              'youtube_no_alternatives': 'No other version found',
+              'youtube_video_not_found': 'Video not found',
+              'youtube_fetch_failed': 'Could not load video information',
+          }
+          for key, value in base_entries.items():
+              base = upsert_string(base, key, value)
+
+          it_entries = {
+              'change_youtube_version': 'Cambia versione YouTube',
+              'change_youtube_version_desc': 'Usa un altro video YouTube per questo brano',
+              'current_match': 'Versione attuale',
+              'new_match': 'Nuova versione',
+              'paste_youtube_url': 'Incolla qui il link YouTube',
+              'youtube_find_alternatives': 'Trova altre versioni',
+              'youtube_replace_version': 'Sostituisci versione YouTube',
+              'youtube_no_alternatives': 'Nessun’altra versione trovata',
+              'youtube_video_not_found': 'Video non trovato',
+              'youtube_fetch_failed': 'Impossibile caricare le informazioni del video',
+          }
+          for key, value in it_entries.items():
+              it = upsert_string(it, key, value)
+
+          pref.write_text(p)
+          service.write_text(s)
+          menu.write_text(m)
+          strings_base.write_text(base)
+          strings_it.write_text(it)
+          PY
+
+          git diff --check
+
+      - name: Targeted source checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt').read_text()
+          s = Path('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt').read_text()
+          m = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt').read_text()
+          d = Path('app/src/main/kotlin/com/metrolist/music/ui/component/YouTubeMatchDialog.kt').read_text()
+          h = Path('app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverrides.kt').read_text()
+          y = Path('app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt').read_text()
+          it = Path('app/src/main/res/values-it/metrolist_strings.xml').read_text()
+          checks = [
+              ('preference key', 'YouTubeMatchOverridesKey' in p),
+              ('persistent helper', 'object YouTubeMatchOverrides' in h),
+              ('service setter', 'fun setYouTubeMatchOverride(' in s),
+              ('service getter', 'getYouTubeMatchOverride' in s),
+              ('resolver redirect', 'resolveYouTubePlaybackId(mediaId)' in s),
+              ('manual YouTube priority', 'if (qobuzEnabled && manualYouTubePlaybackId == mediaId)' in s),
+              ('universal menu item', 'if (!mediaMetadata.id.startsWith("local:"))' in m),
+              ('menu item last', m.rfind('R.string.change_youtube_version') > m.rfind('R.string.advanced')),
+              ('dialog gets source identity', 'sourceMediaId = mediaMetadata.id' in m),
+              ('automatic search', 'YouTube.SearchFilter.FILTER_SONG' in d),
+              ('search icon', 'R.drawable.search' in d),
+              ('replacement icon', 'R.drawable.sync' in d),
+              ('thumbnail alternatives', 'LazyRow' in d and '.size(82.dp)' in d),
+              ('temporary preview', 'replaceMediaItem' in d and 'restoreOriginal' in d),
+              ('manual paste preserved', 'paste_youtube_url' in d and 'extractVideoId' in d),
+              ('Italian title', '<string name="change_youtube_version">Cambia versione YouTube</string>' in it),
+              ('Italian search', 'Trova altre versioni' in it),
+              ('old expire experiment removed', 'MISSING_EXPIRE_FALLBACK_SECONDS' not in y),
+          ]
+          bad = [name for name, ok in checks if not ok]
+          for i, (name, ok) in enumerate(checks, 1):
+              print(f'CHECK {i:02d}: {"PASS" if ok else "FAIL"} - {name}')
+          if bad:
+              raise SystemExit('Failed checks: ' + ', '.join(bad))
+          PY
+
+      - name: Compile app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:compileFossDebugKotlin --no-daemon
+
+      - name: Commit final YouTube picker to LAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Br174'
+          git config user.email 'brunoverlezza@gmail.com'
+          git add \
+            app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt \
+            app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt \
+            app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverrides.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/component/YouTubeMatchDialog.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt \
+            app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt \
+            app/src/main/res/values/metrolist_strings.xml \
+            app/src/main/res/values-it/metrolist_strings.xml
+          git diff --cached --quiet && { echo 'No changes to commit'; exit 0; }
+          git commit -m 'feat(playback): add YouTube version picker with preview'
+          git push origin HEAD:lab/musiclab-playback-403-recovery-01
