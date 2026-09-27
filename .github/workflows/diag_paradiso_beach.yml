@@ -29,21 +29,14 @@ jobs:
           set -euo pipefail
           mkdir -p diag
           python3 -m pip install --quiet --upgrade yt-dlp
-          set +e
           yt-dlp \
             --flat-playlist \
             --no-warnings \
             --print '%(id)s|%(title)s|%(channel)s|%(duration_string)s' \
             'ytsearch10:Paradiso beach Cartoon Band' \
             > diag/search-results.txt 2> diag/yt-dlp-error.txt
-          rc=$?
-          set -e
           echo '--- YouTube search results ---'
-          cat diag/search-results.txt || true
-          if [ "$rc" -ne 0 ]; then
-            echo '--- yt-dlp error ---'
-            cat diag/yt-dlp-error.txt || true
-          fi
+          cat diag/search-results.txt
           python3 - <<'PY'
           from pathlib import Path
           rows=[]
@@ -53,9 +46,7 @@ jobs:
                   rows.append(p)
           def score(r):
               vid,title,channel,*rest=r
-              t=title.casefold().strip()
-              c=channel.casefold().strip()
-              s=0
+              t=title.casefold().strip(); c=channel.casefold().strip(); s=0
               if t == 'paradiso beach': s += 100
               elif 'paradiso beach' in t: s += 50
               if 'cartoon band' in c: s += 40
@@ -73,12 +64,35 @@ jobs:
           PY
           echo "VIDEO_ID=$(cat diag/video-id.txt)" >> "$GITHUB_ENV"
 
-      - name: Run existing MusicLab playback diagnostics on exact video
+      - name: Patch diagnostic harness only to exact video and current clients
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('innertube/src/test/kotlin/com/metrolist/innertube/PlaybackForbiddenDiagnosticsTest.kt')
+          s=p.read_text()
+          old='(System.getProperty("yt403.videoIds") ?: "dQw4w9WgXcQ")'
+          new='(System.getenv("VIDEO_ID") ?: "dQw4w9WgXcQ")'
+          if s.count(old) != 1:
+              raise SystemExit(f'video id anchor count={s.count(old)}')
+          s=s.replace(old,new,1)
+          anchor='''            "WEB_REMIX(MAIN)" to YouTubeClient.WEB_REMIX,\n'''
+          extra='''            "WEB_REMIX(MAIN)" to YouTubeClient.WEB_REMIX,\n            "VISIONOS(CURRENT)" to YouTubeClient.VISIONOS,\n            "ANDROID_VR_1_65_10(CURRENT)" to YouTubeClient.ANDROID_VR_1_65_10,\n'''
+          if s.count(anchor) != 1:
+              raise SystemExit(f'client anchor count={s.count(anchor)}')
+          s=s.replace(anchor,extra,1)
+          p.write_text(s)
+          PY
+          grep -F 'System.getenv("VIDEO_ID")' innertube/src/test/kotlin/com/metrolist/innertube/PlaybackForbiddenDiagnosticsTest.kt
+          grep -F 'VISIONOS(CURRENT)' innertube/src/test/kotlin/com/metrolist/innertube/PlaybackForbiddenDiagnosticsTest.kt
+          grep -F 'ANDROID_VR_1_65_10(CURRENT)' innertube/src/test/kotlin/com/metrolist/innertube/PlaybackForbiddenDiagnosticsTest.kt
+
+      - name: Run exact current-client playback matrix
         shell: bash
         run: |
           set +e
           ./gradlew \
-            -Dyt403.videoIds="$VIDEO_ID" \
             :innertube:testDebugUnitTest \
             --tests '*PlaybackForbiddenDiagnosticsTest.clientStreamMatrixBaseline' \
             --tests '*PlaybackForbiddenDiagnosticsTest.newPipeRewriteDoesNotDowngradeAWorkingAndroidVrUrl' \
@@ -86,17 +100,18 @@ jobs:
           rc=$?
           echo '--- selected video ---'
           cat diag/selected.txt || true
-          echo '--- playback matrix ---'
+          echo
+          echo '--- exact playback matrix ---'
           cat innertube/build/reports/yt403/playback-403-matrix.txt || true
           echo '--- key Gradle diagnostics ---'
-          grep -nE 'CLIENT x STREAM STATUS MATRIX|2xx media GET|403 media GET|no usable url|ANDROID_VR itag|after newPipePlayer|FAILED|HTTP 403|NewPipe' diag/gradle.log | tail -200 || true
+          grep -nE 'videoIds|CLIENT x STREAM STATUS MATRIX|VISIONOS|ANDROID_VR_1_65_10|2xx media GET|403 media GET|no usable url|ANDROID_VR itag|after newPipePlayer|FAILED|HTTP 403|NewPipe' diag/gradle.log | tail -240 || true
           exit "$rc"
 
       - name: Upload diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: paradiso-beach-diagnostics-final
+          name: paradiso-beach-exact-current-clients
           path: |
             diag/search-results.txt
             diag/selected.txt
