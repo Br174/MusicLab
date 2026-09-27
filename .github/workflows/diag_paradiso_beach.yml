@@ -1,0 +1,134 @@
+name: TEMP - Diagnose Paradiso beach playback
+
+on:
+  push:
+    branches:
+      - 'uab-build/musiclab-playback-403-recovery-01'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a8f5009e9b046f11171852273d0f03f26575806e
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Create targeted network diagnostic test
+        shell: bash
+        run: |
+          cat > innertube/src/test/kotlin/com/metrolist/innertube/ParadisoBeachDiagnosticsTest.kt <<'KOT'
+          package com.metrolist.innertube
+
+          import android.net.Uri
+          import com.metrolist.innertube.models.SongItem
+          import com.metrolist.innertube.models.YouTubeClient
+          import kotlinx.coroutines.runBlocking
+          import okhttp3.OkHttpClient
+          import okhttp3.Request
+          import org.junit.Test
+          import java.io.File
+          import java.util.concurrent.TimeUnit
+
+          class ParadisoBeachDiagnosticsTest {
+              private val http = OkHttpClient.Builder()
+                  .connectTimeout(15, TimeUnit.SECONDS)
+                  .readTimeout(15, TimeUnit.SECONDS)
+                  .build()
+
+              @Test
+              fun diagnoseExactTrack() = runBlocking {
+                  val out = File("innertube/build/reports/yt403/paradiso-beach.txt")
+                  out.parentFile.mkdirs()
+                  fun emit(s: String) {
+                      println(s)
+                      out.appendText(s + "\n")
+                  }
+
+                  val query = "Paradiso beach Cartoon Band"
+                  val search = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrThrow()
+                  val songs = search.items.filterIsInstance<SongItem>()
+                  emit("QUERY=$query")
+                  emit("RESULTS=${songs.size}")
+                  songs.take(10).forEachIndexed { i, s ->
+                      emit("SEARCH[$i] id=${s.id} title=${s.title} artists=${s.artists.joinToString { it.name }} album=${s.album?.name} duration=${s.duration} type=${s.musicVideoType}")
+                  }
+
+                  val exact = songs.firstOrNull {
+                      it.title.equals("Paradiso beach", ignoreCase = true) &&
+                          it.artists.any { a -> a.name.equals("Cartoon Band", ignoreCase = true) }
+                  } ?: songs.firstOrNull { it.title.contains("Paradiso", ignoreCase = true) }
+                    ?: error("No Paradiso beach result")
+
+                  val videoId = exact.id
+                  emit("SELECTED videoId=$videoId share=${exact.shareLink}")
+
+                  val clients = listOf(
+                      "VISIONOS" to YouTubeClient.VISIONOS,
+                      "ANDROID_VR_1_65_10" to YouTubeClient.ANDROID_VR_1_65_10,
+                      "TVHTML5" to YouTubeClient.TVHTML5,
+                      "ANDROID_VR_1_43_32" to YouTubeClient.ANDROID_VR_1_43_32,
+                      "IPADOS" to YouTubeClient.IPADOS,
+                      "IOS" to YouTubeClient.IOS,
+                      "WEB_CREATOR" to YouTubeClient.WEB_CREATOR,
+                      "WEB_REMIX" to YouTubeClient.WEB_REMIX,
+                  )
+
+                  for ((name, client) in clients) {
+                      val r = YouTube.player(videoId, null, client, null, null).getOrNull()
+                      if (r == null) {
+                          emit("CLIENT $name response=NULL")
+                          continue
+                      }
+                      val formats = r.streamingData?.adaptiveFormats.orEmpty()
+                      val audio = formats.filter { it.isAudio }
+                      val chosen = audio.maxByOrNull { it.bitrate }
+                      val direct = chosen?.url
+                      val cipher = !chosen?.signatureCipher.isNullOrEmpty() || !chosen?.cipher.isNullOrEmpty()
+                      emit("CLIENT $name status=${r.playabilityStatus.status} reason=${r.playabilityStatus.reason} expires=${r.streamingData?.expiresInSeconds} formats=${formats.size} audio=${audio.size} chosenItag=${chosen?.itag} direct=${!direct.isNullOrEmpty()} cipher=$cipher")
+                      if (!direct.isNullOrEmpty()) {
+                          val expire = runCatching { Uri.parse(direct).getQueryParameter("expire") }.getOrNull()
+                          val req = Request.Builder().url(direct).header("Range", "bytes=0-524287").build()
+                          val code = runCatching { http.newCall(req).execute().use { it.code } }.getOrElse { -1 }
+                          emit("  DIRECT_GET code=$code expire=$expire")
+                      }
+                  }
+
+                  val np = runCatching { NewPipeExtractor.newPipePlayer(videoId) }.getOrElse { emptyList() }
+                  emit("NEWPIPE urls=${np.size} itags=${np.joinToString { it.first.toString() }}")
+                  np.take(8).forEach { (itag, url) ->
+                      val req = Request.Builder().url(url).header("Range", "bytes=0-524287").build()
+                      val code = runCatching { http.newCall(req).execute().use { it.code } }.getOrElse { -1 }
+                      val expire = runCatching { Uri.parse(url).getQueryParameter("expire") }.getOrNull()
+                      emit("  NEWPIPE itag=$itag code=$code expire=$expire")
+                  }
+              }
+          }
+          KOT
+
+      - name: Run exact-track network diagnostics
+        shell: bash
+        run: ./gradlew :innertube:testDebugUnitTest --tests '*ParadisoBeachDiagnosticsTest*' -i
+
+      - name: Print diagnostic report
+        if: always()
+        shell: bash
+        run: cat innertube/build/reports/yt403/paradiso-beach.txt || true
+
+      - name: Upload diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paradiso-beach-diagnostics
+          path: innertube/build/reports/yt403/paradiso-beach.txt
+          if-no-files-found: warn
+          retention-days: 7
