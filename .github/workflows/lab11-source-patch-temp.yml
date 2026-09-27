@@ -1,0 +1,33 @@
+name: TEMP LAB11 Source Patch
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-global-ai-engine-11
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, '[lab11-patch]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-global-ai-engine-11
+          fetch-depth: 0
+      - name: Applica patch sorgenti
+        run: python3 tools/lab11_patch_source.py
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "MusicLab LAB bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/main/kotlin/com/metrolist/music/ui/menu/SongMenu.kt app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica da applicare"
+            exit 0
+          fi
+          git commit -m "LAB11: resolver canonico globale nei menu e controllo Originali"
+          git push origin HEAD:uab-build/musiclab-global-ai-engine-11
