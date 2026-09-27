@@ -37,6 +37,17 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.ArtworkSize
 import com.metrolist.music.constants.ArtworkSizeKey
+import com.metrolist.music.constants.MusicAiAlbumResolverEnabledKey
+import com.metrolist.music.constants.MusicAiArtistResolverEnabledKey
+import com.metrolist.music.constants.MusicAiBackgroundMetadataEnabledKey
+import com.metrolist.music.constants.MusicAiCloudMemoryEnabledKey
+import com.metrolist.music.constants.MusicAiCoverEnabledKey
+import com.metrolist.music.constants.MusicAiCreditsEnabledKey
+import com.metrolist.music.constants.MusicAiEngineEnabledKey
+import com.metrolist.music.constants.MusicAiForeignEnabledKey
+import com.metrolist.music.constants.MusicAiLiveEnabledKey
+import com.metrolist.music.constants.MusicAiOriginalsEnabledKey
+import com.metrolist.music.constants.MusicAiRemixEnabledKey
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
@@ -44,6 +55,7 @@ import com.metrolist.music.ui.component.ReleaseNotesCard
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.Updater
 import com.metrolist.music.utils.rememberEnumPreference
+import com.metrolist.music.utils.rememberPreference
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,6 +68,19 @@ fun SettingsScreen(
     val isAndroid12OrLater = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val showArtworkSizeDialog = remember { mutableStateOf(false) }
     val (artworkSize, onArtworkSizeChange) = rememberEnumPreference(ArtworkSizeKey, ArtworkSize.MEDIUM)
+
+    val (musicAiEnabled, setMusicAiEnabled) = rememberPreference(MusicAiEngineEnabledKey, true)
+    val (musicAiCredits, setMusicAiCredits) = rememberPreference(MusicAiCreditsEnabledKey, true)
+    val (musicAiArtist, setMusicAiArtist) = rememberPreference(MusicAiArtistResolverEnabledKey, true)
+    val (musicAiAlbum, setMusicAiAlbum) = rememberPreference(MusicAiAlbumResolverEnabledKey, true)
+    val (musicAiCover, setMusicAiCover) = rememberPreference(MusicAiCoverEnabledKey, true)
+    val (musicAiOriginals, setMusicAiOriginals) = rememberPreference(MusicAiOriginalsEnabledKey, true)
+    val (musicAiLive, setMusicAiLive) = rememberPreference(MusicAiLiveEnabledKey, true)
+    val (musicAiRemix, setMusicAiRemix) = rememberPreference(MusicAiRemixEnabledKey, true)
+    val (musicAiForeign, setMusicAiForeign) = rememberPreference(MusicAiForeignEnabledKey, true)
+    val (musicAiMemory, setMusicAiMemory) = rememberPreference(MusicAiCloudMemoryEnabledKey, true)
+    val (musicAiBackground, setMusicAiBackground) = rememberPreference(MusicAiBackgroundMetadataEnabledKey, true)
+
     val hasAndroidAuto = remember {
         try {
             context.packageManager.getPackageInfo(
@@ -125,7 +150,6 @@ fun SettingsScreen(
             )
         )
 
-        // User Interface Section
         Material3SettingsGroup(
             title = stringResource(R.string.settings_section_ui),
             items = listOf(
@@ -151,7 +175,86 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Player & Content Section (moved up and combined with content)
+        Material3SettingsGroup(
+            title = "Motore AI MusicLab",
+            items = listOf(
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.discover_tune),
+                    title = { Text("Motore AI MusicLab") },
+                    description = { Text(if (musicAiEnabled) "Attivo in tutta l'app" else "Disattivato: MusicLab funziona in modalità classica") },
+                    onClick = { setMusicAiEnabled(!musicAiEnabled) },
+                    trailingContent = { Switch(checked = musicAiEnabled, onCheckedChange = setMusicAiEnabled) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.info),
+                    title = { Text("Crediti AI") },
+                    description = { Text("Autori, compositori, parolieri, produttori ed etichetta") },
+                    onClick = { setMusicAiCredits(!musicAiCredits) },
+                    trailingContent = { Switch(checked = musicAiCredits, onCheckedChange = setMusicAiCredits) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.artist),
+                    title = { Text("Artista corretto") },
+                    description = { Text("Usa l'identità canonica per Vai all'artista") },
+                    onClick = { setMusicAiArtist(!musicAiArtist) },
+                    trailingContent = { Switch(checked = musicAiArtist, onCheckedChange = setMusicAiArtist) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.album),
+                    title = { Text("Album corretto") },
+                    description = { Text("Risolve l'album reale senza usare la playlist dell'uploader") },
+                    onClick = { setMusicAiAlbum(!musicAiAlbum) },
+                    trailingContent = { Switch(checked = musicAiAlbum, onCheckedChange = setMusicAiAlbum) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.library_music),
+                    title = { Text("Cover AI") },
+                    onClick = { setMusicAiCover(!musicAiCover) },
+                    trailingContent = { Switch(checked = musicAiCover, onCheckedChange = setMusicAiCover) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.music_note),
+                    title = { Text("Originali AI") },
+                    onClick = { setMusicAiOriginals(!musicAiOriginals) },
+                    trailingContent = { Switch(checked = musicAiOriginals, onCheckedChange = setMusicAiOriginals) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.play),
+                    title = { Text("Live") },
+                    onClick = { setMusicAiLive(!musicAiLive) },
+                    trailingContent = { Switch(checked = musicAiLive, onCheckedChange = setMusicAiLive) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.sync),
+                    title = { Text("Remix") },
+                    onClick = { setMusicAiRemix(!musicAiRemix) },
+                    trailingContent = { Switch(checked = musicAiRemix, onCheckedChange = setMusicAiRemix) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.language),
+                    title = { Text("Versioni straniere") },
+                    onClick = { setMusicAiForeign(!musicAiForeign) },
+                    trailingContent = { Switch(checked = musicAiForeign, onCheckedChange = setMusicAiForeign) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.storage),
+                    title = { Text("Memoria cloud") },
+                    description = { Text("Riusa subito i risultati già conosciuti") },
+                    onClick = { setMusicAiMemory(!musicAiMemory) },
+                    trailingContent = { Switch(checked = musicAiMemory, onCheckedChange = setMusicAiMemory) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.update),
+                    title = { Text("Metadati in background") },
+                    description = { Text("Il Play resta indipendente: i metadati arrivano dopo") },
+                    onClick = { setMusicAiBackground(!musicAiBackground) },
+                    trailingContent = { Switch(checked = musicAiBackground, onCheckedChange = setMusicAiBackground) },
+                ),
+            )
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         Material3SettingsGroup(
             title = stringResource(R.string.settings_section_player_content),
             items = listOf(
@@ -175,7 +278,6 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Android Auto Section — only shown if Android Auto is installed
         if (hasAndroidAuto) {
             Material3SettingsGroup(
                 title = "Android Auto",
@@ -187,11 +289,9 @@ fun SettingsScreen(
                     )
                 )
             )
-
             Spacer(modifier = Modifier.height(16.dp))
         }
-        
-        // Privacy & Security Section
+
         Material3SettingsGroup(
             title = stringResource(R.string.settings_section_privacy),
             items = listOf(
@@ -205,7 +305,6 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Storage & Data Section
         Material3SettingsGroup(
             title = stringResource(R.string.settings_section_storage),
             items = listOf(
@@ -224,7 +323,6 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // System & About Section
         Material3SettingsGroup(
             title = stringResource(R.string.settings_section_system),
             items = buildList {
@@ -244,27 +342,13 @@ fun SettingsScreen(
                                 } catch (e: Exception) {
                                     when (e) {
                                         is ActivityNotFoundException -> {
-                                            Toast.makeText(
-                                                context,
-                                                R.string.open_app_settings_error,
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                            Toast.makeText(context, R.string.open_app_settings_error, Toast.LENGTH_LONG).show()
                                         }
-
                                         is SecurityException -> {
-                                            Toast.makeText(
-                                                context,
-                                                R.string.open_app_settings_error,
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                            Toast.makeText(context, R.string.open_app_settings_error, Toast.LENGTH_LONG).show()
                                         }
-
                                         else -> {
-                                            Toast.makeText(
-                                                context,
-                                                R.string.open_app_settings_error,
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                            Toast.makeText(context, R.string.open_app_settings_error, Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 }
@@ -299,16 +383,11 @@ fun SettingsScreen(
                 if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
                     val releaseInfo = Updater.getCachedLatestRelease()
                     val downloadUrl = releaseInfo?.let { Updater.getDownloadUrlForCurrentVariant(it) }
-
                     if (downloadUrl != null) {
                         add(
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.update),
-                                title = { 
-                                    Text(
-                                        text = stringResource(R.string.new_version_available),
-                                    )
-                                },
+                                title = { Text(text = stringResource(R.string.new_version_available)) },
                                 description = {
                                     Text(
                                         text = latestVersionName,
