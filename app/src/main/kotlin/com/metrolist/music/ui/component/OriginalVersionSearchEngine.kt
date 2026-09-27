@@ -1,6 +1,7 @@
 /** MusicLab: find the oldest verifiable recording and exact-title versions by the original artist. */
 package com.metrolist.music.ui.component
 
+import com.metrolist.innertube.YouTube
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import java.text.Normalizer
@@ -45,6 +46,11 @@ internal object OriginalVersionSearchEngine {
                 )
             }.getOrNull()
         }
+        val startingDeferred = async {
+            runCatching {
+                YouTube.queue(listOf(currentYouTubeId)).getOrNull()?.firstOrNull()
+            }.getOrNull()
+        }
 
         val discovered = linkedMapOf<String, CoverHubResult>()
         coversDeferred.await().forEach { discovered.putIfAbsent(it.song.id, it) }
@@ -68,9 +74,21 @@ internal object OriginalVersionSearchEngine {
             continuation = page.continuation
         }
 
-        // Never accept a partial-title hit. Technical annotations such as Live,
-        // Remastered, Official Audio and years are ignored, but the complete song
-        // title itself must remain identical.
+        // The track used to open Originali must also participate in chronology.
+        // Search engines intentionally exclude currentYouTubeId to avoid duplicates,
+        // so add it back here after discovery whenever it is a real YouTube item.
+        startingDeferred.await()?.let { song ->
+            discovered[song.id] = CoverHubResult(
+                song = song,
+                source = "Versione di partenza",
+                confirmed = true,
+            )
+        }
+
+        // Never accept a partial-title hit. Only genuine version annotations such as
+        // Live/Remastered/Remix/Official Audio are ignored. Meaningful parenthetical
+        // text remains part of the title, so e.g. "Sweet Dreams (Are Made of This)"
+        // cannot collapse to "Sweet Dreams".
         val exact = discovered.values
             .filter { exactBaseTitle(it.song.title) == targetTitle }
             .distinctBy { it.song.id }
@@ -132,25 +150,42 @@ internal object OriginalVersionSearchEngine {
 
     /**
      * Canonical title used only by Originali. It is deliberately stricter than
-     * the general Cover search: annotations describing a version are removed,
-     * but no partial-word/title similarity is allowed afterwards.
+     * the general Cover search: only annotations that clearly describe a version
+     * are removed. The remaining complete title must then match exactly.
      */
     private fun exactBaseTitle(value: String): String {
         var clean = Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
             .lowercase()
+            .trim()
 
-        clean = clean.replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ")
+        // Remove parenthetical/bracketed blocks only when they are clearly metadata
+        // about the recording/version. Meaningful subtitle text is preserved.
+        clean = BRACKETED_BLOCK_REGEX.replace(clean) { match ->
+            val inner = match.value.drop(1).dropLast(1)
+            if (VERSION_MARKER_REGEX.containsMatchIn(inner)) " " else match.value
+        }
+
+        // Featuring credits appended to a title are performer metadata, not title text.
         clean = clean.replace(Regex("\\b(feat|ft|featuring)\\.?\\s+.*$"), " ")
-        clean = clean.replace(
-            Regex(
-                "\\b(official|music video|video|audio|lyrics?|lyric|visualizer|live|remaster(?:ed)?|remix|mix|acoustic|unplugged|version|versione|radio edit|edit|mono|stereo|deluxe|bonus track|session|performance|studio)\\b",
-            ),
-            " ",
-        )
-        clean = clean.replace(Regex("\\b(?:19|20)\\d{2}\\b"), " ")
+
+        // Remove a trailing separator suffix only when that suffix clearly identifies
+        // a recording variant. Do not strip arbitrary words from the song title.
+        clean = stripTrailingVersionSuffix(clean)
+
         clean = clean.replace(Regex("[^a-z0-9]+"), " ")
         return clean.trim().replace(Regex("\\s+"), " ")
+    }
+
+    private fun stripTrailingVersionSuffix(value: String): String {
+        var clean = value
+        while (true) {
+            val match = TRAILING_SUFFIX_REGEX.find(clean) ?: break
+            val suffix = match.groupValues[1]
+            if (!VERSION_MARKER_REGEX.containsMatchIn(suffix)) break
+            clean = clean.substring(0, match.range.first).trim()
+        }
+        return clean
     }
 
     private fun canonicalArtist(value: String): String =
@@ -169,4 +204,12 @@ internal object OriginalVersionSearchEngine {
             candidate.endsWith(" $original") ||
             candidate.contains(" $original ")
     }
+
+    private val BRACKETED_BLOCK_REGEX = Regex("\\([^)]*\\)|\\[[^]]*]")
+
+    private val VERSION_MARKER_REGEX = Regex(
+        "\\b(official|music\\s+video|video|audio|lyrics?|lyric|visualizer|live|remaster(?:ed)?|remix|mix|acoustic|unplugged|version|versione|radio\\s+edit|edit|mono|stereo|deluxe|bonus\\s+track|session|performance|studio|feat|ft|featuring)\\b",
+    )
+
+    private val TRAILING_SUFFIX_REGEX = Regex("\\s*[-–—:|]\\s*(.+)$")
 }
