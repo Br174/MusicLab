@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import java.text.Normalizer
 
 internal enum class OriginalSearchStageStatus {
@@ -68,10 +69,6 @@ private data class QueryOutcome(
 )
 
 internal object OriginalVersionSearchEngine {
-    /**
-     * Step 1: AI decides the original. This step is intentionally isolated so the UI can
-     * immediately show the AI decision before the wider YouTube search has completed.
-     */
     suspend fun identifyOriginal(
         title: String,
         currentArtist: String,
@@ -123,10 +120,7 @@ internal object OriginalVersionSearchEngine {
         )
     }
 
-    /**
-     * Step 2: one fast base query against songs + videos, first page only.
-     * This returns at most INITIAL_RESULTS_LIMIT items so the screen becomes useful quickly.
-     */
+    /** First page only: enough to make the screen useful quickly. */
     suspend fun findInitialVersions(
         identity: GeminiOriginalIdentity,
         currentYouTubeId: String,
@@ -214,10 +208,7 @@ internal object OriginalVersionSearchEngine {
         )
     }
 
-    /**
-     * Step 3: broader search continues after the first results are already visible.
-     * The AI identity remains authoritative; this step only discovers more playable versions.
-     */
+    /** Broader discovery continues after the first results are already visible. */
     suspend fun findExpandedVersions(
         identity: GeminiOriginalIdentity,
         currentYouTubeId: String,
@@ -269,17 +260,19 @@ internal object OriginalVersionSearchEngine {
             confirmed = true,
         )
 
-        // Alternate release years are metadata only and are resolved in background.
-        // They never verify or override the AI decision about the original recording.
-        val alternatives = raw.filter { it.song.id != original?.song?.id }
-        val enrichedAlternatives = enrichYears(alternatives)
-            .sortedWith(versionOrder)
+        // No year/album lookup is done here. YouTube and YouTube Music only locate playback.
+        // Metadata for alternate versions is added separately by Gemini in the UI background pipeline.
+        val alternatives = raw
+            .asSequence()
+            .filter { it.song.id != original?.song?.id }
             .distinctBy { it.song.id }
+            .sortedWith(versionOrder)
+            .toList()
 
         buildCategorizedResult(
             identity = identity,
             original = original,
-            versions = enrichedAlternatives,
+            versions = alternatives,
             diagnostics = diagnosticsForIdentity(identity).copy(
                 youtubeMusicStatus = youtubeMusic.status,
                 youtubeMusicFound = youtubeMusic.results.size,
@@ -287,14 +280,13 @@ internal object OriginalVersionSearchEngine {
                 youtubeStatus = youtube.status,
                 youtubeFound = youtube.results.size,
                 youtubePages = youtube.pages,
-                finalVersions = enrichedAlternatives.size + if (original != null) 1 else 0,
+                finalVersions = alternatives.size + if (original != null) 1 else 0,
                 initialVisible = seed.diagnostics.initialVisible,
                 backgroundComplete = true,
             ),
         )
     }
 
-    /** Backward-compatible complete search for any older caller. */
     suspend fun findVersions(
         title: String,
         currentArtist: String,
@@ -328,7 +320,7 @@ internal object OriginalVersionSearchEngine {
             )
         }
 
-        val queries = linkedSetOf(
+        val queries = listOf(
             "${identity.title} $leadArtist",
             "${identity.title} $leadArtist live",
             "${identity.title} $leadArtist duet",
@@ -338,17 +330,24 @@ internal object OriginalVersionSearchEngine {
             "${identity.title} $leadArtist acoustic",
         )
 
-        val queryOutcomes = queries.map { query ->
-            async(Dispatchers.IO) {
-                searchQueryPages(
-                    query = query,
-                    targetTitle = targetTitle,
-                    originalArtists = originalArtists,
-                    filter = filter,
-                    source = source,
-                )
-            }
-        }.awaitAll()
+        // Do not launch every query at once: small batches keep the app responsive while
+        // the extended discovery continues in the background.
+        val queryOutcomes = mutableListOf<QueryOutcome>()
+        for ((batchIndex, batch) in queries.chunked(2).withIndex()) {
+            val outcomes = batch.map { query ->
+                async(Dispatchers.IO) {
+                    searchQueryPages(
+                        query = query,
+                        targetTitle = targetTitle,
+                        originalArtists = originalArtists,
+                        filter = filter,
+                        source = source,
+                    )
+                }
+            }.awaitAll()
+            queryOutcomes += outcomes
+            if (batchIndex < queries.chunked(2).lastIndex) delay(BACKGROUND_BATCH_PAUSE_MS)
+        }
 
         val merged = linkedMapOf<String, CoverHubResult>()
         queryOutcomes.flatMap { it.results }.forEach { mergeInto(merged, it) }
@@ -493,26 +492,6 @@ internal object OriginalVersionSearchEngine {
                 )
             }
         }
-    }
-
-    private suspend fun enrichYears(results: List<CoverHubResult>): List<CoverHubResult> = coroutineScope {
-        val output = results.toMutableList()
-        val indexes = output.indices.filter { output[it].year == null }.take(MAX_YEAR_LOOKUPS)
-
-        for (batch in indexes.chunked(8)) {
-            val resolved = batch.map { index ->
-                async(Dispatchers.IO) {
-                    index to runCatching {
-                        CoverYearResolver.resolve(output[index].song)
-                    }.getOrNull()
-                }
-            }.awaitAll()
-
-            resolved.forEach { (index, year) ->
-                if (year != null) output[index] = output[index].copy(year = year)
-            }
-        }
-        output
     }
 
     private fun chooseAiOriginal(
@@ -773,5 +752,5 @@ internal object OriginalVersionSearchEngine {
     private const val MAX_PAGES_PER_QUERY = 3
     private const val MAX_RESULTS_PER_QUERY = 50
     private const val MAX_RESULTS_PER_SOURCE = 140
-    private const val MAX_YEAR_LOOKUPS = 40
+    private const val BACKGROUND_BATCH_PAUSE_MS = 90L
 }
