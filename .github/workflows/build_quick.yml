@@ -1,25 +1,29 @@
-name: Universal APK Builder - GitHub fallback
+name: UAB CORE - MusicLab CANDIDATA
 
 on:
+  push:
+    branches:
+      - 'uab-build/musiclab-candidate-swipe-fluid-play-01'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: uab-musiclab-github-fallback
+  group: uab-musiclab-candidate-swipe-fluid-play-01
   cancel-in-progress: true
 
 jobs:
   build:
-    name: UAB MusicLab LAB
+    name: UAB MusicLab CANDIDATA
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: Checkout source
+      - name: Checkout exact candidate source
         uses: actions/checkout@v4
         with:
+          ref: cf5ee85d0a6a2eeacddb2da9ca6a9b6c4e7cab33
           submodules: recursive
           fetch-depth: 1
 
@@ -41,11 +45,46 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
+      - name: Configure candidate UAB identity
+        shell: bash
+        run: |
+          cat > uab-project.env <<'EOF'
+          UAB_TASK=":app:assembleFossDebug"
+          UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
+          UAB_FILE_VERSION="SWIPE-FLUID-PLAY-01"
+          UAB_OUTPUT_NAME="MusicLab-CANDIDATA-${UAB_FILE_VERSION}"
+          UAB_BUILD_ID="candidateswipefluidplay01"
+          UAB_GRADLE_ARGS="-x lint --build-cache"
+          UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
+          UAB_PARALLEL_INSTALL="on"
+          UAB_APPLICATION_ID_BASE="it.verlezza.musiclab.candidate"
+          UAB_APPLICATION_ID_ENV="METROLIST_APPLICATION_ID"
+          UAB_APP_NAME_BASE="MusicLab Candidata Swipe Fluida"
+          UAB_APP_NAME_ENV="METROLIST_APP_NAME"
+          export PULL_REQUEST="false"
+          EOF
+
+      - name: Create isolated debug keystore
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          rm -f "$HOME/.android/debug.keystore"
+          keytool -genkeypair \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -noprompt
+
       - name: UAB preflight diagnostics
         shell: bash
         run: bash tools/universal-apk-builder/diagnose.sh .
 
-      - name: Build APK and ZIP with UAB
+      - name: Build candidate APK and ZIP with UAB
         shell: bash
         run: bash tools/universal-apk-builder/build-apk.sh .
         env:
@@ -54,10 +93,10 @@ jobs:
           CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
           CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
 
-      - name: Upload APK and ZIP
+      - name: Upload candidate APK and ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-UAB
+          name: MusicLab-CANDIDATA-SWIPE-FLUID-PLAY-01
           path: |
             dist/uab/apk/*.apk
             dist/uab/*.zip
