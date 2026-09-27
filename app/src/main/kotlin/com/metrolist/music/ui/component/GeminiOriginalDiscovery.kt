@@ -264,6 +264,7 @@ Se l'anno non è noto usa null. Se alcuni elenchi di crediti non sono noti usa [
         val root = extractJsonObject(response.text) ?: return null
         val title = root.string("title")
         val artists = root.strings("original_artists")
+            .ifEmpty { root.nullableString("original_artist")?.let(::listOf).orEmpty() }
         if (title.isBlank() || artists.isEmpty()) return null
 
         return GeminiOriginalIdentity(
@@ -305,19 +306,27 @@ Se l'anno non è noto usa null. Se alcuni elenchi di crediti non sono noti usa [
     private fun JsonObject.nullableString(key: String): String? =
         string(key).takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
 
-    private fun JsonObject.strings(key: String): List<String> =
-        get(key)
-            ?.runCatching { jsonArray }
-            ?.getOrNull()
-            ?.mapNotNull { element ->
-                element.runCatching { jsonPrimitive }
+    private fun JsonObject.strings(key: String): List<String> {
+        val element = get(key) ?: return emptyList()
+        val array = element.runCatching { jsonArray }.getOrNull()
+        if (array != null) {
+            return array.mapNotNull { item ->
+                item.runCatching { jsonPrimitive }
                     .getOrNull()
                     ?.contentOrNull
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
-            }
-            ?.distinct()
+            }.distinct()
+        }
+
+        return element.runCatching { jsonPrimitive }
+            .getOrNull()
+            ?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+            ?.let(::listOf)
             .orEmpty()
+    }
 
     private fun JsonObject.year(key: String): Int? {
         val primitive = get(key)?.runCatching { jsonPrimitive }?.getOrNull() ?: return null
