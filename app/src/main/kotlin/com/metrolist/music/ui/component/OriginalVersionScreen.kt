@@ -161,11 +161,20 @@ internal fun OriginalVersionScreen(
                     Text(originalStatsText(cover.youtubeMusicStats), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Stesso titolo: ${diagnostics.sameNameFound} risultati · ${diagnostics.sameNamePages} pagine",
-                        style = MaterialTheme.typography.bodySmall,
+                        "Stesso titolo · YouTube Music: ${originalStageState(diagnostics.sameNameStatus)}",
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "Artista originale: ${diagnostics.targetedArtistFound} risultati · ${diagnostics.targetedArtistPages} pagine",
+                        "${diagnostics.sameNameFound} risultati · ${diagnostics.sameNamePages} pagine",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        "Artista originale · YouTube Music: ${originalStageState(diagnostics.targetedArtistStatus)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "${diagnostics.targetedArtistFound} risultati · ${diagnostics.targetedArtistPages} pagine",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(8.dp))
@@ -485,6 +494,13 @@ private fun originalMbState(status: MusicBrainzStatus): String = when (status) {
     MusicBrainzStatus.OK -> "ok"
     MusicBrainzStatus.NO_MATCH -> "nessuna relazione"
     MusicBrainzStatus.NETWORK_ERROR -> "non disponibile"
+}
+
+private fun originalStageState(status: OriginalSearchStageStatus): String = when (status) {
+    OriginalSearchStageStatus.OK -> "ok"
+    OriginalSearchStageStatus.NO_RESULTS -> "nessun risultato"
+    OriginalSearchStageStatus.ERROR -> "errore"
+    OriginalSearchStageStatus.NOT_RUN -> "non eseguita"
 }
 
 private fun extractYouTubeVideoId(input: String): String? {
