@@ -1,0 +1,178 @@
+name: TEMP - Restore universal YouTube manual override
+
+on:
+  push:
+    branches:
+      - 'uab-build/musiclab-playback-403-recovery-01'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lab/musiclab-playback-403-recovery-01
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Restore clean resolver baseline and add universal manual override
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin mother/musiclab-swipe-fluid-play-01
+          git checkout origin/mother/musiclab-swipe-fluid-play-01 -- app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          pref = Path('app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt')
+          service = Path('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt')
+          menu = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt')
+          helper = Path('app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverrides.kt')
+
+          p = pref.read_text()
+          s = service.read_text()
+          m = menu.read_text()
+
+          key_anchor = 'val QobuzMatchOverridesKey = stringPreferencesKey("qobuzMatchOverrides")'
+          if 'YouTubeMatchOverridesKey' not in p:
+              if p.count(key_anchor) != 1:
+                  raise SystemExit(f'Preference key anchor count={p.count(key_anchor)}')
+              p = p.replace(key_anchor, key_anchor + '\nval YouTubeMatchOverridesKey = stringPreferencesKey("youtubeMatchOverrides")', 1)
+
+          helper.write_text('''package com.metrolist.music.playback\n\nimport org.json.JSONObject\n\n/** Persistent manual mapping from an original YouTube media id to a user-selected replacement. */\nobject YouTubeMatchOverrides {\n    @Volatile private var cachedRaw: String? = null\n    @Volatile private var cachedMap: Map<String, String> = emptyMap()\n\n    fun decode(value: String?): MutableMap<String, String> {\n        if (value.isNullOrBlank()) return mutableMapOf()\n        val snapshot = if (value == cachedRaw) {\n            cachedMap\n        } else {\n            val parsed = runCatching {\n                val root = JSONObject(value)\n                buildMap<String, String> {\n                    root.keys().forEach { mediaId ->\n                        val target = root.optString(mediaId).takeIf { it.isNotBlank() }\n                        if (target != null) put(mediaId, target)\n                    }\n                }\n            }.getOrDefault(emptyMap())\n            cachedRaw = value\n            cachedMap = parsed\n            parsed\n        }\n        return LinkedHashMap(snapshot)\n    }\n\n    fun encode(overrides: Map<String, String>): String {\n        val root = JSONObject()\n        overrides.forEach { (mediaId, youtubeId) ->\n            if (mediaId.isNotBlank() && youtubeId.isNotBlank()) root.put(mediaId, youtubeId)\n        }\n        return root.toString()\n    }\n}\n''')
+
+          import_anchor = 'import com.metrolist.music.constants.QobuzMatchOverridesKey\n'
+          if 'import com.metrolist.music.constants.YouTubeMatchOverridesKey' not in s:
+              if s.count(import_anchor) != 1:
+                  raise SystemExit(f'MusicService import anchor count={s.count(import_anchor)}')
+              s = s.replace(import_anchor, import_anchor + 'import com.metrolist.music.constants.YouTubeMatchOverridesKey\n', 1)
+
+          qobuz_doc_anchor = '    /**\n     * Returns the persisted manual Qobuz override for [mediaId], or null when\n'
+          if 'fun setYouTubeMatchOverride(' not in s:
+              if s.count(qobuz_doc_anchor) != 1:
+                  raise SystemExit(f'Qobuz method anchor count={s.count(qobuz_doc_anchor)}')
+              methods = '''    private fun resolveYouTubePlaybackId(mediaId: String): String =\n        YouTubeMatchOverrides.decode(dataStore.get(YouTubeMatchOverridesKey, ""))[mediaId]\n            ?.takeIf { it.isNotBlank() }\n            ?: mediaId\n\n    suspend fun getYouTubeMatchOverride(mediaId: String): String? =\n        withContext(Dispatchers.IO) {\n            YouTubeMatchOverrides.decode(dataStore.get(YouTubeMatchOverridesKey, ""))[mediaId]\n        }\n\n    /**\n     * Stores or clears a manual YouTube source override while keeping the original MediaItem.\n     * The stream/cache is invalidated so the replacement takes effect immediately and the\n     * original title/album/history identity remains unchanged.\n     */\n    fun setYouTubeMatchOverride(mediaId: String, youtubeId: String?) {\n        if (mediaId.isBlank()) return\n        scope.launch(Dispatchers.IO) {\n            dataStore.edit { prefs ->\n                val current = YouTubeMatchOverrides.decode(prefs[YouTubeMatchOverridesKey])\n                if (youtubeId.isNullOrBlank() || youtubeId == mediaId) {\n                    current.remove(mediaId)\n                } else {\n                    current[mediaId] = youtubeId\n                }\n                prefs[YouTubeMatchOverridesKey] = YouTubeMatchOverrides.encode(current)\n            }\n\n            songUrlCache.remove(mediaId)\n            runCatching { playerCache.removeResource(mediaId) }\n            runCatching { downloadCache.removeResource(mediaId) }\n\n            withContext(Dispatchers.Main) {\n                if (::player.isInitialized && player.currentMediaItem?.mediaId == mediaId) {\n                    val currentIndex = player.currentMediaItemIndex\n                    val shouldPlay = player.playWhenReady\n                    player.stop()\n                    player.seekTo(currentIndex, 0L)\n                    player.prepare()\n                    if (shouldPlay) player.play()\n                }\n            }\n        }\n    }\n\n'''
+              s = s.replace(qobuz_doc_anchor, methods + qobuz_doc_anchor, 1)
+
+          # Apply the override to every YouTube stream resolve in MusicService (pre-cache + live playback).
+          pattern = re.compile(r'YTPlayerUtils\.playerResponseForPlayback\(\n(?P<indent>\s*)mediaId,')
+          s, replace_count = pattern.subn(lambda x: 'YTPlayerUtils.playerResponseForPlayback(\n' + x.group('indent') + 'resolveYouTubePlaybackId(mediaId),', s)
+          if replace_count < 1:
+              raise SystemExit('No MusicService playback resolver calls were patched')
+
+          # A manual YouTube override explicitly selects YouTube, so do not let Qobuz supersede it.
+          create_anchor = '            val mediaId = stripQobuzCacheKeyPrefix(dataSpec.key ?: error("No media id"))\n'
+          if 'val manualYouTubePlaybackId = resolveYouTubePlaybackId(mediaId)' not in s:
+              if s.count(create_anchor) != 1:
+                  raise SystemExit(f'createDataSource mediaId anchor count={s.count(create_anchor)}')
+              s = s.replace(create_anchor, create_anchor + '            val manualYouTubePlaybackId = resolveYouTubePlaybackId(mediaId)\n', 1)
+          qobuz_if = '            if (qobuzEnabled) {'
+          create_start = s.index('    private fun createDataSourceFactory(): DataSource.Factory')
+          create_tail = s[create_start:]
+          if 'if (qobuzEnabled && manualYouTubePlaybackId == mediaId)' not in create_tail:
+              idx = create_tail.find(qobuz_if)
+              if idx < 0:
+                  raise SystemExit('Qobuz condition inside createDataSourceFactory not found')
+              absolute = create_start + idx
+              s = s[:absolute] + '            if (qobuzEnabled && manualYouTubePlaybackId == mediaId) {' + s[absolute + len(qobuz_if):]
+
+          # Player menu: expose the historical dialog for every non-local track.
+          spotify_state_anchor = '''    val resolvedSpotifyMatch by produceState<com.metrolist.music.db.entities.SpotifyMatchEntity?>(\n        initialValue = null,\n        mediaMetadata.id,\n    ) {\n        kotlinx.coroutines.withContext(Dispatchers.IO) {\n            value = database.getSpotifyMatchByYouTubeId(mediaMetadata.id)\n        }\n    }\n'''
+          if 'val manualYouTubeOverride by produceState<String?>' not in m:
+              if m.count(spotify_state_anchor) != 1:
+                  raise SystemExit(f'PlayerMenu Spotify state anchor count={m.count(spotify_state_anchor)}')
+              manual_state = spotify_state_anchor + '''\n    val manualYouTubeOverride by produceState<String?>(\n        initialValue = null,\n        mediaMetadata.id,\n    ) {\n        value = playerConnection.service.getYouTubeMatchOverride(mediaMetadata.id)\n    }\n'''
+              m = m.replace(spotify_state_anchor, manual_state, 1)
+
+          old_current = '            currentYouTubeId = resolvedSpotifyMatch?.youtubeId,'
+          new_current = '            currentYouTubeId = manualYouTubeOverride ?: resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id,'
+          if old_current in m:
+              m = m.replace(old_current, new_current, 1)
+          elif new_current not in m:
+              raise SystemExit('PlayerMenu currentYouTubeId anchor not found')
+
+          onconfirm_pattern = re.compile(
+              r'            onConfirm = \{ result ->\n.*?\n            \},\n            onDismiss = \{ showYouTubeMatchDialog = false \},',
+              re.S,
+          )
+          new_onconfirm = '''            onConfirm = { result ->\n                // Universal manual source: keep the original MediaItem and only replace\n                // the YouTube stream used by playback.\n                playerConnection.service.setYouTubeMatchOverride(mediaMetadata.id, result.videoId)\n\n                // Preserve the historic Spotify override too when this track originated there.\n                resolvedSpotifyMatch?.spotifyId?.let { sid ->\n                    coroutineScope.launch(Dispatchers.IO) {\n                        mapper.overrideMatch(\n                            spotifyId = sid,\n                            youtubeId = result.videoId,\n                            title = result.title,\n                            artist = result.artist,\n                        )\n                    }\n                }\n            },\n            onDismiss = { showYouTubeMatchDialog = false },'''
+          m, n = onconfirm_pattern.subn(new_onconfirm, m, count=1)
+          if n != 1:
+              raise SystemExit(f'PlayerMenu onConfirm replacement count={n}')
+
+          old_condition = '                        if (resolvedSpotifyMatch != null && !qobuzEnabled) {'
+          replacement_condition = '                        if (!mediaMetadata.id.startsWith("local:")) {'
+          cond_count = m.count(old_condition)
+          if cond_count < 1:
+              if replacement_condition not in m:
+                  raise SystemExit('PlayerMenu visibility condition not found')
+          else:
+              m = m.replace(old_condition, replacement_condition)
+
+          pref.write_text(p)
+          service.write_text(s)
+          menu.write_text(m)
+          PY
+
+          git diff --check
+
+      - name: Targeted source checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt').read_text()
+          s = Path('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt').read_text()
+          m = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt').read_text()
+          h = Path('app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverrides.kt').read_text()
+          y = Path('app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt').read_text()
+          checks = [
+              ('preference key', 'YouTubeMatchOverridesKey' in p),
+              ('persistent helper', 'object YouTubeMatchOverrides' in h),
+              ('service setter', 'fun setYouTubeMatchOverride(' in s),
+              ('service getter', 'getYouTubeMatchOverride' in s),
+              ('resolver redirect', 'resolveYouTubePlaybackId(mediaId)' in s),
+              ('Qobuz bypass when manual YouTube selected', 'if (qobuzEnabled && manualYouTubePlaybackId == mediaId)' in s),
+              ('menu visible for non-local tracks', 'if (!mediaMetadata.id.startsWith("local:"))' in m),
+              ('dialog uses universal current id', 'manualYouTubeOverride ?: resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id' in m),
+              ('menu saves universal override', 'setYouTubeMatchOverride(mediaMetadata.id, result.videoId)' in m),
+              ('Spotify override preserved', 'mapper.overrideMatch(' in m),
+              ('old expire experiment removed', 'MISSING_EXPIRE_FALLBACK_SECONDS' not in y),
+          ]
+          bad=[name for name, ok in checks if not ok]
+          for i,(name,ok) in enumerate(checks,1): print(f'CHECK {i:02d}: {"PASS" if ok else "FAIL"} - {name}')
+          if bad: raise SystemExit('Failed checks: ' + ', '.join(bad))
+          PY
+
+      - name: Compile app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:compileFossDebugKotlin --no-daemon
+
+      - name: Commit universal override to LAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Br174'
+          git config user.email 'brunoverlezza@gmail.com'
+          git add \
+            app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt \
+            app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt \
+            app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverrides.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt \
+            app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
+          git diff --cached --quiet && { echo 'No changes to commit'; exit 0; }
+          git commit -m 'feat(playback): restore universal manual YouTube override'
+          git push origin HEAD:lab/musiclab-playback-403-recovery-01
