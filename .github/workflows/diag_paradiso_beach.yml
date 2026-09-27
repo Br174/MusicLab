@@ -23,147 +23,86 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Create targeted network diagnostic test
+      - name: Resolve Paradiso beach video id with yt-dlp
         shell: bash
         run: |
-          mkdir -p innertube/build/reports/yt403
-          cat > innertube/src/test/kotlin/com/metrolist/innertube/ParadisoBeachDiagnosticsTest.kt <<'KOT'
-          package com.metrolist.innertube
+          set -euo pipefail
+          mkdir -p diag
+          python3 -m pip install --quiet --upgrade yt-dlp
+          set +e
+          yt-dlp \
+            --flat-playlist \
+            --no-warnings \
+            --print '%(id)s|%(title)s|%(channel)s|%(duration_string)s' \
+            'ytsearch10:Paradiso beach Cartoon Band' \
+            > diag/search-results.txt 2> diag/yt-dlp-error.txt
+          rc=$?
+          set -e
+          echo '--- YouTube search results ---'
+          cat diag/search-results.txt || true
+          if [ "$rc" -ne 0 ]; then
+            echo '--- yt-dlp error ---'
+            cat diag/yt-dlp-error.txt || true
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          rows=[]
+          for line in Path('diag/search-results.txt').read_text(errors='replace').splitlines():
+              p=line.split('|',3)
+              if len(p) >= 3:
+                  rows.append(p)
+          def score(r):
+              vid,title,channel,*rest=r
+              t=title.casefold().strip()
+              c=channel.casefold().strip()
+              s=0
+              if t == 'paradiso beach': s += 100
+              elif 'paradiso beach' in t: s += 50
+              if 'cartoon band' in c: s += 40
+              if 'topic' in c: s += 5
+              return s
+          if not rows:
+              raise SystemExit('No YouTube search results returned')
+          rows.sort(key=score, reverse=True)
+          best=rows[0]
+          if score(best) < 50:
+              raise SystemExit(f'No credible Paradiso beach candidate: {best}')
+          Path('diag/video-id.txt').write_text(best[0])
+          Path('diag/selected.txt').write_text('|'.join(best))
+          print('SELECTED=' + '|'.join(best))
+          PY
+          echo "VIDEO_ID=$(cat diag/video-id.txt)" >> "$GITHUB_ENV"
 
-          import com.metrolist.innertube.models.SongItem
-          import com.metrolist.innertube.models.YouTubeClient
-          import kotlinx.coroutines.runBlocking
-          import okhttp3.OkHttpClient
-          import okhttp3.Request
-          import org.junit.Test
-          import java.io.File
-          import java.util.concurrent.TimeUnit
-
-          class ParadisoBeachDiagnosticsTest {
-              private val http by lazy {
-                  OkHttpClient.Builder()
-                      .connectTimeout(15, TimeUnit.SECONDS)
-                      .readTimeout(15, TimeUnit.SECONDS)
-                      .build()
-              }
-
-              private fun queryParam(url: String, key: String): String? =
-                  runCatching {
-                      url.substringAfter('?', "")
-                          .split('&')
-                          .firstOrNull { it.substringBefore('=') == key }
-                          ?.substringAfter('=', "")
-                  }.getOrNull()
-
-              @Test
-              fun diagnoseExactTrack() = runBlocking {
-                  val out = File("innertube/build/reports/yt403/paradiso-beach.txt")
-                  out.parentFile.mkdirs()
-                  out.writeText("")
-                  fun emit(s: String) {
-                      println(s)
-                      out.appendText(s + "\n")
-                  }
-
-                  val visitor = YouTube.visitorData().getOrNull()
-                  YouTube.visitorData = visitor
-                  emit("VISITOR_DATA=${if (visitor == null) "UNAVAILABLE" else "AVAILABLE"}")
-                  check(visitor != null) { "Could not bootstrap YouTube visitorData" }
-
-                  val query = "Paradiso beach Cartoon Band"
-                  val search = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrThrow()
-                  val songs = search.items.filterIsInstance<SongItem>()
-                  emit("QUERY=$query")
-                  emit("RESULTS=${songs.size}")
-                  songs.take(10).forEachIndexed { i, s ->
-                      emit("SEARCH[$i] id=${s.id} title=${s.title} artists=${s.artists.joinToString { it.name }} album=${s.album?.name} duration=${s.duration} type=${s.musicVideoType}")
-                  }
-
-                  val matches = songs.filter {
-                      it.title.contains("Paradiso", ignoreCase = true) ||
-                          it.artists.any { a -> a.name.contains("Cartoon Band", ignoreCase = true) }
-                  }.ifEmpty { songs.take(3) }
-                  check(matches.isNotEmpty()) { "No candidate song returned by YouTube Music search" }
-
-                  emit("CANDIDATES=${matches.size}")
-
-                  val clients = listOf(
-                      "VISIONOS" to YouTubeClient.VISIONOS,
-                      "ANDROID_VR_1_65_10" to YouTubeClient.ANDROID_VR_1_65_10,
-                      "TVHTML5" to YouTubeClient.TVHTML5,
-                      "ANDROID_VR_1_43_32" to YouTubeClient.ANDROID_VR_1_43_32,
-                      "IPADOS" to YouTubeClient.IPADOS,
-                      "IOS" to YouTubeClient.IOS,
-                      "WEB_CREATOR" to YouTubeClient.WEB_CREATOR,
-                      "WEB_REMIX" to YouTubeClient.WEB_REMIX,
-                  )
-
-                  for (song in matches.take(4)) {
-                      val videoId = song.id
-                      emit("=== VIDEO id=$videoId title=${song.title} artists=${song.artists.joinToString { it.name }} share=${song.shareLink} ===")
-
-                      for ((name, client) in clients) {
-                          val r = YouTube.player(videoId, null, client, null, null).getOrNull()
-                          if (r == null) {
-                              emit("CLIENT $name response=NULL")
-                              continue
-                          }
-                          val formats = r.streamingData?.adaptiveFormats.orEmpty()
-                          val audio = formats.filter { it.isAudio }
-                          val chosen = audio.maxByOrNull { it.bitrate }
-                          val direct = chosen?.url
-                          val cipher = !chosen?.signatureCipher.isNullOrEmpty() || !chosen?.cipher.isNullOrEmpty()
-                          val bareAudio = audio.count { it.url.isNullOrEmpty() && it.signatureCipher.isNullOrEmpty() && it.cipher.isNullOrEmpty() }
-                          emit("CLIENT $name status=${r.playabilityStatus.status} reason=${r.playabilityStatus.reason} expires=${r.streamingData?.expiresInSeconds} formats=${formats.size} audio=${audio.size} bareAudio=$bareAudio chosenItag=${chosen?.itag} direct=${!direct.isNullOrEmpty()} cipher=$cipher")
-                          if (!direct.isNullOrEmpty()) {
-                              val expire = queryParam(direct, "expire")
-                              val req = Request.Builder().url(direct).header("Range", "bytes=0-524287").build()
-                              val code = runCatching { http.newCall(req).execute().use { it.code } }.getOrElse { -1 }
-                              emit("  DIRECT_GET code=$code expire=$expire")
-                          }
-                      }
-
-                      val np = runCatching { NewPipeExtractor.newPipePlayer(videoId) }.getOrElse {
-                          emit("NEWPIPE exception=${it::class.simpleName}:${it.message}")
-                          emptyList()
-                      }
-                      emit("NEWPIPE urls=${np.size} itags=${np.joinToString { it.first.toString() }}")
-                      np.take(8).forEach { (itag, url) ->
-                          val req = Request.Builder().url(url).header("Range", "bytes=0-524287").build()
-                          val code = runCatching { http.newCall(req).execute().use { it.code } }.getOrElse { -1 }
-                          emit("  NEWPIPE itag=$itag code=$code expire=${queryParam(url, "expire")}")
-                      }
-                  }
-              }
-          }
-          KOT
-
-      - name: Run exact-track network diagnostics
+      - name: Run existing MusicLab playback diagnostics on exact video
         shell: bash
         run: |
           set +e
-          ./gradlew :innertube:testDebugUnitTest --tests '*ParadisoBeachDiagnosticsTest*' -i > innertube/build/reports/yt403/gradle.log 2>&1
+          ./gradlew \
+            -Dyt403.videoIds="$VIDEO_ID" \
+            :innertube:testDebugUnitTest \
+            --tests '*PlaybackForbiddenDiagnosticsTest.clientStreamMatrixBaseline' \
+            --tests '*PlaybackForbiddenDiagnosticsTest.newPipeRewriteDoesNotDowngradeAWorkingAndroidVrUrl' \
+            -i > diag/gradle.log 2>&1
           rc=$?
-          if [ "$rc" -ne 0 ]; then
-            echo '--- compact Gradle failure ---'
-            grep -nE '(^e: |error:|Unresolved reference|FAILURE:|What went wrong|Compilation error|FAILED|ClientRequestException|IllegalStateException)' innertube/build/reports/yt403/gradle.log | tail -160 || true
-          fi
+          echo '--- selected video ---'
+          cat diag/selected.txt || true
+          echo '--- playback matrix ---'
+          cat innertube/build/reports/yt403/playback-403-matrix.txt || true
+          echo '--- key Gradle diagnostics ---'
+          grep -nE 'CLIENT x STREAM STATUS MATRIX|2xx media GET|403 media GET|no usable url|ANDROID_VR itag|after newPipePlayer|FAILED|HTTP 403|NewPipe' diag/gradle.log | tail -200 || true
           exit "$rc"
 
-      - name: Print diagnostic report
-        if: always()
-        shell: bash
-        run: |
-          echo '--- Paradiso beach report ---'
-          cat innertube/build/reports/yt403/paradiso-beach.txt || true
-
-      - name: Upload diagnostic report and Gradle log
+      - name: Upload diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: paradiso-beach-diagnostics
+          name: paradiso-beach-diagnostics-final
           path: |
-            innertube/build/reports/yt403/paradiso-beach.txt
-            innertube/build/reports/yt403/gradle.log
+            diag/search-results.txt
+            diag/selected.txt
+            diag/video-id.txt
+            diag/yt-dlp-error.txt
+            diag/gradle.log
+            innertube/build/reports/yt403/playback-403-matrix.txt
           if-no-files-found: warn
           retention-days: 7
