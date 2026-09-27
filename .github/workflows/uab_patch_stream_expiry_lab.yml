@@ -1,0 +1,155 @@
+name: TEMP - Apply MusicLab stream-expiry resolver fix
+
+on:
+  push:
+    branches:
+      - 'lab/musiclab-playback-403-recovery-01'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lab/musiclab-playback-403-recovery-01
+          fetch-depth: 0
+
+      - name: Restore false-path files and patch resolver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin mother/musiclab-swipe-fluid-play-01
+          git checkout origin/mother/musiclab-swipe-fluid-play-01 -- \
+            app/src/main/kotlin/com/metrolist/music/playback/PlayerConnection.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt')
+          text = path.read_text()
+
+          old_constants = '''    private const val VALIDATION_CHUNK_LENGTH = 512 * 1024L
+'''
+          new_constants = '''    private const val VALIDATION_CHUNK_LENGTH = 512 * 1024L
+
+    // YouTube occasionally returns a usable stream without streamingData.expiresInSeconds.
+    // Expiry is only used to bound our in-memory URL cache, so absence of that metadata must
+    // not make an otherwise valid audio URL unplayable. Prefer the response value, then the
+    // googlevideo `expire=` URL parameter. If neither exists, cache very conservatively.
+    private const val MISSING_EXPIRE_FALLBACK_SECONDS = 60
+    private const val STREAM_EXPIRY_SAFETY_SECONDS = 30L
+'''
+          if text.count(old_constants) != 1:
+              raise SystemExit(f'constants anchor count={text.count(old_constants)}')
+          text = text.replace(old_constants, new_constants, 1)
+
+          old = '''                streamExpiresInSeconds = streamPlayerResponse.streamingData?.expiresInSeconds
+                if (streamExpiresInSeconds == null) {
+                    Timber.tag(logTag).d("Stream expiration time not found")
+                    cascade += "${client.clientName}=NO_EXPIRE"
+                    Fix403.w(
+                        fx, "client.noExpire",
+                        Fix403.kv("client" to client.clientName, "hasStreamingData" to (streamPlayerResponse.streamingData != null)),
+                    )
+                    continue
+                }
+
+                Timber.tag(logTag).d("Stream expires in: $streamExpiresInSeconds seconds")
+'''
+          new = '''                // Expiry metadata is not required to play a stream. Some valid YouTube
+                // responses omit streamingData.expiresInSeconds even though the resolved
+                // googlevideo URL is usable. First prefer expiry from the actual response used
+                // for the format, then the original client response, then derive it from the
+                // URL's `expire=` epoch. Only reject a URL when it explicitly says it is already
+                // expired / too close to expiry. With no expiry information at all, accept the
+                // validated stream but cache its URL for only one minute.
+                val responseExpiry =
+                    responseToUse.streamingData?.expiresInSeconds
+                        ?: streamPlayerResponse.streamingData?.expiresInSeconds
+                val urlExpiryEpoch =
+                    runCatching {
+                        Uri.parse(streamUrl).getQueryParameter("expire")?.toLongOrNull()
+                    }.getOrNull()
+                val nowEpoch = System.currentTimeMillis() / 1000L
+                val derivedExpiry =
+                    urlExpiryEpoch?.let { expireAt ->
+                        val remaining = expireAt - nowEpoch
+                        if (remaining > STREAM_EXPIRY_SAFETY_SECONDS) {
+                            (remaining - STREAM_EXPIRY_SAFETY_SECONDS)
+                                .coerceAtMost(Int.MAX_VALUE.toLong())
+                                .toInt()
+                        } else {
+                            null
+                        }
+                    }
+
+                streamExpiresInSeconds =
+                    responseExpiry?.takeIf { it > 0 }
+                        ?: derivedExpiry
+                        ?: if (urlExpiryEpoch == null) MISSING_EXPIRE_FALLBACK_SECONDS else null
+
+                if (streamExpiresInSeconds == null) {
+                    Timber.tag(logTag).d("Stream URL expired or too close to expiry")
+                    cascade += "${client.clientName}=EXPIRE_TOO_CLOSE"
+                    Fix403.w(
+                        fx, "client.expireRejected",
+                        Fix403.kv(
+                            "client" to client.clientName,
+                            "responseExpiry" to responseExpiry,
+                            "urlExpiryEpoch" to urlExpiryEpoch,
+                        ),
+                    )
+                    continue
+                }
+
+                val expirySource =
+                    when {
+                        responseExpiry != null && responseExpiry > 0 -> "response"
+                        derivedExpiry != null -> "url"
+                        else -> "fallback"
+                    }
+                Timber.tag(logTag).d(
+                    "Stream expires in: $streamExpiresInSeconds seconds (source=$expirySource)",
+                )
+                if (expirySource != "response") {
+                    Fix403.w(
+                        fx,
+                        "client.expireFallback",
+                        Fix403.kv(
+                            "client" to client.clientName,
+                            "source" to expirySource,
+                            "expiresInSeconds" to streamExpiresInSeconds,
+                            "urlExpiryEpoch" to urlExpiryEpoch,
+                        ),
+                    )
+                }
+'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expiry block count={count}')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+
+          git diff --check
+          grep -F 'MISSING_EXPIRE_FALLBACK_SECONDS = 60' app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
+          grep -F 'responseToUse.streamingData?.expiresInSeconds' app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
+          grep -F 'getQueryParameter("expire")?.toLongOrNull()' app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "app/src/main/kotlin/com/metrolist/music/playback/PlayerConnection.kt app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt "
+
+      - name: Commit clean resolver fix
+        shell: bash
+        run: |
+          git config user.name "UAB Bot"
+          git config user.email "uab-bot@users.noreply.github.com"
+          git add \
+            app/src/main/kotlin/com/metrolist/music/playback/PlayerConnection.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt \
+            app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
+          git commit -m "fix(playback): accept valid streams without response expiry metadata"
+          git push origin HEAD:lab/musiclab-playback-403-recovery-01
