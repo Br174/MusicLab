@@ -36,15 +36,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerConnection
+import com.metrolist.music.constants.AiProviderKey
+import com.metrolist.music.constants.OpenRouterApiKey
+import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.YouTubeMatchOverride
+import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+// Reuse the same dedicated Gemini key already configured by Cerca cover.
+private val OriginalGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 
 @Composable
 internal fun OriginalVersionScreen(
@@ -53,6 +61,28 @@ internal fun OriginalVersionScreen(
 ) {
     val connection = LocalPlayerConnection.current
     val service = connection?.service
+
+    val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
+    val sharedApiKey by rememberPreference(OpenRouterApiKey, "")
+    val sharedModel by rememberPreference(OpenRouterModelKey, "")
+    val dedicatedGeminiKey by rememberPreference(OriginalGeminiApiKey, "")
+
+    val sharedGoogleKey = sharedApiKey.takeIf {
+        it.isNotBlank() && (aiProvider == "Gemini" || it.trim().startsWith("AIza"))
+    }.orEmpty()
+    val effectiveKey = dedicatedGeminiKey.ifBlank { sharedGoogleKey }
+    val effectiveModel = if (
+        aiProvider == "Gemini" &&
+        sharedModel.isNotBlank() &&
+        !sharedModel.contains('/')
+    ) {
+        sharedModel
+    } else {
+        "gemini-2.5-flash-lite"
+    }
+    val geminiConfig = effectiveKey.takeIf { it.isNotBlank() }?.let {
+        GeminiCoverVerificationConfig(apiKey = it, model = effectiveModel)
+    }
 
     var loading by remember(request.currentYouTubeId) { mutableStateOf(true) }
     var searchResult by remember(request.currentYouTubeId) {
@@ -69,7 +99,13 @@ internal fun OriginalVersionScreen(
     var currentOverride by remember(request.currentYouTubeId) { mutableStateOf<YouTubeMatchOverride?>(null) }
     var startingVersion by remember(request.currentYouTubeId) { mutableStateOf<CoverHubResult?>(null) }
 
-    LaunchedEffect(request.currentYouTubeId) {
+    LaunchedEffect(
+        request.currentYouTubeId,
+        request.title,
+        request.artist,
+        effectiveKey,
+        effectiveModel,
+    ) {
         currentOverride = service?.getYouTubeMatchOverride(request.currentYouTubeId)
         val startingId = currentOverride?.videoId?.takeIf { it.isNotBlank() } ?: request.currentYouTubeId
         startingVersion = withContext(Dispatchers.IO) {
@@ -92,6 +128,7 @@ internal fun OriginalVersionScreen(
                 currentArtist = request.artist,
                 durationSec = request.durationSec,
                 currentYouTubeId = request.currentYouTubeId,
+                geminiConfig = geminiConfig,
             )
         }.onFailure { failed = true }
             .getOrDefault(OriginalVersionSearchResult(null, emptyList()))
@@ -136,50 +173,65 @@ internal fun OriginalVersionScreen(
 
     if (showDiagnosticsDialog) {
         val diagnostics = searchResult.diagnostics
-        val cover = diagnostics.coverOutcome
         AlertDialog(
             onDismissRequest = { showDiagnosticsDialog = false },
             title = { Text("Verifica ricerca Originali") },
             text = {
                 Column {
                     Text(
-                        text = "Titolo cercato: ${diagnostics.searchedTitle.ifBlank { request.title }}",
-                        style = MaterialTheme.typography.bodyMedium,
+                        "Gemini AI: ${originalAiState(diagnostics.aiStatus)}",
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Text("WhoSampled: ${originalWhoState(cover.whoSampledStatus)}")
-                    Text(originalStatsText(cover.whoSampledStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(5.dp))
-                    Text("SecondHandSongs: ${originalSecondState(cover.secondHandSongsStatus)}")
-                    Text(originalStatsText(cover.secondHandSongsStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(5.dp))
-                    Text("MusicBrainz: ${originalMbState(cover.musicBrainzStatus)}")
-                    Text(originalStatsText(cover.musicBrainzStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(5.dp))
-                    Text("YouTube Music · ricerca Cover")
-                    Text(originalStatsText(cover.youtubeMusicStats), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
+                    diagnostics.aiMode?.let { mode ->
+                        Text(
+                            text = when (mode) {
+                                GeminiOriginalMode.GOOGLE_SEARCH -> "Modalità AI: ricerca Google"
+                                GeminiOriginalMode.MODEL_KNOWLEDGE -> "Modalità AI: conoscenza del modello"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (diagnostics.aiWebSources > 0) {
+                        Text(
+                            "Fonti web viste dall'AI: ${diagnostics.aiWebSources}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (diagnostics.aiTitle.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Titolo deciso dall'AI: ${diagnostics.aiTitle}")
+                        Text(
+                            "Cantante originale: ${diagnostics.aiArtists.joinToString(", ")}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            diagnostics.aiYear?.let { "Anno originale AI: $it" } ?: "Anno originale AI: non indicato",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+
+                    Spacer(Modifier.height(10.dp))
                     Text(
-                        "Stesso titolo · YouTube Music: ${originalStageState(diagnostics.sameNameStatus)}",
+                        "YouTube Music: ${originalStageState(diagnostics.youtubeMusicStatus)}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "${diagnostics.sameNameFound} risultati · ${diagnostics.sameNamePages} pagine",
+                        "${diagnostics.youtubeMusicFound} risultati validi · ${diagnostics.youtubeMusicPages} pagine",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        "Artista originale · YouTube Music: ${originalStageState(diagnostics.targetedArtistStatus)}",
+                        "YouTube: ${originalStageState(diagnostics.youtubeStatus)}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "${diagnostics.targetedArtistFound} risultati · ${diagnostics.targetedArtistPages} pagine",
+                        "${diagnostics.youtubeFound} risultati validi · ${diagnostics.youtubePages} pagine",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Titolo esatto: ${diagnostics.exactTitleFound} · con anno: ${diagnostics.datedFound} · mostrati: ${diagnostics.finalVersions}",
+                        "Versioni finali mostrate: ${diagnostics.finalVersions}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -211,7 +263,6 @@ internal fun OriginalVersionScreen(
                 TextButton(onClick = { navController.popBackStack() }) { Text("Chiudi") }
             }
 
-            // Manual YouTube address stays above every search result.
             OutlinedTextField(
                 value = link,
                 onValueChange = { link = it },
@@ -267,14 +318,36 @@ internal fun OriginalVersionScreen(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(10.dp))
-                            Text("Cerco l'originale e tutte le versioni dello stesso artista…")
+                            Text("L'AI identifica l'originale e cerco tutte le sue versioni…")
                         }
                     }
                 } else {
+                    searchResult.aiIdentity?.let { identity ->
+                        item {
+                            VersionSectionTitle("Identificato dall'AI")
+                            Text(
+                                text = "${identity.title} · ${identity.originalArtists.joinToString(", ")}",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = identity.year?.let { "Prima pubblicazione: $it" } ?: "Prima pubblicazione: anno non indicato",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            AiCreditsBlock(identity)
+                            Text(
+                                text = "L'AI decide l'originale; YouTube e YouTube Music servono solo a trovare le versioni riproducibili in cui compare questo interprete.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 5.dp, bottom = 12.dp),
+                            )
+                        }
+                    }
+
                     val original = searchResult.original
                     if (original != null) {
                         item {
-                            VersionSectionTitle("Originale")
+                            VersionSectionTitle("Originale secondo AI")
                             OriginalVersionRow(
                                 result = original,
                                 onPreview = { preview(original.song) },
@@ -285,9 +358,9 @@ internal fun OriginalVersionScreen(
 
                         if (searchResult.versions.isNotEmpty()) {
                             item {
-                                VersionSectionTitle("Altre versioni dello stesso artista")
+                                VersionSectionTitle("Altre versioni dello stesso cantante")
                                 Text(
-                                    text = "Titolo esatto · dalla più vecchia alla più recente · versioni senza anno in fondo",
+                                    text = "Sono incluse live, duetti, collaborazioni e altre versioni della stessa canzone, purché sia presente il cantante originale indicato dall'AI.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(bottom = 6.dp),
@@ -307,41 +380,35 @@ internal fun OriginalVersionScreen(
                         } else {
                             item {
                                 Text(
-                                    text = "Ho identificato l'originale, ma non ho trovato altre versioni riproducibili dello stesso artista.",
+                                    text = "L'AI ha identificato l'originale, ma non ho trovato altre versioni riproducibili con lo stesso cantante.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
-                    } else if (searchResult.versions.isNotEmpty()) {
+                    } else if (searchResult.aiIdentity != null) {
                         item {
-                            VersionSectionTitle("Versioni trovate")
                             Text(
-                                text = "Ho trovato versioni con il titolo esatto, ma non ho ancora una data sufficiente per certificare quale sia l'originale. Le mostro comunque, ordinate per anno quando disponibile.",
+                                text = "L'AI ha identificato titolo e cantante originale, ma YouTube/YouTube Music non hanno restituito una versione riproducibile che riporti quel cantante tra gli interpreti.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 8.dp),
                             )
                         }
-                        items(
-                            items = searchResult.versions,
-                            key = { it.song.id },
-                        ) { version ->
-                            OriginalVersionRow(
-                                result = version,
-                                onPreview = { preview(version.song) },
-                                onReplace = { replaceWith(version.song) },
-                            )
-                            Spacer(Modifier.height(8.dp))
-                        }
-                    } else if (failed) {
+                    } else if (searchResult.diagnostics.aiStatus == OriginalAiStatus.NOT_CONFIGURED) {
                         item {
-                            Text("Ricerca non riuscita. Apri ⓘ per il feedback oppure incolla un link YouTube.")
+                            Text(
+                                "Gemini AI non è configurata. Originali ora funziona esclusivamente con l'intelligenza artificiale e non usa motori alternativi.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else if (failed || searchResult.diagnostics.aiStatus == OriginalAiStatus.ERROR) {
+                        item {
+                            Text("La ricerca AI non è riuscita. Apri ⓘ per il feedback oppure incolla un link YouTube.")
                         }
                     } else {
                         item {
                             Text(
-                                "Non ho trovato versioni con il titolo esatto. Apri ⓘ per vedere quali fonti hanno risposto oppure incolla un link YouTube.",
+                                "L'AI non ha restituito un'identificazione utilizzabile. Apri ⓘ per il feedback oppure incolla un link YouTube.",
                             )
                         }
                     }
@@ -388,6 +455,36 @@ internal fun OriginalVersionScreen(
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
+}
+
+@Composable
+private fun AiCreditsBlock(identity: GeminiOriginalIdentity) {
+    val rows = buildList {
+        if (identity.songwriters.isNotEmpty()) add("Autori" to identity.songwriters.joinToString(", "))
+        if (identity.composers.isNotEmpty()) add("Compositori" to identity.composers.joinToString(", "))
+        if (identity.lyricists.isNotEmpty()) add("Parolieri" to identity.lyricists.joinToString(", "))
+        if (identity.producers.isNotEmpty()) add("Produttori" to identity.producers.joinToString(", "))
+        identity.label?.let { add("Etichetta" to it) }
+        identity.album?.let { add("Pubblicazione" to it) }
+    }
+
+    if (rows.isEmpty()) {
+        Text(
+            "Crediti AI: non disponibili",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+
+    Spacer(Modifier.height(5.dp))
+    rows.forEach { (label, value) ->
+        Text(
+            "$label: $value",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -468,32 +565,11 @@ private fun OriginalVersionRow(
     }
 }
 
-private fun originalStatsText(stats: CoverSourceStats): String {
-    val notResolved = (stats.found - stats.resolved).coerceAtLeast(0)
-    return "${stats.found} trovati · $notResolved non risolti · ${stats.resolved} risolti · ${stats.used} usati"
-}
-
-private fun originalWhoState(status: WhoSampledStatus): String = when (status) {
-    WhoSampledStatus.OK -> "ok"
-    WhoSampledStatus.NO_MATCH -> "nessuna relazione"
-    WhoSampledStatus.BLOCKED -> "bloccato da verifica"
-    WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
-    WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
-}
-
-private fun originalSecondState(status: SecondHandSongsStatus): String = when (status) {
-    SecondHandSongsStatus.OK -> "ok"
-    SecondHandSongsStatus.NO_MATCH -> "nessuna relazione"
-    SecondHandSongsStatus.BLOCKED -> "bloccato"
-    SecondHandSongsStatus.AUTH_REQUIRED -> "autenticazione richiesta"
-    SecondHandSongsStatus.RATE_LIMITED -> "limite temporaneo"
-    SecondHandSongsStatus.NETWORK_ERROR -> "non disponibile"
-}
-
-private fun originalMbState(status: MusicBrainzStatus): String = when (status) {
-    MusicBrainzStatus.OK -> "ok"
-    MusicBrainzStatus.NO_MATCH -> "nessuna relazione"
-    MusicBrainzStatus.NETWORK_ERROR -> "non disponibile"
+private fun originalAiState(status: OriginalAiStatus): String = when (status) {
+    OriginalAiStatus.OK -> "ok · decisione ricevuta"
+    OriginalAiStatus.NOT_CONFIGURED -> "non configurata"
+    OriginalAiStatus.NO_ANSWER -> "nessuna identificazione utile"
+    OriginalAiStatus.ERROR -> "errore"
 }
 
 private fun originalStageState(status: OriginalSearchStageStatus): String = when (status) {
