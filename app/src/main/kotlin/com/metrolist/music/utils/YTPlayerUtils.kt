@@ -54,11 +54,6 @@ object YTPlayerUtils {
      */
     private const val VALIDATION_CHUNK_LENGTH = 512 * 1024L
 
-    // Some valid YouTube streams omit streamingData.expiresInSeconds. Expiry only
-    // bounds our URL cache, so missing metadata must not make valid audio unplayable.
-    private const val MISSING_EXPIRE_FALLBACK_SECONDS = 60
-    private const val STREAM_EXPIRY_SAFETY_SECONDS = 30L
-
     /**
      * Compact, redacted description of a googlevideo stream URL, for logging.
      *
@@ -587,70 +582,18 @@ object YTPlayerUtils {
                     Timber.tag(TAG).d("Skipping n-transform (not required for this client/content)")
                 }
 
-                // Missing response expiry is not a playback failure. Prefer expiry from
-                // the response actually used for the selected format; otherwise derive it from
-                // googlevideo's expire= epoch. If neither exists, cache the validated URL only
-                // briefly. An explicitly expired/near-expiry URL is still rejected.
-                val responseExpiry =
-                    responseToUse.streamingData?.expiresInSeconds
-                        ?: streamPlayerResponse.streamingData?.expiresInSeconds
-                val urlExpiryEpoch =
-                    runCatching {
-                        Uri.parse(streamUrl).getQueryParameter("expire")?.toLongOrNull()
-                    }.getOrNull()
-                val nowEpoch = System.currentTimeMillis() / 1000L
-                val derivedExpiry =
-                    urlExpiryEpoch?.let { expireAt ->
-                        val remaining = expireAt - nowEpoch
-                        if (remaining > STREAM_EXPIRY_SAFETY_SECONDS) {
-                            (remaining - STREAM_EXPIRY_SAFETY_SECONDS)
-                                .coerceAtMost(Int.MAX_VALUE.toLong())
-                                .toInt()
-                        } else {
-                            null
-                        }
-                    }
-
-                streamExpiresInSeconds =
-                    responseExpiry?.takeIf { it > 0 }
-                        ?: derivedExpiry
-                        ?: if (urlExpiryEpoch == null) MISSING_EXPIRE_FALLBACK_SECONDS else null
-
+                streamExpiresInSeconds = streamPlayerResponse.streamingData?.expiresInSeconds
                 if (streamExpiresInSeconds == null) {
-                    Timber.tag(logTag).d("Stream URL expired or too close to expiry")
-                    cascade += "${client.clientName}=EXPIRE_TOO_CLOSE"
+                    Timber.tag(logTag).d("Stream expiration time not found")
+                    cascade += "${client.clientName}=NO_EXPIRE"
                     Fix403.w(
-                        fx, "client.expireRejected",
-                        Fix403.kv(
-                            "client" to client.clientName,
-                            "responseExpiry" to responseExpiry,
-                            "urlExpiryEpoch" to urlExpiryEpoch,
-                        ),
+                        fx, "client.noExpire",
+                        Fix403.kv("client" to client.clientName, "hasStreamingData" to (streamPlayerResponse.streamingData != null)),
                     )
                     continue
                 }
 
-                val expirySource =
-                    when {
-                        responseExpiry != null && responseExpiry > 0 -> "response"
-                        derivedExpiry != null -> "url"
-                        else -> "fallback"
-                    }
-                Timber.tag(logTag).d(
-                    "Stream expires in: $streamExpiresInSeconds seconds (source=$expirySource)",
-                )
-                if (expirySource != "response") {
-                    Fix403.w(
-                        fx,
-                        "client.expireFallback",
-                        Fix403.kv(
-                            "client" to client.clientName,
-                            "source" to expirySource,
-                            "expiresInSeconds" to streamExpiresInSeconds,
-                            "urlExpiryEpoch" to urlExpiryEpoch,
-                        ),
-                    )
-                }
+                Timber.tag(logTag).d("Stream expires in: $streamExpiresInSeconds seconds")
 
                 // Check if this is a privately owned track (uploaded song)
                 val isPrivatelyOwned = streamPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
