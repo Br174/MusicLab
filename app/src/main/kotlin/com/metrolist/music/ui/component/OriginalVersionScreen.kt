@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -58,6 +59,7 @@ internal fun OriginalVersionScreen(
         mutableStateOf(OriginalVersionSearchResult(null, emptyList()))
     }
     var failed by remember(request.currentYouTubeId) { mutableStateOf(false) }
+    var showDiagnosticsDialog by remember(request.currentYouTubeId) { mutableStateOf(false) }
 
     var link by remember(request.currentYouTubeId) { mutableStateOf("") }
     var manualCandidate by remember(request.currentYouTubeId) { mutableStateOf<SongItem?>(null) }
@@ -132,6 +134,54 @@ internal fun OriginalVersionScreen(
         PlayerBottomSheetBridge.expandSoft()
     }
 
+    if (showDiagnosticsDialog) {
+        val diagnostics = searchResult.diagnostics
+        val cover = diagnostics.coverOutcome
+        AlertDialog(
+            onDismissRequest = { showDiagnosticsDialog = false },
+            title = { Text("Verifica ricerca Originali") },
+            text = {
+                Column {
+                    Text(
+                        text = "Titolo cercato: ${diagnostics.searchedTitle.ifBlank { request.title }}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("WhoSampled: ${originalWhoState(cover.whoSampledStatus)}")
+                    Text(originalStatsText(cover.whoSampledStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(5.dp))
+                    Text("SecondHandSongs: ${originalSecondState(cover.secondHandSongsStatus)}")
+                    Text(originalStatsText(cover.secondHandSongsStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(5.dp))
+                    Text("MusicBrainz: ${originalMbState(cover.musicBrainzStatus)}")
+                    Text(originalStatsText(cover.musicBrainzStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(5.dp))
+                    Text("YouTube Music · ricerca Cover")
+                    Text(originalStatsText(cover.youtubeMusicStats), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Stesso titolo: ${diagnostics.sameNameFound} risultati · ${diagnostics.sameNamePages} pagine",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "Artista originale: ${diagnostics.targetedArtistFound} risultati · ${diagnostics.targetedArtistPages} pagine",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Titolo esatto: ${diagnostics.exactTitleFound} · con anno: ${diagnostics.datedFound} · mostrati: ${diagnostics.finalVersions}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDiagnosticsDialog = false }) { Text("Chiudi") }
+            },
+        )
+    }
+
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -143,7 +193,12 @@ internal fun OriginalVersionScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Originali", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "Originali",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { showDiagnosticsDialog = true }) { Text("ⓘ") }
                 TextButton(onClick = { navController.popBackStack() }) { Text("Chiudi") }
             }
 
@@ -203,7 +258,7 @@ internal fun OriginalVersionScreen(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(10.dp))
-                            Text("Cerco il titolo esatto e la prima incisione…")
+                            Text("Cerco l'originale e tutte le versioni dello stesso artista…")
                         }
                     }
                 } else {
@@ -221,9 +276,9 @@ internal fun OriginalVersionScreen(
 
                         if (searchResult.versions.isNotEmpty()) {
                             item {
-                                VersionSectionTitle("Altre versioni")
+                                VersionSectionTitle("Altre versioni dello stesso artista")
                                 Text(
-                                    text = "Titolo esatto · dalla più vecchia alla più recente",
+                                    text = "Titolo esatto · dalla più vecchia alla più recente · versioni senza anno in fondo",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(bottom = 6.dp),
@@ -243,20 +298,41 @@ internal fun OriginalVersionScreen(
                         } else {
                             item {
                                 Text(
-                                    text = "Non ho trovato altre versioni con lo stesso titolo e con l'artista originale presente.",
+                                    text = "Ho identificato l'originale, ma non ho trovato altre versioni riproducibili dello stesso artista.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
+                    } else if (searchResult.versions.isNotEmpty()) {
+                        item {
+                            VersionSectionTitle("Versioni trovate")
+                            Text(
+                                text = "Ho trovato versioni con il titolo esatto, ma non ho ancora una data sufficiente per certificare quale sia l'originale. Le mostro comunque, ordinate per anno quando disponibile.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 8.dp),
+                            )
+                        }
+                        items(
+                            items = searchResult.versions,
+                            key = { it.song.id },
+                        ) { version ->
+                            OriginalVersionRow(
+                                result = version,
+                                onPreview = { preview(version.song) },
+                                onReplace = { replaceWith(version.song) },
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
                     } else if (failed) {
                         item {
-                            Text("Ricerca non riuscita. Puoi comunque incollare un link YouTube.")
+                            Text("Ricerca non riuscita. Apri ⓘ per il feedback oppure incolla un link YouTube.")
                         }
                     } else {
                         item {
                             Text(
-                                "Non ho trovato una versione con titolo esatto e una data verificabile. Puoi comunque incollare un link YouTube.",
+                                "Non ho trovato versioni con il titolo esatto. Apri ⓘ per vedere quali fonti hanno risposto oppure incolla un link YouTube.",
                             )
                         }
                     }
@@ -358,6 +434,15 @@ private fun OriginalVersionRow(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
+                if (result.source.isNotBlank()) {
+                    Text(
+                        text = "Fonte: ${result.source}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     "Tocca la locandina per ascoltare",
                     style = MaterialTheme.typography.labelSmall,
@@ -372,6 +457,34 @@ private fun OriginalVersionRow(
             Text("Sostituisci")
         }
     }
+}
+
+private fun originalStatsText(stats: CoverSourceStats): String {
+    val notResolved = (stats.found - stats.resolved).coerceAtLeast(0)
+    return "${stats.found} trovati · $notResolved non risolti · ${stats.resolved} risolti · ${stats.used} usati"
+}
+
+private fun originalWhoState(status: WhoSampledStatus): String = when (status) {
+    WhoSampledStatus.OK -> "ok"
+    WhoSampledStatus.NO_MATCH -> "nessuna relazione"
+    WhoSampledStatus.BLOCKED -> "bloccato da verifica"
+    WhoSampledStatus.STRUCTURE_CHANGED -> "struttura non leggibile"
+    WhoSampledStatus.NETWORK_ERROR -> "non disponibile"
+}
+
+private fun originalSecondState(status: SecondHandSongsStatus): String = when (status) {
+    SecondHandSongsStatus.OK -> "ok"
+    SecondHandSongsStatus.NO_MATCH -> "nessuna relazione"
+    SecondHandSongsStatus.BLOCKED -> "bloccato"
+    SecondHandSongsStatus.AUTH_REQUIRED -> "autenticazione richiesta"
+    SecondHandSongsStatus.RATE_LIMITED -> "limite temporaneo"
+    SecondHandSongsStatus.NETWORK_ERROR -> "non disponibile"
+}
+
+private fun originalMbState(status: MusicBrainzStatus): String = when (status) {
+    MusicBrainzStatus.OK -> "ok"
+    MusicBrainzStatus.NO_MATCH -> "nessuna relazione"
+    MusicBrainzStatus.NETWORK_ERROR -> "non disponibile"
 }
 
 private fun extractYouTubeVideoId(input: String): String? {
