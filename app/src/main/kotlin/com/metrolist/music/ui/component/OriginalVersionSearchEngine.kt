@@ -303,17 +303,18 @@ internal object OriginalVersionSearchEngine {
                     )
                 }
 
+                val nextContinuation = continuation
                 if (
-                    continuation == null ||
+                    nextContinuation == null ||
                     artistPages >= MAX_TARGETED_PAGES_PER_ARTIST ||
                     found.size >= MAX_TARGETED_RESULTS ||
-                    !seenContinuations.add(continuation)
+                    !seenContinuations.add(nextContinuation)
                 ) {
                     break
                 }
 
                 val continuationAttempt = runCatching {
-                    YouTube.searchContinuation(continuation).getOrThrow()
+                    YouTube.searchContinuation(nextContinuation).getOrThrow()
                 }
                 if (continuationAttempt.isFailure) {
                     hadFailedRequest = true
