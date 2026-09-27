@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +52,7 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.YouTubeMatchOverride
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // Reuse the same dedicated Gemini key already configured by Cerca cover.
@@ -95,6 +97,10 @@ internal fun OriginalVersionScreen(
 
     var loading by remember(request.currentYouTubeId) { mutableStateOf(true) }
     var backgroundLoading by remember(request.currentYouTubeId) { mutableStateOf(false) }
+    var creditsLoading by remember(request.currentYouTubeId) { mutableStateOf(false) }
+    var versionCredits by remember(request.currentYouTubeId) {
+        mutableStateOf<Map<String, GeminiVersionCredits>>(emptyMap())
+    }
     var searchResult by remember(request.currentYouTubeId) {
         mutableStateOf(OriginalVersionSearchResult(null, emptyList()))
     }
@@ -126,7 +132,7 @@ internal fun OriginalVersionScreen(
         }
     }
 
-    // Progressive pipeline: AI -> first useful results -> extended search in background.
+    // Progressive pipeline: AI -> first useful results -> extended search + AI credits in background.
     LaunchedEffect(
         request.currentYouTubeId,
         request.title,
@@ -136,6 +142,8 @@ internal fun OriginalVersionScreen(
     ) {
         loading = true
         backgroundLoading = false
+        creditsLoading = false
+        versionCredits = emptyMap()
         failed = false
         selectedTab = OriginalResultsTab.VERSIONS
 
@@ -166,6 +174,25 @@ internal fun OriginalVersionScreen(
         searchResult = initial
         loading = false
         backgroundLoading = true
+        creditsLoading = true
+
+        val initialSongs = buildList {
+            initial.original?.song?.let(::add)
+            addAll(initial.versions)
+        }.map { if (it is SongItem) it else it.song }
+            .distinctBy { it.id }
+            .take(8)
+
+        val initialCreditsJob = launch {
+            val credits = runCatching {
+                GeminiOriginalVersionCredits.enrich(
+                    identity = identity,
+                    songs = initialSongs,
+                    config = geminiConfig,
+                )
+            }.getOrDefault(emptyMap())
+            if (credits.isNotEmpty()) versionCredits = versionCredits + credits
+        }
 
         val expanded = runCatching {
             OriginalVersionSearchEngine.findExpandedVersions(
@@ -178,6 +205,27 @@ internal fun OriginalVersionScreen(
 
         if (expanded != null) searchResult = expanded
         backgroundLoading = false
+
+        initialCreditsJob.join()
+
+        val finalResult = expanded ?: initial
+        val remainingSongs = buildList {
+            finalResult.original?.song?.let(::add)
+            finalResult.versions.forEach { add(it.song) }
+        }.distinctBy { it.id }
+            .filter { it.id !in versionCredits }
+
+        for (batch in remainingSongs.chunked(8)) {
+            val credits = runCatching {
+                GeminiOriginalVersionCredits.enrich(
+                    identity = identity,
+                    songs = batch,
+                    config = geminiConfig,
+                )
+            }.getOrDefault(emptyMap())
+            if (credits.isNotEmpty()) versionCredits = versionCredits + credits
+        }
+        creditsLoading = false
     }
 
     LaunchedEffect(link) {
@@ -274,7 +322,7 @@ internal fun OriginalVersionScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "${diagnostics.youtubeMusicFound} risultati validi · ${diagnostics.youtubeMusicPages} pagine",
+                        "${diagnostics.youtubeMusicFound} riproduzioni trovate · ${diagnostics.youtubeMusicPages} pagine",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(5.dp))
@@ -283,12 +331,16 @@ internal fun OriginalVersionScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "${diagnostics.youtubeFound} risultati validi · ${diagnostics.youtubePages} pagine",
+                        "${diagnostics.youtubeFound} riproduzioni trovate · ${diagnostics.youtubePages} pagine",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Versioni: ${diagnostics.finalVersions} · Live: ${diagnostics.liveFound} · Con altri: ${diagnostics.withOthersFound} · Remix: ${diagnostics.remixFound}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "Crediti AI caricati: ${versionCredits.size}${if (creditsLoading) " · altri in background" else ""}",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -359,6 +411,8 @@ internal fun OriginalVersionScreen(
                         VersionSectionTitle("Versione dal link")
                         OriginalVersionRow(
                             result = CoverHubResult(song = candidate, source = "Link manuale"),
+                            credits = versionCredits[candidate.id],
+                            creditsLoading = creditsLoading,
                             onPreview = { preview(candidate) },
                             onReplace = { replaceWith(candidate) },
                         )
@@ -380,7 +434,7 @@ internal fun OriginalVersionScreen(
                         )
                         AiCreditsBlock(identity)
                         Text(
-                            text = "L'AI decide direttamente originale, anno e crediti quando li conosce. YouTube e YouTube Music servono solo a trovare le versioni riproducibili in cui compare l'interprete originale.",
+                            text = "L'AI decide direttamente originale, anno, album e crediti. YouTube e YouTube Music servono esclusivamente a trovare le versioni riproducibili.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 5.dp, bottom = 12.dp),
@@ -412,6 +466,9 @@ internal fun OriginalVersionScreen(
                             VersionSectionTitle("Originale secondo AI")
                             OriginalVersionRow(
                                 result = original,
+                                credits = versionCredits[original.song.id]
+                                    ?: searchResult.aiIdentity?.toVersionCredits(),
+                                creditsLoading = creditsLoading,
                                 onPreview = { preview(original.song) },
                                 onReplace = { replaceWith(original.song) },
                             )
@@ -466,6 +523,8 @@ internal fun OriginalVersionScreen(
                         ) { version ->
                             OriginalVersionRow(
                                 result = version,
+                                credits = versionCredits[version.song.id],
+                                creditsLoading = creditsLoading,
                                 onPreview = { preview(version.song) },
                                 onReplace = { replaceWith(version.song) },
                             )
@@ -535,6 +594,8 @@ internal fun OriginalVersionScreen(
                         )
                         OriginalVersionRow(
                             result = starting,
+                            credits = versionCredits[starting.song.id],
+                            creditsLoading = creditsLoading,
                             onPreview = { preview(starting.song) },
                             onReplace = { replaceWith(starting.song) },
                         )
@@ -647,7 +708,7 @@ private fun AiCreditsBlock(identity: GeminiOriginalIdentity) {
         if (identity.lyricists.isNotEmpty()) add("Parolieri" to identity.lyricists.joinToString(", "))
         if (identity.producers.isNotEmpty()) add("Produttori" to identity.producers.joinToString(", "))
         identity.label?.let { add("Etichetta" to it) }
-        identity.album?.let { add("Pubblicazione" to it) }
+        identity.album?.let { add("Album / pubblicazione" to it) }
     }
 
     if (rows.isEmpty()) {
@@ -669,6 +730,16 @@ private fun AiCreditsBlock(identity: GeminiOriginalIdentity) {
     }
 }
 
+private fun GeminiOriginalIdentity.toVersionCredits() = GeminiVersionCredits(
+    year = year,
+    album = album,
+    songwriters = songwriters,
+    composers = composers,
+    lyricists = lyricists,
+    producers = producers,
+    label = label,
+)
+
 @Composable
 private fun VersionSectionTitle(text: String) {
     Text(
@@ -682,67 +753,104 @@ private fun VersionSectionTitle(text: String) {
 @Composable
 private fun OriginalVersionRow(
     result: CoverHubResult,
+    credits: GeminiVersionCredits?,
+    creditsLoading: Boolean,
     onPreview: () -> Unit,
     onReplace: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPreview)
+            .padding(vertical = 6.dp),
+    ) {
+        AsyncImage(
+            model = result.song.thumbnail,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onPreview)
-                .padding(vertical = 6.dp),
-        ) {
-            AsyncImage(
-                model = result.song.thumbnail,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(84.dp)
-                    .clip(RoundedCornerShape(8.dp)),
+                .size(84.dp)
+                .clip(RoundedCornerShape(8.dp)),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                result.song.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Text(
+                result.song.artists.joinToString(", ") { it.name },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = credits?.year?.let { "Anno AI: $it" } ?: if (creditsLoading) "Crediti AI in arrivo…" else "Anno AI non disponibile",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            credits?.album?.let { album ->
                 Text(
-                    result.song.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    result.song.artists.joinToString(", ") { it.name },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = result.year?.let { "Anno: $it" } ?: "Anno non disponibile",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                if (result.source.isNotBlank()) {
-                    Text(
-                        text = "Fonte: ${result.source}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Text(
-                    "Tocca la locandina per ascoltare",
+                    text = "Album: $album",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+            VersionCreditsBlock(credits)
+            if (result.source.isNotBlank()) {
+                Text(
+                    text = "Riproduzione: ${result.source}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                "Tocca la locandina per ascoltare",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Button(
-            modifier = Modifier.fillMaxWidth(),
             onClick = onReplace,
+            modifier = Modifier
+                .padding(start = 8.dp)
+                .height(36.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
         ) {
-            Text("Sostituisci")
+            Text(
+                "Sostituisci",
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
+    }
+}
+
+@Composable
+private fun VersionCreditsBlock(credits: GeminiVersionCredits?) {
+    if (credits == null) return
+    val rows = buildList {
+        if (credits.songwriters.isNotEmpty()) add("Autori" to credits.songwriters.joinToString(", "))
+        if (credits.composers.isNotEmpty()) add("Compositori" to credits.composers.joinToString(", "))
+        if (credits.lyricists.isNotEmpty()) add("Parolieri" to credits.lyricists.joinToString(", "))
+        if (credits.producers.isNotEmpty()) add("Produttori" to credits.producers.joinToString(", "))
+        credits.label?.let { add("Etichetta" to it) }
+    }
+    rows.forEach { (label, value) ->
+        Text(
+            text = "$label: $value",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
