@@ -385,10 +385,40 @@ internal object OriginalVersionSearchEngine {
     ): Boolean {
         val candidate = exactBaseTitle(value)
         if (candidate == targetTitle) return true
-        return originalArtists.any { artist ->
-            candidate == "$artist $targetTitle" ||
-                candidate == "$targetTitle $artist"
+        if (
+            originalArtists.any { artist ->
+                candidate == "$artist $targetTitle" ||
+                    candidate == "$targetTitle $artist"
+            }
+        ) {
+            return true
         }
+
+        // Video uploads often use descriptive titles instead of the bare song title,
+        // e.g. "Jimmy Fontana canta Il mondo" or "Il mondo - Canzonissima 1965".
+        // The caller separately requires the AI-selected original performer in the
+        // SongItem artist metadata, so here we can safely accept contextual wording
+        // while still rejecting unrelated longer song titles such as "Il mondo nuovo".
+        if (!containsTokenPhrase(candidate, targetTitle)) return false
+        if (originalArtists.any { artist -> containsTokenPhrase(candidate, artist) }) return true
+
+        val residual = candidate
+            .replace(targetTitle, " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+        if (residual.isBlank()) return true
+
+        return VERSION_MARKER_REGEX.containsMatchIn(residual) ||
+            YEAR_IN_TEXT_REGEX.containsMatchIn(residual) ||
+            CONTEXT_MARKER_REGEX.containsMatchIn(residual)
+    }
+
+    private fun containsTokenPhrase(value: String, phrase: String): Boolean {
+        if (value.isBlank() || phrase.isBlank()) return false
+        if (value == phrase) return true
+        return value.startsWith("$phrase ") ||
+            value.endsWith(" $phrase") ||
+            value.contains(" $phrase ")
     }
 
     private fun mergeInto(
@@ -488,9 +518,14 @@ internal object OriginalVersionSearchEngine {
 
     private val BRACKETED_BLOCK_REGEX = Regex("\\([^)]*\\)|\\[[^]]*]")
     private val YEAR_ONLY_REGEX = Regex("^(?:18|19|20)\\d{2}$")
+    private val YEAR_IN_TEXT_REGEX = Regex("\\b(?:18|19|20)\\d{2}\\b")
 
     private val VERSION_MARKER_REGEX = Regex(
         "\\b(official|music\\s+video|video|audio|lyrics?|lyric|visualizer|live|remaster(?:ed)?|remix|mix|acoustic|unplugged|version|versione|original|originale|radio\\s+edit|edit|mono|stereo|deluxe|bonus\\s+track|session|performance|studio|feat|ft|featuring|cover|duet|duetto|collaboration|with|hd|hq|testo)\\b",
+    )
+
+    private val CONTEXT_MARKER_REGEX = Regex(
+        "\\b(canta|interpreta|esegue|con|insieme|canzonissima|concerto|concert|show|festival|rai|tv|televisione)\\b",
     )
 
     private val DISALLOWED_REGEX = Regex(
