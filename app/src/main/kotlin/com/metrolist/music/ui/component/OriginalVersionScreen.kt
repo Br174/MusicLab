@@ -12,9 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -49,27 +53,47 @@ internal fun OriginalVersionScreen(
 ) {
     val connection = LocalPlayerConnection.current
     val service = connection?.service
+
     var loading by remember(request.currentYouTubeId) { mutableStateOf(true) }
-    var autoCandidate by remember(request.currentYouTubeId) { mutableStateOf<CoverHubResult?>(null) }
+    var searchResult by remember(request.currentYouTubeId) {
+        mutableStateOf(OriginalVersionSearchResult(null, emptyList()))
+    }
     var failed by remember(request.currentYouTubeId) { mutableStateOf(false) }
+
     var link by remember(request.currentYouTubeId) { mutableStateOf("") }
     var manualCandidate by remember(request.currentYouTubeId) { mutableStateOf<SongItem?>(null) }
     var manualLoading by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var manualError by remember(request.currentYouTubeId) { mutableStateOf<String?>(null) }
+
     var currentOverride by remember(request.currentYouTubeId) { mutableStateOf<YouTubeMatchOverride?>(null) }
+    var startingVersion by remember(request.currentYouTubeId) { mutableStateOf<CoverHubResult?>(null) }
 
     LaunchedEffect(request.currentYouTubeId) {
         currentOverride = service?.getYouTubeMatchOverride(request.currentYouTubeId)
+        val startingId = currentOverride?.videoId?.takeIf { it.isNotBlank() } ?: request.currentYouTubeId
+        startingVersion = withContext(Dispatchers.IO) {
+            val song = YouTube.queue(listOf(startingId)).getOrNull()?.firstOrNull()
+            song?.let {
+                CoverHubResult(
+                    song = it,
+                    year = runCatching { CoverYearResolver.resolve(it) }.getOrNull(),
+                    source = "Versione di partenza",
+                    confirmed = true,
+                )
+            }
+        }
+
         loading = true
         failed = false
-        autoCandidate = runCatching {
-            OriginalVersionSearchEngine.findOldest(
+        searchResult = runCatching {
+            OriginalVersionSearchEngine.findVersions(
                 title = request.title,
                 currentArtist = request.artist,
                 durationSec = request.durationSec,
                 currentYouTubeId = request.currentYouTubeId,
             )
-        }.onFailure { failed = true }.getOrNull()
+        }.onFailure { failed = true }
+            .getOrDefault(OriginalVersionSearchResult(null, emptyList()))
         loading = false
     }
 
@@ -90,8 +114,24 @@ internal fun OriginalVersionScreen(
         manualLoading = false
     }
 
-    val selectedSong = manualCandidate ?: autoCandidate?.song
-    val selectedYear = if (manualCandidate == null) autoCandidate?.year else null
+    fun replaceWith(song: SongItem) {
+        service?.setYouTubeMatchOverride(
+            request.currentYouTubeId,
+            YouTubeMatchOverride(
+                videoId = song.id,
+                title = song.title,
+                artist = song.artists.joinToString(", ") { it.name },
+                thumbnail = song.thumbnail,
+            ),
+        )
+        navController.popBackStack()
+    }
+
+    fun preview(song: SongItem) {
+        connection?.playNext(song.toMediaItem())
+        connection?.seekToNext()
+        PlayerBottomSheetBridge.expandSoft()
+    }
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -108,13 +148,7 @@ internal fun OriginalVersionScreen(
                 TextButton(onClick = { navController.popBackStack() }) { Text("Chiudi") }
             }
 
-            Text(
-                text = "Cerco la versione con la data di pubblicazione più antica disponibile.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(14.dp))
-
+            // Manual YouTube address stays above every search result.
             OutlinedTextField(
                 value = link,
                 onValueChange = { link = it },
@@ -122,90 +156,221 @@ internal fun OriginalVersionScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
 
-            when {
-                manualLoading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                manualError != null -> Text(manualError!!, color = MaterialTheme.colorScheme.error)
-                loading && manualCandidate == null -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Cerco la prima incisione…")
-                    }
-                }
-                selectedSong != null -> {
-                    Text(
-                        text = if (manualCandidate != null) "Versione scelta dal link" else "Versione più antica trovata",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                connection?.playNext(selectedSong.toMediaItem())
-                                connection?.seekToNext()
-                                PlayerBottomSheetBridge.expandSoft()
-                            }
-                            .padding(vertical = 8.dp),
-                    ) {
-                        AsyncImage(
-                            model = selectedSong.thumbnail,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)),
-                        )
-                        Spacer(Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(selectedSong.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                selectedSong.artists.joinToString(", ") { it.name },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            selectedYear?.let {
-                                Text("Anno: $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                            }
-                            Text("Tocca la locandina per ascoltare", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+            ) {
+                if (manualLoading) {
+                    item {
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Verifico il link…")
                         }
                     }
-                    Spacer(Modifier.height(14.dp))
-                    Button(
-                        enabled = selectedSong.id != request.currentYouTubeId,
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            service?.setYouTubeMatchOverride(
-                                request.currentYouTubeId,
-                                YouTubeMatchOverride(
-                                    videoId = selectedSong.id,
-                                    title = selectedSong.title,
-                                    artist = selectedSong.artists.joinToString(", ") { it.name },
-                                    thumbnail = selectedSong.thumbnail,
-                                ),
-                            )
-                            navController.popBackStack()
-                        },
-                    ) { Text("Sostituisci") }
                 }
-                failed -> Text("Ricerca non riuscita. Puoi comunque incollare un link YouTube.")
-                else -> Text("Non ho trovato una versione con una data verificabile. Puoi incollare un link YouTube.")
-            }
 
-            if (currentOverride != null) {
-                Spacer(Modifier.height(12.dp))
-                TextButton(
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    onClick = {
-                        service?.setYouTubeMatchOverride(request.currentYouTubeId, null)
-                        navController.popBackStack()
-                    },
-                ) { Text("Ripristina versione automatica") }
+                manualError?.let { error ->
+                    item {
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+
+                manualCandidate?.let { candidate ->
+                    item {
+                        VersionSectionTitle("Versione dal link")
+                        OriginalVersionRow(
+                            result = CoverHubResult(song = candidate, source = "Link manuale"),
+                            onPreview = { preview(candidate) },
+                            onReplace = { replaceWith(candidate) },
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
+                    }
+                }
+
+                if (loading) {
+                    item {
+                        Row(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Cerco il titolo esatto e la prima incisione…")
+                        }
+                    }
+                } else {
+                    val original = searchResult.original
+                    if (original != null) {
+                        item {
+                            VersionSectionTitle("Originale")
+                            OriginalVersionRow(
+                                result = original,
+                                onPreview = { preview(original.song) },
+                                onReplace = { replaceWith(original.song) },
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+                        }
+
+                        if (searchResult.versions.isNotEmpty()) {
+                            item {
+                                VersionSectionTitle("Altre versioni dello stesso artista")
+                                Text(
+                                    text = "Titolo esatto · dalla più vecchia alla più recente",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 6.dp),
+                                )
+                            }
+                            items(
+                                items = searchResult.versions,
+                                key = { it.song.id },
+                            ) { version ->
+                                OriginalVersionRow(
+                                    result = version,
+                                    onPreview = { preview(version.song) },
+                                    onReplace = { replaceWith(version.song) },
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                        } else {
+                            item {
+                                Text(
+                                    text = "Non ho trovato altre versioni con lo stesso titolo e con l'artista originale presente.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    } else if (failed) {
+                        item {
+                            Text("Ricerca non riuscita. Puoi comunque incollare un link YouTube.")
+                        }
+                    } else {
+                        item {
+                            Text(
+                                "Non ho trovato una versione con titolo esatto e una data verificabile. Puoi comunque incollare un link YouTube.",
+                            )
+                        }
+                    }
+                }
+
+                val shownIds = buildSet {
+                    searchResult.original?.song?.id?.let(::add)
+                    searchResult.versions.forEach { add(it.song.id) }
+                    manualCandidate?.id?.let(::add)
+                }
+                startingVersion?.takeIf { it.song.id !in shownIds }?.let { starting ->
+                    item {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+                        VersionSectionTitle("Versione di partenza")
+                        Text(
+                            text = "La versione con cui hai aperto questa ricerca.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        )
+                        OriginalVersionRow(
+                            result = starting,
+                            onPreview = { preview(starting.song) },
+                            onReplace = { replaceWith(starting.song) },
+                        )
+                    }
+                }
+
+                if (currentOverride != null) {
+                    item {
+                        Spacer(Modifier.height(12.dp))
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                service?.setYouTubeMatchOverride(request.currentYouTubeId, null)
+                                navController.popBackStack()
+                            },
+                        ) {
+                            Text("Ripristina versione automatica")
+                        }
+                    }
+                }
+
+                item { Spacer(Modifier.height(24.dp)) }
             }
+        }
+    }
+}
+
+@Composable
+private fun VersionSectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(bottom = 6.dp),
+    )
+}
+
+@Composable
+private fun OriginalVersionRow(
+    result: CoverHubResult,
+    onPreview: () -> Unit,
+    onReplace: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onPreview)
+                .padding(vertical = 6.dp),
+        ) {
+            AsyncImage(
+                model = result.song.thumbnail,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(84.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    result.song.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    result.song.artists.joinToString(", ") { it.name },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = result.year?.let { "Anno: $it" } ?: "Anno non disponibile",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    "Tocca la locandina per ascoltare",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onReplace,
+        ) {
+            Text("Sostituisci")
         }
     }
 }
