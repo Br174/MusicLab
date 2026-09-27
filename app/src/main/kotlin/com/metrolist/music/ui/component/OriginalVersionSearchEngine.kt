@@ -169,8 +169,8 @@ internal object OriginalVersionSearchEngine {
         // Featuring credits appended to a title are performer metadata, not title text.
         clean = clean.replace(Regex("\\b(feat|ft|featuring)\\.?\\s+.*$"), " ")
 
-        // Remove a trailing separator suffix only when that suffix clearly identifies
-        // a recording variant. Do not strip arbitrary words from the song title.
+        // Remove only the rightmost separator suffix that clearly identifies a variant.
+        // Example: "Song - Part 2 - Live" -> "Song - Part 2", never just "Song".
         clean = stripTrailingVersionSuffix(clean)
 
         clean = clean.replace(Regex("[^a-z0-9]+"), " ")
@@ -180,10 +180,12 @@ internal object OriginalVersionSearchEngine {
     private fun stripTrailingVersionSuffix(value: String): String {
         var clean = value
         while (true) {
-            val match = TRAILING_SUFFIX_REGEX.find(clean) ?: break
-            val suffix = match.groupValues[1]
-            if (!VERSION_MARKER_REGEX.containsMatchIn(suffix)) break
-            clean = clean.substring(0, match.range.first).trim()
+            val separators = VERSION_SEPARATOR_REGEX.findAll(clean).toList()
+            val removable = separators.asReversed().firstOrNull { match ->
+                val suffix = clean.substring(match.range.last + 1).trim()
+                VERSION_MARKER_REGEX.containsMatchIn(suffix)
+            } ?: break
+            clean = clean.substring(0, removable.range.first).trim()
         }
         return clean
     }
@@ -211,5 +213,5 @@ internal object OriginalVersionSearchEngine {
         "\\b(official|music\\s+video|video|audio|lyrics?|lyric|visualizer|live|remaster(?:ed)?|remix|mix|acoustic|unplugged|version|versione|radio\\s+edit|edit|mono|stereo|deluxe|bonus\\s+track|session|performance|studio|feat|ft|featuring)\\b",
     )
 
-    private val TRAILING_SUFFIX_REGEX = Regex("\\s*[-–—:|]\\s*(.+)$")
+    private val VERSION_SEPARATOR_REGEX = Regex("\\s+[-–—]\\s+|\\s*[:|]\\s*")
 }
