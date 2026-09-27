@@ -47,9 +47,9 @@ internal object GeminiOriginalDiscovery {
     private val client =
         OkHttpClient
             .Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
             .build()
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -64,28 +64,24 @@ internal object GeminiOriginalDiscovery {
         if (!config.isUsable()) return@withContext null
         if (currentTitle.isBlank()) return@withContext null
 
-        val cacheKey = "v1|${config.model}|${currentTitle.trim()}|${currentArtist.trim()}"
+        val cacheKey = "v2|${config.model}|${currentTitle.trim().lowercase()}|${currentArtist.trim().lowercase()}"
         cache[cacheKey]
             ?.takeIf { it.expiresAtMs > System.currentTimeMillis() }
             ?.let { return@withContext it.identity }
 
         val prompt =
-            """Sei il motore principale della funzione Originali di un'app musicale.
-La traccia corrente può essere una cover, una performance televisiva, un live, un duetto, una reinterpretazione o un video con un titolo descrittivo.
+            """Sei il motore Originali di un'app musicale. La traccia corrente può essere una cover, un live, un duetto, una performance TV o avere un titolo descrittivo.
 
-Traccia corrente:
 Titolo/video: ${currentTitle.trim()}
-Interprete/canale indicato: ${currentArtist.trim().ifBlank { "sconosciuto" }}
+Interprete/canale: ${currentArtist.trim().ifBlank { "sconosciuto" }}
 
-Il tuo compito è identificare direttamente la CANZONE ORIGINALE e l'INTERPRETE ORIGINALE della stessa composizione. La tua risposta sarà usata come riferimento principale: non proporre liste di possibili candidati e non chiedere conferme.
+Decidi direttamente, usando la tua conoscenza, qual è la stessa CANZONE nell'incisione originale e chi è l'INTERPRETE ORIGINALE. La tua decisione è quella usata dall'app: non proporre alternative, non chiedere conferme e non fare verifiche esterne.
 
-Restituisci inoltre i crediti musicali utili quando li conosci: autori, compositori, parolieri, produttori, etichetta, album/singolo e anno della prima pubblicazione dell'incisione originale. Se un credito non è noto con ragionevole sicurezza, lascialo vuoto invece di inventarlo.
+Se conosci anno e crediti, inseriscili direttamente in base alla tua conoscenza. Usa null o [] solo quando davvero non li conosci. Includi quando noti: autori, compositori, parolieri, produttori, etichetta e album/singolo.
 
-Per original_artists inserisci il cantante, gruppo o gli interpreti accreditati nell'incisione originale. Non inserire l'artista della cover a meno che sia davvero uno degli interpreti originali.
-
-Rispondi SOLO con JSON valido in questa forma:
+Rispondi SOLO con JSON valido:
 {
-  "title":"titolo canonico della canzone",
+  "title":"titolo canonico",
   "original_artists":["interprete originale"],
   "year":1965,
   "songwriters":["nome"],
@@ -94,22 +90,13 @@ Rispondi SOLO con JSON valido in questa forma:
   "producers":["nome"],
   "label":"etichetta oppure null",
   "album":"album o singolo oppure null"
-}
+}"""
 
-Se l'anno non è noto usa null. Se alcuni elenchi di crediti non sono noti usa []."""
-
-        val grounded = executeWithFallbackModels(
-            prompt = prompt,
-            config = config,
-            useGoogleSearch = true,
-            maxOutputTokens = 1100,
-        )
-
-        val response = grounded ?: executeWithFallbackModels(
+        val response = executeWithFallbackModels(
             prompt = prompt,
             config = config,
             useGoogleSearch = false,
-            maxOutputTokens = 1100,
+            maxOutputTokens = 750,
         ) ?: return@withContext null
 
         val parsed = parseIdentity(response) ?: return@withContext null
@@ -143,10 +130,9 @@ Se l'anno non è noto usa null. Se alcuni elenchi di crediti non sono noti usa [
     }
 
     private fun modelCandidates(requested: String): List<String> =
-        when (requested) {
-            LEGACY_DEFAULT_MODEL -> listOf(LEGACY_DEFAULT_MODEL, CURRENT_DEFAULT_MODEL)
-            else -> listOf(requested, CURRENT_DEFAULT_MODEL).distinct()
-        }
+        listOf(requested, CURRENT_DEFAULT_MODEL, LEGACY_DEFAULT_MODEL)
+            .filter { it.isNotBlank() }
+            .distinct()
 
     private fun execute(
         model: String,
@@ -184,7 +170,8 @@ Se l'anno non è noto usa null. Se alcuni elenchi di crediti non sono noti usa [
                 "generationConfig",
                 buildJsonObject {
                     put("maxOutputTokens", maxOutputTokens)
-                    put("temperature", 0.15)
+                    put("temperature", 0.10)
+                    put("responseMimeType", "application/json")
                 },
             )
         }
