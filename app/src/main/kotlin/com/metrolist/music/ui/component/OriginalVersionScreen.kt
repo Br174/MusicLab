@@ -176,11 +176,10 @@ internal fun OriginalVersionScreen(
         backgroundLoading = true
         creditsLoading = true
 
-        val initialSongs = buildList {
+        val initialSongs = buildList<SongItem> {
             initial.original?.song?.let(::add)
-            addAll(initial.versions)
-        }.map { if (it is SongItem) it else it.song }
-            .distinctBy { it.id }
+            initial.versions.forEach { add(it.song) }
+        }.distinctBy { it.id }
             .take(8)
 
         val initialCreditsJob = launch {
@@ -209,7 +208,7 @@ internal fun OriginalVersionScreen(
         initialCreditsJob.join()
 
         val finalResult = expanded ?: initial
-        val remainingSongs = buildList {
+        val remainingSongs = buildList<SongItem> {
             finalResult.original?.song?.let(::add)
             finalResult.versions.forEach { add(it.song) }
         }.distinctBy { it.id }
@@ -789,7 +788,8 @@ private fun OriginalVersionRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = credits?.year?.let { "Anno AI: $it" } ?: if (creditsLoading) "Crediti AI in arrivo…" else "Anno AI non disponibile",
+                text = credits?.year?.let { "Anno AI: $it" }
+                    ?: if (creditsLoading) "Crediti AI in arrivo…" else "Anno AI non disponibile",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
