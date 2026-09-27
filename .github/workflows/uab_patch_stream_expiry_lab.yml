@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,18 +29,13 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path('app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt')
           text = path.read_text()
-
-          old_constants = '''    private const val VALIDATION_CHUNK_LENGTH = 512 * 1024L
-'''
+          old_constants = '    private const val VALIDATION_CHUNK_LENGTH = 512 * 1024L\n'
           new_constants = '''    private const val VALIDATION_CHUNK_LENGTH = 512 * 1024L
 
-    // YouTube occasionally returns a usable stream without streamingData.expiresInSeconds.
-    // Expiry is only used to bound our in-memory URL cache, so absence of that metadata must
-    // not make an otherwise valid audio URL unplayable. Prefer the response value, then the
-    // googlevideo `expire=` URL parameter. If neither exists, cache very conservatively.
+    // Some valid YouTube streams omit streamingData.expiresInSeconds. Expiry only
+    // bounds our URL cache, so missing metadata must not make valid audio unplayable.
     private const val MISSING_EXPIRE_FALLBACK_SECONDS = 60
     private const val STREAM_EXPIRY_SAFETY_SECONDS = 30L
 '''
@@ -61,13 +56,10 @@ jobs:
 
                 Timber.tag(logTag).d("Stream expires in: $streamExpiresInSeconds seconds")
 '''
-          new = '''                // Expiry metadata is not required to play a stream. Some valid YouTube
-                // responses omit streamingData.expiresInSeconds even though the resolved
-                // googlevideo URL is usable. First prefer expiry from the actual response used
-                // for the format, then the original client response, then derive it from the
-                // URL's `expire=` epoch. Only reject a URL when it explicitly says it is already
-                // expired / too close to expiry. With no expiry information at all, accept the
-                // validated stream but cache its URL for only one minute.
+          new = '''                // Missing response expiry is not a playback failure. Prefer expiry from
+                // the response actually used for the selected format; otherwise derive it from
+                // googlevideo's expire= epoch. If neither exists, cache the validated URL only
+                // briefly. An explicitly expired/near-expiry URL is still rejected.
                 val responseExpiry =
                     responseToUse.streamingData?.expiresInSeconds
                         ?: streamPlayerResponse.streamingData?.expiresInSeconds
@@ -132,15 +124,13 @@ jobs:
           count = text.count(old)
           if count != 1:
               raise SystemExit(f'expiry block count={count}')
-          text = text.replace(old, new, 1)
-          path.write_text(text)
+          path.write_text(text.replace(old, new, 1))
           PY
 
           git diff --check
           grep -F 'MISSING_EXPIRE_FALLBACK_SECONDS = 60' app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
           grep -F 'responseToUse.streamingData?.expiresInSeconds' app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
           grep -F 'getQueryParameter("expire")?.toLongOrNull()' app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt
-          test "$(git diff --name-only | sort | tr '\n' ' ')" = "app/src/main/kotlin/com/metrolist/music/playback/PlayerConnection.kt app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt app/src/main/kotlin/com/metrolist/music/utils/YTPlayerUtils.kt "
 
       - name: Commit clean resolver fix
         shell: bash
