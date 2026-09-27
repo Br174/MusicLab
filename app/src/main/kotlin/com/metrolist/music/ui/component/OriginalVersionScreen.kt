@@ -222,7 +222,7 @@ internal fun OriginalVersionScreen(
 
                         if (searchResult.versions.isNotEmpty()) {
                             item {
-                                VersionSectionTitle("Altre versioni dello stesso artista")
+                                VersionSectionTitle("Altre versioni")
                                 Text(
                                     text = "Titolo esatto · dalla più vecchia alla più recente",
                                     style = MaterialTheme.typography.bodySmall,
