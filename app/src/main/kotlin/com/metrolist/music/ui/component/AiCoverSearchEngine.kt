@@ -74,48 +74,58 @@ internal object AiCoverSearchEngine {
     private suspend fun resolveOne(
         candidate: AiCoverCandidate,
         currentYouTubeId: String?,
-    ): AiCoverPlayable? = coroutineScope {
+    ): AiCoverPlayable? {
         val queries = when (candidate.category) {
             AiCoverCategory.COVER -> listOf(
                 "${candidate.title} ${candidate.artist}",
+                "${candidate.title} ${candidate.artist} official audio",
             )
             AiCoverCategory.REMIX -> listOf(
                 "${candidate.title} ${candidate.artist} remix",
-                "${candidate.title} ${candidate.artist}",
+                "${candidate.title} ${candidate.artist} rework",
             )
             AiCoverCategory.LIVE -> listOf(
                 "${candidate.title} ${candidate.artist} live",
-                "${candidate.title} ${candidate.artist}",
+                "${candidate.title} ${candidate.artist} performance",
             )
         }
 
         for (query in queries) {
-            val musicDeferred = async(Dispatchers.IO) {
-                runCatching { YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrThrow() }.getOrNull()
-            }
-            val videoDeferred = async(Dispatchers.IO) {
-                runCatching { YouTube.search(query, YouTube.SearchFilter.FILTER_VIDEO).getOrThrow() }.getOrNull()
-            }
-
-            val music = musicDeferred.await()
-                ?.items
-                ?.filterIsInstance<SongItem>()
-                ?.filter { it.id != currentYouTubeId }
-                .orEmpty()
-            val video = videoDeferred.await()
-                ?.items
-                ?.filterIsInstance<SongItem>()
-                ?.filter { it.id != currentYouTubeId }
-                .orEmpty()
-
-            bestMatch(music, candidate)?.let {
-                return@coroutineScope AiCoverPlayable(candidate, it, "YouTube Music")
-            }
-            bestMatch(video, candidate)?.let {
-                return@coroutineScope AiCoverPlayable(candidate, it, "YouTube")
+            when (candidate.category) {
+                AiCoverCategory.LIVE -> {
+                    searchAndPick(query, YouTube.SearchFilter.FILTER_VIDEO, candidate, currentYouTubeId)?.let {
+                        return AiCoverPlayable(candidate, it, "YouTube")
+                    }
+                    searchAndPick(query, YouTube.SearchFilter.FILTER_SONG, candidate, currentYouTubeId)?.let {
+                        return AiCoverPlayable(candidate, it, "YouTube Music")
+                    }
+                }
+                AiCoverCategory.COVER,
+                AiCoverCategory.REMIX,
+                -> {
+                    searchAndPick(query, YouTube.SearchFilter.FILTER_SONG, candidate, currentYouTubeId)?.let {
+                        return AiCoverPlayable(candidate, it, "YouTube Music")
+                    }
+                    searchAndPick(query, YouTube.SearchFilter.FILTER_VIDEO, candidate, currentYouTubeId)?.let {
+                        return AiCoverPlayable(candidate, it, "YouTube")
+                    }
+                }
             }
         }
-        null
+        return null
+    }
+
+    private suspend fun searchAndPick(
+        query: String,
+        filter: YouTube.SearchFilter,
+        candidate: AiCoverCandidate,
+        currentYouTubeId: String?,
+    ): SongItem? {
+        val page = runCatching { YouTube.search(query, filter).getOrThrow() }.getOrNull() ?: return null
+        val songs = page.items
+            .filterIsInstance<SongItem>()
+            .filter { it.id != currentYouTubeId }
+        return bestMatch(songs, candidate)
     }
 
     private fun bestMatch(
@@ -127,7 +137,7 @@ internal object AiCoverSearchEngine {
         val targetArtist = canonicalArtist(candidate.artist)
 
         return songs
-            .map { song -> song to score(song, targetTitle, targetArtist, candidate.category) }
+            .map { song -> song to score(song, targetTitle, targetArtist, candidate) }
             .filter { it.second >= MIN_SCORE }
             .maxByOrNull { it.second }
             ?.first
@@ -137,7 +147,7 @@ internal object AiCoverSearchEngine {
         song: SongItem,
         targetTitle: String,
         targetArtist: String,
-        category: AiCoverCategory,
+        candidate: AiCoverCandidate,
     ): Int {
         val songTitle = canonicalTitle(song.title)
         val artistNames = song.artists.map { canonicalArtist(it.name) }
@@ -145,6 +155,20 @@ internal object AiCoverSearchEngine {
         val artistMatch = artistNames.any { artistSimilar(it, targetArtist) } || titleHasArtist
 
         if (!artistMatch) return 0
+
+        val raw = song.title.lowercase()
+        val candidateRaw = candidate.title.lowercase()
+        val liveLike = LIVE_MARKER.containsMatchIn(raw) || LIVE_MARKER.containsMatchIn(candidateRaw)
+        val remixLike = REMIX_MARKER.containsMatchIn(raw) || REMIX_MARKER.containsMatchIn(candidateRaw)
+
+        when (candidate.category) {
+            // Studio covers must not silently resolve to a concert/performance or a remix.
+            AiCoverCategory.COVER -> if (liveLike || remixLike) return 0
+            // A live candidate must resolve to an explicitly identifiable performance.
+            AiCoverCategory.LIVE -> if (!liveLike) return 0
+            // A remix candidate must resolve to a clearly marked remix/rework/mix.
+            AiCoverCategory.REMIX -> if (!remixLike) return 0
+        }
 
         var score = 35
         when {
@@ -154,13 +178,12 @@ internal object AiCoverSearchEngine {
             else -> return 0
         }
 
-        val raw = song.title.lowercase()
-        when (category) {
-            AiCoverCategory.LIVE -> if (LIVE_MARKER.containsMatchIn(raw)) score += 12
-            AiCoverCategory.REMIX -> if (REMIX_MARKER.containsMatchIn(raw)) score += 12
-            AiCoverCategory.COVER -> Unit
+        when (candidate.category) {
+            AiCoverCategory.LIVE -> score += 14
+            AiCoverCategory.REMIX -> score += 14
+            AiCoverCategory.COVER -> score += 8
         }
-        if (DISALLOWED.containsMatchIn(raw)) score -= 80
+        if (DISALLOWED.containsMatchIn(raw)) score -= 90
         return score
     }
 
@@ -202,11 +225,17 @@ internal object AiCoverSearchEngine {
             .thenBy { it.candidate.artist.lowercase() }
 
     private val VERSION_WORDS = Regex(
-        "\\b(official|music video|video|audio|lyrics?|visualizer|remaster(?:ed)?|version|versione|cover|live|dal vivo|concert|concerto|performance|remix|mix|rework|radio edit|edit|hd|hq)\\b",
+        "\\b(official|music video|video|audio|lyrics?|visualizer|remaster(?:ed)?|version|versione|cover|live|dal vivo|concert|concerto|performance|session|festival|remix|mix|rework|radio edit|extended mix|club mix|edit|hd|hq)\\b",
     )
-    private val LIVE_MARKER = Regex("\\b(live|dal vivo|concert|concerto|performance|session|festival)\\b")
-    private val REMIX_MARKER = Regex("\\b(remix|mix|rework|radio edit|club mix|extended mix)\\b")
-    private val DISALLOWED = Regex("\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b")
+    private val LIVE_MARKER = Regex(
+        "\\b(live|dal vivo|concert|concerto|performance|session|festival|unplugged|tiny desk|kexp|bbc session|mtv unplugged)\\b",
+    )
+    private val REMIX_MARKER = Regex(
+        "\\b(remix|rework|club mix|extended mix|radio mix|dance mix|dub mix|edit mix)\\b",
+    )
+    private val DISALLOWED = Regex(
+        "\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b",
+    )
 
     private const val MIN_SCORE = 70
     private const val BACKGROUND_PAUSE_MS = 80L
