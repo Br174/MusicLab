@@ -26,10 +26,10 @@ jobs:
       - name: Create targeted network diagnostic test
         shell: bash
         run: |
+          mkdir -p innertube/build/reports/yt403
           cat > innertube/src/test/kotlin/com/metrolist/innertube/ParadisoBeachDiagnosticsTest.kt <<'KOT'
           package com.metrolist.innertube
 
-          import android.net.Uri
           import com.metrolist.innertube.models.SongItem
           import com.metrolist.innertube.models.YouTubeClient
           import kotlinx.coroutines.runBlocking
@@ -45,10 +45,19 @@ jobs:
                   .readTimeout(15, TimeUnit.SECONDS)
                   .build()
 
+              private fun queryParam(url: String, key: String): String? =
+                  runCatching {
+                      url.substringAfter('?', "")
+                          .split('&')
+                          .firstOrNull { it.substringBefore('=') == key }
+                          ?.substringAfter('=', "")
+                  }.getOrNull()
+
               @Test
               fun diagnoseExactTrack() = runBlocking {
                   val out = File("innertube/build/reports/yt403/paradiso-beach.txt")
                   out.parentFile.mkdirs()
+                  out.writeText("")
                   fun emit(s: String) {
                       println(s)
                       out.appendText(s + "\n")
@@ -63,14 +72,13 @@ jobs:
                       emit("SEARCH[$i] id=${s.id} title=${s.title} artists=${s.artists.joinToString { it.name }} album=${s.album?.name} duration=${s.duration} type=${s.musicVideoType}")
                   }
 
-                  val exact = songs.firstOrNull {
-                      it.title.equals("Paradiso beach", ignoreCase = true) &&
-                          it.artists.any { a -> a.name.equals("Cartoon Band", ignoreCase = true) }
-                  } ?: songs.firstOrNull { it.title.contains("Paradiso", ignoreCase = true) }
-                    ?: error("No Paradiso beach result")
+                  val matches = songs.filter {
+                      it.title.contains("Paradiso", ignoreCase = true) ||
+                          it.artists.any { a -> a.name.contains("Cartoon Band", ignoreCase = true) }
+                  }.ifEmpty { songs.take(3) }
+                  check(matches.isNotEmpty()) { "No candidate song returned by YouTube Music search" }
 
-                  val videoId = exact.id
-                  emit("SELECTED videoId=$videoId share=${exact.shareLink}")
+                  emit("CANDIDATES=${matches.size}")
 
                   val clients = listOf(
                       "VISIONOS" to YouTubeClient.VISIONOS,
@@ -83,33 +91,41 @@ jobs:
                       "WEB_REMIX" to YouTubeClient.WEB_REMIX,
                   )
 
-                  for ((name, client) in clients) {
-                      val r = YouTube.player(videoId, null, client, null, null).getOrNull()
-                      if (r == null) {
-                          emit("CLIENT $name response=NULL")
-                          continue
-                      }
-                      val formats = r.streamingData?.adaptiveFormats.orEmpty()
-                      val audio = formats.filter { it.isAudio }
-                      val chosen = audio.maxByOrNull { it.bitrate }
-                      val direct = chosen?.url
-                      val cipher = !chosen?.signatureCipher.isNullOrEmpty() || !chosen?.cipher.isNullOrEmpty()
-                      emit("CLIENT $name status=${r.playabilityStatus.status} reason=${r.playabilityStatus.reason} expires=${r.streamingData?.expiresInSeconds} formats=${formats.size} audio=${audio.size} chosenItag=${chosen?.itag} direct=${!direct.isNullOrEmpty()} cipher=$cipher")
-                      if (!direct.isNullOrEmpty()) {
-                          val expire = runCatching { Uri.parse(direct).getQueryParameter("expire") }.getOrNull()
-                          val req = Request.Builder().url(direct).header("Range", "bytes=0-524287").build()
-                          val code = runCatching { http.newCall(req).execute().use { it.code } }.getOrElse { -1 }
-                          emit("  DIRECT_GET code=$code expire=$expire")
-                      }
-                  }
+                  for (song in matches.take(4)) {
+                      val videoId = song.id
+                      emit("=== VIDEO id=$videoId title=${song.title} artists=${song.artists.joinToString { it.name }} share=${song.shareLink} ===")
 
-                  val np = runCatching { NewPipeExtractor.newPipePlayer(videoId) }.getOrElse { emptyList() }
-                  emit("NEWPIPE urls=${np.size} itags=${np.joinToString { it.first.toString() }}")
-                  np.take(8).forEach { (itag, url) ->
-                      val req = Request.Builder().url(url).header("Range", "bytes=0-524287").build()
-                      val code = runCatching { http.newCall(req).execute().use { it.code } }.getOrElse { -1 }
-                      val expire = runCatching { Uri.parse(url).getQueryParameter("expire") }.getOrNull()
-                      emit("  NEWPIPE itag=$itag code=$code expire=$expire")
+                      for ((name, client) in clients) {
+                          val r = YouTube.player(videoId, null, client, null, null).getOrNull()
+                          if (r == null) {
+                              emit("CLIENT $name response=NULL")
+                              continue
+                          }
+                          val formats = r.streamingData?.adaptiveFormats.orEmpty()
+                          val audio = formats.filter { it.isAudio }
+                          val chosen = audio.maxByOrNull { it.bitrate }
+                          val direct = chosen?.url
+                          val cipher = !chosen?.signatureCipher.isNullOrEmpty() || !chosen?.cipher.isNullOrEmpty()
+                          val bareAudio = audio.count { it.url.isNullOrEmpty() && it.signatureCipher.isNullOrEmpty() && it.cipher.isNullOrEmpty() }
+                          emit("CLIENT $name status=${r.playabilityStatus.status} reason=${r.playabilityStatus.reason} expires=${r.streamingData?.expiresInSeconds} formats=${formats.size} audio=${audio.size} bareAudio=$bareAudio chosenItag=${chosen?.itag} direct=${!direct.isNullOrEmpty()} cipher=$cipher")
+                          if (!direct.isNullOrEmpty()) {
+                              val expire = queryParam(direct, "expire")
+                              val req = Request.Builder().url(direct).header("Range", "bytes=0-524287").build()
+                              val code = runCatching { http.newCall(req).execute().use { it.code } }.getOrElse { -1 }
+                              emit("  DIRECT_GET code=$code expire=$expire")
+                          }
+                      }
+
+                      val np = runCatching { NewPipeExtractor.newPipePlayer(videoId) }.getOrElse {
+                          emit("NEWPIPE exception=${it::class.simpleName}:${it.message}")
+                          emptyList()
+                      }
+                      emit("NEWPIPE urls=${np.size} itags=${np.joinToString { it.first.toString() }}")
+                      np.take(8).forEach { (itag, url) ->
+                          val req = Request.Builder().url(url).header("Range", "bytes=0-524287").build()
+                          val code = runCatching { http.newCall(req).execute().use { it.code } }.getOrElse { -1 }
+                          emit("  NEWPIPE itag=$itag code=$code expire=${queryParam(url, "expire")}")
+                      }
                   }
               }
           }
@@ -117,18 +133,30 @@ jobs:
 
       - name: Run exact-track network diagnostics
         shell: bash
-        run: ./gradlew :innertube:testDebugUnitTest --tests '*ParadisoBeachDiagnosticsTest*' -i
+        run: |
+          set +e
+          ./gradlew :innertube:testDebugUnitTest --tests '*ParadisoBeachDiagnosticsTest*' -i > innertube/build/reports/yt403/gradle.log 2>&1
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo '--- compact Gradle failure ---'
+            grep -nE '(^e: |error:|Unresolved reference|FAILURE:|What went wrong|Compilation error|FAILED)' innertube/build/reports/yt403/gradle.log | tail -120 || true
+          fi
+          exit "$rc"
 
       - name: Print diagnostic report
         if: always()
         shell: bash
-        run: cat innertube/build/reports/yt403/paradiso-beach.txt || true
+        run: |
+          echo '--- Paradiso beach report ---'
+          cat innertube/build/reports/yt403/paradiso-beach.txt || true
 
-      - name: Upload diagnostic report
+      - name: Upload diagnostic report and Gradle log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: paradiso-beach-diagnostics
-          path: innertube/build/reports/yt403/paradiso-beach.txt
+          path: |
+            innertube/build/reports/yt403/paradiso-beach.txt
+            innertube/build/reports/yt403/gradle.log
           if-no-files-found: warn
           retention-days: 7
