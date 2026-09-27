@@ -1,0 +1,236 @@
+name: TEMP - Apply MusicLab 403 recovery patch
+
+on:
+  push:
+    branches:
+      - 'lab/musiclab-playback-403-recovery-01'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lab/musiclab-playback-403-recovery-01
+          fetch-depth: 0
+
+      - name: Apply isolated 403 recovery patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          pc_path = Path('app/src/main/kotlin/com/metrolist/music/playback/PlayerConnection.kt')
+          text = pc_path.read_text()
+
+          def replace_once(src, old, new, label):
+              count = src.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              return src.replace(old, new, 1)
+
+          text = replace_once(
+              text,
+              'import android.content.Context\n',
+              'import android.content.Context\nimport android.os.Handler\nimport android.os.Looper\n',
+              'android imports',
+          )
+          text = replace_once(
+              text,
+              'import androidx.media3.exoplayer.ExoPlayer\n',
+              'import androidx.media3.exoplayer.ExoPlayer\nimport androidx.media3.datasource.HttpDataSource\n',
+              'http datasource import',
+          )
+          text = replace_once(
+              text,
+              '    private var attachedPlayer: Player? = null\n',
+              '''    private var attachedPlayer: Player? = null
+
+    // A normal ExoPlayer prepare can keep the same failed MediaSource alive after a
+    // CDN 403. Give MusicService its normal URL/cache refresh first, then rebuild only
+    // the current MediaItem if the same 403 is still present. This mirrors selecting
+    // the same song again from its album without disturbing the rest of the queue.
+    private val playbackRecoveryHandler = Handler(Looper.getMainLooper())
+    private var pending403Recovery: Runnable? = null
+    private var strong403RecoveryMediaId: String? = null
+    private var strong403RecoveryAttempts = 0
+''',
+              'recovery fields',
+          )
+
+          marker = '    private fun updateAttachedPlayer(newPlayer: Player) {\n'
+          methods = '''    private fun isHttp403(playbackError: PlaybackException?): Boolean {
+        var cause: Throwable? = playbackError
+        while (cause != null) {
+            if (cause is HttpDataSource.InvalidResponseCodeException && cause.responseCode == 403) {
+                return true
+            }
+            cause = cause.cause
+        }
+        return false
+    }
+
+    /**
+     * Rebuild only the current queue item so Media3 creates a brand-new MediaSource.
+     * The item itself (media id, tag/metadata, artwork) and the queue are preserved.
+     */
+    private fun rebuildCurrentMediaItemAndRetry(forcePlay: Boolean) {
+        try {
+            val currentPlayer = player
+            val currentIndex = currentPlayer.currentMediaItemIndex
+            val currentItem = currentPlayer.currentMediaItem ?: return
+            if (currentIndex < 0) return
+
+            val currentPosition = currentPlayer.currentPosition.coerceAtLeast(0L)
+            val shouldPlay = forcePlay || currentPlayer.playWhenReady
+            val freshItem = currentItem.buildUpon().build()
+
+            Timber.tag(TAG).i(
+                "Rebuilding current MediaItem after playback failure: ${currentItem.mediaId} at ${currentPosition}ms",
+            )
+
+            // stop() releases the failed MediaSource but keeps the queue. Replacing exactly
+            // one item forces ResolvingDataSource to resolve the song again from its media id.
+            currentPlayer.stop()
+            currentPlayer.replaceMediaItem(currentIndex, freshItem)
+            currentPlayer.seekTo(currentIndex, currentPosition)
+            error.value = null
+            currentPlayer.prepare()
+            currentPlayer.playWhenReady = shouldPlay
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Strong playback retry failed")
+            // Keep the original error UI available if the rebuild itself fails.
+            error.value = player.playerError
+        }
+    }
+
+    /** Strong user retry used by the player error button. */
+    fun retryCurrentPlayback() {
+        pending403Recovery?.let(playbackRecoveryHandler::removeCallbacks)
+        pending403Recovery = null
+        rebuildCurrentMediaItemAndRetry(forcePlay = true)
+    }
+
+    private fun scheduleStrong403Recovery(playbackError: PlaybackException) {
+        if (!isHttp403(playbackError)) return
+
+        val failedMediaId = runCatching { player.currentMediaItem?.mediaId }.getOrNull() ?: return
+        if (strong403RecoveryMediaId != failedMediaId) {
+            strong403RecoveryMediaId = failedMediaId
+            strong403RecoveryAttempts = 0
+        }
+        if (strong403RecoveryAttempts >= 1) return
+
+        pending403Recovery?.let(playbackRecoveryHandler::removeCallbacks)
+        val task = Runnable {
+            pending403Recovery = null
+            val currentPlayer = runCatching { player }.getOrNull() ?: return@Runnable
+            if (currentPlayer.currentMediaItem?.mediaId != failedMediaId) return@Runnable
+            if (!isHttp403(currentPlayer.playerError)) return@Runnable
+
+            strong403RecoveryAttempts++
+            Timber.tag(TAG).i("403 persisted after normal refresh; rebuilding MediaItem for $failedMediaId")
+            rebuildCurrentMediaItemAndRetry(forcePlay = false)
+        }
+        pending403Recovery = task
+        // MusicService's first-line 403 refresh waits 1 second. Give that attempt time
+        // to settle; only use the stronger rebuild if the same error survives it.
+        playbackRecoveryHandler.postDelayed(task, 1600L)
+    }
+
+'''
+          text = replace_once(text, marker, methods + marker, 'recovery methods')
+
+          old_state = '''    override fun onPlaybackStateChanged(state: Int) {
+        playbackState.value = state
+        error.value = player.playerError
+    }
+'''
+          new_state = '''    override fun onPlaybackStateChanged(state: Int) {
+        playbackState.value = state
+        error.value = player.playerError
+        if (state == Player.STATE_READY && player.playerError == null) {
+            pending403Recovery?.let(playbackRecoveryHandler::removeCallbacks)
+            pending403Recovery = null
+            strong403RecoveryMediaId = null
+            strong403RecoveryAttempts = 0
+        }
+    }
+'''
+          text = replace_once(text, old_state, new_state, 'playback state reset')
+
+          old_transition = '''    override fun onMediaItemTransition(
+        mediaItem: MediaItem?,
+        reason: Int,
+    ) {
+        mediaMetadata.value = mediaItem?.metadata
+'''
+          new_transition = '''    override fun onMediaItemTransition(
+        mediaItem: MediaItem?,
+        reason: Int,
+    ) {
+        if (mediaItem?.mediaId != strong403RecoveryMediaId) {
+            pending403Recovery?.let(playbackRecoveryHandler::removeCallbacks)
+            pending403Recovery = null
+            strong403RecoveryMediaId = null
+            strong403RecoveryAttempts = 0
+        }
+        mediaMetadata.value = mediaItem?.metadata
+'''
+          text = replace_once(text, old_transition, new_transition, 'media transition reset')
+
+          old_error = '''    override fun onPlayerErrorChanged(playbackError: PlaybackException?) {
+        error.value = playbackError
+    }
+'''
+          new_error = '''    override fun onPlayerErrorChanged(playbackError: PlaybackException?) {
+        error.value = playbackError
+        if (playbackError != null) {
+            scheduleStrong403Recovery(playbackError)
+        } else {
+            pending403Recovery?.let(playbackRecoveryHandler::removeCallbacks)
+            pending403Recovery = null
+        }
+    }
+'''
+          text = replace_once(text, old_error, new_error, 'player error hook')
+
+          old_dispose = '''    fun dispose() {
+        try {
+            attachedPlayer?.removeListener(this)
+'''
+          new_dispose = '''    fun dispose() {
+        try {
+            pending403Recovery?.let(playbackRecoveryHandler::removeCallbacks)
+            pending403Recovery = null
+            attachedPlayer?.removeListener(this)
+'''
+          text = replace_once(text, old_dispose, new_dispose, 'dispose cleanup')
+          pc_path.write_text(text)
+
+          thumb_path = Path('app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt')
+          thumb = thumb_path.read_text()
+          thumb = replace_once(
+              thumb,
+              '                    retry = playerConnection.player::prepare,\n',
+              '                    retry = playerConnection::retryCurrentPlayback,\n',
+              'retry button',
+          )
+          thumb_path.write_text(thumb)
+          PY
+
+          git diff --check
+          git diff -- app/src/main/kotlin/com/metrolist/music/playback/PlayerConnection.kt app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
+
+      - name: Commit isolated application change
+        shell: bash
+        run: |
+          git config user.name "UAB Bot"
+          git config user.email "uab-bot@users.noreply.github.com"
+          git add app/src/main/kotlin/com/metrolist/music/playback/PlayerConnection.kt app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
+          git commit -m "fix(playback): rebuild current source after persistent 403"
+          git push origin HEAD:lab/musiclab-playback-403-recovery-01
