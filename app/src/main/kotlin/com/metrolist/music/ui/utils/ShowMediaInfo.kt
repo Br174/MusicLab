@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,61 +46,72 @@ import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.Song
+import com.metrolist.music.intelligence.CanonicalMusicMetadata
+import com.metrolist.music.intelligence.MusicIntelligenceClient
+import com.metrolist.music.intelligence.MusicIntelligenceSettings
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.shimmer.ShimmerHost
 import com.metrolist.music.ui.component.shimmer.TextPlaceholder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ShowMediaInfo(videoId: String) {
-    if (videoId.isBlank() || videoId.isEmpty()) return
+    if (videoId.isBlank()) return
 
     val windowInsets = WindowInsets.systemBars
-
-    var info by remember {
-        mutableStateOf<MediaInfo?>(null)
-    }
-
+    var info by remember { mutableStateOf<MediaInfo?>(null) }
     val database = LocalDatabase.current
     var song by remember { mutableStateOf<Song?>(null) }
-
     var currentFormat by remember { mutableStateOf<FormatEntity?>(null) }
-
     val playerConnection = LocalPlayerConnection.current
     val context = LocalContext.current
 
     LaunchedEffect(Unit, videoId) {
         info = YouTube.getMediaInfo(videoId).getOrNull()
     }
-
     LaunchedEffect(Unit, videoId) {
-        database.song(videoId).collect {
-            song = it
-        }
+        database.song(videoId).collect { song = it }
+    }
+    LaunchedEffect(Unit, videoId) {
+        database.format(videoId).collect { currentFormat = it }
     }
 
-    LaunchedEffect(Unit, videoId) {
-        database.format(videoId).collect {
-            currentFormat = it
+    val canonical by produceState<CanonicalMusicMetadata?>(
+        initialValue = MusicIntelligenceClient.cached(videoId),
+        key1 = videoId,
+        key2 = song?.title,
+    ) {
+        val currentSong = song ?: return@produceState
+        val settings = MusicIntelligenceSettings.from(context)
+        if (!settings.enabled || !settings.backgroundMetadata) return@produceState
+        value = withContext(Dispatchers.IO) {
+            MusicIntelligenceClient.resolve(
+                context = context,
+                playbackId = videoId,
+                title = currentSong.title,
+                artist = currentSong.artists.firstOrNull()?.name.orEmpty(),
+                album = currentSong.albumName,
+            )
         }
     }
 
     LazyColumn(
         state = rememberLazyListState(),
         modifier = Modifier
-            .padding(
-                windowInsets
-                    .asPaddingValues()
-            )
+            .padding(windowInsets.asPaddingValues())
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
         if (info != null && song != null) {
             item(contentType = "MediaDetails") {
                 Column {
+                    val resolvedTitle = canonical?.title ?: song?.title
+                    val resolvedArtist = canonical?.artist ?: song?.artists?.joinToString { it.name }
                     val baseList = listOf(
-                        stringResource(R.string.song_title) to song?.title,
-                        stringResource(R.string.song_artists) to song?.artists?.joinToString { it.name },
+                        stringResource(R.string.song_title) to resolvedTitle,
+                        stringResource(R.string.song_artists) to resolvedArtist,
                         stringResource(R.string.media_id) to song?.id
                     )
 
@@ -135,13 +147,9 @@ fun ShowMediaInfo(videoId: String) {
                             stringResource(R.string.sample_rate) to currentFormat?.sampleRate?.let { "$it Hz" },
                             stringResource(R.string.loudness) to currentFormat?.loudnessDb?.let { "$it dB" },
                             stringResource(R.string.volume) to if (playerConnection != null) "${(playerConnection.player.volume * 100).toInt()}%" else null,
-                            stringResource(R.string.file_size) to
-                                    currentFormat?.contentLength?.let {
-                                        Formatter.formatShortFileSize(
-                                            context,
-                                            it
-                                        )
-                                    },
+                            stringResource(R.string.file_size) to currentFormat?.contentLength?.let {
+                                Formatter.formatShortFileSize(context, it)
+                            },
                         )
                     } else {
                         emptyList()
@@ -182,6 +190,38 @@ fun ShowMediaInfo(videoId: String) {
                         items = cardsBaseList
                     )
 
+                    canonical?.let { ai ->
+                        Spacer(Modifier.height(8.dp))
+                        val aiItems = mutableListOf<Material3SettingsItem>()
+                        fun addAiItem(title: String, value: String?) {
+                            val cleaned = value?.takeIf { it.isNotBlank() } ?: return
+                            aiItems += Material3SettingsItem(
+                                title = { Text(title) },
+                                description = { Text(cleaned) },
+                                icon = painterResource(R.drawable.info),
+                                onClick = {
+                                    cm.setPrimaryClip(ClipData.newPlainText("text", cleaned))
+                                    Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
+                                },
+                            )
+                        }
+                        addAiItem("Album canonico", ai.album)
+                        addAiItem("Anno", ai.year?.toString())
+                        addAiItem("Tipo di versione", ai.category)
+                        addAiItem("Lingua", ai.language)
+                        addAiItem("Autori", ai.credits.songwriters.joinToString(", "))
+                        addAiItem("Compositori", ai.credits.composers.joinToString(", "))
+                        addAiItem("Parolieri", ai.credits.lyricists.joinToString(", "))
+                        addAiItem("Produttori", ai.credits.producers.joinToString(", "))
+                        addAiItem("Etichetta", ai.credits.label)
+                        if (aiItems.isNotEmpty()) {
+                            Material3SettingsGroup(
+                                title = "Crediti AI canonici",
+                                items = aiItems,
+                            )
+                        }
+                    }
+
                     Spacer(Modifier.height(8.dp))
 
                     Material3SettingsGroup(
@@ -192,7 +232,6 @@ fun ShowMediaInfo(videoId: String) {
                     Spacer(Modifier.height(8.dp))
 
                     val descriptionText = info?.description ?: stringResource(R.string.unknown)
-
                     Material3SettingsGroup(
                         title = stringResource(R.string.description),
                         items = listOf(
@@ -214,9 +253,7 @@ fun ShowMediaInfo(videoId: String) {
                     Row(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(all = 16.dp)
+                        modifier = Modifier.fillMaxWidth().padding(all = 16.dp)
                     ) {
                         TextPlaceholder()
                     }
