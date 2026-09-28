@@ -22,36 +22,29 @@ jobs:
           cover = Path('app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt')
           s = cover.read_text()
           old = 'val enabledBatch = discoveredBatch.filter(::categoryEnabled)'
-          new = 'val enabledBatch = discoveredBatch.filter { candidate -> categoryEnabled(candidate.category) }'
           if old not in s:
               raise SystemExit('Pattern CoverSearchScreen non trovato')
-          cover.write_text(s.replace(old, new, 1))
+          cover.write_text(s.replace(old, 'val enabledBatch = discoveredBatch.filter { candidate -> categoryEnabled(candidate.category) }', 1))
 
           info = Path('app/src/main/kotlin/com/metrolist/music/ui/utils/ShowMediaInfo.kt')
           s = info.read_text()
-          old_album = 'album = currentSong.albumName,'
-          if old_album not in s:
+          if 'album = currentSong.albumName,' not in s:
               raise SystemExit('Pattern albumName non trovato')
-          s = s.replace(old_album, 'album = currentSong.album?.title,', 1)
+          s = s.replace('album = currentSong.albumName,', 'album = currentSong.album?.title,', 1)
 
-          old_start = '''                    canonical?.let { ai ->
-                        Spacer(Modifier.height(8.dp))
-                        val aiItems = mutableListOf<Material3SettingsItem>()
-                        fun addAiItem(title: String, value: String?) {'''
-          new_start = '''                    val ai = canonical
-                    if (ai != null) {
-                        Spacer(Modifier.height(8.dp))
-                        val aiItems = mutableListOf<Material3SettingsItem>()
-                        val aiInfoIcon = painterResource(R.drawable.info)
-                        fun addAiItem(title: String, value: String?) {'''
-          if old_start not in s:
+          if 'canonical?.let { ai ->' not in s:
               raise SystemExit('Pattern canonical let non trovato')
-          s = s.replace(old_start, new_start, 1)
+          s = s.replace('canonical?.let { ai ->', 'val ai = canonical\n                    if (ai != null) {', 1)
 
-          marker = 'val aiInfoIcon = painterResource(R.drawable.info)'
-          pos = s.index(marker)
-          icon_pos = s.index('icon = painterResource(R.drawable.info),', pos)
-          s = s[:icon_pos] + 'icon = aiInfoIcon,' + s[icon_pos + len('icon = painterResource(R.drawable.info),'):]
+          anchor = 'val aiItems = mutableListOf<Material3SettingsItem>()'
+          pos = s.index(anchor)
+          insert = anchor + '\n                        val aiInfoIcon = painterResource(R.drawable.info)'
+          s = s[:pos] + s[pos:].replace(anchor, insert, 1)
+
+          pos = s.index('val aiInfoIcon = painterResource(R.drawable.info)')
+          icon = 'icon = painterResource(R.drawable.info),'
+          icon_pos = s.index(icon, pos)
+          s = s[:icon_pos] + 'icon = aiInfoIcon,' + s[icon_pos + len(icon):]
           info.write_text(s)
           PY
       - name: Commit delle correzioni
