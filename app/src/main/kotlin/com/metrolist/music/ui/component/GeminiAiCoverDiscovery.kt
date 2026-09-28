@@ -82,7 +82,7 @@ internal object GeminiAiCoverDiscovery {
     private val initialCache = ConcurrentHashMap<String, CachedDiscovery>()
     private val expandedCache = ConcurrentHashMap<String, CachedDiscovery>()
 
-    /** Prima corsia: pochi dati, massimo sei cover studio, per mostrare risultati subito. */
+    /** Prima corsia: pochi dati, massimo cinque cover studio, per mostrare risultati subito. */
     suspend fun discoverInitial(
         originalTitle: String,
         originalArtist: String,
@@ -408,7 +408,7 @@ Rispondi SOLO JSON:
     )
 
     private val DISALLOWED = Regex("\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b")
-    private const val INITIAL_LIMIT = 6
+    private const val INITIAL_LIMIT = 5
     private const val MAX_TOTAL_CANDIDATES = 150
     private const val CONCURRENT_RESEARCH = 3
     private const val MAX_EMPTY_PASSES = 2

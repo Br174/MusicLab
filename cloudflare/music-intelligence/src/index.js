@@ -148,11 +148,17 @@ async function discover(input, env, phase) {
   const focus = clean(input?.focus);
 
   if (phase === 'initial') {
+    if (input?.useMemory !== false && env.DB) {
+      const cached = await cachedDiscovery(env.DB, title, artist, mode === 'cover' ? 5 : 6);
+      if (cached && (cached.original || cached.versions.length)) {
+        return { stato: 'pronto', fase: 'initial', provenienza: 'memoria', ...cached };
+      }
+    }
     const prompt = mode === 'cover'
       ? initialCoverPrompt(title, artist)
       : initialOriginalsPrompt(title, artist);
     const ai = await askGemini(prompt, env, 2400, false);
-    const payload = normalizeDiscovery(ai, 6);
+    const payload = normalizeDiscovery(ai, mode === 'cover' ? 5 : 6);
     if (env.DB) await saveDiscovery(env.DB, title, artist, payload, env);
     return { stato: 'pronto', fase: 'initial', provenienza: 'ai', ...payload };
   }
@@ -169,7 +175,7 @@ async function discover(input, env, phase) {
 
 function initialCoverPrompt(title, artist) {
   return `Sei il motore AI-first di MusicLab. L'AI è l'unica autorità editoriale. ` +
-    `Per ${title} — ${artist}, restituisci SUBITO fino a 6 cover in studio reali della stessa composizione, ` +
+    `Per ${title} — ${artist}, restituisci SUBITO fino a 5 cover in studio reali della stessa composizione, ` +
     `eseguite da artisti diversi dall'originale. Niente live, niente remix, niente karaoke. ` +
     `Preferisci versioni sicure e distribuite nel tempo. Per la prima risposta privilegia velocità. ` + discoveryJsonInstruction();
 }
@@ -280,20 +286,52 @@ function normalizeDiscovery(ai, limit) {
   return { original, versions };
 }
 
-async function saveDiscovery(db, requestTitle, requestArtist, payload, env) {
-  if (!payload?.original) return;
+async function cachedDiscovery(db, requestTitle, requestArtist, limit) {
   const key = searchKey(requestTitle, requestArtist);
-  const workId = crypto.randomUUID();
-  await db.prepare(`
-    INSERT INTO works(id,search_key,canonical_title,original_artist,original_year,original_language,credits_json,ai_model)
-    VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
-    ON CONFLICT(search_key) DO UPDATE SET canonical_title=excluded.canonical_title,original_artist=excluded.original_artist,
-      original_year=COALESCE(excluded.original_year,works.original_year),original_language=COALESCE(excluded.original_language,works.original_language),
-      credits_json=excluded.credits_json,ai_model=excluded.ai_model,updated_at=CURRENT_TIMESTAMP
-  `).bind(workId,key,payload.original.title,payload.original.artist,payload.original.year,payload.original.language,
-    JSON.stringify(payload.original.credits||{}),env.GEMINI_MODEL||'gemini-2.5-flash-lite').run();
+  const work = await db.prepare('SELECT * FROM works WHERE search_key=?1 LIMIT 1').bind(key).first();
+  if (!work) return null;
+  const rows = await db.prepare(`
+    SELECT canonical_title, canonical_artist, category, language, year, album, credits_json
+    FROM versions WHERE work_id=?1
+    ORDER BY CASE WHEN year IS NULL THEN 1 ELSE 0 END, year ASC, canonical_artist ASC
+    LIMIT ?2
+  `).bind(work.id, limit).all();
+  return {
+    original: {
+      title: work.canonical_title,
+      artist: work.original_artist,
+      year: work.original_year,
+      language: work.original_language,
+      album: null,
+      credits: safeJson(work.credits_json) || {},
+    },
+    versions: (rows?.results || []).map(v => ({
+      title: v.canonical_title,
+      artist: v.canonical_artist,
+      category: v.category,
+      language: v.language,
+      year: v.year,
+      album: v.album,
+      credits: safeJson(v.credits_json) || {},
+    })),
+  };
+}
+
+async function saveDiscovery(db, requestTitle, requestArtist, payload, env) {
+  const key = searchKey(requestTitle, requestArtist);
+  if (payload?.original) {
+    const workId = crypto.randomUUID();
+    await db.prepare(`
+      INSERT INTO works(id,search_key,canonical_title,original_artist,original_year,original_language,credits_json,ai_model)
+      VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+      ON CONFLICT(search_key) DO UPDATE SET canonical_title=excluded.canonical_title,original_artist=excluded.original_artist,
+        original_year=COALESCE(excluded.original_year,works.original_year),original_language=COALESCE(excluded.original_language,works.original_language),
+        credits_json=excluded.credits_json,ai_model=excluded.ai_model,updated_at=CURRENT_TIMESTAMP
+    `).bind(workId,key,payload.original.title,payload.original.artist,payload.original.year,payload.original.language,
+      JSON.stringify(payload.original.credits||{}),env.GEMINI_MODEL||'gemini-2.5-flash-lite').run();
+  }
   const work = await db.prepare('SELECT id FROM works WHERE search_key=?1 LIMIT 1').bind(key).first();
-  if (!work?.id || !payload.versions?.length) return;
+  if (!work?.id || !payload?.versions?.length) return;
   const statements = payload.versions.map(v => db.prepare(`
     INSERT INTO versions(id,work_id,version_key,canonical_title,canonical_artist,category,language,year,album,credits_json,ai_model)
     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
