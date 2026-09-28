@@ -54,26 +54,22 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify")"
           test "$(jq -r '.success' <<<"$response")" = "true"
 
-      - name: Crea o riutilizza database D1
+      - name: Installa dipendenze Worker
+        working-directory: cloudflare/music-intelligence
+        run: npm install
+
+      - name: Crea o riutilizza database D1 con Wrangler
         id: d1
+        working-directory: cloudflare/music-intelligence
         shell: bash
         run: |
           set -euo pipefail
-          list_response="$(curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database?name=musiclab-intelligence-db")"
-          test "$(jq -r '.success' <<<"$list_response")" = "true"
-          database_id="$(jq -r '.result[]? | select(.name == "musiclab-intelligence-db") | (.uuid // .id)' <<<"$list_response" | head -n1)"
+          list_response="$(npx wrangler d1 list --json)"
+          database_id="$(jq -r '.[]? | select(.name == "musiclab-intelligence-db") | (.uuid // .id)' <<<"$list_response" | head -n1)"
 
           if [ -z "$database_id" ]; then
-            create_response="$(curl --fail-with-body --silent --show-error \
-              -X POST \
-              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json" \
-              --data '{"name":"musiclab-intelligence-db"}' \
-              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database")"
-            test "$(jq -r '.success' <<<"$create_response")" = "true"
-            database_id="$(jq -r '.result.uuid // .result.id' <<<"$create_response")"
+            create_response="$(npx wrangler d1 create musiclab-intelligence-db --location weur 2>&1)"
+            database_id="$(grep -Eo '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' <<<"$create_response" | head -n1)"
           fi
 
           test -n "$database_id"
@@ -85,7 +81,7 @@ jobs:
           import os
           from pathlib import Path
 
-          path = Path("cloudflare/music-intelligence/wrangler.jsonc")
+          path = Path("wrangler.jsonc")
           data = json.loads(path.read_text())
           data["d1_databases"][0]["database_id"] = os.environ["DATABASE_ID"]
           path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
@@ -96,7 +92,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install
           node --check src/index.js
           npx wrangler deploy --dry-run --outdir=/tmp/musiclab-worker
 
