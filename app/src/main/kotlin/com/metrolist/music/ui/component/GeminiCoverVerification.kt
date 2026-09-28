@@ -27,6 +27,8 @@ import java.util.concurrent.TimeUnit
 internal data class GeminiCoverVerificationConfig(
     val apiKey: String,
     val model: String,
+    val cloudEndpoint: String = "",
+    val useCloudMemory: Boolean = true,
 )
 
 internal enum class GeminiCoverDecision {

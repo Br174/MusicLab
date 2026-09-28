@@ -88,13 +88,28 @@ internal object GeminiAiCoverDiscovery {
         originalArtist: String,
         config: GeminiCoverVerificationConfig,
     ): AiCoverDiscoveryResult = withContext(Dispatchers.IO) {
-        if (config.apiKey.isBlank() || originalTitle.isBlank()) {
+        if (originalTitle.isBlank() || (config.apiKey.isBlank() && config.cloudEndpoint.isBlank())) {
             return@withContext AiCoverDiscoveryResult(null, emptyList())
         }
         val cacheKey = "initial11|${config.model}|${canonical(originalTitle)}|${canonical(originalArtist)}"
         initialCache[cacheKey]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let {
             return@withContext it.value
         }
+
+        if (config.cloudEndpoint.isNotBlank()) {
+            val cloudResult = CloudMusicDiscovery.discoverCover(
+                title = originalTitle,
+                artist = originalArtist,
+                config = config,
+                phase = "initial",
+            )
+            if (cloudResult != null) {
+                val result = sanitize(cloudResult, originalArtist, AiCoverCategory.COVER, INITIAL_LIMIT)
+                initialCache[cacheKey] = CachedDiscovery(result, System.currentTimeMillis() + CACHE_TTL_MS)
+                return@withContext result
+            }
+        }
+        if (config.apiKey.isBlank()) return@withContext AiCoverDiscoveryResult(null, emptyList())
 
         val prompt = """Sei il cervello musicale AI-first di MusicLab.
 La tua risposta è l'autorità editoriale: YouTube/YouTube Music non decidono metadati, artista, album o crediti.
@@ -150,7 +165,7 @@ Rispondi SOLO JSON:
         config: GeminiCoverVerificationConfig,
         onBatch: suspend (List<AiCoverCandidate>) -> Unit,
     ) = withContext(Dispatchers.IO) {
-        if (config.apiKey.isBlank() || originalTitle.isBlank()) return@withContext
+        if (originalTitle.isBlank() || (config.apiKey.isBlank() && config.cloudEndpoint.isBlank())) return@withContext
 
         val collected = linkedMapOf<String, AiCoverCandidate>()
         existing.forEach { collected[it.stableKey] = it }
@@ -188,6 +203,25 @@ Rispondi SOLO JSON:
         focus: ResearchFocus,
         config: GeminiCoverVerificationConfig,
     ): List<AiCoverCandidate> {
+        if (config.cloudEndpoint.isNotBlank()) {
+            val cloudResult = runCatching {
+                kotlinx.coroutines.runBlocking {
+                    CloudMusicDiscovery.discoverCover(
+                        title = originalTitle,
+                        artist = originalArtist,
+                        config = config,
+                        phase = "expand",
+                        existing = existing,
+                        focus = focus.instructions,
+                    )
+                }
+            }.getOrNull()
+            if (cloudResult != null) {
+                return sanitize(cloudResult, originalArtist, focus.category, focus.limit).versions
+            }
+        }
+        if (config.apiKey.isBlank()) return emptyList()
+
         val excluded = existing.take(150).joinToString("\n") {
             "- ${it.artist} — ${it.title} [${it.category.name.lowercase()}${it.language?.let { l -> ", $l" }.orEmpty()}]"
         }

@@ -51,6 +51,8 @@ import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.MusicAiCoverEnabledKey
+import com.metrolist.music.constants.MusicAiCloudEndpointKey
+import com.metrolist.music.constants.MusicAiCloudMemoryEnabledKey
 import com.metrolist.music.constants.MusicAiEngineEnabledKey
 import com.metrolist.music.constants.MusicAiForeignEnabledKey
 import com.metrolist.music.constants.MusicAiLiveEnabledKey
@@ -133,6 +135,8 @@ internal fun CoverSearchScreen(
     val liveAiEnabled by rememberPreference(MusicAiLiveEnabledKey, true)
     val remixAiEnabled by rememberPreference(MusicAiRemixEnabledKey, true)
     val foreignAiEnabled by rememberPreference(MusicAiForeignEnabledKey, true)
+    val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
+    val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, "")
 
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
     val sharedApiKey by rememberPreference(OpenRouterApiKey, "")
@@ -150,8 +154,15 @@ internal fun CoverSearchScreen(
     } else {
         "gemini-3.5-flash-lite"
     }
-    val geminiConfig = effectiveKey.takeIf { it.isNotBlank() }?.let {
-        GeminiCoverVerificationConfig(apiKey = it, model = effectiveModel)
+    val geminiConfig = if (effectiveKey.isNotBlank() || cloudEndpoint.isNotBlank()) {
+        GeminiCoverVerificationConfig(
+            apiKey = effectiveKey,
+            model = effectiveModel,
+            cloudEndpoint = cloudEndpoint,
+            useCloudMemory = cloudMemoryEnabled,
+        )
+    } else {
+        null
     }
 
     var selectedTab by remember(sessionKey) { mutableStateOf(AiCoverTab.COVER) }
@@ -238,6 +249,8 @@ internal fun CoverSearchScreen(
         liveAiEnabled,
         remixAiEnabled,
         foreignAiEnabled,
+        cloudMemoryEnabled,
+        cloudEndpoint,
     ) {
         if (!aiMasterEnabled || !coverAiEnabled) {
             initialLoading = false

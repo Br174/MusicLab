@@ -61,13 +61,28 @@ internal object GeminiOriginalDiscovery {
         currentArtist: String,
         config: GeminiCoverVerificationConfig,
     ): GeminiOriginalIdentity? = withContext(Dispatchers.IO) {
-        if (!config.isUsable()) return@withContext null
         if (currentTitle.isBlank()) return@withContext null
 
         val cacheKey = "v2|${config.model}|${currentTitle.trim().lowercase()}|${currentArtist.trim().lowercase()}"
         cache[cacheKey]
             ?.takeIf { it.expiresAtMs > System.currentTimeMillis() }
             ?.let { return@withContext it.identity }
+
+        if (config.cloudEndpoint.isNotBlank()) {
+            val cloudIdentity = CloudMusicDiscovery.identifyOriginal(
+                title = currentTitle,
+                artist = currentArtist,
+                config = config,
+            )
+            if (cloudIdentity != null) {
+                cache[cacheKey] = CachedIdentity(
+                    identity = cloudIdentity,
+                    expiresAtMs = System.currentTimeMillis() + CACHE_TTL_MS,
+                )
+                return@withContext cloudIdentity
+            }
+        }
+        if (!config.isUsable()) return@withContext null
 
         val prompt =
             """Sei il motore Originali di un'app musicale. La traccia corrente può essere una cover, un live, un duetto, una performance TV o avere un titolo descrittivo.

@@ -47,6 +47,8 @@ import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.MusicAiEngineEnabledKey
+import com.metrolist.music.constants.MusicAiCloudEndpointKey
+import com.metrolist.music.constants.MusicAiCloudMemoryEnabledKey
 import com.metrolist.music.constants.MusicAiOriginalsEnabledKey
 import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterModelKey
@@ -77,6 +79,8 @@ internal fun OriginalVersionScreen(
 
     val aiMasterEnabled by rememberPreference(MusicAiEngineEnabledKey, true)
     val originalsAiEnabled by rememberPreference(MusicAiOriginalsEnabledKey, true)
+    val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
+    val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, "")
 
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
     val sharedApiKey by rememberPreference(OpenRouterApiKey, "")
@@ -96,8 +100,15 @@ internal fun OriginalVersionScreen(
     } else {
         "gemini-3.5-flash-lite"
     }
-    val geminiConfig = effectiveKey.takeIf { it.isNotBlank() }?.let {
-        GeminiCoverVerificationConfig(apiKey = it, model = effectiveModel)
+    val geminiConfig = if (effectiveKey.isNotBlank() || cloudEndpoint.isNotBlank()) {
+        GeminiCoverVerificationConfig(
+            apiKey = effectiveKey,
+            model = effectiveModel,
+            cloudEndpoint = cloudEndpoint,
+            useCloudMemory = cloudMemoryEnabled,
+        )
+    } else {
+        null
     }
 
     var loading by remember(request.currentYouTubeId) { mutableStateOf(true) }
@@ -144,6 +155,8 @@ internal fun OriginalVersionScreen(
         request.artist,
         effectiveKey,
         effectiveModel,
+        cloudMemoryEnabled,
+        cloudEndpoint,
         aiMasterEnabled,
         originalsAiEnabled,
     ) {
