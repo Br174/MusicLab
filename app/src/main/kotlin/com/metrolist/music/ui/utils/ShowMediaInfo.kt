@@ -92,7 +92,7 @@ fun ShowMediaInfo(videoId: String) {
                 playbackId = videoId,
                 title = currentSong.title,
                 artist = currentSong.artists.firstOrNull()?.name.orEmpty(),
-                album = currentSong.albumName,
+                album = currentSong.album?.title,
             )
         }
     }
@@ -190,15 +190,17 @@ fun ShowMediaInfo(videoId: String) {
                         items = cardsBaseList
                     )
 
-                    canonical?.let { ai ->
+                    val ai = canonical
+                    if (ai != null) {
                         Spacer(Modifier.height(8.dp))
                         val aiItems = mutableListOf<Material3SettingsItem>()
+                        val aiInfoIcon = painterResource(R.drawable.info)
                         fun addAiItem(title: String, value: String?) {
                             val cleaned = value?.takeIf { it.isNotBlank() } ?: return
                             aiItems += Material3SettingsItem(
                                 title = { Text(title) },
                                 description = { Text(cleaned) },
-                                icon = painterResource(R.drawable.info),
+                                icon = aiInfoIcon,
                                 onClick = {
                                     cm.setPrimaryClip(ClipData.newPlainText("text", cleaned))
                                     Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()

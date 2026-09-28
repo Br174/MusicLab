@@ -316,7 +316,7 @@ internal fun CoverSearchScreen(
                 existing = knownCandidates,
                 config = config,
             ) { discoveredBatch ->
-                val enabledBatch = discoveredBatch.filter(::categoryEnabled)
+                val enabledBatch = discoveredBatch.filter { candidate -> categoryEnabled(candidate.category) }
                 if (enabledBatch.isEmpty()) return@discoverExpandedBatches
 
                 withContext(Dispatchers.Main) {
