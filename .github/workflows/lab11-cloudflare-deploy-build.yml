@@ -1,0 +1,217 @@
+name: MusicLab LAB11 - Cloudflare D1 Deploy e APK
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-global-ai-engine-11
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musiclab-lab11-cloudflare-deploy-build
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Cloudflare e verifica endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      WORKER_URL: https://musiclab-music-intelligence.brunoverlezza.workers.dev
+      WRANGLER_SEND_METRICS: "false"
+
+    steps:
+      - name: Checkout LAB11
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configura Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verifica presenza segreti
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$GEMINI_API_KEY"
+
+      - name: Verifica token Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            https://api.cloudflare.com/client/v4/user/tokens/verify)"
+          test "$(jq -r '.success' <<<"$response")" = "true"
+
+      - name: Crea o riutilizza database D1
+        id: d1
+        shell: bash
+        run: |
+          set -euo pipefail
+          list_response="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database?name=musiclab-intelligence-db")"
+          test "$(jq -r '.success' <<<"$list_response")" = "true"
+          database_id="$(jq -r '.result[]? | select(.name == "musiclab-intelligence-db") | (.uuid // .id)' <<<"$list_response" | head -n1)"
+
+          if [ -z "$database_id" ]; then
+            create_response="$(curl --fail-with-body --silent --show-error \
+              -X POST \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data '{"name":"musiclab-intelligence-db"}' \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database")"
+            test "$(jq -r '.success' <<<"$create_response")" = "true"
+            database_id="$(jq -r '.result.uuid // .result.id' <<<"$create_response")"
+          fi
+
+          test -n "$database_id"
+          test "$database_id" != "null"
+          echo "database_id=$database_id" >> "$GITHUB_OUTPUT"
+
+          DATABASE_ID="$database_id" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("cloudflare/music-intelligence/wrangler.jsonc")
+          data = json.loads(path.read_text())
+          data["d1_databases"][0]["database_id"] = os.environ["DATABASE_ID"]
+          path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+          PY
+
+      - name: Installa dipendenze e verifica Worker
+        working-directory: cloudflare/music-intelligence
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install
+          node --check src/index.js
+          npx wrangler deploy --dry-run --outdir=/tmp/musiclab-worker
+
+      - name: Applica migrazioni D1
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler d1 migrations apply musiclab-intelligence-db --remote
+
+      - name: Configura segreto Gemini nel Worker
+        working-directory: cloudflare/music-intelligence
+        shell: bash
+        run: printf '%s' "$GEMINI_API_KEY" | npx wrangler secret put GEMINI_API_KEY
+
+      - name: Distribuisci Worker MusicLab
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler deploy
+
+      - name: Verifica endpoint pubblicato
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if response="$(curl --fail-with-body --silent --show-error "$WORKER_URL/stato")"; then
+              test "$(jq -r '.ok' <<<"$response")" = "true"
+              test "$(jq -r '.database' <<<"$response")" = "true"
+              test "$(jq -r '.ai' <<<"$response")" = "true"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Endpoint MusicLab non disponibile dopo 6 tentativi" >&2
+          exit 1
+
+      - name: Registra identificativo D1 nel branch LAB11
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- cloudflare/music-intelligence/wrangler.jsonc; then
+            exit 0
+          fi
+          git config user.name "MusicLab LAB11 Deploy"
+          git config user.email "uab-bot@users.noreply.github.com"
+          git add cloudflare/music-intelligence/wrangler.jsonc
+          git commit -m "LAB11: registra database D1 Cloudflare [skip ci]"
+          git push origin HEAD:uab-build/musiclab-global-ai-engine-11
+
+  build:
+    name: Rebuild e verifica APK LAB11
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout LAB11
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Configura Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Configura cache Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Configura Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Crea keystore debug isolato
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android"
+          rm -f "$HOME/.android/debug.keystore"
+          keytool -genkeypair \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -noprompt
+
+      - name: Configura Android SDK
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Diagnostica UAB
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Compila APK e ZIP LAB11
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verifica endpoint incorporato nel sorgente
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'https://musiclab-music-intelligence.brunoverlezza.workers.dev' \
+            app/src/main/kotlin/com/metrolist/music/constants/MusicIntelligenceKeys.kt
+
+      - name: Pubblica APK e ZIP LAB11
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB-GLOBAL-AI-ENGINE-11-CLOUDFLARE
+          path: |
+            dist/uab/apk/*.apk
+            dist/uab/*.zip
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
