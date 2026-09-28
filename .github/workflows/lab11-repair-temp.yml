@@ -1,57 +1,118 @@
-name: TEMP LAB11 Compile Repair
+name: TEMP LAB11 Memory Patch
 on:
   push:
     branches: [uab-build/musiclab-global-ai-engine-11]
 permissions:
   contents: write
 jobs:
-  repair:
-    if: contains(github.event.head_commit.message, 'LAB11 repair compile errors')
+  patch:
+    if: contains(github.event.head_commit.message, 'LAB11 memory cache patch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: uab-build/musiclab-global-ai-engine-11
           fetch-depth: 0
-      - name: Correggi i quattro errori Kotlin
+      - name: Allinea primo blocco e memoria D1
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          cover = Path('app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt')
-          s = cover.read_text()
-          old = 'val enabledBatch = discoveredBatch.filter(::categoryEnabled)'
-          if old not in s:
-              raise SystemExit('Pattern CoverSearchScreen non trovato')
-          cover.write_text(s.replace(old, 'val enabledBatch = discoveredBatch.filter { candidate -> categoryEnabled(candidate.category) }', 1))
+          discovery = Path('app/src/main/kotlin/com/metrolist/music/ui/component/GeminiAiCoverDiscovery.kt')
+          s = discovery.read_text()
+          s = s.replace('Prima corsia: pochi dati, massimo sei cover studio', 'Prima corsia: pochi dati, massimo cinque cover studio')
+          if 'private const val INITIAL_LIMIT = 6' not in s:
+              raise SystemExit('INITIAL_LIMIT non trovato')
+          s = s.replace('private const val INITIAL_LIMIT = 6', 'private const val INITIAL_LIMIT = 5', 1)
+          discovery.write_text(s)
 
-          info = Path('app/src/main/kotlin/com/metrolist/music/ui/utils/ShowMediaInfo.kt')
-          s = info.read_text()
-          if 'album = currentSong.albumName,' not in s:
-              raise SystemExit('Pattern albumName non trovato')
-          s = s.replace('album = currentSong.albumName,', 'album = currentSong.album?.title,', 1)
+          worker = Path('cloudflare/music-intelligence/src/index.js')
+          s = worker.read_text()
+          s = s.replace('restituisci SUBITO fino a 6 cover in studio reali', 'restituisci SUBITO fino a 5 cover in studio reali', 1)
+          s = s.replace('const payload = normalizeDiscovery(ai, 6);', "const payload = normalizeDiscovery(ai, mode === 'cover' ? 5 : 6);", 1)
 
-          if 'canonical?.let { ai ->' not in s:
-              raise SystemExit('Pattern canonical let non trovato')
-          s = s.replace('canonical?.let { ai ->', 'val ai = canonical\n                    if (ai != null) {', 1)
+          initial_anchor = "  if (phase === 'initial') {\n"
+          if initial_anchor not in s:
+              raise SystemExit('Blocco initial Worker non trovato')
+          cache_block = """  if (phase === 'initial') {
+    if (input?.useMemory !== false && env.DB) {
+      const cached = await cachedDiscovery(env.DB, title, artist, mode === 'cover' ? 5 : 6);
+      if (cached && (cached.original || cached.versions.length)) {
+        return { stato: 'pronto', fase: 'initial', provenienza: 'memoria', ...cached };
+      }
+    }
+"""
+          s = s.replace(initial_anchor, cache_block, 1)
 
-          anchor = 'val aiItems = mutableListOf<Material3SettingsItem>()'
-          pos = s.index(anchor)
-          insert = anchor + '\n                        val aiInfoIcon = painterResource(R.drawable.info)'
-          s = s[:pos] + s[pos:].replace(anchor, insert, 1)
+          start = s.index('async function saveDiscovery(')
+          end = s.index('async function savePlaybackBinding(', start)
+          replacement = r'''async function cachedDiscovery(db, requestTitle, requestArtist, limit) {
+  const key = searchKey(requestTitle, requestArtist);
+  const work = await db.prepare('SELECT * FROM works WHERE search_key=?1 LIMIT 1').bind(key).first();
+  if (!work) return null;
+  const rows = await db.prepare(`
+    SELECT canonical_title, canonical_artist, category, language, year, album, credits_json
+    FROM versions WHERE work_id=?1
+    ORDER BY CASE WHEN year IS NULL THEN 1 ELSE 0 END, year ASC, canonical_artist ASC
+    LIMIT ?2
+  `).bind(work.id, limit).all();
+  return {
+    original: {
+      title: work.canonical_title,
+      artist: work.original_artist,
+      year: work.original_year,
+      language: work.original_language,
+      album: null,
+      credits: safeJson(work.credits_json) || {},
+    },
+    versions: (rows?.results || []).map(v => ({
+      title: v.canonical_title,
+      artist: v.canonical_artist,
+      category: v.category,
+      language: v.language,
+      year: v.year,
+      album: v.album,
+      credits: safeJson(v.credits_json) || {},
+    })),
+  };
+}
 
-          pos = s.index('val aiInfoIcon = painterResource(R.drawable.info)')
-          icon = 'icon = painterResource(R.drawable.info),'
-          icon_pos = s.index(icon, pos)
-          s = s[:icon_pos] + 'icon = aiInfoIcon,' + s[icon_pos + len(icon):]
-          info.write_text(s)
+async function saveDiscovery(db, requestTitle, requestArtist, payload, env) {
+  const key = searchKey(requestTitle, requestArtist);
+  if (payload?.original) {
+    const workId = crypto.randomUUID();
+    await db.prepare(`
+      INSERT INTO works(id,search_key,canonical_title,original_artist,original_year,original_language,credits_json,ai_model)
+      VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+      ON CONFLICT(search_key) DO UPDATE SET canonical_title=excluded.canonical_title,original_artist=excluded.original_artist,
+        original_year=COALESCE(excluded.original_year,works.original_year),original_language=COALESCE(excluded.original_language,works.original_language),
+        credits_json=excluded.credits_json,ai_model=excluded.ai_model,updated_at=CURRENT_TIMESTAMP
+    `).bind(workId,key,payload.original.title,payload.original.artist,payload.original.year,payload.original.language,
+      JSON.stringify(payload.original.credits||{}),env.GEMINI_MODEL||'gemini-2.5-flash-lite').run();
+  }
+  const work = await db.prepare('SELECT id FROM works WHERE search_key=?1 LIMIT 1').bind(key).first();
+  if (!work?.id || !payload?.versions?.length) return;
+  const statements = payload.versions.map(v => db.prepare(`
+    INSERT INTO versions(id,work_id,version_key,canonical_title,canonical_artist,category,language,year,album,credits_json,ai_model)
+    VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+    ON CONFLICT(work_id,version_key) DO UPDATE SET year=COALESCE(excluded.year,versions.year),album=COALESCE(excluded.album,versions.album),
+      language=COALESCE(excluded.language,versions.language),credits_json=excluded.credits_json,ai_model=excluded.ai_model,updated_at=CURRENT_TIMESTAMP
+  `).bind(crypto.randomUUID(),work.id,versionKey(v.title,v.artist,v.category,v.language),v.title,v.artist,v.category,v.language,v.year,v.album,
+    JSON.stringify(v.credits||{}),env.GEMINI_MODEL||'gemini-2.5-flash-lite'));
+  await db.batch(statements);
+}
+
+'''
+          s = s[:start] + replacement + s[end:]
+          worker.write_text(s)
           PY
-      - name: Commit delle correzioni
+          node --check cloudflare/music-intelligence/src/index.js
+      - name: Commit patch
         shell: bash
         run: |
           git config user.name "MusicLab LAB bot"
           git config user.email "actions@users.noreply.github.com"
-          git add app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt app/src/main/kotlin/com/metrolist/music/ui/utils/ShowMediaInfo.kt
-          git commit -m "LAB11: corregge errori Kotlin emersi dal build"
+          git add app/src/main/kotlin/com/metrolist/music/ui/component/GeminiAiCoverDiscovery.kt cloudflare/music-intelligence/src/index.js
+          git commit -m "LAB11: primi 5 risultati e memoria D1 cache-first"
           git push origin HEAD:uab-build/musiclab-global-ai-engine-11
