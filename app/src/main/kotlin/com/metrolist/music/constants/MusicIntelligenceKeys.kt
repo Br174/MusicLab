@@ -19,7 +19,8 @@ val MusicAiForeignEnabledKey = booleanPreferencesKey("musicAiForeignEnabled")
 val MusicAiCloudMemoryEnabledKey = booleanPreferencesKey("musicAiCloudMemoryEnabled")
 val MusicAiBackgroundMetadataEnabledKey = booleanPreferencesKey("musicAiBackgroundMetadataEnabled")
 
-/** Endpoint del Worker centrale. Vuoto = backend cloud non configurato. */
+/** Endpoint del Worker centrale MusicLab LAB11. */
 val MusicAiCloudEndpointKey = stringPreferencesKey("musicAiCloudEndpoint")
 
-const val DEFAULT_MUSIC_AI_CLOUD_ENDPOINT = ""
+const val DEFAULT_MUSIC_AI_CLOUD_ENDPOINT =
+    "https://musiclab-music-intelligence.brunoverlezza.workers.dev"
