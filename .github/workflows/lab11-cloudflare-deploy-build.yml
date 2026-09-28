@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           response="$(curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            https://api.cloudflare.com/client/v4/user/tokens/verify)"
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify")"
           test "$(jq -r '.success' <<<"$response")" = "true"
 
       - name: Crea o riutilizza database D1
