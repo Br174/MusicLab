@@ -1,4 +1,4 @@
-name: TEMP LAB11 Memory Patch
+name: TEMP LAB11 Cloud Wiring Patch
 on:
   push:
     branches:
@@ -7,22 +7,24 @@ permissions:
   contents: write
 jobs:
   patch:
-    if: contains(github.event.head_commit.message, 'LAB11 memory cache patch')
+    if: contains(github.event.head_commit.message, 'LAB11 cloud wiring patch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: uab-build/musiclab-global-ai-engine-11
           fetch-depth: 0
-      - name: Applica patch memoria
-        run: python3 tools/lab11_memory_patch.py
-      - name: Verifica sintassi Worker
-        run: node --check cloudflare/music-intelligence/src/index.js
+      - name: Collega Cover e Originali al cloud
+        run: python3 tools/lab11_cloud_wiring_patch.py
       - name: Commit patch
         shell: bash
         run: |
           git config user.name "MusicLab LAB bot"
           git config user.email "actions@users.noreply.github.com"
-          git add app/src/main/kotlin/com/metrolist/music/ui/component/GeminiAiCoverDiscovery.kt cloudflare/music-intelligence/src/index.js
-          git commit -m "LAB11: primi 5 risultati e memoria D1 cache-first"
+          git add app/src/main/kotlin/com/metrolist/music/ui/component/GeminiCoverVerification.kt \
+                  app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt \
+                  app/src/main/kotlin/com/metrolist/music/ui/component/GeminiAiCoverDiscovery.kt \
+                  app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt \
+                  app/src/main/kotlin/com/metrolist/music/ui/component/GeminiOriginalDiscovery.kt
+          git commit -m "LAB11: collega Cover e Originali alla memoria cloud"
           git push origin HEAD:uab-build/musiclab-global-ai-engine-11
