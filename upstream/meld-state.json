@@ -1,0 +1,10 @@
+{
+  "upstream_repository": "FrancescoGrazioso/Meld",
+  "policy": "notify-then-review-with-motorlab",
+  "direct_metrolist_updates": false,
+  "last_integrated_tag": "v0.8.9",
+  "last_integrated_commit": "645d84ee0fb8ea168c37490afa78de073b956453",
+  "latest_seen_tag": "v0.9.2",
+  "latest_seen_date": "2026-09-28T13:37:22Z",
+  "notes": "Meld e' l'unico upstream esterno. Le release Meld non sono installate direttamente sopra MusicLab. Ogni nuova release viene confrontata con l'ultima baseline integrata, valutata in LAB e poi ricostruita come APK MusicLab con firma MusicLab stabile."
+}
