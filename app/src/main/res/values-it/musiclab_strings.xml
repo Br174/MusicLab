@@ -22,4 +22,7 @@
     <string name="cover_source_whosampled_unavailable">WhoSampled non disponibile; mostro i risultati MusicLab</string>
     <string name="artist_unavailable">Pagina dell\'artista non disponibile per questo brano</string>
     <string name="album_unavailable">Pagina dell\'album non disponibile per questo brano</string>
+    <string name="meld_upstream_update_title">Aggiornamento Meld da valutare</string>
+    <string name="meld_upstream_update_description">Controlla le modifiche di Meld prima di integrarle in MusicLab</string>
+    <string name="meld_upstream_baseline">Base Meld importata: %1$s</string>
 </resources>
