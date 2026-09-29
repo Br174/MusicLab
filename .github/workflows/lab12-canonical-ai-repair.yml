@@ -1,0 +1,232 @@
+name: MusicLab LAB12 - Riparazione Canonica AI
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-canonical-ai-repair-12
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musiclab-lab12-canonical-ai-repair
+  cancel-in-progress: false
+
+jobs:
+  repair-deploy:
+    name: Applica riparazione e distribuisci Cloudflare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 5781b597517f6f7fe25751170a99b9ab
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      WORKER_URL: https://musiclab-music-intelligence.brunoverlezza.workers.dev
+      WRANGLER_SEND_METRICS: "false"
+
+    steps:
+      - name: Checkout LAB12
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Applica patch canonica LAB12
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/lab12_apply.py
+
+      - name: Verifica che la patch abbia toccato solo lo scope previsto
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --name-only
+          allowed='^(app/src/main/kotlin/com/metrolist/music/ui/menu/(PlayerMenu|SongMenu)\.kt|cloudflare/music-intelligence/(src/index\.js|wrangler\.jsonc))$'
+          unexpected="$(git diff --name-only | grep -Ev "$allowed" || true)"
+          if [ -n "$unexpected" ]; then
+            echo "File inattesi modificati:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+
+      - name: Registra codice funzionale LAB12
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "MusicLab LAB12"
+          git config user.email "uab-bot@users.noreply.github.com"
+          git add app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          git add app/src/main/kotlin/com/metrolist/music/ui/menu/SongMenu.kt
+          git add cloudflare/music-intelligence/src/index.js
+          git add cloudflare/music-intelligence/wrangler.jsonc
+          if ! git diff --cached --quiet; then
+            git commit -m "LAB12: ripara identità canonica AI e rimuove fallback uploader [skip ci]"
+            git push origin HEAD:uab-build/musiclab-canonical-ai-repair-12
+          fi
+          echo "FUNCTIONAL_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Configura Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verifica segreti Cloudflare/Gemini
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$GEMINI_API_KEY"
+
+      - name: Installa dipendenze Worker
+        working-directory: cloudflare/music-intelligence
+        run: npm install
+
+      - name: Controllo statico Worker
+        working-directory: cloudflare/music-intelligence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check src/index.js
+          npx wrangler deploy --dry-run --outdir=/tmp/musiclab-worker-lab12
+
+      - name: Applica migrazioni D1 LAB12
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler d1 migrations apply musiclab-intelligence-db --remote
+
+      - name: Mantiene il segreto Gemini nel Worker
+        working-directory: cloudflare/music-intelligence
+        shell: bash
+        run: printf '%s' "$GEMINI_API_KEY" | npx wrangler secret put GEMINI_API_KEY
+
+      - name: Distribuisci Worker LAB12
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler deploy
+
+      - name: Verifica stato Worker v12
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if response="$(curl --fail-with-body --silent --show-error "$WORKER_URL/stato")" \
+              && jq -e '.stato == "ok" and .memoria == true and .ai == true and .resolver == 12' <<<"$response" >/dev/null; then
+              echo "$response"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Worker LAB12 non disponibile o resolver non aggiornato" >&2
+          exit 1
+
+      - name: Smoke test del caso uploader mostrato nelle foto
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload='{"title":"Mi Sono Innamorato Di Te - Gianluca Grignani","artist":"Alessandra De Angelis","useMemory":false,"wantCredits":true}'
+          response="$(curl --fail-with-body --silent --show-error \
+            -H 'Content-Type: application/json' \
+            -H 'x-musiclab-client: lab12-smoke' \
+            -d "$payload" \
+            "$WORKER_URL/api/v1/resolve")"
+          echo "$response" | jq '{stato, provenienza, metadata: {title: .metadata.title, artist: .metadata.artist, category: .metadata.category}}'
+          jq -e '.stato == "pronto" and (.metadata.title | length > 0) and (.metadata.artist | length > 0)' <<<"$response" >/dev/null
+          resolved_artist="$(jq -r '.metadata.artist' <<<"$response" | tr '[:upper:]' '[:lower:]')"
+          test "$resolved_artist" != "alessandra de angelis"
+
+      - name: Smoke test discovery Originali sul seed canonico
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload='{"title":"Mi Sono Innamorato Di Te - Gianluca Grignani","artist":"Alessandra De Angelis","mode":"originals","useMemory":true}'
+          response="$(curl --fail-with-body --silent --show-error \
+            -H 'Content-Type: application/json' \
+            -H 'x-musiclab-client: lab12-smoke' \
+            -d "$payload" \
+            "$WORKER_URL/api/v1/discover/initial")"
+          echo "$response" | jq '{stato, provenienza, seed, original}'
+          jq -e '.stato == "pronto" and (.seed.artist | ascii_downcase) != "alessandra de angelis" and (.original.title | length > 0) and (.original.artist | length > 0)' <<<"$response" >/dev/null
+
+  build:
+    name: Compila e verifica APK LAB12
+    needs: repair-deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout LAB12 funzionale
+        uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-canonical-ai-repair-12
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Configura Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Configura cache Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Configura Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Crea keystore debug isolato
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android"
+          rm -f "$HOME/.android/debug.keystore"
+          keytool -genkeypair \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -noprompt
+
+      - name: Configura Android SDK
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Diagnostica UAB
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Compila APK e ZIP LAB12
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verifica invarianti LAB12 nel sorgente costruito
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'CURRENT_RESOLVER_VERSION = 12' cloudflare/music-intelligence/src/index.js
+          grep -Fq 'Identificazione AI in corso…' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          grep -Fq 'title = seed.title' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          grep -Fq 'originalArtist = coverSearchSeed.artist' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+          if grep -Fq 'val targetId = resolved?.artistBrowseId' app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt; then
+            true
+          else
+            exit 1
+          fi
+
+      - name: Pubblica APK e ZIP LAB12
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB-CANONICAL-AI-REPAIR-12
+          path: |
+            dist/uab/apk/*.apk
+            dist/uab/*.zip
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
