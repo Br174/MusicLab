@@ -1,0 +1,32 @@
+name: TEMP LAB13 Updater Patch
+on:
+  push:
+    branches: [uab-build/musiclab-meld-upstream-sync-13]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, 'LAB13 updater patch trigger')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-meld-upstream-sync-13
+          fetch-depth: 0
+      - name: Applica separazione updater
+        run: python3 .github/scripts/lab13_updater_patch.py
+      - name: Controlla diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --name-only
+          test "$(git diff --name-only | sort)" = "$(printf '%s\n' app/build.gradle.kts app/src/main/kotlin/com/metrolist/music/MainActivity.kt app/src/main/kotlin/com/metrolist/music/utils/Updater.kt | sort)"
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name "MusicLab LAB13"
+          git config user.email "uab-bot@users.noreply.github.com"
+          git add app/build.gradle.kts app/src/main/kotlin/com/metrolist/music/MainActivity.kt app/src/main/kotlin/com/metrolist/music/utils/Updater.kt
+          git commit -m "LAB13: separa aggiornamenti MusicLab da upstream Meld [skip ci]"
+          git push origin HEAD:uab-build/musiclab-meld-upstream-sync-13
