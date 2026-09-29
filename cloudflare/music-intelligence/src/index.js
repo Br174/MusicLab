@@ -269,33 +269,73 @@ function discoveryJsonInstruction() {
     `"language":null,"year":null,"album":null,"credits":{"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}}]}.`;
 }
 
+let preferredGeminiModel = null;
+
+function geminiModelCandidates(env) {
+  const configured = clean(env.GEMINI_MODEL);
+  return [
+    preferredGeminiModel,
+    configured,
+    'gemini-3.5-flash-lite',
+    'gemini-flash-lite-latest',
+  ].filter((value, index, array) => value && array.indexOf(value) === index);
+}
+
 async function askGemini(prompt, env, maxOutputTokens, useSearch) {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY non configurata nel Worker.');
-  const model = env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
-  const body = {
+
+  const baseBody = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: { temperature: 0.12, maxOutputTokens, responseMimeType: 'application/json' },
   };
-  if (useSearch) body.tools = [{ google_search: {} }];
 
-  let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok && useSearch) {
-    delete body.tools;
-    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
-      body: JSON.stringify(body),
-    });
+  const failures = [];
+  for (const model of geminiModelCandidates(env)) {
+    const attempts = useSearch ? [true, false] : [false];
+    for (const searchEnabled of attempts) {
+      const body = JSON.parse(JSON.stringify(baseBody));
+      if (searchEnabled) body.tools = [{ google_search: {} }];
+
+      let response;
+      try {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
+            body: JSON.stringify(body),
+          },
+        );
+      } catch (error) {
+        failures.push(`${model}:${searchEnabled ? 'search' : 'plain'}:network`);
+        continue;
+      }
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        failures.push(`${model}:${searchEnabled ? 'search' : 'plain'}:${response.status}`);
+
+        // Se il grounding non è supportato dal modello, prova subito lo stesso
+        // modello senza Search. Per modello ritirato, sovraccarico o errore
+        // temporaneo passa al candidato successivo invece di fermare MusicLab.
+        if (searchEnabled) continue;
+        if ([400, 404, 408, 429, 500, 502, 503, 504].includes(response.status)) break;
+        throw new Error(`Gemini HTTP ${response.status}: ${detail.slice(0, 240)}`);
+      }
+
+      const root = await response.json();
+      const output = root?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('\n').trim();
+      if (!output) {
+        failures.push(`${model}:${searchEnabled ? 'search' : 'plain'}:empty`);
+        continue;
+      }
+
+      preferredGeminiModel = model;
+      return parseJsonObject(output);
+    }
   }
-  if (!response.ok) throw new Error(`Gemini HTTP ${response.status}`);
-  const root = await response.json();
-  const text = root?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('\n').trim();
-  if (!text) throw new Error('Risposta AI vuota.');
-  return parseJsonObject(text);
+
+  throw new Error(`Gemini non disponibile dopo failover (${failures.join(', ')})`);
 }
 
 function normalizeMetadata(ai, playbackId) {

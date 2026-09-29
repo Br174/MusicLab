@@ -200,7 +200,7 @@ object MusicIntelligenceClient {
 
         val configuredModel = ds.get(OpenRouterModelKey, "")
             .takeIf { provider == "Gemini" && it.isNotBlank() && !it.contains('/') }
-        val models = listOfNotNull(configuredModel, "gemini-2.5-flash-lite").distinct()
+        val models = listOfNotNull(configuredModel, "gemini-3.5-flash-lite", "gemini-flash-lite-latest").distinct()
         val creditsRule = if (wantCredits) {
             "Compila autori, compositori, parolieri, produttori ed etichetta quando li conosci."
         } else {
