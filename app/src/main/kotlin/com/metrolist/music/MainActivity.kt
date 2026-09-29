@@ -467,6 +467,30 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+
+                        // Meld resta la sola sorgente upstream scelta da Bruno. La notifica
+                        // apre la release per esaminarla: NON scarica/installla mai Meld.apk.
+                        Updater.checkForUpstreamUpdate().onSuccess { (upstream, hasUpstreamUpdate) ->
+                            if (upstream != null && hasUpstreamUpdate && notifEnabled && upstream.htmlUrl.isNotBlank()) {
+                                val intent = Intent(Intent.ACTION_VIEW, upstream.htmlUrl.toUri())
+                                val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                                val pending = PendingIntent.getActivity(this@MainActivity, 1002, intent, flags)
+                                val notif = NotificationCompat
+                                    .Builder(this@MainActivity, "updates")
+                                    .setSmallIcon(R.drawable.update)
+                                    .setContentTitle("Aggiornamento Meld da valutare")
+                                    .setContentText("Meld ${upstream.versionName} • sorgente upstream MusicLab")
+                                    .setContentIntent(pending)
+                                    .setAutoCancel(true)
+                                    .build()
+                                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                                    ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) ==
+                                    PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    NotificationManagerCompat.from(this@MainActivity).notify(1002, notif)
+                                }
+                            }
+                        }
                     }
                 } else {
                     onLatestVersionNameChange(BuildConfig.VERSION_NAME)
