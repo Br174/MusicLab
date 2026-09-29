@@ -33,6 +33,7 @@ jobs:
       - name: Analizza Meld latest
         shell: bash
         run: |
+          mkdir -p dist/upstream-meld-review
           chmod +x tools/upstream-meld/review_update.py
           python3 tools/upstream-meld/review_update.py --out-dir dist/upstream-meld-review | tee dist/upstream-meld-review.log
       - name: Summary
