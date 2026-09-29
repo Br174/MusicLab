@@ -1,0 +1,123 @@
+name: MusicLab - Release stabile aggiornabile
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Ref MusicLab approvato da MotorLab (CANDIDATA/MADRE)"
+        required: true
+      version_name:
+        description: "Versione MusicLab, es. 0.9.2.1"
+        required: true
+      version_code:
+        description: "VersionCode Android crescente"
+        required: true
+      release_notes:
+        description: "Note sintetiche della release"
+        required: false
+        default: "Aggiornamento MusicLab verificato da MotorLab."
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musiclab-stable-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Verifica firma stabile
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE KEY_ALIAS KEYSTORE_PASSWORD KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "Firma stabile non configurata: manca $name"
+              exit 2
+            fi
+          done
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-protobuf
+
+      - name: Compila release MusicLab
+        shell: bash
+        env:
+          MUSICLAB_VERSION_NAME: ${{ inputs.version_name }}
+          MUSICLAB_VERSION_CODE: ${{ inputs.version_code }}
+          METROLIST_APPLICATION_ID: com.meld.app
+          METROLIST_APP_NAME: MusicLab
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: Br174/MusicLab
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          ./gradlew --console=plain assembleFossRelease assembleGmsRelease --warning-mode summary
+
+      - name: Firma MusicLab FOSS
+        uses: ilharp/sign-android-release@v2.0.0
+        with:
+          releaseDir: app/build/outputs/apk/foss/release/
+          signingKey: ${{ secrets.KEYSTORE }}
+          keyAlias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+          buildToolsVersion: 35.0.0
+
+      - name: Firma MusicLab GMS
+        uses: ilharp/sign-android-release@v2.0.0
+        with:
+          releaseDir: app/build/outputs/apk/gms/release/
+          signingKey: ${{ secrets.KEYSTORE }}
+          keyAlias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+          buildToolsVersion: 35.0.0
+
+      - name: Prepara asset aggiornabili
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          FOSS=$(find app/build/outputs/apk/foss/release -name '*-signed.apk' | head -n1)
+          GMS=$(find app/build/outputs/apk/gms/release -name '*-signed.apk' | head -n1)
+          test -n "$FOSS" && test -n "$GMS"
+          cp "$FOSS" dist/release/MusicLab.apk
+          cp "$GMS" dist/release/MusicLab-with-Google-Cast.apk
+          sha256sum dist/release/*.apk > dist/release/SHA256SUMS.txt
+
+      - name: Pubblica release MusicLab
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="musiclab-v${{ inputs.version_name }}"
+          gh release create "$TAG" \
+            dist/release/MusicLab.apk \
+            dist/release/MusicLab-with-Google-Cast.apk \
+            dist/release/SHA256SUMS.txt \
+            --target '${{ inputs.source_ref }}' \
+            --title '${{ inputs.version_name }}' \
+            --notes '${{ inputs.release_notes }}'
