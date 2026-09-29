@@ -207,7 +207,7 @@ object MusicIntelligenceClient {
             "I crediti non sono richiesti: restituisci gli array vuoti e label null."
         }
         val titleSegments = title
-            .split(Regex("\s+(?:-|–|—|\|)\s+"))
+            .split(Regex("""\s+(?:-|–|—|\|)\s+"""))
             .map(String::trim)
             .filter(String::isNotBlank)
             .take(5)
