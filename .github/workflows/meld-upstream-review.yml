@@ -283,7 +283,7 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
           CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
           CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
-        run: ./gradlew --console=plain :app:testFossDebugUnitTest :spotify:test :betterlyrics:test --warning-mode summary
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest :innertube:testDebugUnitTest --warning-mode summary
 
       - name: Crea keystore debug temporaneo
         if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
