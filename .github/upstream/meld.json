@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "source_repo": "FrancescoGrazioso/Meld",
+  "direct_metrolist_enabled": false,
+  "accepted_baseline_tag": "v0.8.9",
+  "accepted_baseline_commit": "645d84ee0fb8ea168c37490afa78de073b956453",
+  "notification_mode": "in_app_human_trigger",
+  "merge_policy": "never_auto_merge",
+  "conflict_policy": "report_before_apply",
+  "notes": "Meld e' l'unica sorgente upstream scelta per MusicLab. MetroList diretto non viene importato. Ogni update viene analizzato in LAB prima di qualsiasi promozione."
+}
