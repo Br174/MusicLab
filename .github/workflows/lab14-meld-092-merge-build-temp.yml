@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   merge-build:
-    if: contains(github.event.head_commit.message, 'LAB14 robust merge Meld 0.9.2')
+    if: contains(github.event.head_commit.message, 'LAB14 robust merge Meld 0.9.2 retry 2')
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -39,6 +39,9 @@ jobs:
           set -e
           echo "merge_rc=$MERGE_RC"
 
+          # Risolvi prima il modify/delete del vecchio release Meld; in MusicLab resta eliminato.
+          git rm -f --ignore-unmatch .github/workflows/release.yml || true
+
           # Non importare mai i workflow CI dello sviluppatore upstream: MusicLab ha i propri.
           git restore --source="$OUR_HEAD" --staged --worktree -- .github/workflows
 
@@ -50,7 +53,6 @@ jobs:
           git restore --source="$OUR_HEAD" --staged --worktree -- app/build.gradle.kts
 
           # Prima fusione sicura: sui conflitti funzionali resta la versione MusicLab.
-          # Le migliorie Meld di questi file saranno valutate/riapplicate selettivamente dopo build verde.
           protected=(
             app/src/main/kotlin/com/metrolist/music/App.kt
             app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt
@@ -66,12 +68,7 @@ jobs:
             git restore --source="$OUR_HEAD" --staged --worktree -- "$p"
           done
 
-          # Mantieni l'identità e gli strumenti UAB di MusicLab.
           git restore --source="$OUR_HEAD" --staged --worktree -- .uab tools/universal-apk-builder uab-project.env || true
-
-          # Il vecchio workflow release Meld non deve rientrare.
-          git rm -f --ignore-unmatch .github/workflows/release.yml || true
-          git restore --source="$OUR_HEAD" --staged --worktree -- .github/workflows
 
           UNRESOLVED="$(git diff --name-only --diff-filter=U || true)"
           if [ -n "$UNRESOLVED" ]; then
@@ -80,12 +77,10 @@ jobs:
             exit 3
           fi
 
-          # Il merge non deve trasformare il submodule in una directory normale.
           MODE="$(git ls-files -s metroproto | awk '{print $1}' | head -1)"
           echo "metroproto_mode=$MODE"
           test "$MODE" = "160000"
 
-          # Nessun workflow esistente deve risultare cambiato dal merge.
           if ! git diff --quiet "$OUR_HEAD" -- .github/workflows; then
             echo "::error::Il merge tenta ancora di cambiare workflow MusicLab"
             git diff --name-status "$OUR_HEAD" -- .github/workflows
@@ -93,7 +88,6 @@ jobs:
           fi
 
           git add -u
-          # Aggiunge nuovi file upstream, ma mai workflow o il submodule worktree.
           git ls-files --others --exclude-standard -z \
             | while IFS= read -r -d '' f; do
                 case "$f" in
@@ -141,8 +135,7 @@ jobs:
 
       - name: Push merge solo dopo build verde
         shell: bash
-        run: |
-          git push origin HEAD:uab-build/musiclab-meld-0.9.2-integration-14
+        run: git push origin HEAD:uab-build/musiclab-meld-0.9.2-integration-14
 
       - uses: actions/upload-artifact@v4
         with:
