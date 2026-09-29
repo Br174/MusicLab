@@ -50,6 +50,7 @@ jobs:
       - name: Review Meld source update
         shell: bash
         run: |
+          mkdir -p dist/upstream-meld-review
           chmod +x tools/upstream-meld/review_update.py
           args=(--out-dir dist/upstream-meld-review)
           if [ -n "${{ inputs.from_tag }}" ]; then args+=(--from-tag "${{ inputs.from_tag }}"); fi
