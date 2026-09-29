@@ -75,7 +75,8 @@ data class MusicIntelligenceSettings(
                 foreign = master && ds.get(MusicAiForeignEnabledKey, true),
                 cloudMemory = master && ds.get(MusicAiCloudMemoryEnabledKey, true),
                 backgroundMetadata = master && ds.get(MusicAiBackgroundMetadataEnabledKey, true),
-                endpoint = ds.get(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT).trim().trimEnd('/'),
+                endpoint = ds.get(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
+                    .trim().trimEnd('/').ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT },
             )
         }
     }

@@ -50,6 +50,7 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.AiProviderKey
+import com.metrolist.music.constants.DEFAULT_MUSIC_AI_CLOUD_ENDPOINT
 import com.metrolist.music.constants.MusicAiCoverEnabledKey
 import com.metrolist.music.constants.MusicAiCloudEndpointKey
 import com.metrolist.music.constants.MusicAiCloudMemoryEnabledKey
@@ -136,7 +137,8 @@ internal fun CoverSearchScreen(
     val remixAiEnabled by rememberPreference(MusicAiRemixEnabledKey, true)
     val foreignAiEnabled by rememberPreference(MusicAiForeignEnabledKey, true)
     val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
-    val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, "")
+    val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
+    val effectiveCloudEndpoint = cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
 
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
     val sharedApiKey by rememberPreference(OpenRouterApiKey, "")
@@ -154,11 +156,11 @@ internal fun CoverSearchScreen(
     } else {
         "gemini-3.5-flash-lite"
     }
-    val geminiConfig = if (effectiveKey.isNotBlank() || cloudEndpoint.isNotBlank()) {
+    val geminiConfig = if (effectiveKey.isNotBlank() || effectiveCloudEndpoint.isNotBlank()) {
         GeminiCoverVerificationConfig(
             apiKey = effectiveKey,
             model = effectiveModel,
-            cloudEndpoint = cloudEndpoint,
+            cloudEndpoint = effectiveCloudEndpoint,
             useCloudMemory = cloudMemoryEnabled,
         )
     } else {

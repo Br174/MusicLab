@@ -163,6 +163,15 @@ fun PlayerMenu(
 
     val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
+    var showCreditsDialog by rememberSaveable(mediaMetadata.id) { mutableStateOf(false) }
+    var creditsLoading by rememberSaveable(mediaMetadata.id) { mutableStateOf(false) }
+    var creditsMetadata by remember(mediaMetadata.id) {
+        mutableStateOf(MusicIntelligenceClient.cached(mediaMetadata.id))
+    }
+
+    LaunchedEffect(canonicalMetadata) {
+        canonicalMetadata?.let { creditsMetadata = it }
+    }
 
     val download by LocalDownloadUtil.current
         .getDownload(mediaMetadata.id)
@@ -225,6 +234,55 @@ val navigationArtists =
 val navigationAlbumId = resolvedNavigationSong?.album?.id ?: mediaMetadata.album?.id
 val navigationAlbumTitle = resolvedNavigationSong?.album?.name ?: mediaMetadata.album?.title
 val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_") } ?: false
+
+
+    if (showCreditsDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreditsDialog = false },
+            title = { Text("Crediti") },
+            text = {
+                val metadata = creditsMetadata
+                if (creditsLoading) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Caricamento crediti…")
+                    }
+                } else if (metadata == null) {
+                    Text("Crediti non disponibili per questo brano.")
+                } else {
+                    val rows = buildList {
+                        add("Titolo" to metadata.title)
+                        add("Artista" to metadata.artist)
+                        metadata.album?.takeIf { it.isNotBlank() }?.let { add("Album" to it) }
+                        metadata.year?.let { add("Anno" to it.toString()) }
+                        metadata.category?.takeIf { it.isNotBlank() }?.let { add("Versione" to it) }
+                        metadata.credits.songwriters.takeIf { it.isNotEmpty() }?.let { add("Autori" to it.joinToString()) }
+                        metadata.credits.composers.takeIf { it.isNotEmpty() }?.let { add("Compositori" to it.joinToString()) }
+                        metadata.credits.lyricists.takeIf { it.isNotEmpty() }?.let { add("Parolieri" to it.joinToString()) }
+                        metadata.credits.producers.takeIf { it.isNotEmpty() }?.let { add("Produttori" to it.joinToString()) }
+                        metadata.credits.label?.takeIf { it.isNotBlank() }?.let { add("Etichetta" to it) }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rows.forEach { (label, value) ->
+                            Text("$label: $value")
+                        }
+                        if (rows.size <= 2) {
+                            Text(
+                                "Gli altri crediti non sono disponibili.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCreditsDialog = false }) {
+                    Text("Chiudi")
+                }
+            },
+        )
+    }
 
     AddToSpotifyPlaylistFlow(
         showDialog = showAddToSpotifyPlaylist,
@@ -879,16 +937,8 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                 },
                                 onClick = {
                                     val useCanonical = musicIntelligenceSettings.enabled && musicIntelligenceSettings.artistResolver
-                                    val canonicalId = canonicalMetadata?.artistBrowseId
-                                    if (useCanonical) {
-                                        if (!canonicalId.isNullOrBlank()) {
-                                            playerBottomSheetState.collapse(tween(durationMillis = 120))
-                                            navController.navigate("artist/$canonicalId")
-                                            onDismiss()
-                                        } else {
-                                            Toast.makeText(context, "Sto identificando la pagina corretta dell'artista…", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else {
+                                    val readyId = canonicalMetadata?.artistBrowseId
+                                    if (!useCanonical) {
                                         when {
                                             navigationArtists.size == 1 -> {
                                                 playerBottomSheetState.collapse(tween(durationMillis = 120))
@@ -897,6 +947,31 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                             }
                                             navigationArtists.size > 1 -> showSelectArtistDialog = true
                                             else -> Toast.makeText(context, R.string.artist_unavailable, Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else if (!readyId.isNullOrBlank()) {
+                                        playerBottomSheetState.collapse(tween(durationMillis = 120))
+                                        navController.navigate("artist/$readyId")
+                                        onDismiss()
+                                    } else {
+                                        Toast.makeText(context, "Sto identificando la pagina corretta dell'artista…", Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            val resolved = MusicIntelligenceClient.resolve(
+                                                context = context,
+                                                playbackId = mediaMetadata.id,
+                                                title = mediaMetadata.title,
+                                                artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                                                album = mediaMetadata.album?.title,
+                                            )
+                                            creditsMetadata = resolved ?: creditsMetadata
+                                            val targetId = resolved?.artistBrowseId
+                                                ?: navigationArtists.singleOrNull()?.id
+                                            if (!targetId.isNullOrBlank()) {
+                                                playerBottomSheetState.collapse(tween(durationMillis = 120))
+                                                navController.navigate("artist/$targetId")
+                                                onDismiss()
+                                            } else {
+                                                Toast.makeText(context, "Pagina dell'artista non disponibile.", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     }
                                 },
@@ -927,16 +1002,8 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         !navigationAlbumIsPodcast &&
                                             musicIntelligenceSettings.enabled &&
                                             musicIntelligenceSettings.albumResolver
-                                    if (useCanonical) {
-                                        val canonicalId = canonicalMetadata?.albumBrowseId
-                                        if (!canonicalId.isNullOrBlank()) {
-                                            playerBottomSheetState.collapse(tween(durationMillis = 120))
-                                            navController.navigate("album/$canonicalId")
-                                            onDismiss()
-                                        } else {
-                                            Toast.makeText(context, "Sto identificando l'album corretto…", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else {
+                                    val readyId = canonicalMetadata?.albumBrowseId
+                                    if (!useCanonical) {
                                         val albumId = navigationAlbumId
                                         if (albumId.isNullOrBlank()) {
                                             Toast.makeText(context, R.string.album_unavailable, Toast.LENGTH_SHORT).show()
@@ -948,6 +1015,63 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                                 navController.navigate("album/$albumId")
                                             }
                                             onDismiss()
+                                        }
+                                    } else if (!readyId.isNullOrBlank()) {
+                                        playerBottomSheetState.collapse(tween(durationMillis = 120))
+                                        navController.navigate("album/$readyId")
+                                        onDismiss()
+                                    } else {
+                                        Toast.makeText(context, "Sto identificando l'album corretto…", Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            val resolved = MusicIntelligenceClient.resolve(
+                                                context = context,
+                                                playbackId = mediaMetadata.id,
+                                                title = mediaMetadata.title,
+                                                artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                                                album = mediaMetadata.album?.title,
+                                            )
+                                            creditsMetadata = resolved ?: creditsMetadata
+                                            val targetId = resolved?.albumBrowseId ?: navigationAlbumId
+                                            if (!targetId.isNullOrBlank()) {
+                                                playerBottomSheetState.collapse(tween(durationMillis = 120))
+                                                navController.navigate("album/$targetId")
+                                                onDismiss()
+                                            } else {
+                                                Toast.makeText(context, "Album non disponibile.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                },
+                            ),
+                        )
+
+                        add(
+                            Material3MenuItemData(
+                                title = { Text("Crediti") },
+                                description = { Text("Autori, compositori, produttori ed etichetta") },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.info),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    showCreditsDialog = true
+                                    val ready = canonicalMetadata ?: MusicIntelligenceClient.cached(mediaMetadata.id)
+                                    if (ready != null) {
+                                        creditsMetadata = ready
+                                    } else {
+                                        creditsLoading = true
+                                        coroutineScope.launch {
+                                            creditsMetadata = MusicIntelligenceClient.resolve(
+                                                context = context,
+                                                playbackId = mediaMetadata.id,
+                                                title = mediaMetadata.title,
+                                                artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                                                album = mediaMetadata.album?.title,
+                                            )
+                                            creditsLoading = false
                                         }
                                     }
                                 },
