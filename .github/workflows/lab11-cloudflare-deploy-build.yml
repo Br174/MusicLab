@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: 5781b597517f6f7fe25751170a99b9ab
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       WORKER_URL: https://musiclab-music-intelligence.brunoverlezza.workers.dev
       WRANGLER_SEND_METRICS: "false"
