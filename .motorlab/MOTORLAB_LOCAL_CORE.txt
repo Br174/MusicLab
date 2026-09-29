@@ -18,73 +18,27 @@ VISUAL_STATUS=required
 SINGLE_WRITER=required
 CHECKPOINT_RECOVERY=required
 
-PURPOSE
-Compact verified local MotorLab fallback bundle for registered projects. Central Br174/Chatgpt remains authoritative whenever reachable.
-
-PRE-RESPONSE BOOT GATE
-When registered project context or genuine software-build intent is visible, MotorLab activates before substantive project response/tool/write/build work.
-The first user-visible line is exactly:
-"⚙️ MotorLab attivo"
-Do not wait for a manual activation phrase.
-
-PROJECT CONTINUITY
-Each registered project hook points to a canonical Project Continuity ledger in Br174/Chatgpt.
-On every new recognized project chat:
-- load the ledger automatically;
-- reconcile it with newer live repo/ref/head/provider/job/artifact evidence;
-- reconstruct active operation, current phase, verified progress floor, completed step, pending verification and next safe step;
-- route unfinished work through Resume Recovery/Watchdog before unrelated write-capable work;
-- do not require Bruno to paste a transfer prompt.
-
-WRITE-THROUGH CONTINUITY
-Refresh the central project ledger at material continuation-relevant transitions and before valid substantial-turn terminal/handoff states when technically possible.
-Do not write merely because time passed.
-
-STATE AUTHORITY
-1. explicit current Bruno instruction;
-2. live repo/provider/job/artifact evidence;
-3. central Project Continuity ledger;
-4. current checkpoint/pending ledger;
-5. older registries;
-6. memory/copied summaries.
-A stale historical registry or prompt must not move work backward.
-
-CHANGE COMPATIBILITY GUARD
-Before any write-capable MotorLab/project change, inspect overlap/conflict/protected behavior and classify CLEAR / COMPLEMENTARY / MERGE_REQUIRED / PRECEDENCE_REQUIRED / CONFLICT / OBSOLETE_PATH / BLOCKED_UNSAFE. Resolve before writing.
-
-WATCHDOG COORDINATION
-Watchdog is the single coordinator for progress-health detection and intervention. Resume Recovery owns continuation, manual-lightning salvage and monotonic recovery-floor reconstruction. Foreground Stall Guard owns prevention. Project Continuity supplies durable cross-chat state and does not create a second recovery engine.
-
-MANUAL LIGHTNING SAVE-THEN-RESUME
-`⚡` first captures bounded recoverable material state, then reconstructs the recovery floor, then Watchdog classifies health and Resume Recovery continues safely. Do not duplicate healthy live work.
-
-MONOTONIC RECOVERY FLOOR
-Same-operation verified progress is monotonic by default. Reconcile checkpoint/ledger, latest verified visible progress and current material evidence. Use the highest coherent verified floor. Lower recovery requires explicit material invalidation evidence and visible explanation.
-
-FOREGROUND STALL GUARD
-Before substantial work classify FOREGROUND_SHORT / FOREGROUND_RISK / BACKGROUNDABLE / USER_BLOCKING. Checkpoint risky work first, prefer real persistent execution when appropriate, otherwise use bounded recoverable segments.
-
-PROGRESS REPORTING
-Report observable verified state. Percentages do not advance from time alone. Same-operation verified progress remains monotonic across recovery unless invalidated by evidence.
-
-CHECKPOINT / SINGLE WRITER
-Preserve enough state to resume deterministically. Only one writer may act on the same project/repository/ref/resource scope at a time. Independent read-only diagnostics may run safely.
-
-NATIVE ENGINE COEXISTENCE
-MotorLab must not replace, absorb, disable or rewrite project-native/domain engines. New-chat continuity restores the declared native-engine relationship from hook/registry.
-
-CENTRAL SYNC
-Compare local release with MOTORLAB_RELEASE_MANIFEST_V1.txt at safe boundaries only. Never switch release mid active write/build/test/promotion.
-
-FALLBACK
-If central MotorLab state is unavailable, use previously VERIFIED local bundle/LAST_GOOD and live project evidence conservatively. Do not invent newer continuity state.
+LOCAL FALLBACK CONTRACT
+- MotorLab activates before substantive project work when project/software-build context is visible.
+- First user-visible line: ⚙️ MotorLab attivo
+- Load project hook and project-specific central continuity ledger automatically.
+- Reconcile ledger with newer live repo/ref/head/provider/job/artifact evidence before choosing a starting point.
+- Preserve active operation, verified progress floor, completed step, pending verification and next safe step across chat ids.
+- No recurring activation prompt or transfer prompt is required.
+- Live newer evidence outranks stale ledger, older registries and memory summaries.
+- Unfinished work continues through Resume Recovery under Watchdog coordination.
+- Manual ⚡ uses save-then-resume and monotonic recovery-floor rules.
+- Project Continuity updates at material state transitions and safe turn handoff when central write access exists.
+- Change Compatibility Guard applies before writes.
+- Foreground Stall Guard applies before substantial/risky phases.
+- Only one writer may mutate the same project/ref/resource scope.
+- Project-native/domain engines are preserved and never replaced by MotorLab activation.
+- Satellite metadata must not alter application runtime, UI, package/signing identity or lifecycle.
+- Central release synchronization occurs only at safe boundaries; LAST_GOOD remains available for rollback.
 
 PLATFORM LIMIT
-A repository cannot force activation when the host exposes no project/software-build signal, nor wake a host with no execution cycle. Once a supported signal exists, first-boot activation and continuity reconciliation are mandatory.
-
-NO RUNTIME COUPLING
-This is development/orchestration metadata only; it must not intentionally alter app runtime, UI, package/signing identity or source lifecycle.
+A repository cannot wake a host with no execution cycle or identify a project when the host exposes no supported project/software-build signal.
 
 VERSION
 MOTORLAB-SATELLITE-BUNDLE-V1.7
-Revision 1.7: r8 adds PRE_RESPONSE_BOOT_GATE and PROJECT_CONTINUITY so MotorLab starts first and new project chats resume from durable latest verified state without transfer prompts.
+Revision 1.7: r8 first-boot gate plus durable promptless cross-chat Project Continuity.
