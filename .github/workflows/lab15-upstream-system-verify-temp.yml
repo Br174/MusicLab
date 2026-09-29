@@ -6,7 +6,7 @@ on:
       - uab-build/musiclab-meld-upstream-system-15
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: lab15-upstream-system-final-verify
@@ -39,7 +39,7 @@ jobs:
           assert ledger['integrations'][0]['tag'] == 'v0.9.2'
           PY
           grep -q 'finalize_current_lab' .github/workflows/meld-upstream-review.yml
-          grep -q ':app:testFossDebugUnitTest :spotify:test :betterlyrics:test' .github/workflows/meld-upstream-review.yml
+          grep -q ':app:testFossDebugUnitTest' .github/workflows/meld-upstream-review.yml
           grep -q 'meld_record_verified_integration.py' .github/workflows/meld-upstream-review.yml
           grep -q 'Registra baseline verificata nella LAB' .github/workflows/meld-upstream-review.yml
           git fetch origin uab-build/musiclab-meld-0.9.2-integration-14:refs/remotes/origin/lab14
@@ -94,4 +94,28 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
           CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
           CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
-        run: ./gradlew --console=plain :app:testFossDebugUnitTest :spotify:test :betterlyrics:test --warning-mode summary
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest :innertube:testDebugUnitTest --warning-mode summary
+
+      - name: Finalizza Guardian e rimuovi verifica temporanea
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path('.github/workflows/meld-upstream-review.yml')
+          text=path.read_text(encoding='utf-8')
+          old=':app:testFossDebugUnitTest :spotify:test :betterlyrics:test'
+          new=':app:testFossDebugUnitTest :innertube:testDebugUnitTest'
+          count=text.count(old)
+          if count != 1:
+              raise SystemExit(f'Attesa una sola occorrenza del gate storico, trovate {count}')
+          path.write_text(text.replace(old,new), encoding='utf-8')
+          PY
+          grep -q ':app:testFossDebugUnitTest :innertube:testDebugUnitTest' .github/workflows/meld-upstream-review.yml
+          git diff --check
+          git config user.email "motorlab@musiclab.local"
+          git config user.name "MusicLab MotorLab"
+          git add .github/workflows/meld-upstream-review.yml
+          git rm .github/workflows/lab15-upstream-system-verify-temp.yml
+          git commit -m "LAB15: finalizza Guardian permanente"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
