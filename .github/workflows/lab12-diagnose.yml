@@ -1,0 +1,53 @@
+name: MusicLab LAB12 - Diagnosi Resolver
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-canonical-ai-repair-12
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WORKER_URL: https://musiclab-music-intelligence.brunoverlezza.workers.dev
+    steps:
+      - name: Stato Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS "$WORKER_URL/stato" | jq .
+
+      - name: Diagnosi resolve caso reale
+        shell: bash
+        run: |
+          set -u
+          payload='{"title":"Mi Sono Innamorato Di Te - Gianluca Grignani","artist":"Alessandra De Angelis","useMemory":false,"wantCredits":true}'
+          http_code="$(curl -sS -o /tmp/resolve.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'x-musiclab-client: lab12-diagnose' \
+            -d "$payload" \
+            "$WORKER_URL/api/v1/resolve")"
+          echo "HTTP=$http_code"
+          cat /tmp/resolve.json
+          echo
+          jq . /tmp/resolve.json || true
+
+      - name: Diagnosi discovery Originali
+        shell: bash
+        run: |
+          set -u
+          payload='{"title":"Mi Sono Innamorato Di Te - Gianluca Grignani","artist":"Alessandra De Angelis","mode":"originals","useMemory":false}'
+          http_code="$(curl -sS -o /tmp/discover.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'x-musiclab-client: lab12-diagnose' \
+            -d "$payload" \
+            "$WORKER_URL/api/v1/discover/initial")"
+          echo "HTTP=$http_code"
+          cat /tmp/discover.json
+          echo
+          jq . /tmp/discover.json || true
