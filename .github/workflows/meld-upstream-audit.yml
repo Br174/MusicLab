@@ -1,0 +1,96 @@
+name: MusicLab - Audit upstream Meld
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_tag:
+        description: "Tag Meld da analizzare; lascia vuoto per l'ultima release"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Risolve baseline e release Meld
+        id: refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_TAG=$(python3 -c 'import json; print(json.load(open("upstream/meld-state.json"))["last_integrated_tag"])')
+          BASE_COMMIT=$(python3 -c 'import json; print(json.load(open("upstream/meld-state.json"))["last_integrated_commit"])')
+          TARGET='${{ inputs.target_tag }}'
+          if [ -z "$TARGET" ]; then
+            TARGET=$(python3 - <<'PY'
+          import json, urllib.request
+          with urllib.request.urlopen('https://api.github.com/repos/FrancescoGrazioso/Meld/releases/latest') as r:
+              print(json.load(r)['tag_name'])
+          PY
+          )
+          echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "base_commit=$BASE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "target_tag=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Recupera upstream Meld
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add meld https://github.com/FrancescoGrazioso/Meld.git || true
+          git fetch --no-tags meld '${{ steps.refs.outputs.base_tag }}' '${{ steps.refs.outputs.target_tag }}'
+          git fetch meld '${{ steps.refs.outputs.base_commit }}'
+
+      - name: Genera rapporto conflitti e modifiche
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='${{ steps.refs.outputs.base_commit }}'
+          TARGET='${{ steps.refs.outputs.target_tag }}'
+          mkdir -p upstream-report
+
+          git log --oneline --no-merges "$BASE..meld/$TARGET" > upstream-report/commits.txt || true
+          git diff --name-status "$BASE..meld/$TARGET" > upstream-report/changed-files.txt
+          git diff --stat "$BASE..meld/$TARGET" > upstream-report/diff-stat.txt
+
+          : > upstream-report/potential-conflicts.txt
+          while IFS=$'\t' read -r status path rest; do
+            [ -n "${path:-}" ] || continue
+            case "$status" in
+              R*|C*) candidate="${rest:-$path}" ;;
+              *) candidate="$path" ;;
+            esac
+            if git cat-file -e "$BASE:$candidate" 2>/dev/null && git cat-file -e "HEAD:$candidate" 2>/dev/null; then
+              if ! diff -q <(git show "$BASE:$candidate") <(git show "HEAD:$candidate") >/dev/null 2>&1; then
+                printf '%s\n' "$candidate" >> upstream-report/potential-conflicts.txt
+              fi
+            elif git cat-file -e "HEAD:$candidate" 2>/dev/null; then
+              printf '%s\n' "$candidate" >> upstream-report/potential-conflicts.txt
+            fi
+          done < upstream-report/changed-files.txt
+
+          sort -u upstream-report/potential-conflicts.txt -o upstream-report/potential-conflicts.txt
+          {
+            echo "MUSICLAB UPSTREAM AUDIT"
+            echo "Upstream: FrancescoGrazioso/Meld"
+            echo "Baseline integrata: $BASE"
+            echo "Target: $TARGET"
+            echo "Commit upstream: $(wc -l < upstream-report/commits.txt)"
+            echo "File modificati: $(wc -l < upstream-report/changed-files.txt)"
+            echo "File con potenziale conflitto MusicLab: $(wc -l < upstream-report/potential-conflicts.txt)"
+            echo
+            echo "Nessuna modifica viene applicata automaticamente. MotorLab deve valutare il rapporto e creare una LAB di integrazione separata."
+          } > upstream-report/summary.txt
+          cat upstream-report/summary.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Meld-Upstream-Audit-${{ steps.refs.outputs.target_tag }}
+          path: upstream-report/
+          retention-days: 30
