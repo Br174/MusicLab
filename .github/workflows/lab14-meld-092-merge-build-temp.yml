@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   merge-build:
-    if: contains(github.event.head_commit.message, 'LAB14 robust merge Meld 0.9.2 retry 4')
+    if: contains(github.event.head_commit.message, 'LAB14 robust merge Meld 0.9.2 retry 5')
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -23,7 +23,7 @@ jobs:
       - name: Fetch Meld v0.9.2
         run: git fetch https://github.com/FrancescoGrazioso/Meld.git refs/tags/v0.9.2:refs/tags/meld-v0.9.2
 
-      - name: Merge ibrido Meld engine + MusicLab features
+      - name: Merge Meld coerente + overlay MusicLab
         shell: bash
         run: |
           set -euo pipefail
@@ -44,20 +44,10 @@ jobs:
           git restore --source="$OUR_HEAD" --staged --worktree -- .gitmodules metroproto app/generate_proto.sh
           git restore --source="$OUR_HEAD" --staged --worktree -- .uab tools/universal-apk-builder uab-project.env || true
 
-          # Personalizzazioni MusicLab che non devono essere perse.
-          for p in \
-            app/src/main/kotlin/com/metrolist/music/MainActivity.kt \
-            app/src/main/kotlin/com/metrolist/music/ui/component/BottomSheet.kt \
-            app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt \
-            app/src/main/kotlin/com/metrolist/music/ui/screens/settings/SettingsScreen.kt \
-            app/src/main/kotlin/com/metrolist/music/ui/utils/ShowMediaInfo.kt \
-            app/src/main/kotlin/com/metrolist/music/utils/Updater.kt; do
-            git restore --source="$OUR_HEAD" --staged --worktree -- "$p"
-          done
-
-          # Componenti che devono seguire l'architettura Meld/InnerTubeX nuova.
+          # Piattaforma Meld 0.9.2: root/navigation/playback coerenti tra loro.
           for p in \
             app/src/main/kotlin/com/metrolist/music/App.kt \
+            app/src/main/kotlin/com/metrolist/music/MainActivity.kt \
             app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt \
             app/src/main/kotlin/com/metrolist/music/playback/MediaLibrarySessionCallback.kt \
             app/src/main/kotlin/com/metrolist/music/playback/PlayerConnection.kt \
@@ -70,10 +60,30 @@ jobs:
             git add "$p"
           done
 
+          # Le utility UI devono essere della stessa generazione del nuovo NavController.
+          git checkout meld-v0.9.2 -- app/src/main/kotlin/com/metrolist/music/ui/utils
+
+          # Overlay MusicLab indipendenti dal core Meld.
+          for p in \
+            app/src/main/kotlin/com/metrolist/music/ui/component/BottomSheet.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/screens/settings/SettingsScreen.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/utils/ShowMediaInfo.kt \
+            app/src/main/kotlin/com/metrolist/music/utils/Updater.kt; do
+            git restore --source="$OUR_HEAD" --staged --worktree -- "$p"
+          done
+
+          # Riporta il piccolo store di override YouTube dalla LAB MusicLab buona.
+          git show origin/uab-build/musiclab-canonical-ai-repair-12:app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverride.kt \
+            > app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverride.kt
+          git add app/src/main/kotlin/com/metrolist/music/playback/YouTubeMatchOverride.kt
+
           # Build system Meld 0.9.2 + identità/versionamento MusicLab.
           git show meld-v0.9.2:app/build.gradle.kts > app/build.gradle.kts
           python3 - <<'PY'
           from pathlib import Path
+
+          # Gradle / identity.
           p = Path('app/build.gradle.kts')
           s = p.read_text()
           needle = 'val appNameOverride = System.getenv("METROLIST_APP_NAME")?.takeIf { it.isNotBlank() }\n'
@@ -89,14 +99,13 @@ jobs:
           s = s.replace(arch, arch + '        buildConfigField("String", "MELD_UPSTREAM_BASELINE", "\\"$meldUpstreamBaseline\\"")\n', 1)
           s = s.replace('?: System.getenv("CRASH_REPORT_REPO") ?: "francescograzioso/Meld"', '?: System.getenv("CRASH_REPORT_REPO") ?: "Br174/MusicLab"', 1)
           s = s.replace('resValue("string", "app_name", "Meld Debug")', 'resValue("string", "app_name", "MusicLab LAB")', 1)
-          # Compatibilità per sorgenti legacy Cover ancora presenti ma non autoritativi.
           dep = '    implementation(libs.jsoup)\n'
           marker = '    implementation(libs.ktor.serialization.json)\n'
           if dep not in s:
               s = s.replace(marker, marker + '\n' + dep, 1)
           p.write_text(s)
 
-          # Catalogo Meld + solo alias jsoup richiesto dai vecchi parser non attivi.
+          # Catalogo Meld + jsoup per i sorgenti legacy ancora compilati.
           c = Path('gradle/libs.versions.toml')
           t = c.read_text()
           if 'jsoup = ' not in t.split('[libraries]')[0]:
@@ -105,13 +114,55 @@ jobs:
               t = t.replace('json = { module = "org.json:json", version.ref = "json" }\n', 'json = { module = "org.json:json", version.ref = "json" }\njsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }\n', 1)
           c.write_text(t)
 
+          # Preferenza persistente del source override, senza rimpiazzare le nuove PreferenceKeys Meld.
+          prefs = Path('app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt')
+          ps = prefs.read_text()
+          if 'YouTubeMatchOverridesKey' not in ps:
+              ps += '\nval YouTubeMatchOverridesKey = stringPreferencesKey("youtubeMatchOverrides")\n'
+              prefs.write_text(ps)
+
+          # Ponte Sostituisci -> nuovo InnerTubeXPlayer di Meld.
+          ms = Path('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt')
+          m = ms.read_text()
+          imp = 'import com.metrolist.music.constants.YouTubeMatchOverridesKey\n'
+          if imp not in m:
+              anchor = 'import com.metrolist.music.constants.QobuzMatchOverridesKey\n'
+              if anchor not in m: raise SystemExit('MusicService import anchor missing')
+              m = m.replace(anchor, anchor + imp, 1)
+
+          if 'suspend fun getYouTubeMatchOverride' not in m:
+              anchor = '    suspend fun getQobuzMatchOverride(mediaId: String): QobuzMatchOverride? =\n'
+              if anchor not in m: raise SystemExit('Qobuz override anchor missing')
+              bridge = '''    /** MusicLab: sorgente YouTube manuale, identità editoriale invariata. */\n    suspend fun getYouTubeMatchOverride(mediaId: String): YouTubeMatchOverride? =\n        withContext(Dispatchers.IO) {\n            YouTubeMatchOverrides.decode(dataStore.get(YouTubeMatchOverridesKey, ""))[mediaId]\n        }\n\n    private suspend fun resolveYouTubePlaybackId(mediaId: String): String =\n        getYouTubeMatchOverride(mediaId)?.videoId?.takeIf { it.isNotBlank() } ?: mediaId\n\n    fun setYouTubeMatchOverride(mediaId: String, override: YouTubeMatchOverride?) {\n        if (mediaId.isBlank()) return\n        scope.launch(Dispatchers.IO) {\n            dataStore.edit { prefs ->\n                val current = YouTubeMatchOverrides.decode(prefs[YouTubeMatchOverridesKey])\n                if (override == null || override.videoId == mediaId) current.remove(mediaId)\n                else current[mediaId] = override\n                prefs[YouTubeMatchOverridesKey] = YouTubeMatchOverrides.encode(current)\n            }\n            songUrlCache.invalidate(mediaId)\n        }\n    }\n\n'''
+              m = m.replace(anchor, bridge + anchor, 1)
+
+          # Tre ingressi playback Meld: cambia solo videoId tecnico, non i metadati del brano.
+          m = m.replace(
+              'InnerTubeXPlayer.playerResponseForPlayback(\n                            mediaId,',
+              'InnerTubeXPlayer.playerResponseForPlayback(\n                            resolveYouTubePlaybackId(mediaId),'
+          )
+          m = m.replace(
+              'InnerTubeXPlayer.playerResponseForPlayback(\n                        mediaId,',
+              'InnerTubeXPlayer.playerResponseForPlayback(\n                        resolveYouTubePlaybackId(mediaId),'
+          )
+          m = m.replace(
+              '.playerResponseForPlayback(\n                            videoId = mediaId,',
+              '.playerResponseForPlayback(\n                            videoId = resolveYouTubePlaybackId(mediaId),'
+          )
+          ms.write_text(m)
+
           # Cover AI usa il menu Meld, che prende il NavController dal CompositionLocal.
           cover = Path('app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt')
           cs = cover.read_text()
           cs = cs.replace('                                                navController = navController,\n', '')
           cover.write_text(cs)
           PY
-          git add app/build.gradle.kts gradle/libs.versions.toml app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
+
+          git add app/build.gradle.kts gradle/libs.versions.toml \
+            app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt \
+            app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/utils
 
           UNRESOLVED="$(git diff --name-only --diff-filter=U || true)"
           if [ -n "$UNRESOLVED" ]; then
@@ -130,7 +181,7 @@ jobs:
           git ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
             case "$f" in .github/workflows/*|metroproto/*) ;; *) git add -- "$f" ;; esac
           done
-          git commit -m "LAB14: integra motore Meld v0.9.2 con MusicLab"
+          git commit -m "LAB14: Meld 0.9.2 core coerente con overlay MusicLab"
 
       - uses: actions/setup-java@v4
         with:
