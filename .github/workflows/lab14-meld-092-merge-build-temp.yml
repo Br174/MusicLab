@@ -1,0 +1,155 @@
+name: TEMP LAB14 Robust Meld 0.9.2 Merge Build
+on:
+  push:
+    branches:
+      - uab-build/musiclab-meld-0.9.2-integration-14
+permissions:
+  contents: write
+concurrency:
+  group: musiclab-lab14-meld-092
+  cancel-in-progress: false
+jobs:
+  merge-build:
+    if: contains(github.event.head_commit.message, 'LAB14 robust merge Meld 0.9.2')
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-meld-0.9.2-integration-14
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Fetch Meld v0.9.2
+        run: git fetch https://github.com/FrancescoGrazioso/Meld.git refs/tags/v0.9.2:refs/tags/meld-v0.9.2
+
+      - name: Merge preservando infrastruttura e personalizzazioni MusicLab
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "MusicLab Upstream Integrator"
+          git config user.email "upstream@musiclab.local"
+
+          OUR_HEAD="$(git rev-parse HEAD)"
+          echo "OUR_HEAD=$OUR_HEAD"
+
+          set +e
+          git merge --no-commit --no-ff meld-v0.9.2
+          MERGE_RC=$?
+          set -e
+          echo "merge_rc=$MERGE_RC"
+
+          # Non importare mai i workflow CI dello sviluppatore upstream: MusicLab ha i propri.
+          git restore --source="$OUR_HEAD" --staged --worktree -- .github/workflows
+
+          # MusicLab continua a usare il proprio sistema protobuf/UAB.
+          git restore --source="$OUR_HEAD" --staged --worktree -- .github/actions/setup-protobuf/action.yml || true
+          git restore --source="$OUR_HEAD" --staged --worktree -- .gitmodules
+          git restore --source="$OUR_HEAD" --staged --worktree -- metroproto
+          git restore --source="$OUR_HEAD" --staged --worktree -- app/generate_proto.sh
+          git restore --source="$OUR_HEAD" --staged --worktree -- app/build.gradle.kts
+
+          # Prima fusione sicura: sui conflitti funzionali resta la versione MusicLab.
+          # Le migliorie Meld di questi file saranno valutate/riapplicate selettivamente dopo build verde.
+          protected=(
+            app/src/main/kotlin/com/metrolist/music/App.kt
+            app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt
+            app/src/main/kotlin/com/metrolist/music/ui/component/BottomSheet.kt
+            app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt
+            app/src/main/kotlin/com/metrolist/music/ui/menu/SongMenu.kt
+            app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt
+            app/src/main/kotlin/com/metrolist/music/ui/screens/settings/SettingsScreen.kt
+            app/src/main/kotlin/com/metrolist/music/ui/utils/ShowMediaInfo.kt
+            app/src/main/kotlin/com/metrolist/music/utils/Updater.kt
+          )
+          for p in "${protected[@]}"; do
+            git restore --source="$OUR_HEAD" --staged --worktree -- "$p"
+          done
+
+          # Mantieni l'identità e gli strumenti UAB di MusicLab.
+          git restore --source="$OUR_HEAD" --staged --worktree -- .uab tools/universal-apk-builder uab-project.env || true
+
+          # Il vecchio workflow release Meld non deve rientrare.
+          git rm -f --ignore-unmatch .github/workflows/release.yml || true
+          git restore --source="$OUR_HEAD" --staged --worktree -- .github/workflows
+
+          UNRESOLVED="$(git diff --name-only --diff-filter=U || true)"
+          if [ -n "$UNRESOLVED" ]; then
+            echo "::error::Conflitti non risolti"
+            echo "$UNRESOLVED"
+            exit 3
+          fi
+
+          # Il merge non deve trasformare il submodule in una directory normale.
+          MODE="$(git ls-files -s metroproto | awk '{print $1}' | head -1)"
+          echo "metroproto_mode=$MODE"
+          test "$MODE" = "160000"
+
+          # Nessun workflow esistente deve risultare cambiato dal merge.
+          if ! git diff --quiet "$OUR_HEAD" -- .github/workflows; then
+            echo "::error::Il merge tenta ancora di cambiare workflow MusicLab"
+            git diff --name-status "$OUR_HEAD" -- .github/workflows
+            exit 4
+          fi
+
+          git add -u
+          # Aggiunge nuovi file upstream, ma mai workflow o il submodule worktree.
+          git ls-files --others --exclude-standard -z \
+            | while IFS= read -r -d '' f; do
+                case "$f" in
+                  .github/workflows/*|metroproto/*) ;;
+                  *) git add -- "$f" ;;
+                esac
+              done
+
+          echo "=== staged summary ==="
+          git diff --cached --stat
+          echo "=== staged workflow diff (deve essere vuoto) ==="
+          git diff --cached --name-status -- .github/workflows
+
+          git commit -m "LAB14: integra Meld v0.9.2 preservando MusicLab"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-protobuf
+
+      - name: Crea keystore debug temporaneo
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android \
+              -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Build diagnostico UAB con applicationId separato
+        shell: bash
+        env:
+          UAB_BUILD_ID: meld092_14
+          UAB_OUTPUT_NAME: MusicLab-LAB-MELD-092-14
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+        run: bash tools/universal-apk-builder/build-apk.sh .
+
+      - name: Push merge solo dopo build verde
+        shell: bash
+        run: |
+          git push origin HEAD:uab-build/musiclab-meld-0.9.2-integration-14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB-MELD-092-14
+          path: |
+            dist/uab/apk/*.apk
+            dist/uab/*.zip
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
