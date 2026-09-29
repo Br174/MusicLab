@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   merge-build:
-    if: contains(github.event.head_commit.message, 'LAB14 robust merge Meld 0.9.2 retry 5')
+    if: contains(github.event.head_commit.message, 'LAB14 robust merge Meld 0.9.2 retry 6')
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -62,6 +62,20 @@ jobs:
 
           # Le utility UI devono essere della stessa generazione del nuovo NavController.
           git checkout meld-v0.9.2 -- app/src/main/kotlin/com/metrolist/music/ui/utils
+
+          # Il tag v0.9.2 importa questo helper da PlayerSettings ma non lo contiene.
+          # Lo completiamo senza cambiare la semantica audio: è solo testo UI.
+          cat > app/src/main/kotlin/com/metrolist/music/ui/utils/LoudnessUtils.kt <<'EOF'
+          package com.metrolist.music.ui.utils
+
+          import com.metrolist.music.constants.LoudnessLevel
+
+          fun getLoudnessLevelLabel(level: LoudnessLevel): String {
+              val name = level.name.lowercase().replaceFirstChar { it.titlecase() }
+              val lufs = if (level.targetLufs % 1f == 0f) level.targetLufs.toInt().toString() else level.targetLufs.toString()
+              return "$name ($lufs LUFS)"
+          }
+          EOF
 
           # Overlay MusicLab indipendenti dal core Meld.
           for p in \
