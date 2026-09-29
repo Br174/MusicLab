@@ -1,0 +1,79 @@
+name: MusicLab LAB12 - Debug AI Canonica
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-canonical-ai-repair-12
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug-ai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Interroga Gemini 3.5 sul caso reale
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/body.json
+          import json
+          prompt = """Sei il resolver musicale canonico centrale di MusicLab.
+
+Devi identificare la SPECIFICA REGISTRAZIONE realmente riprodotta. La tua risposta è l'unica autorità editoriale dell'app. YouTube e YouTube Music forniscono soltanto il playback tecnico e NON decidono artista, album, anno o crediti.
+
+Titolo osservato: Mi Sono Innamorato Di Te - Gianluca Grignani
+Artista/canale osservato: Alessandra De Angelis
+Playback ID tecnico: non disponibile
+
+ATTENZIONE: il campo artista/canale osservato può essere un uploader, un canale personale, un'etichetta o chi ha caricato il video. Non copiarlo automaticamente come artista. Analizza anche eventuali nomi di interpreti incorporati nel titolo del video. Il campo artist della risposta deve essere l'interprete REALE di questa registrazione, non l'autore del caricamento. Non trasformare automaticamente la registrazione nell'originale della composizione: se il playback è una cover o un live, restituisci l'artista della cover/live e classificala correttamente.
+
+Restituisci titolo canonico della registrazione, artista reale, album reale se esiste, anno, lingua, categoria (originale|cover|live|remix|adattamento), crediti reali, confidence da 0 a 1 e il ruolo del nome osservato (performer|uploader|channel|label|unknown). Non inventare album o crediti.
+
+JSON obbligatorio: {"title":"","artist":"","album":null,"year":null,"language":null,"category":null,"confidence":0.0,"observedArtistRole":"performer|uploader|channel|label|unknown","credits":{"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}}"""
+          body = {
+              "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+              "generationConfig": {"temperature": 0.12, "maxOutputTokens": 1800, "responseMimeType": "application/json"},
+          }
+          print(json.dumps(body, ensure_ascii=False))
+          PY
+          code="$(curl -sS -o /tmp/result.json -w '%{http_code}' \
+            -H "x-goog-api-key: $GEMINI_API_KEY" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/body.json \
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent')"
+          echo "HTTP=$code"
+          jq . /tmp/result.json
+          echo '--- TESTO AI ---'
+          jq -r '.candidates[0].content.parts[]?.text // empty' /tmp/result.json
+
+      - name: Interroga Gemini con Search sul caso reale
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/body-search.json
+          import json
+          prompt = """Identifica la specifica registrazione descritta da questo video musicale. L'AI è l'unica autorità editoriale; il nome del canale può essere un uploader e non l'interprete.
+Titolo osservato: Mi Sono Innamorato Di Te - Gianluca Grignani
+Canale osservato: Alessandra De Angelis
+Verifica con ricerca chi è l'interprete indicato dal titolo e distinguilo dal canale/uploader. Restituisci SOLO JSON con title, artist, category, confidence, observedArtistRole."""
+          body = {
+              "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+              "tools": [{"google_search": {}}],
+              "generationConfig": {"temperature": 0.12, "maxOutputTokens": 1200, "responseMimeType": "application/json"},
+          }
+          print(json.dumps(body, ensure_ascii=False))
+          PY
+          code="$(curl -sS -o /tmp/result-search.json -w '%{http_code}' \
+            -H "x-goog-api-key: $GEMINI_API_KEY" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/body-search.json \
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent')"
+          echo "HTTP=$code"
+          jq . /tmp/result-search.json
+          echo '--- TESTO AI SEARCH ---'
+          jq -r '.candidates[0].content.parts[]?.text // empty' /tmp/result-search.json
