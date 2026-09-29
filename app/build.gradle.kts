@@ -10,6 +10,9 @@ if (localPropertiesFile.exists()) {
 val baseApplicationId = "com.metrolist.music"
 val applicationIdOverride = System.getenv("METROLIST_APPLICATION_ID")?.takeIf { it.isNotBlank() }
 val appNameOverride = System.getenv("METROLIST_APP_NAME")?.takeIf { it.isNotBlank() }
+val musicLabVersionCodeOverride = System.getenv("MUSICLAB_VERSION_CODE")?.toIntOrNull()
+val musicLabVersionNameOverride = System.getenv("MUSICLAB_VERSION_NAME")?.takeIf { it.isNotBlank() }
+val meldBaseVersion = System.getenv("MELD_BASE_VERSION")?.takeIf { it.isNotBlank() } ?: "0.8.9"
 val debugKeystorePathOverride = System.getenv("METROLIST_DEBUG_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
 val debugKeystorePassword = System.getenv("METROLIST_DEBUG_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
 val debugKeyAlias = System.getenv("METROLIST_DEBUG_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "androiddebugkey"
@@ -33,8 +36,8 @@ android {
         applicationId = applicationIdOverride ?: "com.meld.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "0.8.9"
+        versionCode = musicLabVersionCodeOverride ?: 25
+        versionName = musicLabVersionNameOverride ?: "0.8.9"
         resValue("string", "app_name", appNameOverride ?: "Meld")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -47,6 +50,7 @@ android {
         buildConfigField("String", "LASTFM_API_KEY", "\"$lastFmKey\"")
         buildConfigField("String", "LASTFM_SECRET", "\"$lastFmSecret\"")
         buildConfigField("String", "ARCHITECTURE", "\"universal\"")
+        buildConfigField("String", "MELD_BASE_VERSION", "\"$meldBaseVersion\"")
 
         // Crash reporting target: GitHub repo (owner/name) where Issues are created,
         // and a fine-grained PAT with issues:write scoped to that repo only.

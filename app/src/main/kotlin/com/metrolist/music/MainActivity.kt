@@ -153,6 +153,7 @@ import com.metrolist.music.constants.SlimNavBarHeight
 import com.metrolist.music.constants.SlimNavBarKey
 import com.metrolist.music.constants.StopMusicOnTaskClearKey
 import com.metrolist.music.constants.UpdateNotificationsEnabledKey
+import com.metrolist.music.constants.LastMeldUpstreamNotifiedTagKey
 import com.metrolist.music.constants.UseNewMiniPlayerDesignKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.SearchHistory
@@ -187,6 +188,7 @@ import com.metrolist.music.ui.theme.extractThemeColor
 import com.metrolist.music.ui.utils.appBarScrollBehavior
 import com.metrolist.music.ui.utils.resetHeightOffset
 import com.metrolist.music.utils.SyncUtils
+import com.metrolist.music.utils.MeldUpstreamMonitor
 import com.metrolist.music.utils.Updater
 import com.metrolist.music.utils.dataStore
 import androidx.datastore.preferences.core.edit
@@ -462,6 +464,35 @@ class MainActivity : ComponentActivity() {
                                             PackageManager.PERMISSION_GRANTED
                                         ) {
                                             NotificationManagerCompat.from(this@MainActivity).notify(1001, notif)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        MeldUpstreamMonitor.checkForUpdate(BuildConfig.MELD_BASE_VERSION).onSuccess { (upstream, hasUpstreamUpdate) ->
+                            if (upstream != null && hasUpstreamUpdate && notifEnabled) {
+                                val lastNotifiedTag = dataStore.data.first()[LastMeldUpstreamNotifiedTagKey].orEmpty()
+                                if (lastNotifiedTag != upstream.tagName && upstream.releaseUrl.isNotBlank()) {
+                                    val intent = Intent(Intent.ACTION_VIEW, upstream.releaseUrl.toUri())
+                                    val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                                    val pending = PendingIntent.getActivity(this@MainActivity, 1002, intent, flags)
+                                    val notif =
+                                        NotificationCompat
+                                            .Builder(this@MainActivity, "updates")
+                                            .setSmallIcon(R.drawable.update)
+                                            .setContentTitle("Nuova base Meld disponibile")
+                                            .setContentText("${upstream.versionName}: da valutare per MusicLab")
+                                            .setContentIntent(pending)
+                                            .setAutoCancel(true)
+                                            .build()
+                                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                                        ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) ==
+                                        PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        NotificationManagerCompat.from(this@MainActivity).notify(1002, notif)
+                                        dataStore.edit { settings ->
+                                            settings[LastMeldUpstreamNotifiedTagKey] = upstream.tagName
                                         }
                                     }
                                 }
