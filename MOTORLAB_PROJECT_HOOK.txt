@@ -1,0 +1,27 @@
+MOTORLAB PROJECT HOOK V1
+
+PROJECT_NAME=MusicLab
+PROJECT_REPOSITORY=Br174/MusicLab
+MOTORLAB_CONTROL_REPOSITORY=Br174/Chatgpt
+MOTORLAB_BOOTSTRAP_MODULE=MOTORLAB_AUTO_BOOTSTRAP_V1.txt
+MOTORLAB_GOVERNANCE_MODULE=MOTORLAB_GOVERNANCE_V1.txt
+MOTORLAB_ACTIVATION_MODE=implicit
+MOTORLAB_PROJECT_CHAT_POLICY=canonical-project-chat
+MOTORLAB_NATIVE_ENGINE_POLICY=coexist-preserve
+
+PURPOSE
+This file is the persistent project-side structural hook for MotorLab.
+When a ChatGPT/project execution surface can identify this repository or project context, MotorLab must be considered implicitly enabled and must load the current canonical CORE from Br174/Chatgpt before any write-capable or lifecycle-changing operation.
+
+MANDATORY RULES
+1. Do not require Bruno to paste an activation string in each new MusicLab chat.
+2. Br174/Chatgpt is the authoritative MotorLab control repository; do not embed or freeze a copy of the CORE here.
+3. MotorLab must operate alongside MusicLab's native playback/search/AI/runtime engines and must never replace, disable, absorb, rename or rewrite them merely because MotorLab is active.
+4. Before write-capable/lifecycle work, read current MotorLab CORE/governance/routing/registry state and reconcile any relevant active job/checkpoint/lock state.
+5. This hook is orchestration metadata only. It must not alter MusicLab application logic, UI, package identity, signing, audio behavior, search behavior, AI behavior or release behavior by itself.
+6. If MotorLab control state is unavailable, preserve MusicLab state and report the blocker rather than guessing.
+7. Any future MotorLab governance revision in Br174/Chatgpt supersedes frozen assumptions in this hook.
+
+VERSION
+MOTORLAB-PROJECT-HOOK-V1.0
+Established: 2026-09-29
