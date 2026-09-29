@@ -1,0 +1,83 @@
+name: MusicLab - Review Meld upstream
+
+on:
+  workflow_dispatch:
+    inputs:
+      musiclab_ref:
+        description: "MusicLab ref to compare (MADRE/LAB/candidate)"
+        required: true
+        default: "mother/musiclab-swipe-fluid-play-01"
+        type: string
+      from_tag:
+        description: "Meld baseline tag. Empty = last_imported_tag from .upstream/meld.json"
+        required: false
+        default: ""
+        type: string
+      to_tag:
+        description: "Meld target tag. Empty = latest Meld release"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-upstream-meld-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout MusicLab ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.musiclab_ref }}
+          fetch-depth: 0
+
+      - name: Checkout guardian files from LAB13 when absent
+        shell: bash
+        run: |
+          if [ ! -f tools/upstream-meld/review_update.py ]; then
+            git fetch origin uab-build/musiclab-upstream-meld-guardian-13
+            git checkout origin/uab-build/musiclab-upstream-meld-guardian-13 -- \
+              .upstream/meld.json \
+              tools/upstream-meld/review_update.py
+          fi
+
+      - name: Review Meld source update
+        shell: bash
+        run: |
+          chmod +x tools/upstream-meld/review_update.py
+          args=(--out-dir dist/upstream-meld-review)
+          if [ -n "${{ inputs.from_tag }}" ]; then args+=(--from-tag "${{ inputs.from_tag }}"); fi
+          if [ -n "${{ inputs.to_tag }}" ]; then args+=(--to-tag "${{ inputs.to_tag }}"); fi
+          python3 tools/upstream-meld/review_update.py "${args[@]}" | tee dist/upstream-meld-review.log
+
+      - name: Publish review summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f dist/upstream-meld-review/REPORT.md ]; then
+            cat dist/upstream-meld-review/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Meld review failed before report generation" >> "$GITHUB_STEP_SUMMARY"
+            if [ -f dist/upstream-meld-review.log ]; then
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              tail -80 dist/upstream-meld-review.log >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+      - name: Upload review artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Meld-Upstream-Review
+          path: |
+            dist/upstream-meld-review/**
+            dist/upstream-meld-review.log
+          if-no-files-found: warn
+          retention-days: 30
