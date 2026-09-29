@@ -15,12 +15,24 @@ jobs:
     timeout-minutes: 10
     env:
       WORKER_URL: https://musiclab-music-intelligence.brunoverlezza.workers.dev
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - name: Stato Worker
         shell: bash
         run: |
           set -euo pipefail
           curl -sS "$WORKER_URL/stato" | jq .
+
+      - name: Modelli Gemini disponibili per generateContent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          curl -sS \
+            -H "x-goog-api-key: $GEMINI_API_KEY" \
+            "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000" \
+            | jq -r '.models[]? | select((.supportedGenerationMethods // []) | index("generateContent")) | .name' \
+            | sort
 
       - name: Diagnosi resolve caso reale
         shell: bash
