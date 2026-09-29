@@ -438,31 +438,29 @@ class MainActivity : ComponentActivity() {
                             if (releaseInfo != null) {
                                 onLatestVersionNameChange(releaseInfo.versionName)
                                 if (hasUpdate && notifEnabled) {
-                                    val downloadUrl = Updater.getDownloadUrlForCurrentVariant(releaseInfo)
-                                    if (downloadUrl != null) {
-                                        val intent = Intent(Intent.ACTION_VIEW, downloadUrl.toUri())
+                                    val releaseUrl = Updater.getUpstreamReleasePageUrl(releaseInfo)
+                                    val intent = Intent(Intent.ACTION_VIEW, releaseUrl.toUri())
 
-                                        val flags =
-                                            PendingIntent.FLAG_UPDATE_CURRENT or
-                                                (PendingIntent.FLAG_IMMUTABLE)
-                                        val pending = PendingIntent.getActivity(this@MainActivity, 1001, intent, flags)
+                                    val flags =
+                                        PendingIntent.FLAG_UPDATE_CURRENT or
+                                            PendingIntent.FLAG_IMMUTABLE
+                                    val pending = PendingIntent.getActivity(this@MainActivity, 1001, intent, flags)
 
-                                        val notif =
-                                            NotificationCompat
-                                                .Builder(this@MainActivity, "updates")
-                                                .setSmallIcon(R.drawable.update)
-                                                .setContentTitle(getString(R.string.update_available_title))
-                                                .setContentText(releaseInfo.versionName)
-                                                .setContentIntent(pending)
-                                                .setAutoCancel(true)
-                                                .build()
+                                    val notif =
+                                        NotificationCompat
+                                            .Builder(this@MainActivity, "updates")
+                                            .setSmallIcon(R.drawable.update)
+                                            .setContentTitle(getString(R.string.meld_upstream_update_title))
+                                            .setContentText("Meld ${releaseInfo.versionName}")
+                                            .setContentIntent(pending)
+                                            .setAutoCancel(true)
+                                            .build()
 
-                                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                                            ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) ==
-                                            PackageManager.PERMISSION_GRANTED
-                                        ) {
-                                            NotificationManagerCompat.from(this@MainActivity).notify(1001, notif)
-                                        }
+                                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                                        ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) ==
+                                        PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        NotificationManagerCompat.from(this@MainActivity).notify(1001, notif)
                                     }
                                 }
                             }
@@ -967,7 +965,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                             IconButton(onClick = { showAccountDialog = true }) {
                                                 BadgedBox(badge = {
-                                                    if (latestVersionName != BuildConfig.VERSION_NAME) {
+                                                    if (Updater.isUpstreamUpdateAvailable(latestVersionName)) {
                                                         Badge()
                                                     }
                                                 }) {

@@ -124,7 +124,10 @@ fun UpdaterScreen(
                         description = {
                             val arch = BuildConfig.ARCHITECTURE
                             val variant = if (BuildConfig.CAST_AVAILABLE) "GMS" else "FOSS"
-                            Text("$arch - $variant")
+                            Text(
+                                "$arch - $variant\n" +
+                                    stringResource(R.string.meld_upstream_baseline, Updater.IMPORTED_MELD_VERSION),
+                            )
                         },
                     ),
                 ),

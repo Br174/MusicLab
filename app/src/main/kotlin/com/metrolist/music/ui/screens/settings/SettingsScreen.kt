@@ -296,35 +296,35 @@ fun SettingsScreen(
                         onClick = { navController.navigate("settings/about") }
                     )
                 )
-                if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
+                if (BuildConfig.UPDATER_AVAILABLE && Updater.isUpstreamUpdateAvailable(latestVersionName)) {
                     val releaseInfo = Updater.getCachedLatestRelease()
-                    val downloadUrl = releaseInfo?.let { Updater.getDownloadUrlForCurrentVariant(it) }
+                    val releaseUrl = releaseInfo?.let { Updater.getUpstreamReleasePageUrl(it) }
 
-                    if (downloadUrl != null) {
+                    if (releaseUrl != null) {
                         add(
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.update),
                                 title = { 
                                     Text(
-                                        text = stringResource(R.string.new_version_available),
+                                        text = stringResource(R.string.meld_upstream_update_title),
                                     )
                                 },
                                 description = {
                                     Text(
-                                        text = latestVersionName,
+                                        text = "Meld $latestVersionName",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 },
                                 showBadge = true,
-                                onClick = { uriHandler.openUri(downloadUrl) }
+                                onClick = { uriHandler.openUri(releaseUrl) }
                             )
                         )
                     }
                 }
             }
         )
-        if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
+        if (BuildConfig.UPDATER_AVAILABLE && Updater.isUpstreamUpdateAvailable(latestVersionName)) {
             Spacer(modifier = Modifier.height(16.dp))
             ReleaseNotesCard()
         }

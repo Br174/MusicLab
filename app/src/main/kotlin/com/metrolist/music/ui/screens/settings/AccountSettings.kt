@@ -391,7 +391,7 @@ fun AccountSettings(
                 icon = {
                     BadgedBox(
                         badge = {
-                            if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
+                            if (BuildConfig.UPDATER_AVAILABLE && Updater.isUpstreamUpdateAvailable(latestVersionName)) {
                                 Badge()
                             }
                         }
@@ -410,23 +410,23 @@ fun AccountSettings(
 
             Spacer(Modifier.height(4.dp))
 
-            if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
+            if (BuildConfig.UPDATER_AVAILABLE && Updater.isUpstreamUpdateAvailable(latestVersionName)) {
                 val releaseInfo = Updater.getCachedLatestRelease()
-                val downloadUrl = releaseInfo?.let { Updater.getDownloadUrlForCurrentVariant(it) }
-                
-                if (downloadUrl != null) {
+                val releaseUrl = releaseInfo?.let { Updater.getUpstreamReleasePageUrl(it) }
+
+                if (releaseUrl != null) {
                     PreferenceEntry(
                         title = {
-                            Text(text = stringResource(R.string.new_version_available))
+                            Text(text = stringResource(R.string.meld_upstream_update_title))
                         },
-                        description = latestVersionName,
+                        description = "Meld $latestVersionName",
                         icon = {
                             BadgedBox(badge = { Badge() }) {
                                 Icon(painterResource(R.drawable.update), null)
                             }
                         },
                         onClick = {
-                            uriHandler.openUri(downloadUrl)
+                            uriHandler.openUri(releaseUrl)
                         }
                     )
                 }

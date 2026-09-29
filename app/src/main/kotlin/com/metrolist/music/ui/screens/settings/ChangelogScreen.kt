@@ -49,7 +49,7 @@ fun ChangelogScreen(
     LaunchedEffect(Unit) {
         Updater.getAllReleases().onSuccess { allReleases ->
             releases = allReleases.filter { release ->
-                Updater.compareVersions(BuildConfig.VERSION_NAME, release.tagName) >= 0
+                Updater.compareVersions(Updater.IMPORTED_MELD_VERSION, release.tagName) >= 0
             }
             isLoading = false
         }.onFailure {
