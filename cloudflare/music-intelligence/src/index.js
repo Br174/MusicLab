@@ -3,6 +3,8 @@ const JSON_HEADERS = {
   'cache-control': 'no-store',
 };
 
+const CURRENT_RESOLVER_VERSION = 12;
+
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET,POST,OPTIONS',
@@ -21,6 +23,7 @@ export default {
           versione: env.ENGINE_VERSION || '1.0.0',
           memoria: Boolean(env.DB),
           ai: Boolean(env.GEMINI_API_KEY),
+          resolver: CURRENT_RESOLVER_VERSION,
         });
       }
       if (request.method === 'POST' && url.pathname === '/api/v1/resolve') {
@@ -61,28 +64,55 @@ async function resolveMetadata(input, env, ctx) {
     }
   }
 
-  const prompt = `Sei il cervello musicale canonico di MusicLab.\n\n` +
-    `Devi identificare la registrazione musicale reale descritta qui sotto. ` +
-    `La tua risposta è l'autorità editoriale dell'app. YouTube/YouTube Music non decidono mai artista, album o crediti.\n\n` +
-    `Titolo osservato: ${title}\nArtista osservato: ${artist}\n` +
+  const prompt = `Sei il resolver musicale canonico centrale di MusicLab.\n\n` +
+    `Devi identificare la SPECIFICA REGISTRAZIONE realmente riprodotta. La tua risposta è l'unica autorità editoriale dell'app. ` +
+    `YouTube e YouTube Music forniscono soltanto il playback tecnico e NON decidono artista, album, anno o crediti.\n\n` +
+    `Titolo osservato: ${title}\nArtista/canale osservato: ${artist}\n` +
     (clean(input?.albumHint) ? `Album osservato: ${clean(input.albumHint)}\n` : '') +
     `Playback ID tecnico: ${playbackId || 'non disponibile'}\n\n` +
-    `Restituisci il titolo canonico della specifica registrazione, l'artista reale, l'album reale se esiste, ` +
-    `anno, lingua, categoria (originale|cover|live|remix|adattamento), e i crediti reali. ` +
-    `Non trattare il nome di un uploader come artista. Non inventare un album se la registrazione è un live/video non appartenente a un album. ` +
-    `Se un credito non è noto usa null o [].\n\n` +
+    `ATTENZIONE: il campo artista/canale osservato può essere un uploader, un canale personale, un'etichetta o chi ha caricato il video. ` +
+    `Non copiarlo automaticamente come artista. Analizza anche eventuali nomi di interpreti incorporati nel titolo del video. ` +
+    `Il campo artist della risposta deve essere l'interprete REALE di questa registrazione, non l'autore del caricamento. ` +
+    `Non trasformare automaticamente la registrazione nell'originale della composizione: se il playback è una cover o un live, ` +
+    `restituisci l'artista della cover/live e classificala correttamente.\n\n` +
+    `Restituisci titolo canonico della registrazione, artista reale, album reale se esiste, anno, lingua, categoria ` +
+    `(originale|cover|live|remix|adattamento), crediti reali, confidence da 0 a 1 e il ruolo del nome osservato ` +
+    `(performer|uploader|channel|label|unknown). Non inventare album o crediti.\n\n` +
     `JSON obbligatorio: {"title":"","artist":"","album":null,"year":null,"language":null,"category":null,` +
+    `"confidence":0.0,"observedArtistRole":"performer|uploader|channel|label|unknown",` +
     `"credits":{"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}}`;
 
-  const ai = await askGemini(prompt, env, 1800, false);
-  const metadata = normalizeMetadata(ai, playbackId);
-  if (!metadata) throw new Error('L’AI non ha restituito metadati validi.');
+  let ai = await askGemini(prompt, env, 1800, false);
+  let metadata = normalizeMetadata(ai, playbackId);
+
+  if (!metadata || needsGroundedVerification(title, artist, ai, metadata, true)) {
+    try {
+      const verifiedAi = await askGemini(
+        prompt + `\n\nVERIFICA APPROFONDITA: usa la ricerca per distinguere con certezza interprete musicale, uploader/canale e titolo reale. ` +
+          `Se il titolo contiene un nome diverso dal canale osservato, verifica chi sta realmente eseguendo il brano.`,
+        env,
+        2200,
+        true,
+      );
+      const verifiedMetadata = normalizeMetadata(verifiedAi, playbackId);
+      if (verifiedMetadata && !needsGroundedVerification(title, artist, verifiedAi, verifiedMetadata, false)) {
+        ai = verifiedAi;
+        metadata = verifiedMetadata;
+      }
+    } catch (_) {
+      // Il primo risultato resta utilizzabile soltanto se non presenta contraddizioni forti.
+    }
+  }
+
+  if (!metadata || needsGroundedVerification(title, artist, ai, metadata, false)) {
+    throw new Error('L’AI non ha restituito un’identità canonica sufficientemente affidabile.');
+  }
 
   if (env.DB) {
     const workId = crypto.randomUUID();
     await env.DB.prepare(`
-      INSERT INTO works(id, search_key, canonical_title, original_artist, original_year, original_language, credits_json, ai_model)
-      VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+      INSERT INTO works(id, search_key, canonical_title, original_artist, original_year, original_language, credits_json, ai_model, resolver_version)
+      VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
       ON CONFLICT(search_key) DO UPDATE SET
         canonical_title=excluded.canonical_title,
         original_artist=excluded.original_artist,
@@ -90,13 +120,16 @@ async function resolveMetadata(input, env, ctx) {
         original_language=COALESCE(excluded.original_language, works.original_language),
         credits_json=excluded.credits_json,
         ai_model=excluded.ai_model,
+        resolver_version=excluded.resolver_version,
         updated_at=CURRENT_TIMESTAMP
     `).bind(
       workId, key, metadata.title, metadata.artist, metadata.year, metadata.language,
-      JSON.stringify(metadata.credits || {}), env.GEMINI_MODEL || 'gemini-2.5-flash-lite'
+      JSON.stringify(metadata.credits || {}), env.GEMINI_MODEL || 'gemini-2.5-flash-lite', CURRENT_RESOLVER_VERSION
     ).run();
 
-    const work = await env.DB.prepare('SELECT id FROM works WHERE search_key=?1 LIMIT 1').bind(key).first();
+    const work = await env.DB.prepare(
+      'SELECT id FROM works WHERE search_key=?1 AND resolver_version>=?2 LIMIT 1'
+    ).bind(key, CURRENT_RESOLVER_VERSION).first();
     if (playbackId && work?.id) {
       await env.DB.prepare(`
         INSERT INTO playback_bindings(playback_id, work_id, source_kind, last_verified_at)
@@ -114,15 +147,18 @@ async function cachedResolution(db, key, playbackId) {
   let row = null;
   if (playbackId) {
     row = await db.prepare(`
-      SELECT w.*, a.youtube_browse_id AS artist_browse_id, al.youtube_browse_id AS album_browse_id
+      SELECT w.*, NULL AS artist_browse_id, NULL AS album_browse_id
       FROM playback_bindings pb
       JOIN works w ON w.id=pb.work_id
-      LEFT JOIN artists a ON a.artist_key=?2
-      LEFT JOIN albums al ON al.album_key=?3
-      WHERE pb.playback_id=?1 LIMIT 1
-    `).bind(playbackId, '', '').first();
+      WHERE pb.playback_id=?1 AND COALESCE(w.resolver_version,0)>=?2
+      LIMIT 1
+    `).bind(playbackId, CURRENT_RESOLVER_VERSION).first();
   }
-  if (!row) row = await db.prepare('SELECT * FROM works WHERE search_key=?1 LIMIT 1').bind(key).first();
+  if (!row) {
+    row = await db.prepare(
+      'SELECT * FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1'
+    ).bind(key, CURRENT_RESOLVER_VERSION).first();
+  }
   if (!row) return null;
   return {
     playbackId: playbackId || '',
@@ -135,23 +171,44 @@ async function cachedResolution(db, key, playbackId) {
     credits: safeJson(row.credits_json) || {},
     artistBrowseId: row.artist_browse_id || null,
     albumBrowseId: row.album_browse_id || null,
-    source: 'ai-cache',
+    source: 'ai-cache-v12',
   };
 }
 
 async function discover(input, env, phase) {
-  const title = clean(input?.title);
-  const artist = clean(input?.artist);
+  const observedTitle = clean(input?.title);
+  const observedArtist = clean(input?.artist);
   const mode = input?.mode === 'originals' ? 'originals' : 'cover';
-  if (!title || !artist) throw new Error('Titolo e artista sono obbligatori.');
+  if (!observedTitle || !observedArtist) throw new Error('Titolo e artista sono obbligatori.');
   const existing = Array.isArray(input?.existing) ? input.existing.slice(0, 160) : [];
   const focus = clean(input?.focus);
+
+  // Prima di chiedere cover/originali, ripuliamo SEMPRE l'identità della registrazione.
+  // Così un nome di uploader/canale non può diventare l'artista di partenza della ricerca.
+  let title = observedTitle;
+  let artist = observedArtist;
+  try {
+    const canonicalSeed = await resolveMetadata({
+      title: observedTitle,
+      artist: observedArtist,
+      albumHint: clean(input?.albumHint),
+      playbackId: clean(input?.playbackId),
+      useMemory: input?.useMemory !== false,
+    }, env, null);
+    if (canonicalSeed?.metadata?.title && canonicalSeed?.metadata?.artist) {
+      title = clean(canonicalSeed.metadata.title);
+      artist = clean(canonicalSeed.metadata.artist);
+    }
+  } catch (_) {
+    // Se il resolver non è certo, la discovery può ancora provare con il prompt AI,
+    // ma non eredita mai dati editoriali da YouTube/YTM.
+  }
 
   if (phase === 'initial') {
     if (input?.useMemory !== false && env.DB) {
       const cached = await cachedDiscovery(env.DB, title, artist, mode === 'cover' ? 5 : 6);
       if (cached && (cached.original || cached.versions.length)) {
-        return { stato: 'pronto', fase: 'initial', provenienza: 'memoria', ...cached };
+        return { stato: 'pronto', fase: 'initial', provenienza: 'memoria', seed: { title, artist }, ...cached };
       }
     }
     const prompt = mode === 'cover'
@@ -160,7 +217,7 @@ async function discover(input, env, phase) {
     const ai = await askGemini(prompt, env, 2400, false);
     const payload = normalizeDiscovery(ai, mode === 'cover' ? 5 : 6);
     if (env.DB) await saveDiscovery(env.DB, title, artist, payload, env);
-    return { stato: 'pronto', fase: 'initial', provenienza: 'ai', ...payload };
+    return { stato: 'pronto', fase: 'initial', provenienza: 'ai', seed: { title, artist }, ...payload };
   }
 
   const prompt = mode === 'cover'
@@ -170,7 +227,7 @@ async function discover(input, env, phase) {
   const max = Math.max(1, Math.min(Number(env.MAX_DISCOVERY_RESULTS || 150), 150));
   const payload = normalizeDiscovery(ai, max);
   if (env.DB) await saveDiscovery(env.DB, title, artist, payload, env);
-  return { stato: 'pronto', fase: 'expand', provenienza: 'ai', ...payload };
+  return { stato: 'pronto', fase: 'expand', provenienza: 'ai', seed: { title, artist }, ...payload };
 }
 
 function initialCoverPrompt(title, artist) {
@@ -288,7 +345,9 @@ function normalizeDiscovery(ai, limit) {
 
 async function cachedDiscovery(db, requestTitle, requestArtist, limit) {
   const key = searchKey(requestTitle, requestArtist);
-  const work = await db.prepare('SELECT * FROM works WHERE search_key=?1 LIMIT 1').bind(key).first();
+  const work = await db.prepare(
+    'SELECT * FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1'
+  ).bind(key, CURRENT_RESOLVER_VERSION).first();
   if (!work) return null;
   const rows = await db.prepare(`
     SELECT canonical_title, canonical_artist, category, language, year, album, credits_json
@@ -322,15 +381,17 @@ async function saveDiscovery(db, requestTitle, requestArtist, payload, env) {
   if (payload?.original) {
     const workId = crypto.randomUUID();
     await db.prepare(`
-      INSERT INTO works(id,search_key,canonical_title,original_artist,original_year,original_language,credits_json,ai_model)
-      VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+      INSERT INTO works(id,search_key,canonical_title,original_artist,original_year,original_language,credits_json,ai_model,resolver_version)
+      VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
       ON CONFLICT(search_key) DO UPDATE SET canonical_title=excluded.canonical_title,original_artist=excluded.original_artist,
         original_year=COALESCE(excluded.original_year,works.original_year),original_language=COALESCE(excluded.original_language,works.original_language),
-        credits_json=excluded.credits_json,ai_model=excluded.ai_model,updated_at=CURRENT_TIMESTAMP
+        credits_json=excluded.credits_json,ai_model=excluded.ai_model,resolver_version=excluded.resolver_version,updated_at=CURRENT_TIMESTAMP
     `).bind(workId,key,payload.original.title,payload.original.artist,payload.original.year,payload.original.language,
-      JSON.stringify(payload.original.credits||{}),env.GEMINI_MODEL||'gemini-2.5-flash-lite').run();
+      JSON.stringify(payload.original.credits||{}),env.GEMINI_MODEL||'gemini-2.5-flash-lite',CURRENT_RESOLVER_VERSION).run();
   }
-  const work = await db.prepare('SELECT id FROM works WHERE search_key=?1 LIMIT 1').bind(key).first();
+  const work = await db.prepare(
+    'SELECT id FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1'
+  ).bind(key, CURRENT_RESOLVER_VERSION).first();
   if (!work?.id || !payload?.versions?.length) return;
   const statements = payload.versions.map(v => db.prepare(`
     INSERT INTO versions(id,work_id,version_key,canonical_title,canonical_artist,category,language,year,album,credits_json,ai_model)
@@ -416,6 +477,36 @@ function normalizeCategory(value) {
   if (v.includes('stran') || v.includes('adapt')) return 'straniera';
   if (v.includes('original')) return 'originale';
   return 'cover';
+}
+
+function needsGroundedVerification(observedTitle, observedArtist, ai, metadata, requireConfidence) {
+  if (!metadata) return true;
+  const confidence = Number(ai?.confidence);
+  if (Number.isFinite(confidence) && confidence < 0.72) return true;
+  if (requireConfidence && !Number.isFinite(confidence)) return true;
+
+  const observed = canonical(observedArtist);
+  const resolved = canonical(metadata.artist);
+  const role = canonical(ai?.observedArtistRole || '');
+  const uploaderRole = role.includes('uploader') || role.includes('channel') || role.includes('label');
+
+  if (uploaderRole && observed && resolved === observed) return true;
+  if (observed && resolved === observed && titleSuggestsDifferentArtist(observedTitle, observedArtist)) return true;
+  return false;
+}
+
+function titleSuggestsDifferentArtist(title, observedArtist) {
+  const observed = canonical(observedArtist);
+  const parts = String(title || '')
+    .split(/\s[-–—|]\s|\s*:\s*/)
+    .map(canonical)
+    .filter(Boolean);
+  if (parts.length < 2 || !observed) return false;
+  if (parts.some(p => p === observed || p.includes(observed) || observed.includes(p))) return false;
+  return parts.some(p => {
+    const words = p.split(' ').filter(Boolean);
+    return words.length >= 2 && words.length <= 6;
+  });
 }
 
 function versionKey(title, artist, category, language) {

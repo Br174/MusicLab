@@ -1088,8 +1088,11 @@ fun SongMenu(
                                     title = { Text(text = stringResource(R.string.view_artist)) },
                                     description = {
                                         Text(
-                                            text = canonicalArtistName
-                                                ?: song.artists.joinToString { it.name },
+                                            text = if (useCanonicalArtist) {
+                                                canonicalArtistName ?: "Identificazione AI in corso…"
+                                            } else {
+                                                song.artists.joinToString { it.name }
+                                            },
                                         )
                                     },
                                     icon = {
@@ -1137,9 +1140,13 @@ fun SongMenu(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(if (isPodcast) R.string.view_podcast else R.string.view_album)) },
                                     description = {
-                                        (canonicalAlbumName ?: song.song.albumName)?.let {
-                                            Text(text = it)
+                                        val albumLabel = if (useCanonicalAlbum) {
+                                            canonicalMetadata?.let { it.album ?: "Album non indicato dall'AI" }
+                                                ?: "Identificazione AI in corso…"
+                                        } else {
+                                            canonicalAlbumName ?: song.song.albumName
                                         }
+                                        albumLabel?.let { Text(text = it) }
                                     },
                                     icon = {
                                         Icon(
