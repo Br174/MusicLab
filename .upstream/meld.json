@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "upstream_repo": "FrancescoGrazioso/Meld",
+  "upstream_role": "sole_source_upstream",
+  "baseline_tag": "v0.8.9",
+  "last_reviewed_tag": "v0.8.9",
+  "last_imported_tag": "v0.8.9",
+  "trigger_mode": "existing_musiclab_notification_then_manual_review",
+  "scheduled_polling": false,
+  "direct_upstream_apk_install": false,
+  "source_update_mode": "review_then_lab_then_test_then_candidate",
+  "preserve_musiclab_customizations": true,
+  "automatic_madre_write": false,
+  "conflict_policy": "never_choose_silently",
+  "exact_import_preference": "git_commit_or_three_way_patch",
+  "license": "GPL-3.0",
+  "notes": "MusicLab follows FrancescoGrazioso/Meld only. MetrolistGroup/Metrolist is intentionally not a direct MusicLab upstream. Meld may itself consume Metrolist changes. Upstream APKs are never installed over MusicLab; approved source changes are integrated into a MusicLab LAB and MusicLab builds its own signed APK."
+}
