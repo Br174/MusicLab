@@ -1,0 +1,40 @@
+MOTORLAB_SATELLITE_BUNDLE
+RELEASE=2026.09.29-r1
+CENTRAL_AUTHORITY=Br174/Chatgpt
+PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
+WATCHDOG=required
+RESUME_RECOVERY=required
+PROGRESS_REPORTING=required
+VISUAL_STATUS=required
+SINGLE_WRITER=required
+CHECKPOINT_RECOVERY=required
+
+PURPOSE
+Verified last-good local MotorLab fallback bundle. Central Br174/Chatgpt remains authoritative whenever reachable.
+
+VISIBLE STARTUP
+Confirm MotorLab activation visibly and state that it operates alongside the project-native engine.
+
+PROGRESS
+Report verified percentages for substantial work; never invent progress.
+
+VISUAL SUCCESS
+🎆🎆 small verified success; 🎆🎆🎆 significant milestone; 🎆🎆🎆🎆 major/final verified completion, always with explanation.
+
+WATCHDOG
+Use progress evidence, checkpoint recovery, bounded retry and single-writer safety. Lightning events must explain the intervention.
+
+RESUME RECOVERY
+Continue incomplete approved work after tool responses while execution control exists; otherwise resume from the last verified checkpoint at the first later available execution cycle.
+
+NATIVE ENGINE COEXISTENCE
+MotorLab must not replace, disable, absorb or rewrite the project's native/domain engines merely because MotorLab is active.
+
+CENTRAL SYNC
+Compare against MOTORLAB_RELEASE_MANIFEST_V1.txt only at a safe boundary. Never switch MotorLab release during an active operation.
+
+NO RUNTIME COUPLING
+This file is development/orchestration metadata only.
+
+VERSION
+MOTORLAB-SATELLITE-LAST-GOOD-V1.0
