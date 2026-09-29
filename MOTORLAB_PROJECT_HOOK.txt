@@ -10,6 +10,7 @@ MOTORLAB_SESSION_BOOT_BANNER_MODULE=MOTORLAB_SESSION_BOOT_BANNER_V1.txt
 MOTORLAB_PROGRESS_REPORTING_MODULE=MOTORLAB_PROGRESS_REPORTING_V1.txt
 MOTORLAB_VISUAL_STATUS_MODULE=MOTORLAB_VISUAL_STATUS_V1.txt
 MOTORLAB_WATCHDOG_MODULE=MOTORLAB_WATCHDOG_V1.txt
+MOTORLAB_RESUME_RECOVERY_MODULE=MOTORLAB_RESUME_RECOVERY_V1.txt
 MOTORLAB_ACTIVATION_MODE=implicit-persistent
 MOTORLAB_PROJECT_CHAT_POLICY=canonical-project-chat
 MOTORLAB_NATIVE_ENGINE_POLICY=coexist-preserve
@@ -30,11 +31,13 @@ MANDATORY RULES
 8. Before write-capable/lifecycle work, read current MotorLab CORE/governance/routing/registry state and reconcile any relevant active job/checkpoint/lock state.
 9. This hook is orchestration metadata only. It must not alter MusicLab application logic, UI, package identity, signing, audio behavior, search behavior, AI behavior or release behavior by itself.
 10. MOTORLAB_GLOBAL_PERSISTENT_ACTIVATION_V1.txt is mandatory and remains inherited by this project until explicitly superseded by Bruno through canonical MotorLab governance.
-11. If MotorLab control state is unavailable, preserve MusicLab state and report the blocker rather than guessing.
-12. Any future MotorLab governance revision in Br174/Chatgpt supersedes frozen assumptions in this hook.
+11. MOTORLAB_RESUME_RECOVERY_V1.txt is mandatory. If a tool response arrives while the task is still incomplete and execution control remains available, continue the same turn; if the host interrupts the turn, resume at the first later execution cycle from the last verified checkpoint with a visible lightning recovery event.
+12. If MotorLab control state is unavailable, preserve MusicLab state and report the blocker rather than guessing.
+13. Any future MotorLab governance revision in Br174/Chatgpt supersedes frozen assumptions in this hook.
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.2
+MOTORLAB-PROJECT-HOOK-V1.3
 Established: 2026-09-29
 Revision 1.1: mandatory visible session boot banner plus explicit progress/watchdog/visual-status bindings.
 Revision 1.2: explicit binding to global persistent MotorLab activation for every future MusicLab chat.
+Revision 1.3: mandatory Resume Recovery binding for post-tool continuation and first-available-cycle recovery.
