@@ -1,11 +1,25 @@
 {
-  "schema": 1,
+  "schema": 2,
   "source_repo": "FrancescoGrazioso/Meld",
   "direct_metrolist_enabled": false,
-  "accepted_baseline_tag": "v0.8.9",
-  "accepted_baseline_commit": "645d84ee0fb8ea168c37490afa78de073b956453",
+  "accepted_baseline_tag": "v0.9.2",
+  "accepted_baseline_commit": "dc7a27224acee33fa475ab70e1935dc03d3ef4ef",
+  "accepted_baseline_musiclab_branch": "uab-build/musiclab-meld-0.9.2-integration-14",
+  "accepted_baseline_musiclab_head": "1e1d6b066ca6466225677c0dfcb34c5a8b48da05",
+  "baseline_meaning": "Ultima versione Meld materialmente incorporata nella lineage MusicLab; non equivale a promozione a MADRE.",
   "notification_mode": "in_app_human_trigger",
-  "merge_policy": "never_auto_merge",
+  "review_trigger": "workflow_dispatch_after_in_app_notification",
+  "merge_policy": "auto_apply_safe_only_in_isolated_lab",
   "conflict_policy": "report_before_apply",
-  "notes": "Meld e' l'unica sorgente upstream scelta per MusicLab. MetroList diretto non viene importato. Ogni update viene analizzato in LAB prima di qualsiasi promozione."
+  "promotion_policy": "never_promote_without_bruno_approval",
+  "protected_path_prefixes": [
+    "app/src/main/kotlin/com/metrolist/music/playback/",
+    "app/src/main/kotlin/com/metrolist/music/ui/menu/",
+    "app/src/main/kotlin/com/metrolist/music/ui/component/",
+    "app/src/main/kotlin/com/metrolist/music/ui/screens/",
+    "app/src/main/kotlin/com/metrolist/music/ai/",
+    ".uab/",
+    ".github/upstream/"
+  ],
+  "notes": "Meld e' l'unica sorgente upstream scelta per MusicLab. MetroList diretto non viene importato. Ogni update viene confrontato solo con la baseline Meld gia' incorporata, analizzato e preparato in una LAB isolata. Solo modifiche classificate SAFE possono essere applicate automaticamente nella LAB; adattamenti, conflitti o possibili regressioni richiedono revisione MotorLab. Nessuna promozione a CANDIDATA o MADRE avviene senza approvazione esplicita di Bruno."
 }
