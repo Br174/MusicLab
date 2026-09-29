@@ -206,15 +206,25 @@ object MusicIntelligenceClient {
         } else {
             "I crediti non sono richiesti: restituisci gli array vuoti e label null."
         }
+        val titleSegments = title
+            .split(Regex("\s+(?:-|–|—|\|)\s+"))
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .take(5)
+        val titleSegmentsText = titleSegments.takeIf { it.size > 1 }
+            ?.joinToString(" | ")
+            .orEmpty()
         val prompt = """Sei il resolver musicale canonico di MusicLab.
-L'AI è l'unica autorità editoriale. Il nome osservato può provenire da un uploader YouTube e NON va assunto automaticamente come artista reale.
+L'AI è l'unica autorità editoriale. YouTube/YouTube Music sono solo playback tecnico: il nome osservato può essere un uploader/canale e NON va assunto automaticamente come artista reale.
 
 Playback tecnico: $playbackId
 Titolo osservato: $title
-Artista osservato: $artist
+Canale/artista osservato: $artist
+Segmenti del titolo: ${titleSegmentsText.ifBlank { "non separabili con sicurezza" }}
 Album osservato: ${album.orEmpty().ifBlank { "non disponibile" }}
 
-Identifica la specifica registrazione musicale reale. Restituisci titolo canonico, artista reale, album reale se esiste, anno, lingua e categoria (originale, cover, live, remix o adattamento).
+Decidi con la tua conoscenza musicale l'interprete reale della specifica registrazione. Se il titolo contiene un artista riconoscibile separato dal titolo della canzone, consideralo un forte indizio; il canale osservato resta un uploader finché non hai una ragione musicale indipendente per identificarlo come performer. Non sostituire una cover/live con l'interprete originale della composizione.
+Restituisci titolo canonico, artista reale, album reale se esiste, anno, lingua e categoria (originale, cover, live, remix o adattamento).
 $creditsRule
 Se un dato non è noto usa null o []. Non inventare una pagina YouTube né un browse id.
 Rispondi SOLO JSON:

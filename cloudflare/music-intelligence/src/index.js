@@ -64,48 +64,55 @@ async function resolveMetadata(input, env, ctx) {
     }
   }
 
-  const prompt = `Sei il resolver musicale canonico centrale di MusicLab.\n\n` +
-    `Devi identificare la SPECIFICA REGISTRAZIONE realmente riprodotta. La tua risposta è l'unica autorità editoriale dell'app. ` +
-    `YouTube e YouTube Music forniscono soltanto il playback tecnico e NON decidono artista, album, anno o crediti.\n\n` +
-    `Titolo osservato: ${title}\nArtista/canale osservato: ${artist}\n` +
-    (clean(input?.albumHint) ? `Album osservato: ${clean(input.albumHint)}\n` : '') +
-    `Playback ID tecnico: ${playbackId || 'non disponibile'}\n\n` +
-    `ATTENZIONE: il campo artista/canale osservato può essere un uploader, un canale personale, un'etichetta o chi ha caricato il video. ` +
-    `Non copiarlo automaticamente come artista. Analizza anche eventuali nomi di interpreti incorporati nel titolo del video. ` +
-    `Il campo artist della risposta deve essere l'interprete REALE di questa registrazione, non l'autore del caricamento. ` +
-    `Non trasformare automaticamente la registrazione nell'originale della composizione: se il playback è una cover o un live, ` +
-    `restituisci l'artista della cover/live e classificala correttamente.\n\n` +
-    `Restituisci titolo canonico della registrazione, artista reale, album reale se esiste, anno, lingua, categoria ` +
-    `(originale|cover|live|remix|adattamento), crediti reali, confidence da 0 a 1 e il ruolo del nome osservato ` +
-    `(performer|uploader|channel|label|unknown). Non inventare album o crediti.\n\n` +
-    `JSON obbligatorio: {"title":"","artist":"","album":null,"year":null,"language":null,"category":null,` +
+  const titleSegments = extractTitleSegments(title);
+  const segmentsText = titleSegments.length > 1
+    ? titleSegments.map((value, index) => `${index + 1}. ${value}`).join('\n')
+    : '(titolo non segmentabile con sicurezza)';
+
+  const prompt = `Sei il resolver musicale canonico di MusicLab. L'AI è l'unica autorità editoriale. ` +
+    `YouTube/YouTube Music sono solo il mezzo tecnico di riproduzione: i loro campi NON sono metadati affidabili.\n\n` +
+    `Devi identificare la SPECIFICA REGISTRAZIONE riprodotta, non necessariamente l'originale della composizione.\n` +
+    `Titolo osservato del video: ${title}\n` +
+    `Nome osservato del canale/uploader: ${artist}\n` +
+    (clean(input?.albumHint) ? `Album osservato (solo indizio, non autorità): ${clean(input.albumHint)}\n` : '') +
+    `Segmenti ricavati dal titolo:\n${segmentsText}\n\n` +
+    `Decidi con la tua conoscenza musicale quale nome è l'interprete reale della registrazione. ` +
+    `Il nome del canale va considerato uploader finché non hai una ragione musicale indipendente per identificarlo come performer. ` +
+    `Se il titolo contiene un artista musicale riconoscibile separato dal titolo della canzone, è un forte indizio ma la decisione finale resta tua. ` +
+    `Non confondere l'interprete di questa registrazione con l'autore o l'interprete originale della composizione.\n\n` +
+    `Restituisci titolo canonico, artista reale della registrazione, album se realmente noto, anno, lingua, categoria ` +
+    `(originale|cover|live|remix|adattamento), crediti, confidence da 0 a 1 e ruolo del nome osservato ` +
+    `(performer|uploader|channel|label|unknown). Non inventare.\n` +
+    `JSON: {"title":"","artist":"","album":null,"year":null,"language":null,"category":null,` +
     `"confidence":0.0,"observedArtistRole":"performer|uploader|channel|label|unknown",` +
     `"credits":{"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}}`;
 
   let ai = await askGemini(prompt, env, 1800, false);
   let metadata = normalizeMetadata(ai, playbackId);
 
-  if (!metadata || needsGroundedVerification(title, artist, ai, metadata, true)) {
-    try {
-      const verifiedAi = await askGemini(
-        prompt + `\n\nVERIFICA APPROFONDITA: usa la ricerca per distinguere con certezza interprete musicale, uploader/canale e titolo reale. ` +
-          `Se il titolo contiene un nome diverso dal canale osservato, verifica chi sta realmente eseguendo il brano.`,
-        env,
-        2200,
-        true,
-      );
-      const verifiedMetadata = normalizeMetadata(verifiedAi, playbackId);
-      if (verifiedMetadata && !needsGroundedVerification(title, artist, verifiedAi, verifiedMetadata, false)) {
-        ai = verifiedAi;
-        metadata = verifiedMetadata;
-      }
-    } catch (_) {
-      // Il primo risultato resta utilizzabile soltanto se non presenta contraddizioni forti.
+  if (needsCanonicalArbitration(titleSegments, artist, ai, metadata)) {
+    const firstArtist = clean(metadata?.artist) || '(nessuno)';
+    const arbitrationPrompt = `Sei l'arbitro canonico finale di MusicLab. Devi risolvere una contraddizione senza usare il nome del canale come autorità editoriale.\n\n` +
+      `Titolo completo: ${title}\nCanale/uploader osservato: ${artist}\nSegmenti del titolo:\n${segmentsText}\n` +
+      `Prima decisione AI: ${firstArtist}\n\n` +
+      `Identifica con la tua conoscenza musicale quale segmento rappresenta la canzone e quale rappresenta l'artista, se presente. ` +
+      `Quando il canale non compare nel titolo e il titolo contiene il nome riconoscibile di un artista, non assumere che il canale sia il performer. ` +
+      `Scegli l'interprete della SPECIFICA registrazione; non sostituirlo con l'originale della composizione. ` +
+      `La decisione resta interamente dell'AI.\n\n` +
+      `Restituisci SOLO JSON completo: {"title":"","artist":"","album":null,"year":null,"language":null,"category":null,` +
+      `"confidence":0.0,"observedArtistRole":"performer|uploader|channel|label|unknown",` +
+      `"credits":{"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}}`;
+
+    const adjudicatedAi = await askGemini(arbitrationPrompt, env, 1800, false);
+    const adjudicatedMetadata = normalizeMetadata(adjudicatedAi, playbackId);
+    if (adjudicatedMetadata && !needsCanonicalArbitration(titleSegments, artist, adjudicatedAi, adjudicatedMetadata)) {
+      ai = adjudicatedAi;
+      metadata = adjudicatedMetadata;
     }
   }
 
-  if (!metadata || needsGroundedVerification(title, artist, ai, metadata, false)) {
-    throw new Error('L’AI non ha restituito un’identità canonica sufficientemente affidabile.');
+  if (!metadata || needsCanonicalArbitration(titleSegments, artist, ai, metadata)) {
+    throw new Error('L’AI non ha restituito un’identità canonica coerente con gli indizi musicali.');
   }
 
   if (env.DB) {
@@ -124,7 +131,7 @@ async function resolveMetadata(input, env, ctx) {
         updated_at=CURRENT_TIMESTAMP
     `).bind(
       workId, key, metadata.title, metadata.artist, metadata.year, metadata.language,
-      JSON.stringify(metadata.credits || {}), env.GEMINI_MODEL || 'gemini-2.5-flash-lite', CURRENT_RESOLVER_VERSION
+      JSON.stringify(metadata.credits || {}), preferredGeminiModel || env.GEMINI_MODEL || 'gemini-3.5-flash-lite', CURRENT_RESOLVER_VERSION
     ).run();
 
     const work = await env.DB.prepare(
@@ -519,34 +526,47 @@ function normalizeCategory(value) {
   return 'cover';
 }
 
-function needsGroundedVerification(observedTitle, observedArtist, ai, metadata, requireConfidence) {
-  if (!metadata) return true;
-  const confidence = Number(ai?.confidence);
-  if (Number.isFinite(confidence) && confidence < 0.72) return true;
-  if (requireConfidence && !Number.isFinite(confidence)) return true;
-
-  const observed = canonical(observedArtist);
-  const resolved = canonical(metadata.artist);
-  const role = canonical(ai?.observedArtistRole || '');
-  const uploaderRole = role.includes('uploader') || role.includes('channel') || role.includes('label');
-
-  if (uploaderRole && observed && resolved === observed) return true;
-  if (observed && resolved === observed && titleSuggestsDifferentArtist(observedTitle, observedArtist)) return true;
-  return false;
+function extractTitleSegments(title) {
+  const parts = String(title || '')
+    .split(/\s+(?:-|–|—|\|)\s+/)
+    .map(clean)
+    .filter(Boolean)
+    .slice(0, 5);
+  return parts.length > 1 ? parts : [];
 }
 
-function titleSuggestsDifferentArtist(title, observedArtist) {
+function segmentMatchesName(segment, name) {
+  const a = canonical(segment);
+  const b = canonical(name);
+  if (!a || !b) return false;
+  return a === b || a.startsWith(`${b} `) || b.startsWith(`${a} `);
+}
+
+function needsCanonicalArbitration(titleSegments, observedArtist, ai, metadata) {
+  if (!metadata || !clean(metadata.title) || !clean(metadata.artist)) return true;
+
+  const role = canonical(ai?.observedArtistRole || '');
+  const resolvedArtist = canonical(metadata.artist);
   const observed = canonical(observedArtist);
-  const parts = String(title || '')
-    .split(/\s[-–—|]\s|\s*:\s*/)
-    .map(canonical)
-    .filter(Boolean);
-  if (parts.length < 2 || !observed) return false;
-  if (parts.some(p => p === observed || p.includes(observed) || observed.includes(p))) return false;
-  return parts.some(p => {
-    const words = p.split(' ').filter(Boolean);
-    return words.length >= 2 && words.length <= 6;
-  });
+  const channelDeclaredNonPerformer = role.includes('uploader') || role.includes('channel') || role.includes('label');
+  if (channelDeclaredNonPerformer && resolvedArtist === observed) return true;
+
+  if (titleSegments.length > 1) {
+    const observedAppearsInTitle = titleSegments.some(segment => segmentMatchesName(segment, observedArtist));
+    const resolvedAppearsInTitle = titleSegments.some(segment => segmentMatchesName(segment, metadata.artist));
+
+    // Caso tipico del bug: il canale/uploader non compare nel titolo, mentre nel
+    // titolo è presente un altro artista. Non accettiamo automaticamente il canale.
+    if (resolvedArtist === observed && !observedAppearsInTitle) return true;
+
+    // Se l'AI ha scelto un artista presente esplicitamente nel titolo e diverso dal
+    // canale, l'indizio è coerente e non serve penalizzarlo per una confidence prudente.
+    if (resolvedArtist !== observed && resolvedAppearsInTitle) return false;
+  }
+
+  const confidence = Number(ai?.confidence);
+  if (Number.isFinite(confidence) && confidence < 0.45) return true;
+  return false;
 }
 
 function versionKey(title, artist, category, language) {
