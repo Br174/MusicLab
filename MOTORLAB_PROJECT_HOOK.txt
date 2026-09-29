@@ -5,41 +5,42 @@ PROJECT_REPOSITORY=Br174/MusicLab
 MOTORLAB_CONTROL_REPOSITORY=Br174/Chatgpt
 MOTORLAB_CORE_ENTRYPOINT=MOTORLAB_CORE_ENTRYPOINT_V1.txt
 MOTORLAB_RELEASE_MANIFEST=MOTORLAB_RELEASE_MANIFEST_V1.txt
+MOTORLAB_PROJECT_CONTINUITY_MODULE=MOTORLAB_PROJECT_CONTINUITY_V1.txt
+MOTORLAB_PROJECT_STATE=MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt
 MOTORLAB_SATELLITE_SYNC_MODULE=MOTORLAB_SATELLITE_SYNC_V1.txt
 MOTORLAB_LOCAL_CORE=.motorlab/MOTORLAB_LOCAL_CORE.txt
 MOTORLAB_LOCAL_LAST_GOOD=.motorlab/MOTORLAB_LOCAL_CORE_LAST_GOOD.txt
 MOTORLAB_LOCAL_SYNC_STATE=.motorlab/MOTORLAB_SYNC_STATE.txt
 MOTORLAB_BOOTSTRAP_MODULE=MOTORLAB_AUTO_BOOTSTRAP_V1.txt
-MOTORLAB_GOVERNANCE_MODULE=MOTORLAB_GOVERNANCE_V1.txt
 MOTORLAB_GLOBAL_PERSISTENT_ACTIVATION_MODULE=MOTORLAB_GLOBAL_PERSISTENT_ACTIVATION_V1.txt
 MOTORLAB_SESSION_BOOT_BANNER_MODULE=MOTORLAB_SESSION_BOOT_BANNER_V1.txt
-MOTORLAB_PROGRESS_REPORTING_MODULE=MOTORLAB_PROGRESS_REPORTING_V1.txt
-MOTORLAB_VISUAL_STATUS_MODULE=MOTORLAB_VISUAL_STATUS_V1.txt
 MOTORLAB_WATCHDOG_MODULE=MOTORLAB_WATCHDOG_V1.txt
 MOTORLAB_RESUME_RECOVERY_MODULE=MOTORLAB_RESUME_RECOVERY_V1.txt
 MOTORLAB_ACTIVATION_MODE=implicit-persistent-local-first
-MOTORLAB_PROJECT_CHAT_POLICY=canonical-project-chat
+MOTORLAB_PRE_RESPONSE_BOOT_GATE=required
+MOTORLAB_PROJECT_CONTINUITY=required
+MOTORLAB_PROJECT_CHAT_POLICY=promptless-cross-chat-continuity
 MOTORLAB_NATIVE_ENGINE_POLICY=coexist-preserve
 MOTORLAB_VISIBLE_ACTIVATION_PROOF=required
 
 PURPOSE
-Persistent project-side structural hook for MotorLab. A recognized MusicLab session first loads the VERIFIED local MotorLab satellite, then checks the central Br174/Chatgpt release at the first safe boundary. Central MotorLab remains authoritative; the local satellite provides immediate activation and last-good fallback.
+Persistent MusicLab-side structural hook for MotorLab. Every recognizable MusicLab chat activates MotorLab first, loads the verified local satellite, loads/reconciles the central MusicLab project-state ledger against live GitHub state, preserves the MusicLab native/domain engine, and continues the latest logical operation without requiring a transfer prompt.
 
 MANDATORY RULES
-1. Do not require Bruno to paste an activation string in each new MusicLab chat.
-2. Every identifiable MusicLab chat inherits MotorLab automatically from project context.
-3. Load local sync state/core immediately; when central is reachable compare releases and synchronize under MOTORLAB_SATELLITE_SYNC_V1.txt.
-4. Never change MotorLab release during an active write/build/test/promotion operation; pin the operation release until completion/block.
-5. If central access fails, continue from a VERIFIED local/LAST_GOOD release and report fallback when relevant.
-6. At the first available user-facing response state visibly that MotorLab is active and operates alongside MusicLab's native engine.
-7. Apply verified progress percentage, Watchdog lightning/recovery, Resume Recovery and fireworks-success contracts whenever applicable.
-8. Br174/Chatgpt is authoritative; local files are synchronized satellites, not an independent fork.
-9. MotorLab must coexist with MusicLab playback/search/AI/runtime engines and never replace or rewrite them merely because MotorLab is active.
-10. Satellite synchronization changes only MotorLab control-plane files. It must not alter MusicLab application logic, UI, package identity, signing, audio/search/AI behavior or lifecycle state.
-11. Before write-capable work reconcile relevant repository/ref, checkpoint, pending-action and single-writer state.
-12. Future central MotorLab releases supersede the local release only after safe synchronization and verification.
+1. MotorLab activates before substantive MusicLab response/tool/write/build work.
+2. First user-visible line is "⚙️ MotorLab attivo".
+3. Do not require Bruno to paste activation or transfer prompts.
+4. Load MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt and reconcile it against live repo/ref/head/workflow/job/artifact evidence before choosing a starting point.
+5. Live newer evidence wins over stale ledger/older UAB registry/chat memory.
+6. Preserve same ACTIVE_OPERATION_ID/progress floor across chat ids while the logical task remains the same.
+7. If unfinished work exists, Resume Recovery + Watchdog continue it before unrelated writes.
+8. Refresh the central MusicLab ledger at material continuation-relevant transitions and substantial-turn handoff/termination when technically possible.
+9. Load local sync state/core immediately; synchronize central release only at safe boundaries and preserve LAST_GOOD.
+10. MotorLab coexists with MusicLab playback/search/AI/runtime engines and never replaces them merely because MotorLab is active.
+11. Satellite/continuity metadata must not alter MusicLab application logic, UI, package identity, signing, audio/search/AI behavior or lifecycle state.
+12. Apply Change Compatibility Guard before writes and preserve single-writer/lifecycle safety.
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.4
+MOTORLAB-PROJECT-HOOK-V1.5
 Established: 2026-09-29
-Revision 1.4: local-first synchronized MotorLab satellite with LAST_GOOD fallback and safe-boundary release pinning.
+Revision 1.5: r8 pre-response MotorLab gate plus canonical promptless cross-chat MusicLab Project Continuity ledger.

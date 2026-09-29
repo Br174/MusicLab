@@ -29,11 +29,12 @@ concurrency:
 jobs:
   guardian:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Configura Git
         run: |
@@ -78,18 +79,16 @@ jobs:
             echo "Baseline incoerente: config=$BASELINE_COMMIT git=$ACTUAL_BASE" >&2
             exit 20
           fi
-
           if [ -n "${REQUESTED_TAG:-}" ]; then
             TARGET_TAG="$REQUESTED_TAG"
           else
             TARGET_TAG="$(git for-each-ref --sort=-version:refname --format='%(refname:strip=4)' refs/remotes/meld/tags | grep '^v[0-9]' | head -1)"
           fi
           [ -n "$TARGET_TAG" ] || { echo "Nessun tag Meld trovato" >&2; exit 21; }
-
           TARGET_REF="refs/remotes/meld/tags/$TARGET_TAG"
           git rev-parse --verify "$TARGET_REF" >/dev/null
           TARGET_COMMIT="$(git rev-parse "$TARGET_REF^{}")"
-
+          TARGET_VERSION="${TARGET_TAG#v}"
           NO_UPDATE=false
           if [ "$TARGET_COMMIT" = "$BASELINE_COMMIT" ]; then
             NO_UPDATE=true
@@ -99,13 +98,13 @@ jobs:
               exit 22
             }
           fi
-
           TAG_SLUG="$(printf '%s' "$TARGET_TAG" | sed 's/[^A-Za-z0-9._-]/-/g')"
-          TAG_ID="$(printf '%s' "$TARGET_TAG" | tr -cd '[:alnum:]')"
+          TAG_ID="$(printf '%s' "$TARGET_VERSION" | tr -cd '[:alnum:]')"
           echo "start_head=$START_HEAD" >> "$GITHUB_OUTPUT"
           echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
           echo "target_ref=$TARGET_REF" >> "$GITHUB_OUTPUT"
           echo "target_tag=$TARGET_TAG" >> "$GITHUB_OUTPUT"
+          echo "target_version=$TARGET_VERSION" >> "$GITHUB_OUTPUT"
           echo "target_commit=$TARGET_COMMIT" >> "$GITHUB_OUTPUT"
           echo "tag_slug=$TAG_SLUG" >> "$GITHUB_OUTPUT"
           echo "tag_id=$TAG_ID" >> "$GITHUB_OUTPUT"
@@ -124,7 +123,6 @@ jobs:
           mkdir -p upstream-review
           git diff --binary "$BASE_REF" "$TARGET_REF" > upstream-review/meld-exact.patch || true
           git diff --name-status -M "$BASE_REF" "$TARGET_REF" > upstream-review/upstream-files.txt
-
           : > upstream-review/merge-conflicts.txt
           set +e
           git merge --no-commit --no-ff "$TARGET_REF" >/tmp/meld-merge.log 2>&1
@@ -134,14 +132,12 @@ jobs:
             git diff --name-only --diff-filter=U | sort -u > upstream-review/merge-conflicts.txt || true
           fi
           git merge --abort >/dev/null 2>&1 || git reset --hard "$START_HEAD" >/dev/null 2>&1
-
           python3 .github/scripts/meld_upstream_analyzer.py \
             --base-ref "$BASE_REF" \
             --target-ref "$TARGET_REF" \
             --head-ref "$START_HEAD" \
             --conflicts-file upstream-review/merge-conflicts.txt \
             --out-dir upstream-review
-
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           r=json.load(open("upstream-review/classification.json"))
@@ -165,7 +161,6 @@ jobs:
           set -euo pipefail
           LAB_BRANCH="uab-build/musiclab-meld-${TAG_SLUG}-integration-${GITHUB_RUN_NUMBER}"
           git checkout -b "$LAB_BRANCH" "$START_HEAD"
-
           if [ "$AUTO_ALLOWED" = "true" ]; then
             git merge --no-ff "$TARGET_REF" -m "LAB: integra Meld $TARGET_TAG (safe automatico)"
             INTEGRATION_APPLIED=true
@@ -185,16 +180,13 @@ jobs:
               "classification_counts": classification["counts"],
               "rule": "Non scegliere automaticamente tra MusicLab e Meld. Integrare/adattare in questa LAB dopo revisione MotorLab."
           }
-          Path(".github/upstream/pending/meld-${TAG_SLUG}.json").write_text(
-              json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8"
-          )
+          Path(".github/upstream/pending/meld-${TAG_SLUG}.json").write_text(json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8")
           PY
             git add ".github/upstream/pending/meld-${TAG_SLUG}.json"
             git commit -m "LAB: registra revisione Meld $TARGET_TAG"
             INTEGRATION_APPLIED=false
             MODE=review_required
           fi
-
           git push origin "HEAD:refs/heads/$LAB_BRANCH"
           echo "lab_branch=$LAB_BRANCH" >> "$GITHUB_OUTPUT"
           echo "integration_applied=$INTEGRATION_APPLIED" >> "$GITHUB_OUTPUT"
@@ -211,47 +203,83 @@ jobs:
         if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Prepara submodule e protobuf
+      - name: Prepara protobuf
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Crea keystore debug temporaneo
         if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          git submodule update --init metroproto
-          chmod +x gradlew .uab/pre-build.sh
-          .uab/pre-build.sh "$PWD"
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
-      - name: Build LAB isolata
+      - name: Prepara UAB LAB
         if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
-        shell: bash
-        env:
-          METROLIST_APPLICATION_ID: it.verlezza.musiclab.lab.meld${{ steps.resolve.outputs.tag_id }}_${{ github.run_number }}
-          METROLIST_APP_NAME: MusicLab LAB Meld ${{ steps.resolve.outputs.target_tag }}
-          PULL_REQUEST: "false"
-          GITHUB_EVENT_NAME: workflow_dispatch
-          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
-          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
-          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
-          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'FrancescoGrazioso/Meld' }}
-        run: ./gradlew :app:assembleFossDebug -x lint --build-cache --console=plain
-
-      - name: Prepara APK e ZIP
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
-        id: package
         shell: bash
         env:
           TAG_SLUG: ${{ steps.resolve.outputs.tag_slug }}
         run: |
           set -euo pipefail
-          APK="$(find app/build/outputs/apk -type f -path '*/foss/debug/*.apk' | head -1)"
-          [ -f "$APK" ] || { echo "APK FossDebug non trovato" >&2; exit 31; }
-          mkdir -p dist/uab/apk
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          cat > /tmp/uab-meld.env <<EOF
+          UAB_TASK=":app:assembleFossDebug"
+          UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
+          UAB_OUTPUT_NAME="MusicLab-LAB-MELD-${TAG_SLUG}-${GITHUB_RUN_NUMBER}"
+          UAB_GRADLE_ARGS="-x lint"
+          UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
+          UAB_PARALLEL_INSTALL="on"
+          UAB_APPLICATION_ID_BASE="it.verlezza.musiclab.lab"
+          UAB_APPLICATION_ID_ENV="METROLIST_APPLICATION_ID"
+          UAB_APP_NAME_BASE="MusicLab LAB Meld"
+          UAB_APP_NAME_ENV="METROLIST_APP_NAME"
+          export PULL_REQUEST="false"
+          EOF
+
+      - name: Build LAB isolata via UAB
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        shell: bash
+        env:
+          UAB_CONFIG_FILE: /tmp/uab-meld.env
+          UAB_BUILD_ID: meld${{ steps.resolve.outputs.tag_id }}_${{ github.run_number }}
+          MELD_UPSTREAM_BASELINE: ${{ steps.resolve.outputs.target_version }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+        run: bash tools/universal-apk-builder/build-apk.sh .
+
+      - name: Verifica APK e ZIP
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        id: package
+        shell: bash
+        env:
+          TAG_SLUG: ${{ steps.resolve.outputs.tag_slug }}
+          TAG_ID: ${{ steps.resolve.outputs.tag_id }}
+        run: |
+          set -euo pipefail
           BASE_NAME="MusicLab-LAB-MELD-${TAG_SLUG}-${GITHUB_RUN_NUMBER}"
-          OUT_APK="dist/uab/apk/${BASE_NAME}.apk"
-          OUT_ZIP="dist/uab/${BASE_NAME}-APK.zip"
-          cp "$APK" "$OUT_APK"
-          (cd dist/uab/apk && zip -9 "../${BASE_NAME}-APK.zip" "${BASE_NAME}.apk")
-          unzip -t "$OUT_ZIP"
-          sha256sum "$OUT_APK" "$OUT_ZIP" | tee dist/uab/SHA256SUMS.txt
+          APK="dist/uab/apk/${BASE_NAME}.apk"
+          ZIP="dist/uab/${BASE_NAME}-APK.zip"
+          test -f "$APK"
+          test -f "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -1)"
+          test -n "$AAPT"
+          "$AAPT" dump badging "$APK" | tee /tmp/badging.txt
+          grep -F "package: name='it.verlezza.musiclab.lab.meld${TAG_ID}_${GITHUB_RUN_NUMBER}'" /tmp/badging.txt
+          sha256sum "$APK" "$ZIP" | tee dist/uab/SHA256SUMS.txt
           echo "base_name=$BASE_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Pubblica APK + ZIP
@@ -260,9 +288,11 @@ jobs:
         with:
           name: ${{ steps.package.outputs.base_name }}
           path: |
-            dist/uab/apk/*.apk
-            dist/uab/*-APK.zip
+            dist/uab/apk/${{ steps.package.outputs.base_name }}.apk
+            dist/uab/${{ steps.package.outputs.base_name }}-APK.zip
             dist/uab/SHA256SUMS.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
           retention-days: 14
 
       - name: Riepilogo

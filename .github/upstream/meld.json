@@ -19,7 +19,12 @@
     "app/src/main/kotlin/com/metrolist/music/ui/screens/",
     "app/src/main/kotlin/com/metrolist/music/ai/",
     ".uab/",
-    ".github/upstream/"
+    ".github/upstream/",
+    ".github/workflows/",
+    ".github/scripts/",
+    ".motorlab/",
+    "MOTORLAB_PROJECT_HOOK.txt",
+    "tools/universal-apk-builder/"
   ],
   "notes": "Meld e' l'unica sorgente upstream scelta per MusicLab. MetroList diretto non viene importato. Ogni update viene confrontato solo con la baseline Meld gia' incorporata, analizzato e preparato in una LAB isolata. Solo modifiche classificate SAFE possono essere applicate automaticamente nella LAB; adattamenti, conflitti o possibili regressioni richiedono revisione MotorLab. Nessuna promozione a CANDIDATA o MADRE avviene senza approvazione esplicita di Bruno."
 }
