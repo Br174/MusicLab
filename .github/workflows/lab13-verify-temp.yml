@@ -1,0 +1,147 @@
+name: TEMP LAB13 Upstream Guardian Verify
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-meld-upstream-guardian-13
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musiclab-lab13-upstream-guardian
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: contains(github.event.head_commit.message, 'LAB13 apply upstream updater patch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-meld-upstream-guardian-13
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Applica doppio canale aggiornamenti
+        run: python3 tools/lab13_updater_patch.py
+
+      - name: Verifica scope e registra sorgente
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --name-only
+          git config user.name "MusicLab LAB13"
+          git config user.email "uab-bot@users.noreply.github.com"
+          git add app/build.gradle.kts \
+                  app/src/main/kotlin/com/metrolist/music/utils/Updater.kt \
+                  app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt \
+                  app/src/main/kotlin/com/metrolist/music/MainActivity.kt
+          git commit -m "LAB13: separa aggiornamenti MusicLab da notifiche upstream Meld [skip ci]"
+          git push origin HEAD:uab-build/musiclab-meld-upstream-guardian-13
+
+      - name: Preflight firma stabile
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          DEBUG_KEYSTORE: ${{ secrets.DEBUG_KEYSTORE }}
+        run: |
+          set -euo pipefail
+          release_ready=1
+          for name in KEYSTORE KEY_ALIAS KEYSTORE_PASSWORD KEY_PASSWORD; do
+            [ -n "${!name:-}" ] || release_ready=0
+          done
+          if [ "$release_ready" -eq 1 ]; then
+            echo "MOTORLAB_RELEASE_SIGNING=READY"
+          else
+            echo "MOTORLAB_RELEASE_SIGNING=MISSING"
+          fi
+          if [ -n "${DEBUG_KEYSTORE:-}" ]; then
+            echo "MOTORLAB_DEBUG_SIGNING=READY"
+            echo "$DEBUG_KEYSTORE" | base64 -d > app/persistent-debug.keystore
+          else
+            echo "MOTORLAB_DEBUG_SIGNING=MISSING_FALLBACK_TEMP"
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" -noprompt
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-protobuf
+
+      - name: Compila LAB13
+        shell: bash
+        env:
+          METROLIST_APPLICATION_ID: com.meld.app
+          METROLIST_APP_NAME: MusicLab LAB13
+          MUSICLAB_VERSION_NAME: 0.8.9.13
+          MUSICLAB_VERSION_CODE: 26
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: Br174/MusicLab
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          ./gradlew --console=plain :app:assembleFossDebug --warning-mode summary
+
+      - name: Audit Meld 0.8.9 -> 0.9.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=645d84ee0fb8ea168c37490afa78de073b956453
+          TARGET=v0.9.2
+          git remote add meld https://github.com/FrancescoGrazioso/Meld.git || true
+          git fetch --no-tags meld "$TARGET" "$BASE"
+          mkdir -p upstream-report
+          git log --oneline --no-merges "$BASE..meld/$TARGET" > upstream-report/commits.txt || true
+          git diff --name-status "$BASE..meld/$TARGET" > upstream-report/changed-files.txt
+          : > upstream-report/potential-conflicts.txt
+          while IFS=$'\t' read -r status path rest; do
+            [ -n "${path:-}" ] || continue
+            case "$status" in R*|C*) candidate="${rest:-$path}" ;; *) candidate="$path" ;; esac
+            if git cat-file -e "$BASE:$candidate" 2>/dev/null && git cat-file -e "HEAD:$candidate" 2>/dev/null; then
+              if ! diff -q <(git show "$BASE:$candidate") <(git show "HEAD:$candidate") >/dev/null 2>&1; then
+                echo "$candidate" >> upstream-report/potential-conflicts.txt
+              fi
+            elif git cat-file -e "HEAD:$candidate" 2>/dev/null; then
+              echo "$candidate" >> upstream-report/potential-conflicts.txt
+            fi
+          done < upstream-report/changed-files.txt
+          sort -u upstream-report/potential-conflicts.txt -o upstream-report/potential-conflicts.txt
+          {
+            echo "Baseline Meld: v0.8.9 ($BASE)"
+            echo "Target Meld: $TARGET"
+            echo "Commit: $(wc -l < upstream-report/commits.txt)"
+            echo "File modificati upstream: $(wc -l < upstream-report/changed-files.txt)"
+            echo "Potenziali conflitti con MusicLab: $(wc -l < upstream-report/potential-conflicts.txt)"
+          } | tee upstream-report/summary.txt
+
+      - name: Verifica invarianti LAB13
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'https://api.github.com/repos/Br174/MusicLab' app/src/main/kotlin/com/metrolist/music/utils/Updater.kt
+          grep -Fq 'https://api.github.com/repos/FrancescoGrazioso/Meld' app/src/main/kotlin/com/metrolist/music/utils/MeldUpstreamMonitor.kt
+          grep -Fq 'MELD_BASE_VERSION' app/build.gradle.kts
+          grep -Fq 'Nuova base Meld disponibile' app/src/main/kotlin/com/metrolist/music/MainActivity.kt
+          test -f upstream/meld-state.json
+          test -f .github/workflows/meld-upstream-audit.yml
+          test -f .github/workflows/musiclab-stable-release.yml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB13-Upstream-Guardian
+          path: |
+            app/build/outputs/apk/foss/debug/*.apk
+            upstream-report/
+          if-no-files-found: error
+          retention-days: 14
