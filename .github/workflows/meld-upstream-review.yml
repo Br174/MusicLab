@@ -3,18 +3,26 @@ name: MusicLab - Meld Upstream Guardian
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Analizza nuovo update oppure finalizza una LAB gia' risolta"
+        required: true
+        default: analyze
+        type: choice
+        options:
+          - analyze
+          - finalize_current_lab
       to_tag:
-        description: "Tag Meld da analizzare (vuoto = ultimo tag)"
+        description: "Tag Meld da analizzare/finalizzare (vuoto = ultimo tag; obbligatorio in finalize)"
         required: false
         default: ""
         type: string
       create_lab:
-        description: "Crea una nuova LAB isolata"
+        description: "In analyze: crea una nuova LAB isolata"
         required: true
         default: true
         type: boolean
       build_when_safe:
-        description: "Build APK+ZIP se l'integrazione e' interamente SAFE"
+        description: "Esegue test + APK/ZIP quando l'integrazione e' pronta"
         required: true
         default: true
         type: boolean
@@ -79,16 +87,19 @@ jobs:
             echo "Baseline incoerente: config=$BASELINE_COMMIT git=$ACTUAL_BASE" >&2
             exit 20
           fi
+
           if [ -n "${REQUESTED_TAG:-}" ]; then
             TARGET_TAG="$REQUESTED_TAG"
           else
             TARGET_TAG="$(git for-each-ref --sort=-version:refname --format='%(refname:strip=4)' refs/remotes/meld/tags | grep '^v[0-9]' | head -1)"
           fi
           [ -n "$TARGET_TAG" ] || { echo "Nessun tag Meld trovato" >&2; exit 21; }
+
           TARGET_REF="refs/remotes/meld/tags/$TARGET_TAG"
           git rev-parse --verify "$TARGET_REF" >/dev/null
           TARGET_COMMIT="$(git rev-parse "$TARGET_REF^{}")"
           TARGET_VERSION="${TARGET_TAG#v}"
+
           NO_UPDATE=false
           if [ "$TARGET_COMMIT" = "$BASELINE_COMMIT" ]; then
             NO_UPDATE=true
@@ -98,6 +109,7 @@ jobs:
               exit 22
             }
           fi
+
           TAG_SLUG="$(printf '%s' "$TARGET_TAG" | sed 's/[^A-Za-z0-9._-]/-/g')"
           TAG_ID="$(printf '%s' "$TARGET_VERSION" | tr -cd '[:alnum:]')"
           echo "start_head=$START_HEAD" >> "$GITHUB_OUTPUT"
@@ -111,7 +123,7 @@ jobs:
           echo "no_update=$NO_UPDATE" >> "$GITHUB_OUTPUT"
 
       - name: Analizza delta, hotspot e conflitti
-        if: steps.resolve.outputs.no_update != 'true'
+        if: inputs.mode == 'analyze' && steps.resolve.outputs.no_update != 'true'
         id: analyze
         shell: bash
         env:
@@ -132,12 +144,14 @@ jobs:
             git diff --name-only --diff-filter=U | sort -u > upstream-review/merge-conflicts.txt || true
           fi
           git merge --abort >/dev/null 2>&1 || git reset --hard "$START_HEAD" >/dev/null 2>&1
+
           python3 .github/scripts/meld_upstream_analyzer.py \
             --base-ref "$BASE_REF" \
             --target-ref "$TARGET_REF" \
             --head-ref "$START_HEAD" \
             --conflicts-file upstream-review/merge-conflicts.txt \
             --out-dir upstream-review
+
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           r=json.load(open("upstream-review/classification.json"))
@@ -147,7 +161,7 @@ jobs:
           PY
 
       - name: Crea LAB isolata
-        if: inputs.create_lab && steps.resolve.outputs.no_update != 'true'
+        if: inputs.mode == 'analyze' && inputs.create_lab && steps.resolve.outputs.no_update != 'true'
         id: lab
         shell: bash
         env:
@@ -161,8 +175,10 @@ jobs:
           set -euo pipefail
           LAB_BRANCH="uab-build/musiclab-meld-${TAG_SLUG}-integration-${GITHUB_RUN_NUMBER}"
           git checkout -b "$LAB_BRANCH" "$START_HEAD"
+
           if [ "$AUTO_ALLOWED" = "true" ]; then
             git merge --no-ff "$TARGET_REF" -m "LAB: integra Meld $TARGET_TAG (safe automatico)"
+            INTEGRATED_HEAD="$(git rev-parse HEAD)"
             INTEGRATION_APPLIED=true
             MODE=auto_safe
           else
@@ -178,37 +194,99 @@ jobs:
               "source_head": "${START_HEAD}",
               "status": "review_required",
               "classification_counts": classification["counts"],
-              "rule": "Non scegliere automaticamente tra MusicLab e Meld. Integrare/adattare in questa LAB dopo revisione MotorLab."
+              "rule": "Non scegliere automaticamente tra MusicLab e Meld. Risolvere/adattare in questa LAB; completare il merge di Meld, poi usare finalize_current_lab."
           }
           Path(".github/upstream/pending/meld-${TAG_SLUG}.json").write_text(json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8")
           PY
             git add ".github/upstream/pending/meld-${TAG_SLUG}.json"
             git commit -m "LAB: registra revisione Meld $TARGET_TAG"
+            INTEGRATED_HEAD=""
             INTEGRATION_APPLIED=false
             MODE=review_required
           fi
+
           git push origin "HEAD:refs/heads/$LAB_BRANCH"
           echo "lab_branch=$LAB_BRANCH" >> "$GITHUB_OUTPUT"
           echo "integration_applied=$INTEGRATION_APPLIED" >> "$GITHUB_OUTPUT"
+          echo "integrated_head=$INTEGRATED_HEAD" >> "$GITHUB_OUTPUT"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
 
+      - name: Verifica LAB risolta per finalizzazione
+        if: inputs.mode == 'finalize_current_lab' && steps.resolve.outputs.no_update != 'true'
+        id: finalize
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.to_tag }}
+          TARGET_COMMIT: ${{ steps.resolve.outputs.target_commit }}
+          START_HEAD: ${{ steps.resolve.outputs.start_head }}
+        run: |
+          set -euo pipefail
+          [ -n "${REQUESTED_TAG:-}" ] || { echo "In finalize_current_lab specificare to_tag." >&2; exit 23; }
+          git merge-base --is-ancestor "$TARGET_COMMIT" "$START_HEAD" || {
+            echo "La LAB corrente non contiene ancora il target Meld completo. Completare/risolvere il merge prima della finalizzazione." >&2
+            exit 24
+          }
+          echo "lab_branch=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "integration_applied=true" >> "$GITHUB_OUTPUT"
+          echo "integrated_head=$START_HEAD" >> "$GITHUB_OUTPUT"
+          echo "mode=manual_review_resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Normalizza contesto LAB
+        if: (inputs.mode == 'analyze' && inputs.create_lab && steps.resolve.outputs.no_update != 'true') || (inputs.mode == 'finalize_current_lab' && steps.resolve.outputs.no_update != 'true')
+        id: ctx
+        shell: bash
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+          ANALYZE_BRANCH: ${{ steps.lab.outputs.lab_branch }}
+          ANALYZE_APPLIED: ${{ steps.lab.outputs.integration_applied }}
+          ANALYZE_HEAD: ${{ steps.lab.outputs.integrated_head }}
+          ANALYZE_MODE: ${{ steps.lab.outputs.mode }}
+          FINAL_BRANCH: ${{ steps.finalize.outputs.lab_branch }}
+          FINAL_APPLIED: ${{ steps.finalize.outputs.integration_applied }}
+          FINAL_HEAD: ${{ steps.finalize.outputs.integrated_head }}
+          FINAL_MODE: ${{ steps.finalize.outputs.mode }}
+        run: |
+          set -euo pipefail
+          if [ "$INPUT_MODE" = "finalize_current_lab" ]; then
+            echo "lab_branch=$FINAL_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "integration_applied=$FINAL_APPLIED" >> "$GITHUB_OUTPUT"
+            echo "integrated_head=$FINAL_HEAD" >> "$GITHUB_OUTPUT"
+            echo "mode=$FINAL_MODE" >> "$GITHUB_OUTPUT"
+          else
+            echo "lab_branch=$ANALYZE_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "integration_applied=$ANALYZE_APPLIED" >> "$GITHUB_OUTPUT"
+            echo "integrated_head=$ANALYZE_HEAD" >> "$GITHUB_OUTPUT"
+            echo "mode=$ANALYZE_MODE" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Imposta JDK 21
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
         uses: actions/setup-java@v4
         with:
           java-version: "21"
           distribution: "temurin"
 
       - name: Imposta Gradle cache
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
         uses: gradle/actions/setup-gradle@v4
 
       - name: Prepara protobuf
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
         uses: ./.github/actions/setup-protobuf
 
+      - name: Test regressione JVM MusicLab
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
+        shell: bash
+        env:
+          MELD_UPSTREAM_BASELINE: ${{ steps.resolve.outputs.target_version }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest :spotify:test :betterlyrics:test --warning-mode summary
+
       - name: Crea keystore debug temporaneo
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
         shell: bash
         run: |
           set -euo pipefail
@@ -226,7 +304,7 @@ jobs:
           fi
 
       - name: Prepara UAB LAB
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
         shell: bash
         env:
           TAG_SLUG: ${{ steps.resolve.outputs.tag_slug }}
@@ -248,7 +326,7 @@ jobs:
           EOF
 
       - name: Build LAB isolata via UAB
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
         shell: bash
         env:
           UAB_CONFIG_FILE: /tmp/uab-meld.env
@@ -261,7 +339,7 @@ jobs:
         run: bash tools/universal-apk-builder/build-apk.sh .
 
       - name: Verifica APK e ZIP
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
         id: package
         shell: bash
         env:
@@ -283,7 +361,8 @@ jobs:
           echo "base_name=$BASE_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Pubblica APK + ZIP
-        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
+        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.base_name }}
@@ -295,6 +374,34 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Registra baseline verificata nella LAB
+        if: steps.ctx.outputs.integration_applied == 'true' && inputs.build_when_safe
+        id: state
+        shell: bash
+        env:
+          TARGET_TAG: ${{ steps.resolve.outputs.target_tag }}
+          TARGET_COMMIT: ${{ steps.resolve.outputs.target_commit }}
+          LAB_BRANCH: ${{ steps.ctx.outputs.lab_branch }}
+          INTEGRATED_HEAD: ${{ steps.ctx.outputs.integrated_head }}
+          ARTIFACT_NAME: ${{ steps.package.outputs.base_name }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/meld_record_verified_integration.py \
+            --config .github/upstream/meld.json \
+            --ledger .github/upstream/meld-integrations.json \
+            --tag "$TARGET_TAG" \
+            --upstream-commit "$TARGET_COMMIT" \
+            --branch "$LAB_BRANCH" \
+            --musiclab-head "$INTEGRATED_HEAD" \
+            --build-run-id "$GITHUB_RUN_ID" \
+            --artifact-name "$ARTIFACT_NAME"
+          git add .github/upstream/meld.json .github/upstream/meld-integrations.json
+          if ! git diff --cached --quiet; then
+            git commit -m "LAB: registra baseline Meld $TARGET_TAG verificata"
+            git push origin "HEAD:refs/heads/$LAB_BRANCH"
+          fi
+          echo "state_head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Riepilogo
         if: always()
         shell: bash
@@ -302,13 +409,15 @@ jobs:
           {
             echo "# MusicLab — Meld Upstream Guardian"
             echo
+            echo "- Modalita' richiesta: ${{ inputs.mode }}"
             echo "- Upstream: FrancescoGrazioso/Meld"
             echo "- MetroList diretto: DISATTIVATO"
-            echo "- Baseline: ${{ steps.cfg.outputs.baseline_tag }} (${{ steps.cfg.outputs.baseline_commit }})"
+            echo "- Baseline iniziale: ${{ steps.cfg.outputs.baseline_tag }} (${{ steps.cfg.outputs.baseline_commit }})"
             echo "- Target: ${{ steps.resolve.outputs.target_tag }} (${{ steps.resolve.outputs.target_commit }})"
             echo "- Nessun aggiornamento: ${{ steps.resolve.outputs.no_update }}"
-            echo "- LAB creata: ${{ steps.lab.outputs.lab_branch }}"
-            echo "- Modalita': ${{ steps.lab.outputs.mode }}"
+            echo "- LAB: ${{ steps.ctx.outputs.lab_branch }}"
+            echo "- Modalita' integrazione: ${{ steps.ctx.outputs.mode }}"
+            echo "- Stato finale LAB: ${{ steps.state.outputs.state_head }}"
             if [ -f upstream-review/CLASSIFICATION.md ]; then
               echo
               cat upstream-review/CLASSIFICATION.md
@@ -321,7 +430,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Pubblica rapporto upstream
-        if: steps.resolve.outputs.no_update != 'true'
+        if: inputs.mode == 'analyze' && steps.resolve.outputs.no_update != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: meld-upstream-review-${{ steps.resolve.outputs.tag_slug }}-${{ github.run_number }}
