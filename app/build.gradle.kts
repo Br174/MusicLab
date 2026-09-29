@@ -10,9 +10,15 @@ if (localPropertiesFile.exists()) {
 val baseApplicationId = "com.metrolist.music"
 val applicationIdOverride = System.getenv("METROLIST_APPLICATION_ID")?.takeIf { it.isNotBlank() }
 val appNameOverride = System.getenv("METROLIST_APP_NAME")?.takeIf { it.isNotBlank() }
-val musicLabVersionCodeOverride = System.getenv("MUSICLAB_VERSION_CODE")?.toIntOrNull()
-val musicLabVersionNameOverride = System.getenv("MUSICLAB_VERSION_NAME")?.takeIf { it.isNotBlank() }
+val versionCodeOverride = System.getenv("MUSICLAB_VERSION_CODE")?.toIntOrNull()
+val versionNameOverride = System.getenv("MUSICLAB_VERSION_NAME")?.takeIf { it.isNotBlank() }
 val meldUpstreamBaseline = System.getenv("MELD_UPSTREAM_BASELINE")?.takeIf { it.isNotBlank() } ?: "0.8.9"
+val buildCommit =
+    System.getenv("METROLIST_BUILD_COMMIT")
+        ?.trim()
+        ?.takeIf { it.matches(Regex("[0-9a-fA-F]{7,40}")) }
+        ?.take(7)
+        ?.lowercase()
 val debugKeystorePathOverride = System.getenv("METROLIST_DEBUG_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
 val debugKeystorePassword = System.getenv("METROLIST_DEBUG_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
 val debugKeyAlias = System.getenv("METROLIST_DEBUG_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "androiddebugkey"
@@ -26,22 +32,30 @@ plugins {
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.protobuf)
 }
 
 android {
     namespace = "com.metrolist.music"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
-        applicationId = applicationIdOverride ?: "com.meld.app"
+        applicationId = applicationIdOverride ?: "it.verlezza.musiclab"
         minSdk = 26
         targetSdk = 36
-        versionCode = musicLabVersionCodeOverride ?: 25
-        versionName = musicLabVersionNameOverride ?: "0.8.9"
-        resValue("string", "app_name", appNameOverride ?: "Meld")
+        versionCode = versionCodeOverride ?: 28
+        versionName = versionNameOverride ?: "0.9.2"
+        val baseVersionName = requireNotNull(versionName)
+        buildConfigField("String", "BASE_VERSION_NAME", "\"$baseVersionName\"")
+        buildCommit?.let { versionName = "$baseVersionName+$it" }
+        resValue("string", "app_name", appNameOverride ?: "MusicLab")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+        }
 
         // LastFM API keys from GitHub Secrets
         val lastFmKey = localProperties.getProperty("LASTFM_API_KEY") ?: System.getenv("LASTFM_API_KEY") ?: ""
@@ -51,12 +65,13 @@ android {
         buildConfigField("String", "LASTFM_SECRET", "\"$lastFmSecret\"")
         buildConfigField("String", "ARCHITECTURE", "\"universal\"")
         buildConfigField("String", "MELD_UPSTREAM_BASELINE", "\"$meldUpstreamBaseline\"")
+        buildConfigField("Long", "DISCORD_APP_ID", "1447278780795064401L")
 
         // Crash reporting target: GitHub repo (owner/name) where Issues are created,
         // and a fine-grained PAT with issues:write scoped to that repo only.
         // Both must be present at build time for reporting to be active at runtime.
         val crashRepo = localProperties.getProperty("CRASH_REPORT_REPO")
-            ?: System.getenv("CRASH_REPORT_REPO") ?: "francescograzioso/Meld"
+            ?: System.getenv("CRASH_REPORT_REPO") ?: "Br174/MusicLab"
         val crashToken = localProperties.getProperty("CRASH_REPORT_TOKEN")
             ?: System.getenv("CRASH_REPORT_TOKEN") ?: ""
         buildConfigField("String", "CRASH_REPORT_REPO", "\"$crashRepo\"")
@@ -65,7 +80,7 @@ android {
 
     flavorDimensions += listOf("variant")
     productFlavors {
-        // FOSS variant (default) - F-Droid compatible, no Google Play Services
+        // FOSS - Updater, but no gcast
         create("foss") {
             dimension = "variant"
             isDefault = true
@@ -73,14 +88,14 @@ android {
             buildConfigField("Boolean", "UPDATER_AVAILABLE", "true")
         }
 
-        // GMS variant - with Google Cast support (requires Google Play Services)
+        // GMS - Updater and gcast
         create("gms") {
             dimension = "variant"
             buildConfigField("Boolean", "CAST_AVAILABLE", "true")
             buildConfigField("Boolean", "UPDATER_AVAILABLE", "true")
         }
 
-        // IzzyOnDroid variant - no Google Cast, no built-in updater (store handles updates)
+        // IzzyOnDroid - no gcast, no updater - the ONLY F-droid compliant build
         create("izzy") {
             dimension = "variant"
             buildConfigField("Boolean", "CAST_AVAILABLE", "false")
@@ -135,7 +150,7 @@ android {
             }
             isDebuggable = true
             if (appNameOverride == null) {
-                resValue("string", "app_name", "Meld Debug")
+                resValue("string", "app_name", "MusicLab LAB")
             }
             signingConfig =
                 if (workflowDebugKeystoreFile != null) {
@@ -160,7 +175,6 @@ android {
     kotlin {
         jvmToolchain(21)
         compilerOptions {
-            freeCompilerArgs.add("-Xannotation-default-target=param-property")
             jvmTarget.set(JvmTarget.JVM_21)
         }
     }
@@ -181,6 +195,10 @@ android {
         warningsAsErrors = false
         abortOnError = false
         checkDependencies = false
+        // Lint never gated anything here (abortOnError = false), so the
+        // lintVital pass that assembleRelease implicitly triggers was pure
+        // build time. Run lint on demand with ./gradlew :app:lintGmsRelease.
+        checkReleaseBuilds = false
     }
 
     androidResources {
@@ -205,6 +223,28 @@ android {
             excludes += "META-INF/io.netty.versions.properties"
         }
     }
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
+    }
+    generateProtoTasks {
+        all().configureEach {
+            builtins {
+                create("java") { option("lite") }
+                create("kotlin") { option("lite") }
+            }
+        }
+    }
+}
+
+val cleanLegacyProtoSources = tasks.register<Delete>("cleanLegacyProtoSources") {
+    delete(layout.projectDirectory.dir("src/main/java/com/metrolist/music/listentogether/proto"))
+}
+
+tasks.named("preBuild") {
+    dependsOn(cleanLegacyProtoSources)
 }
 
 ksp {
@@ -233,7 +273,6 @@ configurations.configureEach {
 dependencies {
     implementation(libs.guava)
     implementation(libs.coroutines.guava)
-    implementation(libs.concurrent.futures)
 
     implementation(libs.activity)
     implementation(libs.browser)
@@ -244,12 +283,11 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.util)
-    implementation(libs.compose.ui.tooling)
     implementation(libs.compose.animation)
     implementation(libs.compose.reorderable)
 
-    implementation(libs.viewmodel)
     implementation(libs.viewmodel.compose)
+    implementation(libs.lifecycle.process)
 
     implementation(libs.material3)
     implementation(libs.palette)
@@ -259,6 +297,7 @@ dependencies {
 
     implementation(libs.coil)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.browser)
 
     implementation(libs.ucrop)
 
@@ -277,28 +316,21 @@ dependencies {
     implementation(libs.kuromoji.ipadic)
     implementation(libs.tinypinyin)
     ksp(libs.room.compiler)
-    implementation(libs.room.ktx)
-
-    implementation(libs.apache.lang3)
 
     implementation(libs.hilt)
-    implementation(libs.jsoup)
     ksp(libs.hilt.compiler)
 
     implementation(project(":innertube"))
-    implementation(project(":kugou"))
-    implementation(project(":lrclib"))
-    implementation(project(":kizzy"))
-    implementation(project(":lastfm"))
-    implementation(project(":betterlyrics"))
-    implementation(project(":shazamkit"))
-    implementation(project(":spotify"))
-    implementation(project(":paxsenix"))
 
     implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    // Musixmatch's provider builds its own client on the CIO engine.
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.client.encoding)
     implementation(libs.ktor.serialization.json)
+
+    implementation(libs.jsoup)
 
     // Protobuf for message serialization (lite version for Android)
     implementation(libs.protobuf.javalite)
@@ -309,4 +341,7 @@ dependencies {
     implementation(libs.timber)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.ktor.client.mock)
 }

@@ -6,10 +6,13 @@
 package com.metrolist.music.ui.menu
 
 import android.content.Context
+import android.content.Intent
+import android.media.audiofx.AudioEffect
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.annotation.DrawableRes
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -70,13 +73,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.net.toUri
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.offline.Download
-import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
-import androidx.navigation.NavController
 import com.metrolist.innertube.YouTube
+import com.metrolist.music.LocalNavController
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalListenTogetherManager
@@ -88,13 +90,11 @@ import com.metrolist.music.listentogether.ConnectionState
 import com.metrolist.music.listentogether.ListenTogetherEvent
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.extensions.toMediaItem
-import com.metrolist.music.intelligence.CanonicalMusicMetadata
-import com.metrolist.music.intelligence.MusicIntelligenceClient
-import com.metrolist.music.intelligence.MusicIntelligenceSettings
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.SpotifyYouTubeMapper
 import com.metrolist.music.ui.component.YouTubeMatchDialog
-import com.metrolist.music.ui.component.CoverSearchDialog
+import com.metrolist.music.db.entities.Song
+import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.ui.component.BottomSheetState
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
@@ -108,21 +108,22 @@ import kotlinx.coroutines.launch
 import kotlin.math.log2
 import kotlin.math.pow
 import kotlin.math.round
+import androidx.navigation.NavController
 
 @Composable
 fun PlayerMenu(
     mediaMetadata: MediaMetadata?,
-    navController: NavController,
     playerBottomSheetState: BottomSheetState,
     isQueueTrigger: Boolean? = false,
     onShowDetailsDialog: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     mediaMetadata ?: return
+    val navController = LocalNavController.current
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val playerVolume = playerConnection.service.playerVolume.collectAsState()
+    val playerVolume = playerConnection.service.playerVolume.collectAsStateWithLifecycle()
 
     // Cast state for volume control - safely access castConnectionHandler to prevent crashes
     val castHandler =
@@ -133,70 +134,22 @@ fun PlayerMenu(
                 null
             }
         }
-    val isCasting by castHandler?.isCasting?.collectAsState() ?: remember { mutableStateOf(false) }
-    val castVolume by castHandler?.castVolume?.collectAsState() ?: remember { mutableFloatStateOf(1f) }
-    val castDeviceName by castHandler?.castDeviceName?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
+    val isCasting by castHandler?.isCasting?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(false) }
+    val castVolume by castHandler?.castVolume?.collectAsStateWithLifecycle() ?: remember { mutableFloatStateOf(1f) }
+    val castDeviceName by castHandler?.castDeviceName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf<String?>(null) }
 
     val varispeedMode by rememberPreference(VarispeedKey, defaultValue = false)
     val qobuzEnabled by rememberPreference(com.metrolist.music.constants.EnableQobuzKey, defaultValue = false)
 
-    // Resolver canonico solo dopo che il player esiste: mai nel percorso di avvio del Play.
-    val musicIntelligenceSettings = MusicIntelligenceSettings.from(context)
-    val canonicalMetadata by produceState<CanonicalMusicMetadata?>(
-        initialValue = MusicIntelligenceClient.cached(mediaMetadata.id),
-        key1 = mediaMetadata.id,
-        key2 = mediaMetadata.title,
-        key3 = mediaMetadata.artists.firstOrNull()?.name,
-    ) {
-        if (musicIntelligenceSettings.enabled && musicIntelligenceSettings.backgroundMetadata) {
-            value = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                MusicIntelligenceClient.resolve(
-                    context = context,
-                    playbackId = mediaMetadata.id,
-                    title = mediaMetadata.title,
-                    artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
-                    album = mediaMetadata.album?.title,
-                )
-            }
-        }
-    }
-
-    val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
+    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
     val coroutineScope = rememberCoroutineScope()
-    var showCreditsDialog by rememberSaveable(mediaMetadata.id) { mutableStateOf(false) }
-    var creditsLoading by rememberSaveable(mediaMetadata.id) { mutableStateOf(false) }
-    var creditsMetadata by remember(mediaMetadata.id) {
-        mutableStateOf(MusicIntelligenceClient.cached(mediaMetadata.id))
-    }
+    val downloadUtil = LocalDownloadUtil.current
 
-    LaunchedEffect(canonicalMetadata) {
-        canonicalMetadata?.let { creditsMetadata = it }
-    }
-
-    val canonicalActionMetadata = canonicalMetadata ?: creditsMetadata
-
-    suspend fun resolveCanonicalForAction(): CanonicalMusicMetadata? {
-        canonicalActionMetadata?.let { return it }
-        MusicIntelligenceClient.cached(mediaMetadata.id)?.let { cached ->
-            creditsMetadata = cached
-            return cached
-        }
-        val resolved = kotlinx.coroutines.withContext(Dispatchers.IO) {
-            MusicIntelligenceClient.resolve(
-                context = context,
-                playbackId = mediaMetadata.id,
-                title = mediaMetadata.title,
-                artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
-                album = mediaMetadata.album?.title,
-            )
-        }
-        if (resolved != null) creditsMetadata = resolved
-        return resolved
-    }
-
-    val download by LocalDownloadUtil.current
+    val download by downloadUtil
         .getDownload(mediaMetadata.id)
-        .collectAsState(initial = null)
+        .collectAsStateWithLifecycle(initialValue = null)
+
+    val isPinned by database.speedDialDao.isPinned(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = false)
 
     val artists =
         remember(mediaMetadata.artists) {
@@ -215,10 +168,6 @@ fun PlayerMenu(
         mutableStateOf(false)
     }
 
-    var showCoverSearchDialog by rememberSaveable {
-        mutableStateOf(false)
-    }
-
     var showQobuzMatchDialog by rememberSaveable {
         mutableStateOf(false)
     }
@@ -233,88 +182,6 @@ fun PlayerMenu(
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             value = database.getSpotifyMatchByYouTubeId(mediaMetadata.id)
         }
-    }
-
-    val resolvedNavigationSong by produceState<com.metrolist.innertube.models.SongItem?>(
-        initialValue = null,
-        mediaMetadata.id,
-        musicIntelligenceSettings.enabled,
-        musicIntelligenceSettings.artistResolver,
-        musicIntelligenceSettings.albumResolver,
-    ) {
-        value = kotlinx.coroutines.withContext(Dispatchers.IO) {
-            if (
-                musicIntelligenceSettings.enabled &&
-                (musicIntelligenceSettings.artistResolver || musicIntelligenceSettings.albumResolver)
-            ) {
-                // Con il resolver AI attivo YouTube non viene mai interrogato per decidere
-                // artista/album. I browse ID tecnici arrivano solo dopo l'identità canonica.
-                null
-            } else {
-                YouTube.queue(listOf(mediaMetadata.id)).getOrNull()?.firstOrNull()
-            }
-        }
-    }
-
-val navigationArtists =
-    resolvedNavigationSong?.artists
-        ?.mapNotNull { item ->
-            item.id?.let { id -> MediaMetadata.Artist(id = id, name = item.name) }
-        }
-        ?.takeIf { it.isNotEmpty() }
-        ?: artists
-
-val navigationAlbumId = resolvedNavigationSong?.album?.id ?: mediaMetadata.album?.id
-val navigationAlbumTitle = resolvedNavigationSong?.album?.name ?: mediaMetadata.album?.title
-val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_") } ?: false
-
-
-    if (showCreditsDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreditsDialog = false },
-            title = { Text("Crediti") },
-            text = {
-                val metadata = creditsMetadata
-                if (creditsLoading) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("Caricamento crediti…")
-                    }
-                } else if (metadata == null) {
-                    Text("Crediti non disponibili per questo brano.")
-                } else {
-                    val rows = buildList {
-                        add("Titolo" to metadata.title)
-                        add("Artista" to metadata.artist)
-                        metadata.album?.takeIf { it.isNotBlank() }?.let { add("Album" to it) }
-                        metadata.year?.let { add("Anno" to it.toString()) }
-                        metadata.category?.takeIf { it.isNotBlank() }?.let { add("Versione" to it) }
-                        metadata.credits.songwriters.takeIf { it.isNotEmpty() }?.let { add("Autori" to it.joinToString()) }
-                        metadata.credits.composers.takeIf { it.isNotEmpty() }?.let { add("Compositori" to it.joinToString()) }
-                        metadata.credits.lyricists.takeIf { it.isNotEmpty() }?.let { add("Parolieri" to it.joinToString()) }
-                        metadata.credits.producers.takeIf { it.isNotEmpty() }?.let { add("Produttori" to it.joinToString()) }
-                        metadata.credits.label?.takeIf { it.isNotBlank() }?.let { add("Etichetta" to it) }
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        rows.forEach { (label, value) ->
-                            Text("$label: $value")
-                        }
-                        if (rows.size <= 2) {
-                            Text(
-                                "Gli altri crediti non sono disponibili.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showCreditsDialog = false }) {
-                    Text("Chiudi")
-                }
-            },
-        )
     }
 
     AddToSpotifyPlaylistFlow(
@@ -372,37 +239,21 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
         )
     }
 
-    val coverSearchSeed = canonicalActionMetadata
-    if (showCoverSearchDialog && coverSearchSeed != null) {
-        CoverSearchDialog(
-            title = coverSearchSeed.title,
-            originalArtist = coverSearchSeed.artist,
-            durationSec = mediaMetadata.duration,
-            currentYouTubeId = mediaMetadata.id,
-            onSelect = { song ->
-                playerConnection.playNext(song.toMediaItem())
-                playerConnection.seekToNext()
-                playerBottomSheetState.collapseSoft()
-                onDismiss()
-            },
-            onDismiss = { showCoverSearchDialog = false },
-        )
-    }
-
     val listenTogetherManager = LocalListenTogetherManager.current
-    val listenTogetherRoleState = listenTogetherManager?.role?.collectAsState(initial = com.metrolist.music.listentogether.RoomRole.NONE)
+    val listenTogetherRoleState = listenTogetherManager?.role?.collectAsStateWithLifecycle(initialValue = com.metrolist.music.listentogether.RoomRole.NONE)
     val isListenTogetherGuest = listenTogetherRoleState?.value == com.metrolist.music.listentogether.RoomRole.GUEST
-    val pendingSuggestions by listenTogetherManager?.pendingSuggestions?.collectAsState(initial = emptyList())
+    val pendingSuggestions by listenTogetherManager?.pendingSuggestions?.collectAsStateWithLifecycle(initialValue = emptyList())
         ?: remember { mutableStateOf(emptyList()) }
+
+    val systemEqLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { }
 
     AddToPlaylistDialog(
         isVisible = showChoosePlaylistDialog,
-        onGetSong = { playlist ->
+        onGetSong = {
             database.withTransaction {
                 insert(mediaMetadata)
-            }
-            coroutineScope.launch(Dispatchers.IO) {
-                playlist.playlist.browseId?.let { YouTube.addToPlaylist(it, mediaMetadata.id) }
             }
             listOf(mediaMetadata.id)
         },
@@ -426,7 +277,7 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
         ListDialog(
             onDismiss = { showSelectArtistDialog = false },
         ) {
-            items(navigationArtists) { artist ->
+            items(artists) { artist ->
                 Box(
                     contentAlignment = Alignment.CenterStart,
                     modifier =
@@ -505,18 +356,23 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                 }
             }
 
-            VolumeSlider(
-                value = if (isCasting) castVolume else playerVolume.value,
-                onValueChange = { volume ->
-                    if (isCasting) {
-                        castHandler?.setVolume(volume)
-                    } else {
-                        playerConnection.service.playerVolume.value = volume
-                    }
-                },
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
-                accentColor = MaterialTheme.colorScheme.primary,
-            )
+            ) {
+                VolumeSlider(
+                    value = if (isCasting) castVolume else playerVolume.value,
+                    onValueChange = { volume ->
+                        if (isCasting) {
+                            castHandler?.setVolume(volume)
+                        } else {
+                            playerConnection.service.playerVolume.value = volume
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    accentColor = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 
@@ -602,90 +458,24 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                 onDismiss()
                             },
                         ),
-                    ) +
-                        (if (com.metrolist.spotify.Spotify.isAuthenticated()) {
-                            listOf(
-                                NewAction(
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.spotify),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(32.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    },
-                                    text = stringResource(R.string.spotify_add_to_playlist),
-                                    onClick = { showAddToSpotifyPlaylist = true },
-                                ),
-                            )
-                        } else {
-                            emptyList()
-                        }) +
+                    ) + if (com.metrolist.spotify.Spotify.isAuthenticated()) {
                         listOf(
                             NewAction(
                                 icon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.album),
+                                        painter = painterResource(R.drawable.spotify),
                                         contentDescription = null,
                                         modifier = Modifier.size(32.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 },
-                                text = "Originali",
-                                onClick = {
-                                    coroutineScope.launch {
-                                        val seed = resolveCanonicalForAction()
-                                        if (seed == null) {
-                                            Toast.makeText(
-                                                context,
-                                                "Identificazione AI non disponibile. Riprova tra poco.",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
-                                            return@launch
-                                        }
-                                        val opened = com.metrolist.music.ui.component.OriginalVersionNavigationBridge.open(
-                                            com.metrolist.music.ui.component.OriginalVersionRequest(
-                                                title = seed.title,
-                                                artist = seed.artist,
-                                                durationSec = mediaMetadata.duration,
-                                                currentYouTubeId = mediaMetadata.id,
-                                            ),
-                                        )
-                                        if (opened) {
-                                            playerBottomSheetState.collapseSoft()
-                                            onDismiss()
-                                        }
-                                    }
-                                },
+                                text = stringResource(R.string.spotify_add_to_playlist),
+                                onClick = { showAddToSpotifyPlaylist = true },
                             ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.link),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(32.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = "Cover",
-                                onClick = {
-                                    coroutineScope.launch {
-                                        val seed = resolveCanonicalForAction()
-                                        if (seed == null) {
-                                            Toast.makeText(
-                                                context,
-                                                "Identificazione AI non disponibile. Riprova tra poco.",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
-                                            return@launch
-                                        }
-                                        creditsMetadata = seed
-                                        playerBottomSheetState.collapseSoft()
-                                        showCoverSearchDialog = true
-                                    }
-                                },
-                            ),
-                        ),
+                        )
+                    } else {
+                        emptyList()
+                    },
                 columns = if (isListenTogetherGuest) 2 else 3,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
             )
@@ -700,18 +490,12 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                     buildList {
                         // Don't show "View Artist" for podcasts - only show "View Podcast"
                         if (artists.isNotEmpty() && !isPodcast) {
-                            val useCanonicalArtist =
-                                musicIntelligenceSettings.enabled && musicIntelligenceSettings.artistResolver
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(R.string.view_artist)) },
                                     description = {
                                         Text(
-                                            text = if (useCanonicalArtist) {
-                                                canonicalActionMetadata?.artist ?: "Identificazione AI in corso…"
-                                            } else {
-                                                mediaMetadata.artists.joinToString { it.name }
-                                            },
+                                            text = mediaMetadata.artists.joinToString { it.name },
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
@@ -724,49 +508,24 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         )
                                     },
                                     onClick = {
-                                        if (!useCanonicalArtist) {
-                                            if (mediaMetadata.artists.size == 1) {
-                                                navController.navigate("artist/${mediaMetadata.artists[0].id}")
-                                                playerBottomSheetState.collapseSoft()
-                                                onDismiss()
-                                            } else {
-                                                showSelectArtistDialog = true
-                                            }
+                                        if (mediaMetadata.artists.size == 1) {
+                                            navController.navigate("artist/${mediaMetadata.artists[0].id}")
+                                            playerBottomSheetState.collapseSoft()
+                                            onDismiss()
                                         } else {
-                                            coroutineScope.launch {
-                                                val resolved = resolveCanonicalForAction()
-                                                val targetId = resolved?.artistBrowseId
-                                                if (!targetId.isNullOrBlank()) {
-                                                    navController.navigate("artist/$targetId")
-                                                    playerBottomSheetState.collapseSoft()
-                                                    onDismiss()
-                                                } else {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Pagina dell'artista non disponibile.",
-                                                        Toast.LENGTH_SHORT,
-                                                    ).show()
-                                                }
-                                            }
+                                            showSelectArtistDialog = true
                                         }
                                     },
                                 ),
                             )
                         }
                         if (mediaMetadata.album != null) {
-                            val useCanonicalAlbum =
-                                !isPodcast && musicIntelligenceSettings.enabled && musicIntelligenceSettings.albumResolver
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(if (isPodcast) R.string.view_podcast else R.string.view_album)) },
                                     description = {
                                         Text(
-                                            text = if (useCanonicalAlbum) {
-                                                canonicalActionMetadata?.let { it.album ?: "Album non indicato dall'AI" }
-                                                    ?: "Identificazione AI in corso…"
-                                            } else {
-                                                mediaMetadata.album.title
-                                            },
+                                            text = mediaMetadata.album.title,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
@@ -781,30 +540,15 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                     onClick = {
                                         if (isPodcast) {
                                             navController.navigate("online_podcast/${mediaMetadata.album.id}")
-                                            playerBottomSheetState.collapseSoft()
-                                            onDismiss()
-                                        } else if (useCanonicalAlbum) {
-                                            coroutineScope.launch {
-                                                val resolved = resolveCanonicalForAction()
-                                                val targetId = resolved?.albumBrowseId
-                                                if (!targetId.isNullOrBlank()) {
-                                                    navController.navigate("album/$targetId")
-                                                    playerBottomSheetState.collapseSoft()
-                                                    onDismiss()
-                                                } else {
-                                                    Toast.makeText(context, "Album non disponibile.", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
                                         } else {
                                             navController.navigate("album/${mediaMetadata.album.id}")
-                                            playerBottomSheetState.collapseSoft()
-                                            onDismiss()
                                         }
+                                        playerBottomSheetState.collapseSoft()
+                                        onDismiss()
                                     },
                                 ),
                             )
                         }
-
                         // Add to Library option
                         val isInLibrary = librarySong?.song?.inLibrary != null
                         add(
@@ -837,6 +581,32 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                 },
                                 onClick = {
                                     playerConnection.toggleLibrary()
+                                    onDismiss()
+                                },
+                            ),
+                        )
+                        add(
+                            Material3MenuItemData(
+                                title = {
+                                    Text(
+                                        text = if (isPinned) stringResource(R.string.unpin_from_speed_dial) else stringResource(R.string.pin_to_speed_dial),
+                                    )
+                                },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(if (isPinned) R.drawable.remove else R.drawable.add),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        if (isPinned) {
+                                            database.speedDialDao.delete(mediaMetadata.id)
+                                        } else {
+                                            database.speedDialDao.insert(SpeedDialItem.fromYTItem(mediaMetadata.toYTItem()))
+                                        }
+                                    }
                                     onDismiss()
                                 },
                             ),
@@ -908,21 +678,7 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         )
                                     },
                                     onClick = {
-                                        database.transaction {
-                                            insert(mediaMetadata)
-                                        }
-                                        val downloadRequest =
-                                            DownloadRequest
-                                                .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
-                                                .setCustomCacheKey(mediaMetadata.id)
-                                                .setData(mediaMetadata.title.toByteArray())
-                                                .build()
-                                        DownloadService.sendAddDownload(
-                                            context,
-                                            ExoDownloadService::class.java,
-                                            downloadRequest,
-                                            false,
-                                        )
+                                        downloadUtil.download(mediaMetadata)
                                     },
                                 )
                             }
@@ -998,6 +754,25 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
             Material3MenuGroup(
                 items =
                     buildList {
+                        if (resolvedSpotifyMatch != null && !qobuzEnabled) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.change_youtube_version)) },
+                                    description = { Text(text = stringResource(R.string.change_youtube_version_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.link),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        showYouTubeMatchDialog = true
+                                    },
+                                ),
+                            )
+                        }
+
                         if (qobuzEnabled) {
                             add(
                                 Material3MenuItemData(
@@ -1019,167 +794,6 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                             )
                         }
 
-
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.go_to_artist)) },
-                                description = {
-                                    Text(
-                                        text = if (
-                                            musicIntelligenceSettings.enabled && musicIntelligenceSettings.artistResolver
-                                        ) {
-                                            canonicalActionMetadata?.artist ?: "Identificazione AI in corso…"
-                                        } else {
-                                            mediaMetadata.artists.joinToString { it.name }
-                                        },
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.artist),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                },
-                                onClick = {
-                                    val useCanonical = musicIntelligenceSettings.enabled && musicIntelligenceSettings.artistResolver
-                                    val readyId = canonicalMetadata?.artistBrowseId
-                                    if (!useCanonical) {
-                                        when {
-                                            navigationArtists.size == 1 -> {
-                                                playerBottomSheetState.collapse(tween(durationMillis = 120))
-                                                navController.navigate("artist/${navigationArtists[0].id}")
-                                                onDismiss()
-                                            }
-                                            navigationArtists.size > 1 -> showSelectArtistDialog = true
-                                            else -> Toast.makeText(context, R.string.artist_unavailable, Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else if (!readyId.isNullOrBlank()) {
-                                        playerBottomSheetState.collapse(tween(durationMillis = 120))
-                                        navController.navigate("artist/$readyId")
-                                        onDismiss()
-                                    } else {
-                                        Toast.makeText(context, "Sto identificando la pagina corretta dell'artista…", Toast.LENGTH_SHORT).show()
-                                        coroutineScope.launch {
-                                            val resolved = resolveCanonicalForAction()
-                                            val targetId = resolved?.artistBrowseId
-                                            if (!targetId.isNullOrBlank()) {
-                                                playerBottomSheetState.collapse(tween(durationMillis = 120))
-                                                navController.navigate("artist/$targetId")
-                                                onDismiss()
-                                            } else {
-                                                Toast.makeText(context, "Pagina dell'artista non disponibile.", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                },
-                            ),
-                        )
-
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.go_to_album)) },
-                                description = {
-                                    val useCanonicalLabel =
-                                        !navigationAlbumIsPodcast &&
-                                            musicIntelligenceSettings.enabled &&
-                                            musicIntelligenceSettings.albumResolver
-                                    val title = if (useCanonicalLabel) {
-                                        canonicalActionMetadata?.let { it.album ?: "Album non indicato dall'AI" }
-                                            ?: "Identificazione AI in corso…"
-                                    } else {
-                                        navigationAlbumTitle
-                                    }
-                                    title?.let {
-                                        Text(
-                                            text = it,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(if (navigationAlbumIsPodcast) R.drawable.mic else R.drawable.album),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                },
-                                onClick = {
-                                    val useCanonical =
-                                        !navigationAlbumIsPodcast &&
-                                            musicIntelligenceSettings.enabled &&
-                                            musicIntelligenceSettings.albumResolver
-                                    val readyId = canonicalMetadata?.albumBrowseId
-                                    if (!useCanonical) {
-                                        val albumId = navigationAlbumId
-                                        if (albumId.isNullOrBlank()) {
-                                            Toast.makeText(context, R.string.album_unavailable, Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            playerBottomSheetState.collapse(tween(durationMillis = 120))
-                                            if (navigationAlbumIsPodcast) {
-                                                navController.navigate("online_podcast/$albumId")
-                                            } else {
-                                                navController.navigate("album/$albumId")
-                                            }
-                                            onDismiss()
-                                        }
-                                    } else if (!readyId.isNullOrBlank()) {
-                                        playerBottomSheetState.collapse(tween(durationMillis = 120))
-                                        navController.navigate("album/$readyId")
-                                        onDismiss()
-                                    } else {
-                                        Toast.makeText(context, "Sto identificando l'album corretto…", Toast.LENGTH_SHORT).show()
-                                        coroutineScope.launch {
-                                            val resolved = resolveCanonicalForAction()
-                                            val targetId = resolved?.albumBrowseId
-                                            if (!targetId.isNullOrBlank()) {
-                                                playerBottomSheetState.collapse(tween(durationMillis = 120))
-                                                navController.navigate("album/$targetId")
-                                                onDismiss()
-                                            } else {
-                                                Toast.makeText(context, "Album non disponibile.", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                },
-                            ),
-                        )
-
-                        add(
-                            Material3MenuItemData(
-                                title = { Text("Crediti") },
-                                description = { Text("Autori, compositori, produttori ed etichetta") },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.info),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                },
-                                onClick = {
-                                    showCreditsDialog = true
-                                    val ready = canonicalMetadata ?: MusicIntelligenceClient.cached(mediaMetadata.id)
-                                    if (ready != null) {
-                                        creditsMetadata = ready
-                                    } else {
-                                        creditsLoading = true
-                                        coroutineScope.launch {
-                                            creditsMetadata = MusicIntelligenceClient.resolve(
-                                                context = context,
-                                                playbackId = mediaMetadata.id,
-                                                title = mediaMetadata.title,
-                                                artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
-                                                album = mediaMetadata.album?.title,
-                                            )
-                                            creditsLoading = false
-                                        }
-                                    }
-                                },
-                            ),
-                        )
 
                         add(
                             Material3MenuItemData(
@@ -1212,8 +826,34 @@ val navigationAlbumIsPodcast = navigationAlbumId?.let { !it.startsWith("MPREb_")
                                         )
                                     },
                                     onClick = {
-                                        playerBottomSheetState.collapse(tween(durationMillis = 120))
                                         navController.navigate("equalizer")
+                                        onDismiss()
+                                    },
+                                ),
+                            )
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.system_equalizer)) },
+                                    description = { Text(text = stringResource(R.string.system_equalizer_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.graphic_eq),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        val audioSessionId = playerConnection.player.audioSessionId
+                                        if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId > 0) {
+                                            val intent = Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
+                                                putExtra(AudioEffect.EXTRA_AUDIO_SESSION, audioSessionId)
+                                                putExtra(AudioEffect.EXTRA_PACKAGE_NAME, context.packageName)
+                                                putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
+                                            }
+                                            if (intent.resolveActivity(context.packageManager) != null) {
+                                                systemEqLauncher.launch(intent)
+                                            }
+                                        }
                                         onDismiss()
                                     },
                                 ),
@@ -1476,11 +1116,11 @@ fun ListenTogetherDialog(
         return
     }
 
-    val connectionState by listenTogetherManager.connectionState.collectAsState()
-    val roomState by listenTogetherManager.roomState.collectAsState()
-    val userId by listenTogetherManager.userId.collectAsState()
-    val pendingJoinRequests by listenTogetherManager.pendingJoinRequests.collectAsState()
-    val pendingSuggestions by listenTogetherManager.pendingSuggestions.collectAsState()
+    val connectionState by listenTogetherManager.connectionState.collectAsStateWithLifecycle()
+    val roomState by listenTogetherManager.roomState.collectAsStateWithLifecycle()
+    val userId by listenTogetherManager.userId.collectAsStateWithLifecycle()
+    val pendingJoinRequests by listenTogetherManager.pendingJoinRequests.collectAsStateWithLifecycle()
+    val pendingSuggestions by listenTogetherManager.pendingSuggestions.collectAsStateWithLifecycle()
 
     // Load saved username
     var savedUsername by rememberPreference(com.metrolist.music.constants.ListenTogetherUsernameKey, "")
@@ -1929,7 +1569,7 @@ fun ListenTogetherDialog(
                                 Spacer(modifier = Modifier.height(12.dp))
                                 val inviteLink =
                                     remember(room.roomCode) {
-                                        "https://metrolist.meowery.eu/listen?code=${room.roomCode}"
+                                        "https://metrolist.cc/listen?code=${room.roomCode}"
                                     }
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -1985,7 +1625,7 @@ fun ListenTogetherDialog(
                 item { Spacer(modifier = Modifier.height(16.dp)) }
 
                 // Connected users - horizontal layout
-                val connectedUsers = room.users.filter { it.isConnected }
+                val connectedUsers = room.usersList.filter { it.isConnected }
 
                 item {
                     Column(

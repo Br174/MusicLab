@@ -591,7 +591,6 @@ internal fun CoverSearchScreen(
                                         menuState.show {
                                             YouTubeSongMenu(
                                                 song = result.song,
-                                                navController = navController,
                                                 onDismiss = menuState::dismiss,
                                             )
                                         }

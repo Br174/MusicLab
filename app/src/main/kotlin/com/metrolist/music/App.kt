@@ -5,14 +5,15 @@
 
 package com.metrolist.music
 
+import android.app.ActivityManager
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import android.os.StrictMode
+import android.os.Process
 import android.widget.Toast
-import androidx.datastore.preferences.core.edit
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -27,6 +28,7 @@ import coil3.request.allowHardware
 import coil3.request.crossfade
 import kotlin.coroutines.cancellation.CancellationException
 import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.ArtistConjunctions
 import com.metrolist.innertube.models.YouTubeLocale
 import com.metrolist.kugou.KuGou
 import com.metrolist.lastfm.LastFM
@@ -39,25 +41,30 @@ import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.utils.AnrWatchdog
 import com.metrolist.music.utils.CrashHandler
-import com.metrolist.music.utils.CrashReporter
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.utils.ArtistNameAliases
+import com.metrolist.music.utils.CrashReporter
+import com.metrolist.music.utils.InnerTubeXPlayer
 import com.metrolist.music.utils.SpotifyHashSync
 import com.metrolist.music.utils.SpotifyTokenManager
-import com.metrolist.music.utils.cipher.CipherDeobfuscator
 import com.metrolist.music.utils.dataStore
-import com.metrolist.music.utils.get
 import com.metrolist.music.utils.installPreferencesSnapshotCollector
+import com.metrolist.music.utils.safeDataStoreEdit
 import com.metrolist.music.utils.reportException
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import timber.log.Timber
+import java.io.File
+import java.io.IOException
 import java.net.Authenticator
 import java.net.PasswordAuthentication
 import java.net.Proxy
@@ -78,7 +85,15 @@ class App :
     override fun onCreate() {
         super.onCreate()
 
+        // CrashActivity runs in a separate process. Starting the full app there can make that
+        // process claim WebView's data directory and crash the next main-process WebView.
+        if (!isMainProcess()) return
+
         if (BuildConfig.DEBUG) {
+            // Logs main-thread disk/network I/O and leaked resources to logcat so ANR
+            // regressions are visible while developing. penaltyLog() only — never death,
+            // to avoid crashing developers on pre-existing violations while we migrate
+            // away from blocking DataStore reads.
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()
                     .detectDiskReads()
@@ -96,15 +111,54 @@ class App :
             )
         }
 
+        // Install crash handler first. CrashReporter must be initialized before
+        // CrashHandler so the uncaught-exception path can post to GitHub Issues.
         CrashReporter.init(this)
         CrashHandler.install(this)
         AnrWatchdog.start()
-        CipherDeobfuscator.initialize(this)
+        ArtistNameAliases.initialize(this)
+
+        // preferencesDataStore uses filesDir/datastore; proactive mkdir reduces failures on odd ROM states
+        try {
+            val datastoreDir = File(filesDir, "datastore")
+            if (!datastoreDir.isDirectory && !datastoreDir.mkdirs()) {
+                Timber.w("Could not create DataStore directory at ${datastoreDir.path}")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to ensure DataStore directory")
+        }
+
+        // Plant logging before extraction services initialize.
         Timber.plant(Timber.DebugTree())
+        InnerTubeXPlayer.initialize(this)
+
+        // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader
+        applicationScope.launch(Dispatchers.IO) {
+            cachedCoilCacheSize = dataStore.data.map { it[MaxImageCacheSizeKey] ?: 512 }.first()
+        }
+
+        // Start mirroring DataStore into an in-memory snapshot so subsequent synchronous
+        // `dataStore.get(...)` calls (used in Composables and Service lifecycle) don't
+        // hit disk. Kicked off before any other initialization so the snapshot is
+        // populated as early as possible.
         installPreferencesSnapshotCollector(applicationScope, dataStore)
 
+        // تهيئة إعدادات التطبيق عند الإقلاع
         applicationScope.launch {
+            // Apply settings, including proxy configuration, before building extraction transport.
             initializeSettings()
+
+            // Warm player config, cipher, and optional PO-token state off the first-play path.
+            launch(Dispatchers.IO) {
+                delay(2500)
+                var waitedMs = 0
+                while (YouTube.visitorData == null && waitedMs < 12_000) {
+                    delay(500)
+                    waitedMs += 500
+                }
+                runCatching { InnerTubeXPlayer.prewarm() }
+            }
+
             observeSettingsChanges()
         }
     }
@@ -114,7 +168,11 @@ class App :
         val locale = Locale.getDefault()
         val languageTag = locale.language
 
-        ArtworkSizeRuntime.current = settings[ArtworkSizeKey].toEnum(defaultValue = ArtworkSize.MEDIUM)
+        ArtistConjunctions.conjunctions = listOf(
+            R.string.and,
+        ).mapNotNull { id ->
+            runCatching { getString(id) }.getOrNull()
+        }
 
         YouTube.locale =
             YouTubeLocale(
@@ -133,11 +191,13 @@ class App :
             KuGou.useTraditionalChinese = true
         }
 
+        // Initialize LastFM with API keys from BuildConfig (GitHub Secrets)
         LastFM.initialize(
             apiKey = BuildConfig.LASTFM_API_KEY.takeIf { it.isNotEmpty() } ?: "",
             secret = BuildConfig.LASTFM_SECRET.takeIf { it.isNotEmpty() } ?: "",
         )
 
+        // Wire up Spotify API logging to Timber
         Spotify.logger = { level, message ->
             when (level) {
                 "E" -> Timber.tag("SpotifyAPI").e(message)
@@ -146,6 +206,8 @@ class App :
             }
         }
 
+        // Initialize GQL hash sync: load cached hashes immediately,
+        // then always fetch fresh hashes from remote in background.
         val hashSync = SpotifyHashSync(this@App)
         hashSync.loadCachedHashes()
         applicationScope.launch(Dispatchers.IO) { hashSync.sync() }
@@ -154,11 +216,14 @@ class App :
             applicationScope.launch(Dispatchers.IO) { hashSync.forceRefresh() }
         }
 
+        // Initialize centralized token manager and restore/refresh Spotify token
         SpotifyTokenManager.init(dataStore)
         applicationScope.launch(Dispatchers.IO) {
             SpotifyTokenManager.ensureAuthenticated()
         }
 
+        // Evict Spotify↔YouTube match-cache rows older than 90 days (manual
+        // overrides are preserved) so the table doesn't grow without bound.
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
                 database.clearOldSpotifyMatches(
@@ -213,22 +278,18 @@ class App :
     private fun observeSettingsChanges() {
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
-                .map { it[ArtworkSizeKey] }
-                .distinctUntilChanged()
-                .collect { value ->
-                    ArtworkSizeRuntime.current = value.toEnum(defaultValue = ArtworkSize.MEDIUM)
-                }
-        }
-
-        applicationScope.launch(Dispatchers.IO) {
-            dataStore.data
                 .map { it[VisitorDataKey] }
                 .distinctUntilChanged()
                 .collect { visitorData ->
                     YouTube.visitorData = visitorData?.takeIf { it != "null" }
                         ?: YouTube.visitorData().getOrNull()?.also { newVisitorData ->
-                            dataStore.edit { settings ->
-                                settings[VisitorDataKey] = newVisitorData
+                            try {
+                                safeDataStoreEdit { settings ->
+                                    settings[VisitorDataKey] = newVisitorData
+                                }
+                            } catch (e: IOException) {
+                                Timber.e(e, "DataStore write failed for visitor data")
+                                reportException(e)
                             }
                         }
                 }
@@ -245,6 +306,15 @@ class App :
                                 ?: it.takeIf { it.endsWith("||") }?.substringBefore("||")
                                 ?: it.substringAfter("||")
                         }
+                }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it[InnerTubeAuthUserKey] ?: "0" }
+                .distinctUntilChanged()
+                .collect { authUser ->
+                    YouTube.authUser = authUser
                 }
         }
 
@@ -304,12 +374,13 @@ class App :
         }
     }
 
+    @Volatile
+    private var cachedCoilCacheSize: Int? = null
+
     override fun newImageLoader(context: PlatformContext): ImageLoader {
-        // Never wait for DataStore disk I/O on the UI thread while Coil creates
-        // its singleton. The synchronous getter now reads the in-memory snapshot
-        // and safely falls back to the existing default until the first snapshot
-        // is available.
-        val cacheSize = dataStore.get(MaxImageCacheSizeKey, 512)
+        val cacheSize = cachedCoilCacheSize ?: runBlocking {
+            dataStore.data.map { it[MaxImageCacheSizeKey] ?: 512 }.first()
+        }
         return ImageLoader
             .Builder(this)
             .apply {
@@ -318,10 +389,11 @@ class App :
                 }
                 crossfade(true)
                 allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                // Memory cache for fast image loading (prevents network requests on recomposition)
                 memoryCache {
                     MemoryCache
                         .Builder()
-                        .maxSizePercent(context, 0.25)
+                        .maxSizePercent(context, 0.15)
                         .build()
                 }
                 if (cacheSize == 0) {
@@ -334,6 +406,7 @@ class App :
                             .maxSizeBytes(cacheSize * 1024 * 1024L)
                             .build(),
                     )
+                    // Allow reading from disk cache as fallback when network is unavailable
                     networkCachePolicy(CachePolicy.ENABLED)
                 }
             }.build()
@@ -352,34 +425,38 @@ class App :
     }
 
     companion object {
-        private const val SPOTIFY_MATCH_TTL_MS = 90L * 24 * 60 * 60 * 1000
+        /** Spotify match-cache rows older than this are evicted on startup. */
+        private const val SPOTIFY_MATCH_TTL_MS = 90L * 24 * 60 * 60 * 1000 // 90 days
 
         suspend fun forgetAccount(context: Context) {
             Timber.d("forgetAccount: Starting logout process")
+
+            // Clear DataStore preferences
             Timber.d("forgetAccount: Clearing DataStore preferences")
-            context.dataStore.edit { settings ->
+            val cleared = context.safeDataStoreEdit { settings ->
                 settings.remove(InnerTubeCookieKey)
                 settings.remove(VisitorDataKey)
                 settings.remove(DataSyncIdKey)
+                settings.remove(InnerTubeAuthUserKey)
                 settings.remove(AccountNameKey)
                 settings.remove(AccountEmailKey)
                 settings.remove(AccountChannelHandleKey)
             }
-            Timber.d("forgetAccount: DataStore preferences cleared")
+            if (!cleared) {
+                Timber.e("forgetAccount: Failed to clear DataStore preferences — proceeding with in-memory cleanup only")
+            } else {
+                Timber.d("forgetAccount: DataStore preferences cleared")
+            }
 
+            // Immediately clear YouTube object's auth state
             Timber.d("forgetAccount: Clearing YouTube object auth state")
-            Timber.d(
-                "forgetAccount: Before - cookie=${YouTube.cookie?.take(
-                    50,
-                )}, visitorData=${YouTube.visitorData?.take(20)}, dataSyncId=${YouTube.dataSyncId?.take(20)}",
-            )
             YouTube.cookie = null
             YouTube.visitorData = null
             YouTube.dataSyncId = null
-            Timber.d(
-                "forgetAccount: After - cookie=${YouTube.cookie}, visitorData=${YouTube.visitorData}, dataSyncId=${YouTube.dataSyncId}",
-            )
+            YouTube.authUser = "0"
+            Timber.d("forgetAccount: YouTube object auth state cleared")
 
+            // Clear WebView cookies to prevent auto-relogin
             Timber.d("forgetAccount: Clearing WebView CookieManager")
             withContext(Dispatchers.Main) {
                 android.webkit.CookieManager.getInstance().apply {
@@ -391,5 +468,23 @@ class App :
             }
             Timber.d("forgetAccount: Logout process complete")
         }
+    }
+
+    private fun isMainProcess(): Boolean {
+        val processName =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                Application.getProcessName()
+            } else {
+                runCatching {
+                    File("/proc/self/cmdline").readText().substringBefore('\u0000')
+                }.getOrNull()?.takeIf(String::isNotBlank)
+                    ?: run {
+                        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        activityManager.runningAppProcesses
+                            ?.firstOrNull { it.pid == Process.myPid() }
+                            ?.processName
+                    }
+            }
+        return processName == packageName
     }
 }
