@@ -1,0 +1,120 @@
+name: TEMP LAB14 MusicLab AI Overlay Build
+on:
+  push:
+    branches:
+      - uab-build/musiclab-meld-0.9.2-integration-14
+permissions:
+  contents: write
+concurrency:
+  group: musiclab-lab14-ai-overlay
+  cancel-in-progress: false
+jobs:
+  overlay-build:
+    if: contains(github.event.head_commit.message, 'LAB14 AI overlay build')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-meld-0.9.2-integration-14
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Collega overlay AI ai menu Meld
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          player = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt')
+          p = player.read_text()
+          if 'MusicLabIntelligenceActions(' not in p:
+              anchor = '''        item {
+            // Check if this is a podcast episode (album ID doesn't start with MPREb_)
+'''
+              if anchor not in p:
+                  raise SystemExit('PlayerMenu anchor non trovato')
+              block = '''        item {
+            MusicLabIntelligenceActions(
+                mediaMetadata = mediaMetadata,
+                onDismiss = onDismiss,
+            )
+        }
+
+        item { Spacer(modifier = Modifier.height(12.dp)) }
+
+'''
+              p = p.replace(anchor, block + anchor, 1)
+              player.write_text(p)
+
+          song = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/SongMenu.kt')
+          s = song.read_text()
+          if 'MusicLabIntelligenceActions(' not in s:
+              anchor = '''        item {
+            Material3MenuGroup(
+'''
+              pos = s.find(anchor)
+              if pos < 0:
+                  raise SystemExit('SongMenu anchor non trovato')
+              block = '''        item {
+            MusicLabIntelligenceActions(
+                mediaMetadata = song.toMediaMetadata(),
+                onDismiss = onDismiss,
+            )
+        }
+
+        item { Spacer(modifier = Modifier.height(12.dp)) }
+
+'''
+              s = s[:pos] + block + s[pos:]
+              song.write_text(s)
+          PY
+          git diff --check
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-protobuf
+      - name: Crea keystore debug temporaneo
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+      - run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+      - name: Build UAB LAB14 con overlay AI e ID separato
+        shell: bash
+        env:
+          UAB_BUILD_ID: meld092_14
+          UAB_OUTPUT_NAME: MusicLab-LAB-MELD-092-AI-14
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+        run: bash tools/universal-apk-builder/build-apk.sh .
+
+      - name: Commit overlay solo dopo build verde
+        shell: bash
+        run: |
+          git config user.name "MusicLab Upstream Integrator"
+          git config user.email "upstream@musiclab.local"
+          git add app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt \
+                  app/src/main/kotlin/com/metrolist/music/ui/menu/SongMenu.kt
+          if ! git diff --cached --quiet; then
+            git commit -m "LAB14: collega overlay AI MusicLab ai menu Meld"
+            git push origin HEAD:uab-build/musiclab-meld-0.9.2-integration-14
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB-MELD-092-AI-14
+          path: |
+            dist/uab/apk/*.apk
+            dist/uab/*.zip
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
