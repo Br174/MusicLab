@@ -113,10 +113,8 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6; do
-            if response="$(curl --fail-with-body --silent --show-error "$WORKER_URL/stato")"; then
-              test "$(jq -r '.ok' <<<"$response")" = "true"
-              test "$(jq -r '.database' <<<"$response")" = "true"
-              test "$(jq -r '.ai' <<<"$response")" = "true"
+            if response="$(curl --fail-with-body --silent --show-error "$WORKER_URL/stato")" \
+              && jq -e '.stato == "ok" and .memoria == true and .ai == true' <<<"$response" >/dev/null; then
               exit 0
             fi
             sleep 5
