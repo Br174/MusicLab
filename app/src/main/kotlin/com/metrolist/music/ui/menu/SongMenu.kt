@@ -640,6 +640,15 @@ fun SongMenu(
             )
         }
         item {
+            MusicLabIntelligenceActions(
+                mediaMetadata = song.toMediaMetadata(),
+                onDismiss = onDismiss,
+            )
+        }
+
+        item { Spacer(modifier = Modifier.height(12.dp)) }
+
+        item {
             Material3MenuGroup(
                 items =
                     listOfNotNull(

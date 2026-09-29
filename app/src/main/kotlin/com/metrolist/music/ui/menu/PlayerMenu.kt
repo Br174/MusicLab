@@ -482,6 +482,15 @@ fun PlayerMenu(
         }
 
         item {
+            MusicLabIntelligenceActions(
+                mediaMetadata = mediaMetadata,
+                onDismiss = onDismiss,
+            )
+        }
+
+        item { Spacer(modifier = Modifier.height(12.dp)) }
+
+        item {
             // Check if this is a podcast episode (album ID doesn't start with MPREb_)
             val isPodcast = mediaMetadata.album?.let { !it.id.startsWith("MPREb_") } ?: false
 
