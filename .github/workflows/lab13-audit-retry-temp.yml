@@ -1,0 +1,82 @@
+name: TEMP LAB13 Audit Retry
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-meld-upstream-guardian-13
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab13-audit-retry
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    if: contains(github.event.head_commit.message, 'LAB13 audit retry')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-meld-upstream-guardian-13
+          fetch-depth: 0
+
+      - name: Verifica sorgente LAB13 gia compilata
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'https://api.github.com/repos/Br174/MusicLab' app/src/main/kotlin/com/metrolist/music/utils/Updater.kt
+          grep -Fq 'https://api.github.com/repos/FrancescoGrazioso/Meld' app/src/main/kotlin/com/metrolist/music/utils/MeldUpstreamMonitor.kt
+          grep -Fq 'MELD_BASE_VERSION' app/build.gradle.kts
+          grep -Fq 'Nuova base Meld disponibile' app/src/main/kotlin/com/metrolist/music/MainActivity.kt
+          test -f upstream/meld-state.json
+          test -f .github/workflows/meld-upstream-audit.yml
+          test -f .github/workflows/musiclab-stable-release.yml
+
+      - name: Audit Meld 0.8.9 -> 0.9.2 con ref espliciti
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=645d84ee0fb8ea168c37490afa78de073b956453
+          TARGET=v0.9.2
+          git remote add meld https://github.com/FrancescoGrazioso/Meld.git || true
+          git fetch --no-tags meld \
+            "$BASE:refs/remotes/meld/base" \
+            "$TARGET:refs/remotes/meld/target"
+          BASE_REF=refs/remotes/meld/base
+          TARGET_REF=refs/remotes/meld/target
+          mkdir -p upstream-report
+          git log --oneline --no-merges "$BASE_REF..$TARGET_REF" > upstream-report/commits.txt || true
+          git diff --name-status "$BASE_REF..$TARGET_REF" > upstream-report/changed-files.txt
+          git diff --stat "$BASE_REF..$TARGET_REF" > upstream-report/diff-stat.txt
+          : > upstream-report/potential-conflicts.txt
+          while IFS=$'\t' read -r status path rest; do
+            [ -n "${path:-}" ] || continue
+            case "$status" in R*|C*) candidate="${rest:-$path}" ;; *) candidate="$path" ;; esac
+            if git cat-file -e "$BASE_REF:$candidate" 2>/dev/null && git cat-file -e "HEAD:$candidate" 2>/dev/null; then
+              if ! diff -q <(git show "$BASE_REF:$candidate") <(git show "HEAD:$candidate") >/dev/null 2>&1; then
+                echo "$candidate" >> upstream-report/potential-conflicts.txt
+              fi
+            elif git cat-file -e "HEAD:$candidate" 2>/dev/null; then
+              echo "$candidate" >> upstream-report/potential-conflicts.txt
+            fi
+          done < upstream-report/changed-files.txt
+          sort -u upstream-report/potential-conflicts.txt -o upstream-report/potential-conflicts.txt
+          {
+            echo "MUSICLAB UPSTREAM AUDIT"
+            echo "Upstream: FrancescoGrazioso/Meld"
+            echo "Baseline: v0.8.9 ($BASE)"
+            echo "Target: $TARGET"
+            echo "Commit upstream: $(wc -l < upstream-report/commits.txt)"
+            echo "File modificati: $(wc -l < upstream-report/changed-files.txt)"
+            echo "File con potenziale conflitto MusicLab: $(wc -l < upstream-report/potential-conflicts.txt)"
+          } | tee upstream-report/summary.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Meld-Upstream-Audit-v0.9.2-LAB13
+          path: upstream-report/
+          if-no-files-found: error
+          retention-days: 30
