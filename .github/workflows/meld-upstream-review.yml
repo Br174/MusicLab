@@ -1,4 +1,4 @@
-name: MusicLab - Review Meld Upstream
+name: MusicLab - Meld Upstream Guardian
 
 on:
   workflow_dispatch:
@@ -6,106 +6,294 @@ on:
       to_tag:
         description: "Tag Meld da analizzare (vuoto = ultimo tag)"
         required: false
+        default: ""
         type: string
+      create_lab:
+        description: "Crea una nuova LAB isolata"
+        required: true
+        default: true
+        type: boolean
+      build_when_safe:
+        description: "Build APK+ZIP se l'integrazione e' interamente SAFE"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: musiclab-meld-upstream-review
+  group: musiclab-meld-upstream-guardian
   cancel-in-progress: false
 
 jobs:
-  review:
+  guardian:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Carica configurazione upstream
+
+      - name: Configura Git
+        run: |
+          git config user.email "motorlab@musiclab.local"
+          git config user.name "MusicLab MotorLab"
+
+      - name: Carica stato Meld
         id: cfg
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
-          c=json.load(open('.github/upstream/meld.json'))
-          print('repo='+c['source_repo'])
-          print('baseline='+c['accepted_baseline_tag'])
+          c=json.load(open(".github/upstream/meld.json"))
+          print("repo="+c["source_repo"])
+          print("baseline_tag="+c["accepted_baseline_tag"])
+          print("baseline_commit="+c["accepted_baseline_commit"])
           PY
-      - name: Fetch solo Meld
+
+      - name: Recupera esclusivamente Meld
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --force "https://github.com/${{ steps.cfg.outputs.repo }}.git" \
-            '+refs/tags/*:refs/remotes/meld/tags/*'
-      - name: Analizza aggiornamento e conflitti
+          git remote remove meld >/dev/null 2>&1 || true
+          git remote add meld "https://github.com/${{ steps.cfg.outputs.repo }}.git"
+          git fetch --force meld '+refs/tags/*:refs/remotes/meld/tags/*'
+
+      - name: Risolve baseline e target
+        id: resolve
         shell: bash
         env:
           REQUESTED_TAG: ${{ inputs.to_tag }}
-          BASELINE_TAG: ${{ steps.cfg.outputs.baseline }}
+          BASELINE_TAG: ${{ steps.cfg.outputs.baseline_tag }}
+          BASELINE_COMMIT: ${{ steps.cfg.outputs.baseline_commit }}
         run: |
           set -euo pipefail
-          BASE="refs/remotes/meld/tags/$BASELINE_TAG"
-          if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
-            echo "Baseline Meld non trovata: $BASELINE_TAG" >&2
-            exit 2
+          START_HEAD="$(git rev-parse HEAD)"
+          BASE_REF="refs/remotes/meld/tags/$BASELINE_TAG"
+          git rev-parse --verify "$BASE_REF" >/dev/null
+          ACTUAL_BASE="$(git rev-parse "$BASE_REF^{}")"
+          if [ "$ACTUAL_BASE" != "$BASELINE_COMMIT" ]; then
+            echo "Baseline incoerente: config=$BASELINE_COMMIT git=$ACTUAL_BASE" >&2
+            exit 20
           fi
+
           if [ -n "${REQUESTED_TAG:-}" ]; then
             TARGET_TAG="$REQUESTED_TAG"
           else
             TARGET_TAG="$(git for-each-ref --sort=-version:refname --format='%(refname:strip=4)' refs/remotes/meld/tags | grep '^v[0-9]' | head -1)"
           fi
-          TARGET="refs/remotes/meld/tags/$TARGET_TAG"
-          git rev-parse --verify "$TARGET" >/dev/null
+          [ -n "$TARGET_TAG" ] || { echo "Nessun tag Meld trovato" >&2; exit 21; }
+
+          TARGET_REF="refs/remotes/meld/tags/$TARGET_TAG"
+          git rev-parse --verify "$TARGET_REF" >/dev/null
+          TARGET_COMMIT="$(git rev-parse "$TARGET_REF^{}")"
+
+          NO_UPDATE=false
+          if [ "$TARGET_COMMIT" = "$BASELINE_COMMIT" ]; then
+            NO_UPDATE=true
+          else
+            git merge-base --is-ancestor "$BASELINE_COMMIT" "$TARGET_COMMIT" || {
+              echo "Il target $TARGET_TAG non discende dalla baseline $BASELINE_TAG: revisione manuale obbligatoria." >&2
+              exit 22
+            }
+          fi
+
+          TAG_SLUG="$(printf '%s' "$TARGET_TAG" | sed 's/[^A-Za-z0-9._-]/-/g')"
+          TAG_ID="$(printf '%s' "$TARGET_TAG" | tr -cd '[:alnum:]')"
+          echo "start_head=$START_HEAD" >> "$GITHUB_OUTPUT"
+          echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+          echo "target_ref=$TARGET_REF" >> "$GITHUB_OUTPUT"
+          echo "target_tag=$TARGET_TAG" >> "$GITHUB_OUTPUT"
+          echo "target_commit=$TARGET_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "tag_slug=$TAG_SLUG" >> "$GITHUB_OUTPUT"
+          echo "tag_id=$TAG_ID" >> "$GITHUB_OUTPUT"
+          echo "no_update=$NO_UPDATE" >> "$GITHUB_OUTPUT"
+
+      - name: Analizza delta, hotspot e conflitti
+        if: steps.resolve.outputs.no_update != 'true'
+        id: analyze
+        shell: bash
+        env:
+          BASE_REF: ${{ steps.resolve.outputs.base_ref }}
+          TARGET_REF: ${{ steps.resolve.outputs.target_ref }}
+          START_HEAD: ${{ steps.resolve.outputs.start_head }}
+        run: |
+          set -euo pipefail
           mkdir -p upstream-review
+          git diff --binary "$BASE_REF" "$TARGET_REF" > upstream-review/meld-exact.patch || true
+          git diff --name-status -M "$BASE_REF" "$TARGET_REF" > upstream-review/upstream-files.txt
 
-          git diff --binary "$BASE" "$TARGET" > upstream-review/meld-exact.patch || true
-          git diff --name-only "$BASE" "$TARGET" | sort -u > upstream-review/upstream-files.txt
-          git diff --name-only "$BASE" HEAD | sort -u > upstream-review/musiclab-files.txt
-          comm -12 upstream-review/upstream-files.txt upstream-review/musiclab-files.txt > upstream-review/logical-hotspots.txt || true
-
-          cp /dev/null upstream-review/merge-conflicts.txt
-          git config user.email "upstream-review@musiclab.local"
-          git config user.name "MusicLab Upstream Review"
+          : > upstream-review/merge-conflicts.txt
           set +e
-          git merge --no-commit --no-ff "$TARGET" >/tmp/meld-merge.log 2>&1
+          git merge --no-commit --no-ff "$TARGET_REF" >/tmp/meld-merge.log 2>&1
           MERGE_RC=$?
           set -e
           if [ "$MERGE_RC" -ne 0 ]; then
             git diff --name-only --diff-filter=U | sort -u > upstream-review/merge-conflicts.txt || true
           fi
-          git merge --abort >/dev/null 2>&1 || git reset --hard HEAD >/dev/null 2>&1
+          git merge --abort >/dev/null 2>&1 || git reset --hard "$START_HEAD" >/dev/null 2>&1
 
+          python3 .github/scripts/meld_upstream_analyzer.py \
+            --base-ref "$BASE_REF" \
+            --target-ref "$TARGET_REF" \
+            --head-ref "$START_HEAD" \
+            --conflicts-file upstream-review/merge-conflicts.txt \
+            --out-dir upstream-review
+
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          r=json.load(open("upstream-review/classification.json"))
+          print("auto_apply_allowed="+str(r["auto_apply_allowed"]).lower())
+          for k,v in r["counts"].items():
+              print(f"{k}={v}")
+          PY
+
+      - name: Crea LAB isolata
+        if: inputs.create_lab && steps.resolve.outputs.no_update != 'true'
+        id: lab
+        shell: bash
+        env:
+          TARGET_REF: ${{ steps.resolve.outputs.target_ref }}
+          TARGET_TAG: ${{ steps.resolve.outputs.target_tag }}
+          TARGET_COMMIT: ${{ steps.resolve.outputs.target_commit }}
+          START_HEAD: ${{ steps.resolve.outputs.start_head }}
+          TAG_SLUG: ${{ steps.resolve.outputs.tag_slug }}
+          AUTO_ALLOWED: ${{ steps.analyze.outputs.auto_apply_allowed }}
+        run: |
+          set -euo pipefail
+          LAB_BRANCH="uab-build/musiclab-meld-${TAG_SLUG}-integration-${GITHUB_RUN_NUMBER}"
+          git checkout -b "$LAB_BRANCH" "$START_HEAD"
+
+          if [ "$AUTO_ALLOWED" = "true" ]; then
+            git merge --no-ff "$TARGET_REF" -m "LAB: integra Meld $TARGET_TAG (safe automatico)"
+            INTEGRATION_APPLIED=true
+            MODE=auto_safe
+          else
+            mkdir -p .github/upstream/pending
+            python3 - <<PY
+          import json
+          from pathlib import Path
+          classification=json.load(open("upstream-review/classification.json"))
+          payload={
+              "schema": 1,
+              "target_tag": "${TARGET_TAG}",
+              "target_commit": "${TARGET_COMMIT}",
+              "source_head": "${START_HEAD}",
+              "status": "review_required",
+              "classification_counts": classification["counts"],
+              "rule": "Non scegliere automaticamente tra MusicLab e Meld. Integrare/adattare in questa LAB dopo revisione MotorLab."
+          }
+          Path(".github/upstream/pending/meld-${TAG_SLUG}.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8"
+          )
+          PY
+            git add ".github/upstream/pending/meld-${TAG_SLUG}.json"
+            git commit -m "LAB: registra revisione Meld $TARGET_TAG"
+            INTEGRATION_APPLIED=false
+            MODE=review_required
+          fi
+
+          git push origin "HEAD:refs/heads/$LAB_BRANCH"
+          echo "lab_branch=$LAB_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "integration_applied=$INTEGRATION_APPLIED" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+      - name: Imposta JDK 21
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Imposta Gradle cache
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepara submodule e protobuf
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init metroproto
+          chmod +x gradlew .uab/pre-build.sh
+          .uab/pre-build.sh "$PWD"
+
+      - name: Build LAB isolata
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        shell: bash
+        env:
+          METROLIST_APPLICATION_ID: it.verlezza.musiclab.lab.meld${{ steps.resolve.outputs.tag_id }}_${{ github.run_number }}
+          METROLIST_APP_NAME: MusicLab LAB Meld ${{ steps.resolve.outputs.target_tag }}
+          PULL_REQUEST: "false"
+          GITHUB_EVENT_NAME: workflow_dispatch
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'FrancescoGrazioso/Meld' }}
+        run: ./gradlew :app:assembleFossDebug -x lint --build-cache --console=plain
+
+      - name: Prepara APK e ZIP
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        id: package
+        shell: bash
+        env:
+          TAG_SLUG: ${{ steps.resolve.outputs.tag_slug }}
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk -type f -path '*/foss/debug/*.apk' | head -1)"
+          [ -f "$APK" ] || { echo "APK FossDebug non trovato" >&2; exit 31; }
+          mkdir -p dist/uab/apk
+          BASE_NAME="MusicLab-LAB-MELD-${TAG_SLUG}-${GITHUB_RUN_NUMBER}"
+          OUT_APK="dist/uab/apk/${BASE_NAME}.apk"
+          OUT_ZIP="dist/uab/${BASE_NAME}-APK.zip"
+          cp "$APK" "$OUT_APK"
+          (cd dist/uab/apk && zip -9 "../${BASE_NAME}-APK.zip" "${BASE_NAME}.apk")
+          unzip -t "$OUT_ZIP"
+          sha256sum "$OUT_APK" "$OUT_ZIP" | tee dist/uab/SHA256SUMS.txt
+          echo "base_name=$BASE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Pubblica APK + ZIP
+        if: inputs.create_lab && inputs.build_when_safe && steps.lab.outputs.integration_applied == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.base_name }}
+          path: |
+            dist/uab/apk/*.apk
+            dist/uab/*-APK.zip
+            dist/uab/SHA256SUMS.txt
+          retention-days: 14
+
+      - name: Riepilogo
+        if: always()
+        shell: bash
+        run: |
           {
-            echo "# MusicLab upstream review"
+            echo "# MusicLab — Meld Upstream Guardian"
             echo
             echo "- Upstream: FrancescoGrazioso/Meld"
             echo "- MetroList diretto: DISATTIVATO"
-            echo "- Baseline accettata: $BASELINE_TAG"
-            echo "- Target analizzato: $TARGET_TAG"
-            echo "- Commit upstream: $(git rev-list --count "$BASE..$TARGET")"
-            echo "- File upstream modificati: $(wc -l < upstream-review/upstream-files.txt)"
-            echo "- Hotspot logici (toccati anche da MusicLab): $(wc -l < upstream-review/logical-hotspots.txt)"
-            echo "- Conflitti Git reali: $(wc -l < upstream-review/merge-conflicts.txt)"
+            echo "- Baseline: ${{ steps.cfg.outputs.baseline_tag }} (${{ steps.cfg.outputs.baseline_commit }})"
+            echo "- Target: ${{ steps.resolve.outputs.target_tag }} (${{ steps.resolve.outputs.target_commit }})"
+            echo "- Nessun aggiornamento: ${{ steps.resolve.outputs.no_update }}"
+            echo "- LAB creata: ${{ steps.lab.outputs.lab_branch }}"
+            echo "- Modalita': ${{ steps.lab.outputs.mode }}"
+            if [ -f upstream-review/CLASSIFICATION.md ]; then
+              echo
+              cat upstream-review/CLASSIFICATION.md
+            fi
             echo
-            echo "## Commit upstream"
-            git log --oneline --no-merges "$BASE..$TARGET" || true
-            echo
-            echo "## Hotspot logici"
-            cat upstream-review/logical-hotspots.txt || true
-            echo
-            echo "## Conflitti Git"
-            cat upstream-review/merge-conflicts.txt || true
-            echo
-            echo "## Regola"
-            echo "Nessuna modifica viene applicata automaticamente. La patch esatta e' allegata per cherry-pick/applicazione selettiva dopo approvazione."
-          } > upstream-review/REPORT.md
-          cat upstream-review/REPORT.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Pubblica rapporto e patch esatta
+            echo "## Regole di promozione"
+            echo "- Nessuna CANDIDATA viene creata da questo workflow."
+            echo "- Nessuna MADRE viene modificata da questo workflow."
+            echo "- CANDIDATA → MADRE richiede approvazione esplicita di Bruno."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pubblica rapporto upstream
+        if: steps.resolve.outputs.no_update != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: meld-upstream-review
+          name: meld-upstream-review-${{ steps.resolve.outputs.tag_slug }}-${{ github.run_number }}
           path: upstream-review/
           retention-days: 30
