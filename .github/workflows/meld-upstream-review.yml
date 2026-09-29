@@ -1,0 +1,111 @@
+name: MusicLab - Review Meld Upstream
+
+on:
+  workflow_dispatch:
+    inputs:
+      to_tag:
+        description: "Tag Meld da analizzare (vuoto = ultimo tag)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-meld-upstream-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Carica configurazione upstream
+        id: cfg
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          c=json.load(open('.github/upstream/meld.json'))
+          print('repo='+c['source_repo'])
+          print('baseline='+c['accepted_baseline_tag'])
+          PY
+      - name: Fetch solo Meld
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force "https://github.com/${{ steps.cfg.outputs.repo }}.git" \
+            '+refs/tags/*:refs/remotes/meld/tags/*'
+      - name: Analizza aggiornamento e conflitti
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.to_tag }}
+          BASELINE_TAG: ${{ steps.cfg.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          BASE="refs/remotes/meld/tags/$BASELINE_TAG"
+          if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
+            echo "Baseline Meld non trovata: $BASELINE_TAG" >&2
+            exit 2
+          fi
+          if [ -n "${REQUESTED_TAG:-}" ]; then
+            TARGET_TAG="$REQUESTED_TAG"
+          else
+            TARGET_TAG="$(git for-each-ref --sort=-version:refname --format='%(refname:strip=4)' refs/remotes/meld/tags | grep '^v[0-9]' | head -1)"
+          fi
+          TARGET="refs/remotes/meld/tags/$TARGET_TAG"
+          git rev-parse --verify "$TARGET" >/dev/null
+          mkdir -p upstream-review
+
+          git diff --binary "$BASE" "$TARGET" > upstream-review/meld-exact.patch || true
+          git diff --name-only "$BASE" "$TARGET" | sort -u > upstream-review/upstream-files.txt
+          git diff --name-only "$BASE" HEAD | sort -u > upstream-review/musiclab-files.txt
+          comm -12 upstream-review/upstream-files.txt upstream-review/musiclab-files.txt > upstream-review/logical-hotspots.txt || true
+
+          cp /dev/null upstream-review/merge-conflicts.txt
+          git config user.email "upstream-review@musiclab.local"
+          git config user.name "MusicLab Upstream Review"
+          set +e
+          git merge --no-commit --no-ff "$TARGET" >/tmp/meld-merge.log 2>&1
+          MERGE_RC=$?
+          set -e
+          if [ "$MERGE_RC" -ne 0 ]; then
+            git diff --name-only --diff-filter=U | sort -u > upstream-review/merge-conflicts.txt || true
+          fi
+          git merge --abort >/dev/null 2>&1 || git reset --hard HEAD >/dev/null 2>&1
+
+          {
+            echo "# MusicLab upstream review"
+            echo
+            echo "- Upstream: FrancescoGrazioso/Meld"
+            echo "- MetroList diretto: DISATTIVATO"
+            echo "- Baseline accettata: $BASELINE_TAG"
+            echo "- Target analizzato: $TARGET_TAG"
+            echo "- Commit upstream: $(git rev-list --count "$BASE..$TARGET")"
+            echo "- File upstream modificati: $(wc -l < upstream-review/upstream-files.txt)"
+            echo "- Hotspot logici (toccati anche da MusicLab): $(wc -l < upstream-review/logical-hotspots.txt)"
+            echo "- Conflitti Git reali: $(wc -l < upstream-review/merge-conflicts.txt)"
+            echo
+            echo "## Commit upstream"
+            git log --oneline --no-merges "$BASE..$TARGET" || true
+            echo
+            echo "## Hotspot logici"
+            cat upstream-review/logical-hotspots.txt || true
+            echo
+            echo "## Conflitti Git"
+            cat upstream-review/merge-conflicts.txt || true
+            echo
+            echo "## Regola"
+            echo "Nessuna modifica viene applicata automaticamente. La patch esatta e' allegata per cherry-pick/applicazione selettiva dopo approvazione."
+          } > upstream-review/REPORT.md
+          cat upstream-review/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Pubblica rapporto e patch esatta
+        uses: actions/upload-artifact@v4
+        with:
+          name: meld-upstream-review
+          path: upstream-review/
+          retention-days: 30
