@@ -39,25 +39,29 @@ jobs:
           echo "base_commit=$BASE_COMMIT" >> "$GITHUB_OUTPUT"
           echo "target_tag=$TARGET" >> "$GITHUB_OUTPUT"
 
-      - name: Recupera upstream Meld
+      - name: Recupera upstream Meld in ref locali stabili
         shell: bash
         run: |
           set -euo pipefail
           git remote add meld https://github.com/FrancescoGrazioso/Meld.git || true
-          git fetch --no-tags meld '${{ steps.refs.outputs.base_tag }}' '${{ steps.refs.outputs.target_tag }}'
-          git fetch meld '${{ steps.refs.outputs.base_commit }}'
+          git fetch --no-tags meld \
+            '${{ steps.refs.outputs.base_commit }}:refs/remotes/meld/base' \
+            '${{ steps.refs.outputs.target_tag }}:refs/remotes/meld/target'
+          git rev-parse refs/remotes/meld/base
+          git rev-parse refs/remotes/meld/target
 
       - name: Genera rapporto conflitti e modifiche
         shell: bash
         run: |
           set -euo pipefail
-          BASE='${{ steps.refs.outputs.base_commit }}'
+          BASE_REF='refs/remotes/meld/base'
+          TARGET_REF='refs/remotes/meld/target'
           TARGET='${{ steps.refs.outputs.target_tag }}'
           mkdir -p upstream-report
 
-          git log --oneline --no-merges "$BASE..meld/$TARGET" > upstream-report/commits.txt || true
-          git diff --name-status "$BASE..meld/$TARGET" > upstream-report/changed-files.txt
-          git diff --stat "$BASE..meld/$TARGET" > upstream-report/diff-stat.txt
+          git log --oneline --no-merges "$BASE_REF..$TARGET_REF" > upstream-report/commits.txt || true
+          git diff --name-status "$BASE_REF..$TARGET_REF" > upstream-report/changed-files.txt
+          git diff --stat "$BASE_REF..$TARGET_REF" > upstream-report/diff-stat.txt
 
           : > upstream-report/potential-conflicts.txt
           while IFS=$'\t' read -r status path rest; do
@@ -66,8 +70,8 @@ jobs:
               R*|C*) candidate="${rest:-$path}" ;;
               *) candidate="$path" ;;
             esac
-            if git cat-file -e "$BASE:$candidate" 2>/dev/null && git cat-file -e "HEAD:$candidate" 2>/dev/null; then
-              if ! diff -q <(git show "$BASE:$candidate") <(git show "HEAD:$candidate") >/dev/null 2>&1; then
+            if git cat-file -e "$BASE_REF:$candidate" 2>/dev/null && git cat-file -e "HEAD:$candidate" 2>/dev/null; then
+              if ! diff -q <(git show "$BASE_REF:$candidate") <(git show "HEAD:$candidate") >/dev/null 2>&1; then
                 printf '%s\n' "$candidate" >> upstream-report/potential-conflicts.txt
               fi
             elif git cat-file -e "HEAD:$candidate" 2>/dev/null; then
@@ -79,7 +83,7 @@ jobs:
           {
             echo "MUSICLAB UPSTREAM AUDIT"
             echo "Upstream: FrancescoGrazioso/Meld"
-            echo "Baseline integrata: $BASE"
+            echo "Baseline integrata: ${{ steps.refs.outputs.base_tag }} (${{ steps.refs.outputs.base_commit }})"
             echo "Target: $TARGET"
             echo "Commit upstream: $(wc -l < upstream-report/commits.txt)"
             echo "File modificati: $(wc -l < upstream-report/changed-files.txt)"
