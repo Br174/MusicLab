@@ -1,0 +1,54 @@
+name: TEMP LAB13 Meld Guardian Test
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-upstream-meld-guardian-13
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temp-lab13-meld-guardian-test
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: contains(github.event.head_commit.message, 'esegue test reale guardian Meld')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout MADRE
+        uses: actions/checkout@v4
+        with:
+          ref: mother/musiclab-swipe-fluid-play-01
+          fetch-depth: 0
+      - name: Recupera guardian dalla LAB13
+        shell: bash
+        run: |
+          git fetch origin uab-build/musiclab-upstream-meld-guardian-13
+          git checkout origin/uab-build/musiclab-upstream-meld-guardian-13 -- \
+            .upstream/meld.json \
+            tools/upstream-meld/review_update.py
+      - name: Analizza Meld latest
+        shell: bash
+        run: |
+          chmod +x tools/upstream-meld/review_update.py
+          python3 tools/upstream-meld/review_update.py --out-dir dist/upstream-meld-review | tee dist/upstream-meld-review.log
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f dist/upstream-meld-review/REPORT.md ]; then
+            cat dist/upstream-meld-review/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LAB13-Meld-Guardian-Test
+          path: |
+            dist/upstream-meld-review/**
+            dist/upstream-meld-review.log
+          if-no-files-found: warn
+          retention-days: 7
