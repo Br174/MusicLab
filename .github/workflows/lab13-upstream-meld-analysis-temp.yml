@@ -1,0 +1,74 @@
+name: TEMP LAB13 Meld Upstream Analysis
+on:
+  push:
+    branches:
+      - uab-build/musiclab-upstream-meld-092-13
+permissions:
+  contents: read
+concurrency:
+  group: musiclab-lab13-upstream-analysis
+  cancel-in-progress: false
+jobs:
+  analyze:
+    if: contains(github.event.head_commit.message, 'LAB13: analisi non distruttiva Meld 0.9.2')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-upstream-meld-092-13
+          fetch-depth: 0
+      - name: Analizza storia comune e conflitti reali
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "MotorLab Upstream Analyzer"
+          git config user.email "actions@users.noreply.github.com"
+          git remote add meld https://github.com/FrancescoGrazioso/Meld.git
+          git fetch --no-tags meld tag v0.9.2
+          UPSTREAM="refs/tags/v0.9.2"
+          BASE="$(git merge-base HEAD "$UPSTREAM")"
+          echo "MOTORLAB_COMMON_BASE=$BASE"
+          echo "MOTORLAB_MUSICLAB_HEAD=$(git rev-parse HEAD)"
+          echo "MOTORLAB_MELD_TAG=$(git rev-parse "$UPSTREAM")"
+
+          git diff --name-only "$BASE"..HEAD | sort -u > /tmp/musiclab-changed.txt
+          git diff --name-only "$BASE".."$UPSTREAM" | sort -u > /tmp/meld-changed.txt
+          comm -12 /tmp/musiclab-changed.txt /tmp/meld-changed.txt > /tmp/both-changed.txt || true
+
+          merge_rc=0
+          git merge --no-commit --no-ff "$UPSTREAM" || merge_rc=$?
+          git diff --name-only --diff-filter=U | sort -u > /tmp/conflicts.txt || true
+
+          echo "MUSICLAB_CHANGED=$(wc -l < /tmp/musiclab-changed.txt | tr -d ' ')"
+          echo "MELD_CHANGED=$(wc -l < /tmp/meld-changed.txt | tr -d ' ')"
+          echo "BOTH_CHANGED=$(wc -l < /tmp/both-changed.txt | tr -d ' ')"
+          echo "REAL_CONFLICTS=$(wc -l < /tmp/conflicts.txt | tr -d ' ')"
+          echo "MERGE_RC=$merge_rc"
+
+          {
+            echo "# MotorLab — Meld v0.9.2 vs MusicLab LAB12"
+            echo
+            echo "- Common base: \`$BASE\`"
+            echo "- MusicLab HEAD: \`$(git rev-parse HEAD)\`"
+            echo "- Meld v0.9.2: \`$(git rev-parse "$UPSTREAM")\`"
+            echo "- File modificati da MusicLab dalla base: $(wc -l < /tmp/musiclab-changed.txt | tr -d ' ')"
+            echo "- File modificati da Meld dalla base: $(wc -l < /tmp/meld-changed.txt | tr -d ' ')"
+            echo "- File toccati da entrambi: $(wc -l < /tmp/both-changed.txt | tr -d ' ')"
+            echo "- Conflitti Git reali: $(wc -l < /tmp/conflicts.txt | tr -d ' ')"
+            echo
+            echo "## Conflitti Git reali"
+            if [ -s /tmp/conflicts.txt ]; then sed 's/^/- `/' /tmp/conflicts.txt | sed 's/$/`/'; else echo "Nessuno"; fi
+            echo
+            echo "## File modificati da entrambi (conflitto logico potenziale)"
+            if [ -s /tmp/both-changed.txt ]; then sed 's/^/- `/' /tmp/both-changed.txt | sed 's/$/`/'; else echo "Nessuno"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+            git merge --abort
+          else
+            git reset --hard HEAD
+          fi
+
+          # L'analisi non fallisce solo perché esistono conflitti: deve produrre il rapporto.
+          exit 0
