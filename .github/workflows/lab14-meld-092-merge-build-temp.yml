@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   merge-build:
-    if: contains(github.event.head_commit.message, 'LAB14 AI overlay retry 7')
+    if: contains(github.event.head_commit.message, 'LAB14 AI overlay retry 8')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -20,56 +20,9 @@ jobs:
           fetch-depth: 0
           submodules: recursive
       - name: Collega overlay AI ai menu Meld
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          player = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/PlayerMenu.kt')
-          p = player.read_text()
-          if 'MusicLabIntelligenceActions(' not in p:
-              anchor = '''        item {
-            // Check if this is a podcast episode (album ID doesn't start with MPREb_)
-'''
-              if anchor not in p:
-                  raise SystemExit('PlayerMenu anchor non trovato')
-              block = '''        item {
-            MusicLabIntelligenceActions(
-                mediaMetadata = mediaMetadata,
-                onDismiss = onDismiss,
-            )
-        }
-
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
-'''
-              p = p.replace(anchor, block + anchor, 1)
-              player.write_text(p)
-
-          song = Path('app/src/main/kotlin/com/metrolist/music/ui/menu/SongMenu.kt')
-          s = song.read_text()
-          if 'MusicLabIntelligenceActions(' not in s:
-              anchor = '''        item {
-            Material3MenuGroup(
-'''
-              pos = s.find(anchor)
-              if pos < 0:
-                  raise SystemExit('SongMenu anchor non trovato')
-              block = '''        item {
-            MusicLabIntelligenceActions(
-                mediaMetadata = song.toMediaMetadata(),
-                onDismiss = onDismiss,
-            )
-        }
-
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
-'''
-              s = s[:pos] + block + s[pos:]
-              song.write_text(s)
-          PY
-          git diff --check
+        run: python3 tools/lab14_ai_overlay_patch.py
+      - name: Verifica patch
+        run: git diff --check
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -85,7 +38,6 @@ jobs:
           fi
       - run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
       - name: Build UAB LAB14 con overlay AI e ID separato
-        shell: bash
         env:
           UAB_BUILD_ID: meld092_14
           UAB_OUTPUT_NAME: MusicLab-LAB-MELD-092-AI-14
