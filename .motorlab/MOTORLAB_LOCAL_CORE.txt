@@ -1,5 +1,5 @@
 MOTORLAB_SATELLITE_BUNDLE
-RELEASE=2026.09.30-r11
+RELEASE=2026.09.30-r12
 CENTRAL_AUTHORITY=Br174/Chatgpt
 PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
 PRE_RESPONSE_BOOT_GATE=required
@@ -24,6 +24,10 @@ PROGRESS_REPORTING=required
 VISUAL_STATUS=required
 SINGLE_WRITER=required
 CHECKPOINT_RECOVERY=required
+FAST_ITERATION_NO_SPIN=required
+RISK_SCALED_LAB_ITERATION=required
+NO_SPIN_HANDOFF=required
+FOREGROUND_JOB_PROBES_MAX=2
 
 LOCAL FALLBACK CONTRACT
 - MotorLab activates before substantive project work when project/software-build context is visible.
@@ -43,6 +47,7 @@ LOCAL FALLBACK CONTRACT
 - Foreground Stall Guard applies before substantial/risky phases.
 - Only one writer may mutate the same project/ref/resource scope.
 - Project-native/domain engines are preserved and never replaced by MotorLab activation.
+- Load MOTORLAB_FAST_ITERATION_NO_SPIN_V1.txt when central access exists; this local bundle preserves its mandatory r12 invariants when central access is unavailable.
 
 CANONICAL LABELED VISUAL STATUS
 Every MotorLab status emoji shown to Bruno must include the canonical short label beside it:
@@ -110,10 +115,38 @@ PROJECT CONTINUITY / LIVE EVENT CLASSIFICATION - R11+
 
 CONTROL-PLANE CI SUPPRESSION - R11+
 For commits that modify only MotorLab control-plane metadata such as `.motorlab/**` or `MOTORLAB_PROJECT_HOOK.txt`:
-- use a provider-supported CI skip marker/mechanism when safe and available (for GitHub push workflows, e.g. a supported skip-CI commit marker);
+- use a provider-supported CI skip marker/mechanism when safe and available;
 - prefer repository path filters that exclude MotorLab-only metadata from application build/release workflows;
 - do not suppress CI when the same commit also changes application source/configuration that legitimately requires validation;
 - verify that prevention does not hide required tests for real app changes.
+
+FAST ITERATION + NO-SPIN - R12+
+Ownership remains unchanged: Velocity Layer owns acceleration/risk scaling; Foreground Stall Guard owns handoff preparation; Background Execution owns persistent jobs; Watchdog owns health; Resume Recovery owns continuation.
+
+NO-SPIN HANDOFF
+- Once a persistent executor has accepted a job and MotorLab has recorded operation/ref/job id/progress/checkpoint/next-safe-step, an ordinary foreground chat must not poll indefinitely waiting for completion.
+- Default maximum is two consecutive unchanged foreground provider/job status probes after durable identity is established.
+- If the job is healthy/queued/running/waiting externally, transition the foreground cycle to HANDOFF_COMPLETE; do not cancel the external job.
+- On the next available cycle, inspect the same recorded job id before any duplicate start or write.
+- UI “processing” or a spinner is not a heartbeat and must not be treated as evidence of live MotorLab execution.
+- If no persistent executor exists, do not promise background continuation; use bounded foreground segments and checkpoints.
+
+RISK-SCALED FAST ITERATION
+- For isolated LAB correction loops before Bruno device/user acceptance, use LOW/MEDIUM/HIGH risk classification from actual change scope.
+- LOW: scope/diff + appropriate build/static validity + smallest relevant smoke + testable artifact. Full project regression is not automatic.
+- MEDIUM: LOW checks + targeted affected tests when they exist + adjacent smoke + testable artifact. Unrelated full suites are not automatic.
+- HIGH: full applicable regression from the start.
+- CANDIDATA/MADRE always retain full adapter-defined regression, exact identity/replay, artifact and approval gates regardless of earlier LAB risk class.
+- Avoid separate expensive compile/test/build phases when they substantially duplicate one another without distinct verification value.
+- Reuse valid dependency/build caches and incremental outputs when source/toolchain identity allows it.
+
+MUSICLAB R12 DEFAULT PROFILE
+- isolated copy/style/static UI: LOW;
+- bounded navigation/state/UI feature behavior, Cover/Originali screen logic, contained AI/API orchestration: MEDIUM unless blast-radius evidence raises it;
+- core playback service/queue/audio engine, package/signing/update identity, database migration, Meld upstream integration, lifecycle/build infrastructure, concurrency/background integrity: HIGH.
+- `:app:testFossDebugUnitTest :innertube:testDebugUnitTest` is promotion/high-risk grade by default and is not mandatory on every LOW/MEDIUM correction iteration unless affected-test mapping requires it.
+- UAB preflight/build remains the canonical path for requested isolated installable MusicLab LAB APK/ZIP artifacts.
+- A Bruno-reported device defect preserves the prior LAB and starts the next isolated LAB; do not rerun unrelated verified work.
 
 CENTRAL SYNC
 Compare local release with MOTORLAB_RELEASE_MANIFEST_V1.txt at safe boundaries only. Never switch release mid active write/build/test/promotion. Preserve current verified local bundle as LAST_GOOD before adoption.
@@ -122,12 +155,13 @@ FALLBACK
 If central state is unavailable, use VERIFIED local bundle/LAST_GOOD and live project evidence conservatively.
 
 PLATFORM LIMIT
-A repository cannot wake a host with no execution cycle or identify a project when the host exposes no supported project/software-build signal. Progress updates require a user-visible execution/control point.
+A repository cannot wake a host with no execution cycle or identify a project when the host exposes no supported project/software-build signal. Progress updates require a user-visible execution/control point. r12 prevents depending on such a wake after a real durable handoff.
 
 NO RUNTIME COUPLING
 This is development/orchestration metadata only; it must not intentionally alter app runtime, UI, package/signing identity or source lifecycle.
 
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.1
+MOTORLAB-SATELLITE-BUNDLE-V2.2
 Revision 2.0: r11 adds ROOT_CAUSE_CLOSURE, LIVE_EVENT_CLASSIFICATION and HARD_PROGRESS_VISIBILITY.
 Revision 2.1: r11 adds CONTROL_PLANE_CI_SUPPRESSION to prevent metadata-only MotorLab sync from launching unrelated app pipelines.
+Revision 2.2: r12 adds Fast Iteration, bounded foreground polling and No-Spin persistent handoff while preserving full HIGH-risk/CANDIDATA/MADRE safety.

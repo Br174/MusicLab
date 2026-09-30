@@ -8,6 +8,7 @@ MOTORLAB_RELEASE_MANIFEST=MOTORLAB_RELEASE_MANIFEST_V1.txt
 MOTORLAB_PROJECT_CONTINUITY_MODULE=MOTORLAB_PROJECT_CONTINUITY_V1.txt
 MOTORLAB_PROJECT_STATE=MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt
 MOTORLAB_SATELLITE_SYNC_MODULE=MOTORLAB_SATELLITE_SYNC_V1.txt
+MOTORLAB_FAST_ITERATION_NO_SPIN_MODULE=MOTORLAB_FAST_ITERATION_NO_SPIN_V1.txt
 MOTORLAB_LOCAL_CORE=.motorlab/MOTORLAB_LOCAL_CORE.txt
 MOTORLAB_LOCAL_LAST_GOOD=.motorlab/MOTORLAB_LOCAL_CORE_LAST_GOOD.txt
 MOTORLAB_LOCAL_SYNC_STATE=.motorlab/MOTORLAB_SYNC_STATE.txt
@@ -22,9 +23,16 @@ MOTORLAB_PROJECT_CONTINUITY=required
 MOTORLAB_PROJECT_CHAT_POLICY=promptless-cross-chat-continuity
 MOTORLAB_NATIVE_ENGINE_POLICY=coexist-preserve
 MOTORLAB_VISIBLE_ACTIVATION_PROOF=required
+MOTORLAB_ITERATION_MODE=risk-scaled
+MOTORLAB_NO_SPIN_HANDOFF=required
+MOTORLAB_FOREGROUND_JOB_PROBES_MAX=2
+MOTORLAB_FULL_REGRESSION_AT=high-risk,candidate,madre
+MOTORLAB_FAST_LAB=conditional
+MOTORLAB_BACKGROUND_MODE=github-actions
+MOTORLAB_REGRESSION_MAP=MusicLab-r12-default-profile
 
 PURPOSE
-Persistent MusicLab-side structural hook for MotorLab. Every recognizable MusicLab chat activates MotorLab first, loads the verified local satellite, loads/reconciles the central MusicLab project-state ledger against live GitHub state, preserves the MusicLab native/domain engine, and continues the latest logical operation without requiring a transfer prompt.
+Persistent MusicLab-side structural hook for MotorLab. Every recognizable MusicLab chat activates MotorLab first, loads the verified local satellite, loads/reconciles the central MusicLab project-state ledger against live GitHub state, preserves the MusicLab native/domain engine, and continues the latest logical operation without requiring a transfer prompt. r12 additionally enforces risk-scaled iterative LAB verification and No-Spin durable handoff.
 
 MANDATORY RULES
 1. MotorLab activates before substantive MusicLab response/tool/write/build work.
@@ -39,8 +47,15 @@ MANDATORY RULES
 10. MotorLab coexists with MusicLab playback/search/AI/runtime engines and never replaces them merely because MotorLab is active.
 11. Satellite/continuity metadata must not alter MusicLab application logic, UI, package identity, signing, audio/search/AI behavior or lifecycle state.
 12. Apply Change Compatibility Guard before writes and preserve single-writer/lifecycle safety.
+13. Load/apply MOTORLAB_FAST_ITERATION_NO_SPIN_V1.txt; it coordinates existing owners and must not create a second Watchdog/executor/recovery path.
+14. For eligible isolated LAB correction loops, classify LOW/MEDIUM/HIGH risk and use the MusicLab r12 profile. LOW/MEDIUM do not automatically run promotion-grade full regression; HIGH does.
+15. `:app:testFossDebugUnitTest :innertube:testDebugUnitTest` is full/high-risk grade by default. Run it for LOW/MEDIUM only when affected-test evidence requires it; CANDIDATA/MADRE gates remain unchanged.
+16. When GitHub Actions or another approved persistent executor has accepted the job and run id/checkpoint/next-safe-step are recorded, do not keep the ordinary chat in indefinite polling. At most two consecutive unchanged foreground probes by default, then HANDOFF_COMPLETE while the external job continues.
+17. On any later cycle, inspect the recorded run/job id before starting another writer; never duplicate a healthy background build merely because the prior chat looked idle.
+18. UAB remains the canonical path for isolated MusicLab installable APK/ZIP output; avoid redundant compile/test/build phases that add no distinct verification value.
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.5
+MOTORLAB-PROJECT-HOOK-V1.6
 Established: 2026-09-29
 Revision 1.5: r8 pre-response MotorLab gate plus canonical promptless cross-chat MusicLab Project Continuity ledger.
+Revision 1.6: r12 adds MusicLab risk-scaled FAST LAB profile and mandatory No-Spin durable handoff.
