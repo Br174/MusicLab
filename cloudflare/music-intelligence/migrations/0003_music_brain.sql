@@ -26,8 +26,7 @@ CREATE TABLE IF NOT EXISTS work_aliases (
   confidence INTEGER NOT NULL DEFAULT 50 CHECK(confidence BETWEEN 0 AND 100),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY(work_id) REFERENCES works(id) ON DELETE CASCADE,
-  UNIQUE(work_id, alias, COALESCE(language,''), alias_kind)
+  FOREIGN KEY(work_id) REFERENCES works(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS related_works (
@@ -110,6 +109,7 @@ CREATE TABLE IF NOT EXISTS coverage_cells (
 CREATE INDEX IF NOT EXISTS idx_works_iswc ON works(iswc);
 CREATE INDEX IF NOT EXISTS idx_works_mb_work ON works(musicbrainz_work_id);
 CREATE INDEX IF NOT EXISTS idx_versions_status_scores ON versions(decision_status, same_work_score, version_type_score);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_aliases_unique ON work_aliases(work_id, alias, COALESCE(language,''), alias_kind);
 CREATE INDEX IF NOT EXISTS idx_aliases_work_language ON work_aliases(work_id, language);
 CREATE INDEX IF NOT EXISTS idx_related_works_work ON related_works(work_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_version ON version_evidence(version_id);
