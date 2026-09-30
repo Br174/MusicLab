@@ -180,8 +180,8 @@ replace_once(
 )
 replace_once(
     original_screen,
-    '''        PlayerBottomSheetBridge.expandSoft()\n    }\n\n    val nonStudioIds =\n''',
-    '''        PlayerBottomSheetBridge.collapseToMiniPlayerNow()\n    }\n\n    val nonStudioIds =\n''',
+    '''        PlayerBottomSheetBridge.expandSoft()\n    }\n\n    val nonStudioIds = (searchResult.liveVersions + searchResult.remixVersions).map { it.song.id }.toSet()\n''',
+    '''        PlayerBottomSheetBridge.collapseToMiniPlayerNow()\n    }\n\n    val nonStudioIds = (searchResult.liveVersions + searchResult.remixVersions).map { it.song.id }.toSet()\n''',
     "Originali preview stays mini",
 )
 
