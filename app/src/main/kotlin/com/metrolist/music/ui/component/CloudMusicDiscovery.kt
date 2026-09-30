@@ -129,7 +129,7 @@ internal object CloudMusicDiscovery {
             Request.Builder()
                 .url("$endpoint/api/v1/discover/$route")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("x-musiclab-client", "android-lab11")
+                .addHeader("x-musiclab-client", "android-lab20")
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
         return runCatching {
@@ -188,6 +188,11 @@ internal object CloudMusicDiscovery {
                 lyricists = credits?.strings("lyricists").orEmpty(),
                 producers = credits?.strings("producers").orEmpty(),
                 label = credits?.nullableString("label"),
+                sameWorkScore = obj.scoreOrNull("sameWorkScore"),
+                versionTypeScore = obj.scoreOrNull("versionTypeScore"),
+                brainStatus = AiBrainDecisionStatus.fromWire(obj.nullableString("brainStatus")),
+                brainAdmission = obj.nullableString("brainAdmission"),
+                brainSignals = obj.brainSignals("brainSignals"),
             )
         }.orEmpty()
 
@@ -217,6 +222,31 @@ internal object CloudMusicDiscovery {
         val values = element.runCatching { jsonArray }.getOrNull() ?: return emptyList()
         return values.mapNotNull {
             it.runCatching { jsonPrimitive }.getOrNull()?.contentOrNull?.trim()?.takeIf(String::isNotBlank)
+        }.distinct()
+    }
+
+    private fun JsonObject.scoreOrNull(key: String): Int? {
+        val primitive = get(key)?.runCatching { jsonPrimitive }?.getOrNull() ?: return null
+        val value = primitive.intOrNull ?: primitive.contentOrNull?.toIntOrNull()
+        return value?.takeIf { it in 0..100 }
+    }
+
+    private fun JsonObject.brainSignals(key: String): List<AiBrainSignal> {
+        val element = get(key) ?: return emptyList()
+        val values = element.runCatching { jsonArray }.getOrNull() ?: return emptyList()
+        return values.mapNotNull { signalElement ->
+            val signal = signalElement.runCatching { jsonObject }.getOrNull() ?: return@mapNotNull null
+            val kind = signal.string("kind")
+            val strength = signal.string("strength")
+            if (kind.isBlank() || strength.isBlank()) {
+                null
+            } else {
+                AiBrainSignal(
+                    kind = kind,
+                    strength = strength,
+                    direction = signal.nullableString("direction"),
+                )
+            }
         }.distinct()
     }
 
