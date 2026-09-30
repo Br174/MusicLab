@@ -82,7 +82,7 @@ internal object GeminiAiCoverDiscovery {
     private val initialCache = ConcurrentHashMap<String, CachedDiscovery>()
     private val expandedCache = ConcurrentHashMap<String, CachedDiscovery>()
 
-    /** Prima corsia: pochi dati, massimo cinque cover studio, per mostrare risultati subito. */
+    /** Prima corsia: fino a dieci cover studio, poi il resto continua in background. */
     suspend fun discoverInitial(
         originalTitle: String,
         originalArtist: String,
@@ -91,7 +91,7 @@ internal object GeminiAiCoverDiscovery {
         if (originalTitle.isBlank() || (config.apiKey.isBlank() && config.cloudEndpoint.isBlank())) {
             return@withContext AiCoverDiscoveryResult(null, emptyList())
         }
-        val cacheKey = "initial11|${config.model}|${canonical(originalTitle)}|${canonical(originalArtist)}"
+        val cacheKey = "initial16|${config.model}|${canonical(originalTitle)}|${canonical(originalArtist)}"
         initialCache[cacheKey]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let {
             return@withContext it.value
         }
@@ -129,7 +129,7 @@ Rispondi SOLO JSON:
  "versions":[{"title":"","artist":"","category":"cover","language":null,"year":null,"album":null,"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}]
 }"""
 
-        val text = executeWithFallbackModels(config, prompt, 2100, false)
+        val text = executeWithFallbackModels(config, prompt, 2600, false)
             ?: return@withContext AiCoverDiscoveryResult(null, emptyList())
         val result = sanitize(parse(text, originalArtist), originalArtist, AiCoverCategory.COVER, INITIAL_LIMIT)
         initialCache[cacheKey] = CachedDiscovery(result, System.currentTimeMillis() + CACHE_TTL_MS)
@@ -143,7 +143,7 @@ Rispondi SOLO JSON:
         existing: List<AiCoverCandidate>,
         config: GeminiCoverVerificationConfig,
     ): AiCoverDiscoveryResult {
-        val cacheKey = "expanded11|${config.model}|${canonical(originalTitle)}|${canonical(originalArtist)}"
+        val cacheKey = "expanded16|${config.model}|${canonical(originalTitle)}|${canonical(originalArtist)}"
         expandedCache[cacheKey]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let { return it.value }
         val additions = mutableListOf<AiCoverCandidate>()
         discoverExpandedBatches(originalTitle, originalArtist, existing, config) { batch ->
@@ -155,8 +155,9 @@ Rispondi SOLO JSON:
     }
 
     /**
-     * Ricerca vera della LAB11: emette ogni gruppo appena pronto. La UI può risolvere
-     * il playback del batch mentre gli altri filoni AI continuano in background.
+     * Emissione progressiva: la UI può mostrare dieci elementi alla volta mentre la
+     * ricerca continua. Le cover hanno un obiettivo di almeno 50 candidati reali,
+     * quando le fonti AI riescono effettivamente a documentarli; non si inventa nulla.
      */
     suspend fun discoverExpandedBatches(
         originalTitle: String,
@@ -194,6 +195,40 @@ Rispondi SOLO JSON:
             }
             emptyPasses = if (addedInGroup == 0) emptyPasses + 1 else 0
         }
+
+        // Se le normali passate non hanno ancora documentato circa 50 cover studio,
+        // esegui recuperi mirati. Ogni passata riceve l'elenco già noto, quindi chiede
+        // soltanto elementi nuovi e si ferma se non trova più materiale reale.
+        var recoveryEmptyPasses = 0
+        for (focus in COVER_TARGET_RECOVERY_ROUNDS) {
+            val currentCoverCount = collected.values.count { it.category == AiCoverCategory.COVER }
+            if (
+                currentCoverCount >= MIN_COVER_TARGET ||
+                collected.size >= MAX_TOTAL_CANDIDATES ||
+                recoveryEmptyPasses >= MAX_COVER_RECOVERY_EMPTY_PASSES
+            ) {
+                break
+            }
+
+            val batch = discoverResearchRound(
+                originalTitle = originalTitle,
+                originalArtist = originalArtist,
+                existing = collected.values.toList(),
+                focus = focus,
+                config = config,
+            )
+            val fresh = batch
+                .filter { !collected.containsKey(it.stableKey) }
+                .take((MAX_TOTAL_CANDIDATES - collected.size).coerceAtLeast(0))
+
+            fresh.forEach { collected[it.stableKey] = it }
+            if (fresh.isNotEmpty()) {
+                recoveryEmptyPasses = 0
+                onBatch(fresh.sortedWith(candidateOrder))
+            } else {
+                recoveryEmptyPasses++
+            }
+        }
     }
 
     private fun discoverResearchRound(
@@ -222,7 +257,7 @@ Rispondi SOLO JSON:
         }
         if (config.apiKey.isBlank()) return emptyList()
 
-        val excluded = existing.take(150).joinToString("\n") {
+        val excluded = existing.take(220).joinToString("\n") {
             "- ${it.artist} — ${it.title} [${it.category.name.lowercase()}${it.language?.let { l -> ", $l" }.orEmpty()}]"
         }
 
@@ -244,6 +279,7 @@ Regole di classificazione ESCLUSIVE:
 Se si sovrappongono caratteristiche usa la precedenza: remix > live > straniera > cover.
 Escludi l'interprete originale, karaoke, reaction, tutorial, backing track, mashup, medley e tribute anonimi.
 Non inventare versioni per raggiungere un numero. Cerca anche versioni poco note e storiche. Restituisci fino a ${focus.limit} elementi nuovi.
+Per OGNI elemento indica l'anno di pubblicazione quando è documentabile; non inventare l'anno se non è verificabile.
 Prima scopri titolo/artista/categoria/lingua/anno; album e crediti vanno aggiunti se li conosci senza rallentare inutilmente.
 
 Già note, da NON ripetere:
@@ -253,7 +289,7 @@ Rispondi SOLO JSON:
 {"original":null,"versions":[{"title":"","artist":"","category":"cover|live|remix|straniera","language":null,"year":null,"album":null,"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}]}
 """
 
-        val text = executeWithFallbackModels(config, prompt, 3500, focus.deepResearch) ?: return emptyList()
+        val text = executeWithFallbackModels(config, prompt, 4300, focus.deepResearch) ?: return emptyList()
         return sanitize(parse(text, originalArtist), originalArtist, focus.category, focus.limit).versions
     }
 
@@ -423,10 +459,10 @@ Rispondi SOLO JSON:
         .thenBy { it.year ?: Int.MAX_VALUE }.thenBy { it.artist.lowercase() }
 
     private val RESEARCH_ROUNDS = listOf(
-        ResearchFocus(AiCoverCategory.COVER, "Cover da studio dalle prime reinterpretazioni fino al 1969. Cerca anche incisioni rare e regionali."),
-        ResearchFocus(AiCoverCategory.COVER, "Cover da studio degli anni 1970 e 1980, incluse pubblicazioni meno note."),
-        ResearchFocus(AiCoverCategory.COVER, "Cover da studio degli anni 1990 e 2000."),
-        ResearchFocus(AiCoverCategory.COVER, "Cover da studio dal 2010 a oggi e recupero di quelle rimaste fuori."),
+        ResearchFocus(AiCoverCategory.COVER, "Cover da studio dalle prime reinterpretazioni fino al 1969. Cerca anche incisioni rare e regionali.", 18),
+        ResearchFocus(AiCoverCategory.COVER, "Cover da studio degli anni 1970 e 1980, incluse pubblicazioni meno note.", 18),
+        ResearchFocus(AiCoverCategory.COVER, "Cover da studio degli anni 1990 e 2000.", 18),
+        ResearchFocus(AiCoverCategory.COVER, "Cover da studio dal 2010 a oggi e recupero di quelle rimaste fuori.", 18),
         ResearchFocus(AiCoverCategory.FOREIGN, "Adattamenti e cover in inglese, francese e spagnolo. Cerca anche titoli tradotti o completamente diversi.", deepResearch = true),
         ResearchFocus(AiCoverCategory.FOREIGN, "Adattamenti e cover in portoghese, tedesco, olandese, lingue nordiche e greco.", deepResearch = true),
         ResearchFocus(AiCoverCategory.FOREIGN, "Europa orientale e Balcani: polacco, ceco, slovacco, ungherese, rumeno, bulgaro, croato, serbo, sloveno, bosniaco, albanese e altre lingue documentate.", deepResearch = true),
@@ -435,17 +471,26 @@ Rispondi SOLO JSON:
         ResearchFocus(AiCoverCategory.LIVE, "Performance live storiche: concerti, festival, TV, radio e sessioni fino alla fine degli anni 1980."),
         ResearchFocus(AiCoverCategory.LIVE, "Performance live dal 1990 a oggi, comprese sessioni e video-performance identificabili."),
         ResearchFocus(AiCoverCategory.REMIX, "Remix e rework reali di qualsiasi epoca: club, extended, radio, dance e altre versioni attribuite."),
-        ResearchFocus(AiCoverCategory.COVER, "Passata di recupero: quali cover studio reali della composizione non sono ancora nella lista? Cerca per decennio, artista e pubblicazione.", 18, true),
+        ResearchFocus(AiCoverCategory.COVER, "Passata di recupero: quali cover studio reali della composizione non sono ancora nella lista? Cerca per decennio, artista e pubblicazione.", 22, true),
         ResearchFocus(AiCoverCategory.FOREIGN, "Passata finale: quali adattamenti linguistici reali mancano ancora? Non inventare per riempire la lista.", 18, true),
         ResearchFocus(AiCoverCategory.LIVE, "Passata finale: quali live di altri artisti mancano ancora?", 16, true),
         ResearchFocus(AiCoverCategory.REMIX, "Passata finale: quali remix/rework mancano ancora?", 16, true),
     )
 
+    private val COVER_TARGET_RECOVERY_ROUNDS = listOf(
+        ResearchFocus(AiCoverCategory.COVER, "Recupero cover studio: cerca incisioni reali non ancora elencate, soprattutto tra 1950 e 1979. Includi versioni regionali e singoli documentati.", 22, true),
+        ResearchFocus(AiCoverCategory.COVER, "Recupero cover studio: cerca incisioni reali non ancora elencate tra 1980 e 1999, incluse versioni meno note ma attribuibili.", 22, true),
+        ResearchFocus(AiCoverCategory.COVER, "Recupero cover studio: cerca incisioni reali non ancora elencate dal 2000 a oggi, incluse pubblicazioni digitali ufficiali.", 22, true),
+        ResearchFocus(AiCoverCategory.COVER, "Ultimo recupero cover studio: trova qualsiasi reinterpretazione reale della stessa composizione ancora assente. Non inventare elementi per raggiungere il target.", 24, true),
+    )
+
     private val DISALLOWED = Regex("\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b")
-    private const val INITIAL_LIMIT = 5
-    private const val MAX_TOTAL_CANDIDATES = 150
+    private const val INITIAL_LIMIT = 10
+    private const val MIN_COVER_TARGET = 50
+    private const val MAX_TOTAL_CANDIDATES = 240
     private const val CONCURRENT_RESEARCH = 3
     private const val MAX_EMPTY_PASSES = 2
+    private const val MAX_COVER_RECOVERY_EMPTY_PASSES = 2
     private const val CACHE_TTL_MS = 24L * 60L * 60L * 1000L
     private const val CURRENT_MODEL = "gemini-3.5-flash-lite"
     private const val LEGACY_MODEL = "gemini-2.5-flash-lite"
