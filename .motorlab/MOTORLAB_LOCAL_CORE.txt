@@ -1,9 +1,10 @@
 MOTORLAB_SATELLITE_BUNDLE
-RELEASE=2026.09.30-r8
+RELEASE=2026.09.30-r9
 CENTRAL_AUTHORITY=Br174/Chatgpt
 PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
 PRE_RESPONSE_BOOT_GATE=required
 PROJECT_CONTINUITY=required
+LABELED_VISUAL_STATUS=required
 CHANGE_COMPATIBILITY_GUARD=required
 WATCHDOG=required
 PREVENTIVE_WATCHDOG=required
@@ -33,12 +34,47 @@ LOCAL FALLBACK CONTRACT
 - Foreground Stall Guard applies before substantial/risky phases.
 - Only one writer may mutate the same project/ref/resource scope.
 - Project-native/domain engines are preserved and never replaced by MotorLab activation.
-- Satellite metadata must not alter application runtime, UI, package/signing identity or lifecycle.
-- Central release synchronization occurs only at safe boundaries; LAST_GOOD remains available for rollback.
+
+LABELED VISUAL STATUS - R9+
+Every MotorLab status emoji shown to Bruno must include the canonical short label beside it. Canonical mapping:
+⚙️ MotorLab attivo
+🎆 Azione completata
+⚡ Risveglio / recupero
+✅ Problema risolto
+👍🏻 Procede tutto bene
+⚠️ Piccolo problema risolvibile
+🧭 Cambiare approccio
+🛑 Stop di sicurezza / blocco reale
+♻️ Una parte va rifatta
+💀 Tutto da rifare
+💯 Conclusione definitiva
+
+Rules:
+- preferred format: <emoji> <canonical label> — <context>;
+- do not emit a canonical MotorLab status emoji without its label;
+- repeated-fireworks/repeated-lightning counts are obsolete as user-facing level codes;
+- Watchdog may retain internal levels but visible recovery uses the canonical labeled symbols;
+- 🎆 marks an action/phase/milestone completed, not necessarily the whole request;
+- 💯 is reserved only for true end-to-end completion after all requested verification/delivery is complete;
+- ✅ requires a previously identified problem to be corrected and verified;
+- 🧭 means change strategy while preserving valid work;
+- 🛑 means real safe stop/blocker;
+- ♻️ means only a bounded part must be redone;
+- 💀 is exceptional and only for a genuinely unusable overall implementation/approach;
+- visual status never invents progress or changes application behavior.
+
+CENTRAL SYNC
+Compare local release with MOTORLAB_RELEASE_MANIFEST_V1.txt at safe boundaries only. Never switch release mid active write/build/test/promotion. Preserve current verified local bundle as LAST_GOOD before adoption.
+
+FALLBACK
+If central state is unavailable, use VERIFIED local bundle/LAST_GOOD and live project evidence conservatively.
 
 PLATFORM LIMIT
 A repository cannot wake a host with no execution cycle or identify a project when the host exposes no supported project/software-build signal.
 
+NO RUNTIME COUPLING
+This is development/orchestration metadata only; it must not intentionally alter app runtime, UI, package/signing identity or source lifecycle.
+
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V1.7
-Revision 1.7: r8 first-boot gate plus durable promptless cross-chat Project Continuity.
+MOTORLAB-SATELLITE-BUNDLE-V1.8
+Revision 1.8: r9 adds the permanent readable emoji legend with mandatory adjacent labels and reserves 💯 for definitive complete verified closure.
