@@ -6,9 +6,10 @@ MOTORLAB_CONTROL_REPOSITORY=Br174/Chatgpt
 MOTORLAB_CORE_ENTRYPOINT=MOTORLAB_CORE_ENTRYPOINT_V1.txt
 MOTORLAB_RELEASE_MANIFEST=MOTORLAB_RELEASE_MANIFEST_V1.txt
 MOTORLAB_PROJECT_STATE=MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt
+MOTORLAB_PRE_CHANGE_APPROVAL_GATE=MOTORLAB_PRE_CHANGE_APPROVAL_GATE_V1.txt
+MOTORLAB_ARTIFACT_FIRST_ROOT_CAUSE=MOTORLAB_ARTIFACT_FIRST_ROOT_CAUSE_V1.txt
 MOTORLAB_CHANGE_HISTORY_MODULE=MOTORLAB_CHANGE_HISTORY_REGISTRY_V1.txt
 MOTORLAB_CHANGE_REGISTRY=MOTORLAB_CHANGE_REGISTRY_MUSICLAB_V1.txt
-MOTORLAB_PRE_CHANGE_APPROVAL_GATE=MOTORLAB_PRE_CHANGE_APPROVAL_GATE_V1.txt
 MOTORLAB_MODIFICATION_RESTORE_REGISTER_MODULE=MOTORLAB_MODIFICATION_RESTORE_REGISTER_V1.txt
 MOTORLAB_MODIFICATION_RESTORE_REGISTER=MOTORLAB_MODIFICATION_RESTORE_REGISTER_MUSICLAB_V1.txt
 MOTORLAB_SATELLITE_SYNC_MODULE=MOTORLAB_SATELLITE_SYNC_V1.txt
@@ -19,8 +20,12 @@ MOTORLAB_LOCAL_SYNC_STATE=.motorlab/MOTORLAB_SYNC_STATE.txt
 MOTORLAB_ACTIVATION_MODE=implicit-persistent-local-first
 MOTORLAB_PRE_RESPONSE_BOOT_GATE=required
 MOTORLAB_PROJECT_CONTINUITY=required
-MOTORLAB_TECHNICAL_CHANGE_HISTORY=required
 MOTORLAB_PRE_CHANGE_APPROVAL=required
+MOTORLAB_ARTIFACT_FIRST=required
+MOTORLAB_DUAL_ARTIFACT_OVERALL_PROGRESS=required
+MOTORLAB_POST_ARTIFACT_ROOT_CAUSE_QUEUE=required
+MOTORLAB_DELIVERED_ARTIFACT_IMMUTABILITY=required
+MOTORLAB_TECHNICAL_CHANGE_HISTORY=required
 MOTORLAB_VISIBLE_RESTORE_REGISTER=required
 MOTORLAB_VISIBLE_RESTORE_AUTO_CAPTURE=forbidden
 MOTORLAB_SIMPLE_STABLE_RESTORE_NUMBERS=required
@@ -33,29 +38,31 @@ MOTORLAB_FOREGROUND_JOB_PROBES_MAX=2
 MOTORLAB_FULL_REGRESSION_AT=high-risk,candidate,madre
 MOTORLAB_FAST_LAB=conditional
 MOTORLAB_BACKGROUND_MODE=github-actions
-MOTORLAB_REGRESSION_MAP=MusicLab-r14-default-profile
+MOTORLAB_REGRESSION_MAP=MusicLab-r15-default-profile
 
 PURPOSE
-Persistent MusicLab-side MotorLab hook. r14 keeps technical history separate from Bruno's visible Registro Modifiche e Ripristini and enforces a hard plan-before-write gate for every new application/project modification.
+Persistent MusicLab-side MotorLab hook. r15 keeps the r14 hard plan-before-write and confirmation-only restore register, while making requested APK/ZIP delivery the default critical path before safely deferrable causal/prevention work.
 
 MANDATORY RULES
-1. First user-visible project line: "⚙️ MotorLab attivo".
-2. Reconcile MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt against newer live repository/job/artifact evidence before choosing the current starting point.
+1. First user-visible project line: `⚙️ MotorLab attivo`.
+2. Reconcile MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt against newer live repository/job/artifact evidence before choosing starting point.
 3. Preserve MusicLab native playback/search/AI/runtime engines and lifecycle identity.
-4. Before EVERY NEW MusicLab write-capable modification, initial wording such as modifica/correggi/aggiungi/togli/ripristina is intent only. Perform read-only preparation, show Bruno the concise pre-change report, then wait for his approval of that report before source/config/lifecycle writes.
-5. Approval continuity applies only within the described scope. Material expansion requires an amended report and new approval before broadened writes.
-6. Apply Change Compatibility Guard, single-writer, Root Cause Closure and lifecycle protections.
-7. Technical change history may keep verified/superseded/backfilled records and exact Git provenance; it is not the visible confirmed restore list.
-8. The visible Registro Modifiche e Ripristini contains only specific modifications Bruno confirms as working and wants conserved.
-9. Use plain stable numbers 1,2,3... One feature family keeps one number; a newer confirmed working implementation updates the same slot.
-10. A multi-change LAB/APK never auto-registers as a whole. Save only the exact item(s) Bruno identifies for conservation. If his description is ambiguous, confirm the intended subchange before saving.
-11. Failed/unconfirmed/experimental attempts never enter the visible register. Existing pre-r14 technical records are not promoted automatically.
-12. After an actual persisted save/update, explicitly tell Bruno the register number.
-13. "Ripristina N" resolves N read-only, presents the restore plan, waits for Bruno approval, then uses selective isolated-LAB restore unless whole-version rollback was explicitly requested.
-14. Restore attempts do not advance the visible slot until Bruno confirms the result works and wants it conserved.
-15. Eligible isolated LAB loops use risk-scaled Fast Iteration/No-Spin; HIGH risk and CANDIDATA/MADRE retain full gates.
-16. Synchronize newer MotorLab releases only at safe boundaries, preserving LAST_GOOD. Metadata-only sync must not intentionally alter application runtime.
+4. Before every NEW write-capable modification, initial mutation wording is intent only. Perform read-only preparation, show Bruno the pre-change report, then wait for his approval before source/config/lifecycle writes.
+5. For approved defect/regression work where Bruno expects APK/ZIP, default order is immediate repair -> risk-appropriate verification -> APK/ZIP -> delivery -> causal/prevention follow-up.
+6. Safely deferrable causal work goes into POST_ARTIFACT_ROOT_CAUSE_QUEUE; it remains mandatory and part of the same logical operation.
+7. Non-deferrable high-risk causes remain before artifact delivery when necessary to trust/install/use the artifact safely.
+8. Artifact progress may reach 100% while overall MotorLab progress remains below 100% until causal closure.
+9. After Bruno receives an artifact, preserve its exact ref/checksum while he tests it. Later prevention builds are separate LAB/ref/artifact states.
+10. Do not use `✅ Problema risolto` or `💯 Conclusione definitiva` while mandatory causal work remains pending.
+11. Approval continuity applies only inside described scope; materially broader post-artifact prevention requires amended report + approval.
+12. Apply Change Compatibility Guard, single-writer, Root Cause Closure and lifecycle protections.
+13. Technical change history remains provenance/search and distinct from visible restore slots.
+14. Visible Registro Modifiche e Ripristini contains only specific Bruno-confirmed working modifications; stable plain integer per feature family.
+15. Multi-change LAB/APK work registers only item(s) Bruno explicitly identifies; failed/unconfirmed attempts stay out.
+16. `Ripristina N` resolves target read-only, presents restore plan, waits for approval, then uses selective isolated-LAB restore unless whole-version rollback is explicit.
+17. Eligible isolated LAB loops use risk-scaled Fast Iteration/No-Spin; HIGH risk and CANDIDATA/MADRE retain full gates.
+18. Synchronize newer MotorLab releases only at safe boundaries, preserving LAST_GOOD. Metadata-only sync must not intentionally alter application runtime.
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.8
-Revision 1.8: r14 hard pre-change approval + user-confirmed numbered Registro Modifiche e Ripristini.
+MOTORLAB-PROJECT-HOOK-V1.9
+Revision 1.9: r15 Artifact-First delivery + deferred Root Cause queue + dual artifact/overall progress.
