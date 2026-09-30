@@ -1,0 +1,102 @@
+name: MusicLab LAB16 - verify temp
+
+on:
+  push:
+    branches:
+      - 'uab-build/musiclab-originali-cover-player-16'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab16-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: LAB16 regression + UAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout LAB16
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK path
+        shell: bash
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Create isolated LAB debug keystore
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          rm -f "$HOME/.android/debug.keystore"
+          keytool -genkeypair \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -noprompt
+
+      - name: Generate protobuf classes
+        shell: bash
+        run: bash .uab/pre-build.sh .
+
+      - name: Run real regression JVM tests
+        shell: bash
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest :innertube:testDebugUnitTest --warning-mode summary
+
+      - name: UAB preflight diagnostics
+        shell: bash
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build LAB16 APK and ZIP with UAB
+        shell: bash
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          UAB_BUILD_ID: lab16
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verify LAB16 outputs
+        shell: bash
+        run: |
+          test -n "$(find dist/uab/apk -maxdepth 1 -name '*.apk' -print -quit)"
+          test -f dist/uab/MusicLab-LAB-16-APK.zip
+          unzip -tq dist/uab/MusicLab-LAB-16-APK.zip
+          cat dist/uab/apk/SHA256SUMS.txt
+
+      - name: Upload LAB16 APK and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB-16-APK-ZIP
+          path: |
+            dist/uab/apk/*.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB-16-APK.zip
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
