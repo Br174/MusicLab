@@ -1,0 +1,15 @@
+MUSICLAB UAB PROMOTION TRACE
+DATE=2026-09-30
+FROM_LIFECYCLE=CANDIDATA
+FROM_REF=candidate/musiclab-lab19-player-stable
+FROM_SHA=6f3efabd77d6e0a918b91091bb1862986d1dc5fc
+TO_LIFECYCLE=MADRE
+TO_REF=mother/musiclab-lab19-final
+TO_SHA=6f3efabd77d6e0a918b91091bb1862986d1dc5fc
+PROMOTION_MODE=exact-ref-promotion
+RUNTIME_DIFF=NONE
+DEVICE_ACCEPTANCE=Bruno confirmed candidate sufficiently working before promotion
+APPROVAL=explicit Bruno approval in project chat
+PREVIOUS_MOTHER=mother/musiclab-112726
+PREVIOUS_MOTHER_SHA=770849ff543289de3adffe5bab62bc09528d19f4
+RULE=CANDIDATA to MADRE promotion preserves the exact approved Candidate source SHA; no LAB method replay occurs during promotion.
