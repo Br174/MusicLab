@@ -1,5 +1,5 @@
 MOTORLAB_SATELLITE_BUNDLE
-RELEASE=2026.09.30-r13
+RELEASE=2026.09.30-r14
 CENTRAL_AUTHORITY=Br174/Chatgpt
 PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
 PRE_RESPONSE_BOOT_GATE=required
@@ -30,88 +30,54 @@ CHANGE_HISTORY_REGISTRY=required
 SEMANTIC_CHANGE_LOOKUP=required
 SELECTIVE_EXACT_RESTORE=required
 HISTORICAL_BACKFILL_ON_DEMAND=required
+PRE_CHANGE_APPROVAL_GATE=required
+USER_CONFIRMED_RESTORE_REGISTER=required
+SIMPLE_STABLE_RESTORE_NUMBERS=required
+MULTI_CHANGE_ITEM_CONFIRMATION=required
 
 LOCAL FALLBACK CONTRACT
-- MotorLab activates before substantive project work when project/software-build context is visible.
-- First user-visible line: ⚙️ MotorLab attivo
-- Load project hook and project-specific central continuity ledger automatically.
-- Load project-specific Change History registry when available for historical semantic lookup/restoration.
-- Reconcile continuity with newer live repo/ref/head/provider/job/artifact evidence before choosing a starting point.
-- Change History is historical lookup/provenance only and never overrides newer current state.
-- Preserve active operation, verified progress floor, completed step, pending verification and next safe step across chats.
-- No recurring activation or transfer prompt is required.
-- Unfinished work continues through Resume Recovery under Watchdog coordination.
-- Manual ⚡ uses save-then-resume and monotonic recovery-floor rules.
-- A missed expected write-through is a Root Cause Closure problem; manual alignment alone is not definitive closure.
-- Change Compatibility Guard applies before writes.
-- Foreground Stall Guard applies before substantial/risky phases.
-- Only one writer may mutate same project/ref/resource scope.
-- Project-native/domain engines are preserved and never replaced by MotorLab activation.
+- First user-visible line for project work: ⚙️ MotorLab attivo
+- Reconcile Project Continuity with newer live evidence before choosing a work starting point.
+- Preserve native project engines and lifecycle state.
+- Before EVERY NEW write-capable application/project modification, treat initial mutation wording as intent only, perform read-only preparation, show the pre-change report, then wait for Bruno approval of that report.
+- Approval continuity applies only to the described scope. Material scope expansion requires amended approval.
+- Change Compatibility Guard and single-writer apply before writes.
+- Root Cause Closure applies to real defects and stale/missed state.
+- Eligible LAB work uses risk-scaled Fast Iteration/No-Spin; HIGH risk and CANDIDATA/MADRE retain full gates.
 
-FAST ITERATION / NO-SPIN - R12+
-- Prefer risk-scaled iterative LAB verification for eligible LOW/MEDIUM corrections.
-- HIGH-risk and CANDIDATA/MADRE retain full applicable gates.
-- When a real persistent job is accepted and its job/run identity + checkpoint + next safe step are persisted, foreground chat must not poll indefinitely.
-- Default max consecutive unchanged foreground provider probes: 2 unless project profile safely defines otherwise.
+TECHNICAL CHANGE HISTORY
+- Technical Change History remains a Git-backed provenance/search layer and may contain historical/superseded/automatically verified records.
+- It is not the visible Bruno-confirmed restore list.
 
-CHANGE HISTORY / RESTORE - R13+
-- Every verified material Bruno-requested change is automatically indexed at a material verified boundary when central registry write access exists.
-- Registry records use semantic tags/aliases plus exact immutable Git provenance.
-- Natural query such as "player" searches project registry first.
-- If several materially different matches remain and Bruno did not specify one, present concise date/LAB-labelled candidates.
-- Default restoration preserves current baseline/unrelated later work and transplants only selected registered change into a new isolated LAB.
-- Never direct-edit MADRE for a feature restore.
-- Whole-version rollback is separate and requires explicit whole-version intent.
-- Composite records must not replay unrelated subfeatures unless safe separation is impossible and Bruno explicitly selects whole composite change.
-- Pre-r13 history may be backfilled from verified Git/ledger evidence on demand and then persisted.
-- Every successful restore creates a new registry record linking RESTORED_FROM.
-- If an old patch no longer applies byte-identically, use three-way compatibility replay; report deviation and do not overwrite modern files blindly.
-
-CANONICAL LABELED VISUAL STATUS
-⚙️ MotorLab attivo
-🎆 Azione completata
-⚡ Risveglio / recupero
-✅ Problema risolto
-👍🏻 Procede tutto bene
-⚠️ Piccolo problema risolvibile
-🧭 Cambiare approccio
-🛑 Stop di sicurezza / blocco reale
-♻️ Una parte va rifatta
-💀 Tutto da rifare
-💯 Conclusione definitiva
-🔍 Ricerca soluzione
-🧩 Compatibile
-🐢 Lentezza rilevata
-💭 Elaborazione in corso
-⏳ Attesa esterna
-🧪 Test / verifica in corso
-🔄 Sincronizzazione in corso
-
-HARD NUMERIC PROGRESS
-Classic form: Progresso MotorLab: <N>%
-For substantial active/pending/new operations establish/reconstruct evidence-based N% before long opaque work; meaningful statuses repeat/advance it without fabrication.
-
-ROOT CAUSE CLOSURE
-Every real defect/anomaly/stale state/unexpected trigger/failure receives immediate containment plus evidence-based causal investigation and proportionate prevention before definitive closure.
+REGISTRO MODIFICHE E RIPRISTINI - R14+
+- The visible register contains only specific modifications Bruno confirms as working and wants conserved.
+- Automated build/test success alone never creates/updates a visible restore slot.
+- Plain visible numbers are 1,2,3... with no zero padding or subversions.
+- One feature family keeps one number. A newer confirmed working implementation updates that same slot.
+- Old visible pointers remain recoverable in Git/technical history but are not shown as parallel versions by default.
+- A multi-change LAB/APK registers only the item(s) Bruno specifically identifies for conservation.
+- If identification is ambiguous, reflect the likely subchange and wait for Bruno confirmation before saving.
+- Failed, regressed, experimental, ambiguous or unconfirmed attempts never enter the visible list.
+- After an actual persisted save/update, explicitly tell Bruno the register number.
+- Existing pre-r14 technical history is not promoted automatically.
+- "Ripristina N" resolves the target but still requires the pre-change report and Bruno approval before writing.
+- Restore attempts do not advance the visible slot until Bruno confirms the result works and wants it conserved.
 
 CONTROL-PLANE CI SUPPRESSION
-MotorLab-only metadata changes such as `.motorlab/**`, project hook or central registry pointer/history metadata should not launch unrelated app build/release workflows when provider filters/skip mechanisms support safe suppression. Do not suppress CI when same commit changes real app/source/config requiring validation.
+MotorLab-only metadata changes should not launch unrelated app workflows where provider filters/skip mechanisms safely support suppression.
 
 CENTRAL SYNC
-Compare local release with MOTORLAB_RELEASE_MANIFEST_V1.txt only at safe boundaries. Never switch release mid active write/build/test/promotion. Preserve current verified local bundle as LAST_GOOD before adoption.
+Compare local release with central manifest only at safe boundaries. Preserve current VERIFIED local bundle as LAST_GOOD before adoption. Do not switch release mid active write/build/test/promotion.
 
-FALLBACK
-If central state is unavailable, use VERIFIED local bundle/LAST_GOOD and live project evidence conservatively. Do not claim an exact historical restore from memory alone; immutable Git evidence is required.
+FUTURE PROJECTS
+Future projects receive hook + local satellite + Project Continuity + technical Change History + visible Registro Modifiche e Ripristini and inherit hard pre-change approval automatically.
 
 PLATFORM LIMIT
-A repository cannot wake a host with no execution cycle. Persistent external jobs continue only when a real durable executor exists and are reconciled at next available cycle.
+Repository text cannot wake a host with no execution cycle.
 
 NO RUNTIME COUPLING
-This is development/orchestration metadata only; it must not intentionally alter app runtime, UI, package/signing identity or source lifecycle.
+This bundle is development/orchestration metadata only and must not intentionally alter app runtime/UI/package/signing/native engines.
 
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.3
-Revision 2.0: r11 Root Cause Closure/live classification/hard progress.
-Revision 2.1: r11 control-plane CI suppression.
-Revision 2.2: r12 Fast Iteration + No-Spin and risk-scaled LAB iteration.
-Revision 2.3: r13 semantic Change History registry, automatic verified change capture, historical backfill and selective exact restore.
+MOTORLAB-SATELLITE-BUNDLE-V2.4
+Revision 2.4: r14 adds hard plan-before-write approval and the user-confirmed numbered Registro Modifiche e Ripristini.
