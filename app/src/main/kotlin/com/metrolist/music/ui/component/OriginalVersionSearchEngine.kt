@@ -171,7 +171,7 @@ internal object OriginalVersionSearchEngine {
             target = merged,
         )
 
-        val pool = merged.values.toList()
+        val pool = resolveMissingYears(merged.values.toList())
         val chosen = chooseAiOriginal(pool, identity)
         val visible = linkedMapOf<String, CoverHubResult>()
         chosen?.let { visible[it.song.id] = it }
@@ -180,7 +180,7 @@ internal object OriginalVersionSearchEngine {
         }
 
         val original = chosen?.copy(
-            year = identity.year,
+            year = identity.year ?: chosen.year,
             source = aiSource(chosen.source),
             confirmed = true,
         )
@@ -252,16 +252,16 @@ internal object OriginalVersionSearchEngine {
             target = merged,
         )
 
-        val raw = merged.values.toList()
+        // The wide search runs in background, so missing publication years can safely
+        // be completed here in small batches from real YouTube Music album metadata.
+        val raw = resolveMissingYears(merged.values.toList())
         val chosen = chooseAiOriginal(raw, identity)
         val original = chosen?.copy(
-            year = identity.year,
+            year = identity.year ?: chosen.year,
             source = aiSource(chosen.source),
             confirmed = true,
         )
 
-        // No year/album lookup is done here. YouTube and YouTube Music only locate playback.
-        // Metadata for alternate versions is added separately by Gemini in the UI background pipeline.
         val alternatives = raw
             .asSequence()
             .filter { it.song.id != original?.song?.id }
@@ -320,20 +320,30 @@ internal object OriginalVersionSearchEngine {
             )
         }
 
+        // Goal: find around twenty or more real versions when they exist. We broaden
+        // the contexts, but keep the strict title + original-artist validation below.
         val queries = listOf(
             "${identity.title} $leadArtist",
             "${identity.title} $leadArtist live",
+            "${identity.title} $leadArtist concert",
+            "${identity.title} $leadArtist session",
+            "${identity.title} $leadArtist tv",
+            "${identity.title} $leadArtist radio",
             "${identity.title} $leadArtist duet",
             "${identity.title} $leadArtist feat",
             "${identity.title} $leadArtist remix",
             "${identity.title} $leadArtist remastered",
             "${identity.title} $leadArtist acoustic",
+            "${identity.title} $leadArtist unplugged",
+            "${identity.title} $leadArtist official",
+            "${identity.title} $leadArtist performance",
         )
 
         // Do not launch every query at once: small batches keep the app responsive while
         // the extended discovery continues in the background.
         val queryOutcomes = mutableListOf<QueryOutcome>()
-        for ((batchIndex, batch) in queries.chunked(2).withIndex()) {
+        val batches = queries.chunked(2)
+        for ((batchIndex, batch) in batches.withIndex()) {
             val outcomes = batch.map { query ->
                 async(Dispatchers.IO) {
                     searchQueryPages(
@@ -346,7 +356,7 @@ internal object OriginalVersionSearchEngine {
                 }
             }.awaitAll()
             queryOutcomes += outcomes
-            if (batchIndex < queries.chunked(2).lastIndex) delay(BACKGROUND_BATCH_PAUSE_MS)
+            if (batchIndex < batches.lastIndex) delay(BACKGROUND_BATCH_PAUSE_MS)
         }
 
         val merged = linkedMapOf<String, CoverHubResult>()
@@ -492,6 +502,20 @@ internal object OriginalVersionSearchEngine {
                 )
             }
         }
+    }
+
+    private suspend fun resolveMissingYears(results: List<CoverHubResult>): List<CoverHubResult> {
+        if (results.isEmpty()) return results
+        val resolved = mutableListOf<CoverHubResult>()
+        for (batch in results.chunked(YEAR_LOOKUP_BATCH_SIZE)) {
+            resolved += batch.map { result ->
+                async(Dispatchers.IO) {
+                    if (result.year != null) result
+                    else result.copy(year = CoverYearResolver.resolve(result.song))
+                }
+            }.awaitAll()
+        }
+        return resolved
     }
 
     private fun chooseAiOriginal(
@@ -727,7 +751,7 @@ internal object OriginalVersionSearchEngine {
     )
 
     private val LIVE_REGEX = Regex(
-        "\\b(live|dal vivo|concerto|concert|performance|session|festival|canzonissima|rai|tv)\\b",
+        "\\b(live|dal vivo|concerto|concert|performance|session|festival|canzonissima|rai|tv|radio|unplugged)\\b",
     )
 
     private val REMIX_REGEX = Regex(
@@ -739,7 +763,7 @@ internal object OriginalVersionSearchEngine {
     )
 
     private val CONTEXT_MARKER_REGEX = Regex(
-        "\\b(canta|interpreta|esegue|con|insieme|canzonissima|concerto|concert|show|festival|rai|tv|televisione)\\b",
+        "\\b(canta|interpreta|esegue|con|insieme|canzonissima|concerto|concert|show|festival|rai|tv|radio|televisione|session|unplugged)\\b",
     )
 
     private val DISALLOWED_REGEX = Regex(
@@ -749,8 +773,9 @@ internal object OriginalVersionSearchEngine {
     private val VERSION_SEPARATOR_REGEX = Regex("\\s+[-–—]\\s+|\\s*[:|]\\s*")
 
     private const val INITIAL_RESULTS_LIMIT = 10
-    private const val MAX_PAGES_PER_QUERY = 3
-    private const val MAX_RESULTS_PER_QUERY = 50
-    private const val MAX_RESULTS_PER_SOURCE = 140
-    private const val BACKGROUND_BATCH_PAUSE_MS = 90L
+    private const val MAX_PAGES_PER_QUERY = 5
+    private const val MAX_RESULTS_PER_QUERY = 80
+    private const val MAX_RESULTS_PER_SOURCE = 220
+    private const val YEAR_LOOKUP_BATCH_SIZE = 10
+    private const val BACKGROUND_BATCH_PAUSE_MS = 70L
 }
