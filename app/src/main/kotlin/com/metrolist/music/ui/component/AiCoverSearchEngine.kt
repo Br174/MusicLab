@@ -99,10 +99,10 @@ internal object AiCoverSearchEngine {
             when (candidate.category) {
                 AiCoverCategory.LIVE -> {
                     searchAndPick(query, YouTube.SearchFilter.FILTER_VIDEO, candidate, currentYouTubeId)?.let {
-                        return AiCoverPlayable(candidate, it, "YouTube")
+                        return datedPlayable(candidate, it, "YouTube")
                     }
                     searchAndPick(query, YouTube.SearchFilter.FILTER_SONG, candidate, currentYouTubeId)?.let {
-                        return AiCoverPlayable(candidate, it, "YouTube Music")
+                        return datedPlayable(candidate, it, "YouTube Music")
                     }
                 }
                 AiCoverCategory.COVER,
@@ -110,15 +110,32 @@ internal object AiCoverSearchEngine {
                 AiCoverCategory.REMIX,
                 -> {
                     searchAndPick(query, YouTube.SearchFilter.FILTER_SONG, candidate, currentYouTubeId)?.let {
-                        return AiCoverPlayable(candidate, it, "YouTube Music")
+                        return datedPlayable(candidate, it, "YouTube Music")
                     }
                     searchAndPick(query, YouTube.SearchFilter.FILTER_VIDEO, candidate, currentYouTubeId)?.let {
-                        return AiCoverPlayable(candidate, it, "YouTube")
+                        return datedPlayable(candidate, it, "YouTube")
                     }
                 }
             }
         }
         return null
+    }
+
+    /**
+     * Se Gemini non conosce l'anno, prova il metadato reale dell'album YouTube Music.
+     * Non inventa mai una data: se entrambe le fonti non la espongono resta null.
+     */
+    private suspend fun datedPlayable(
+        candidate: AiCoverCandidate,
+        song: SongItem,
+        playbackSource: String,
+    ): AiCoverPlayable {
+        val datedCandidate = if (candidate.year != null) {
+            candidate
+        } else {
+            candidate.copy(year = CoverYearResolver.resolve(song))
+        }
+        return AiCoverPlayable(datedCandidate, song, playbackSource)
     }
 
     private suspend fun searchAndPick(
