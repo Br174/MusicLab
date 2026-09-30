@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -29,7 +30,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,6 +65,7 @@ import kotlinx.coroutines.withContext
 
 // Reuse the same dedicated Gemini key already configured by Cerca cover.
 private val OriginalGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
+private const val ORIGINAL_PAGE_SIZE = 10
 
 private enum class OriginalResultsTab {
     VERSIONS,
@@ -125,9 +129,14 @@ internal fun OriginalVersionScreen(
     var failed by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var showDiagnosticsDialog by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var selectedTab by remember(request.currentYouTubeId) { mutableStateOf(OriginalResultsTab.VERSIONS) }
+    var visibleVersionCount by remember(request.currentYouTubeId, selectedTab) {
+        mutableIntStateOf(ORIGINAL_PAGE_SIZE)
+    }
+    val listState = rememberLazyListState()
 
     var link by remember(request.currentYouTubeId) { mutableStateOf("") }
     var manualCandidate by remember(request.currentYouTubeId) { mutableStateOf<SongItem?>(null) }
+    var manualYear by remember(request.currentYouTubeId) { mutableStateOf<Int?>(null) }
     var manualLoading by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var manualError by remember(request.currentYouTubeId) { mutableStateOf<String?>(null) }
 
@@ -143,6 +152,7 @@ internal fun OriginalVersionScreen(
             song?.let {
                 CoverHubResult(
                     song = it,
+                    year = CoverYearResolver.resolve(it),
                     source = "Versione di partenza",
                     confirmed = true,
                 )
@@ -176,6 +186,7 @@ internal fun OriginalVersionScreen(
         versionCredits = emptyMap()
         failed = false
         selectedTab = OriginalResultsTab.VERSIONS
+        visibleVersionCount = ORIGINAL_PAGE_SIZE
 
         val identified = runCatching {
             OriginalVersionSearchEngine.identifyOriginal(
@@ -210,7 +221,7 @@ internal fun OriginalVersionScreen(
             initial.original?.song?.let(::add)
             initial.versions.forEach { add(it.song) }
         }.distinctBy { it.id }
-            .take(8)
+            .take(10)
 
         val initialCreditsJob = launch {
             val credits = runCatching {
@@ -244,7 +255,7 @@ internal fun OriginalVersionScreen(
         }.distinctBy { it.id }
             .filter { it.id !in versionCredits }
 
-        for (batch in remainingSongs.chunked(8)) {
+        for (batch in remainingSongs.chunked(10)) {
             val credits = runCatching {
                 GeminiOriginalVersionCredits.enrich(
                     identity = identity,
@@ -261,6 +272,7 @@ internal fun OriginalVersionScreen(
         val id = extractYouTubeVideoId(link)
         if (id == null) {
             manualCandidate = null
+            manualYear = null
             manualError = null
             manualLoading = false
             return@LaunchedEffect
@@ -269,6 +281,9 @@ internal fun OriginalVersionScreen(
         manualError = null
         manualCandidate = withContext(Dispatchers.IO) {
             YouTube.queue(listOf(id)).getOrNull()?.firstOrNull()
+        }
+        manualYear = manualCandidate?.let { candidate ->
+            withContext(Dispatchers.IO) { CoverYearResolver.resolve(candidate) }
         }
         if (manualCandidate == null) manualError = "Video non trovato"
         manualLoading = false
@@ -291,6 +306,26 @@ internal fun OriginalVersionScreen(
         connection?.playNext(song.toMediaItem())
         connection?.seekToNext()
         PlayerBottomSheetBridge.expandSoft()
+    }
+
+    val selectedVersions = when (selectedTab) {
+        OriginalResultsTab.VERSIONS -> searchResult.versions
+        OriginalResultsTab.LIVE -> searchResult.liveVersions
+        OriginalResultsTab.WITH_OTHERS -> searchResult.withOthersVersions
+        OriginalResultsTab.REMIX -> searchResult.remixVersions
+    }
+    val shouldLoadNextPage by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 1
+        }
+    }
+
+    LaunchedEffect(shouldLoadNextPage, selectedTab, selectedVersions.size) {
+        if (shouldLoadNextPage && visibleVersionCount < selectedVersions.size) {
+            visibleVersionCount = minOf(visibleVersionCount + ORIGINAL_PAGE_SIZE, selectedVersions.size)
+        }
     }
 
     if (showDiagnosticsDialog) {
@@ -410,6 +445,7 @@ internal fun OriginalVersionScreen(
             Spacer(Modifier.height(12.dp))
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier.weight(1f),
             ) {
                 if (manualLoading) {
@@ -439,7 +475,7 @@ internal fun OriginalVersionScreen(
                     item {
                         VersionSectionTitle("Versione dal link")
                         OriginalVersionRow(
-                            result = CoverHubResult(song = candidate, source = "Link manuale"),
+                            result = CoverHubResult(song = candidate, year = manualYear, source = "Link manuale"),
                             credits = versionCredits[candidate.id],
                             creditsLoading = creditsLoading,
                             onPreview = { preview(candidate) },
@@ -457,7 +493,7 @@ internal fun OriginalVersionScreen(
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            text = identity.year?.let { "Prima pubblicazione: $it" } ?: "Prima pubblicazione: anno non indicato dall'AI",
+                            text = identity.year?.let { "Prima pubblicazione: $it" } ?: "Prima pubblicazione: data non disponibile",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -539,15 +575,9 @@ internal fun OriginalVersionScreen(
                             }
                         }
 
-                        val visibleVersions = when (selectedTab) {
-                            OriginalResultsTab.VERSIONS -> searchResult.versions
-                            OriginalResultsTab.LIVE -> searchResult.liveVersions
-                            OriginalResultsTab.WITH_OTHERS -> searchResult.withOthersVersions
-                            OriginalResultsTab.REMIX -> searchResult.remixVersions
-                        }
-
+                        val page = selectedVersions.take(visibleVersionCount)
                         items(
-                            items = visibleVersions,
+                            items = page,
                             key = { "${selectedTab.name}-${it.song.id}" },
                         ) { version ->
                             OriginalVersionRow(
@@ -787,6 +817,7 @@ private fun OriginalVersionRow(
     onPreview: () -> Unit,
     onReplace: () -> Unit,
 ) {
+    val displayYear = credits?.year ?: result.year
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -818,8 +849,8 @@ private fun OriginalVersionRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = credits?.year?.let { "Anno AI: $it" }
-                    ?: if (creditsLoading) "Crediti AI in arrivo…" else "Anno AI non disponibile",
+                text = displayYear?.let { "Data: $it" }
+                    ?: if (creditsLoading) "Data in arrivo…" else "Data non disponibile",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
