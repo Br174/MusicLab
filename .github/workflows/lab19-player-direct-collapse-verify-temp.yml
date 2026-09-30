@@ -29,9 +29,11 @@ jobs:
         shell: bash
         run: |
           python .github/scripts/lab19_player_direct_collapse_transform.py
+          python .github/scripts/lab19_player_api_compat.py
           git diff --check
           ! grep -q 'PlayerBottomSheetBridge.expandSoft()' app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
           ! grep -q 'PlayerBottomSheetBridge.expandSoft()' app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt
+          grep -q 'playerBottomSheetState: BottomSheetState? = null' app/src/main/kotlin/com/metrolist/music/ui/menu/MusicLabIntelligenceMenu.kt
           git status --short
 
       - name: Set up Java 21
