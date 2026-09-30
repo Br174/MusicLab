@@ -285,9 +285,9 @@ fun PlayerMenu(
                             .fillParentMaxWidth()
                             .height(ListItemHeight)
                             .clickable {
+                                playerBottomSheetState.collapseToMiniPlayerNow()
                                 navController.navigate("artist/${artist.id}")
                                 showSelectArtistDialog = false
-                                playerBottomSheetState.collapseSoft()
                                 onDismiss()
                             }.padding(horizontal = 24.dp),
                 ) {
@@ -484,6 +484,7 @@ fun PlayerMenu(
         item {
             MusicLabIntelligenceActions(
                 mediaMetadata = mediaMetadata,
+                playerBottomSheetState = playerBottomSheetState,
                 onDismiss = onDismiss,
             )
         }
@@ -518,8 +519,8 @@ fun PlayerMenu(
                                     },
                                     onClick = {
                                         if (mediaMetadata.artists.size == 1) {
+                                            playerBottomSheetState.collapseToMiniPlayerNow()
                                             navController.navigate("artist/${mediaMetadata.artists[0].id}")
-                                            playerBottomSheetState.collapseSoft()
                                             onDismiss()
                                         } else {
                                             showSelectArtistDialog = true
@@ -547,12 +548,12 @@ fun PlayerMenu(
                                         )
                                     },
                                     onClick = {
+                                        playerBottomSheetState.collapseToMiniPlayerNow()
                                         if (isPodcast) {
                                             navController.navigate("online_podcast/${mediaMetadata.album.id}")
                                         } else {
                                             navController.navigate("album/${mediaMetadata.album.id}")
                                         }
-                                        playerBottomSheetState.collapseSoft()
                                         onDismiss()
                                     },
                                 ),

@@ -441,7 +441,7 @@ internal fun CoverSearchScreen(
         val connection = playerConnection ?: return
         connection.playNext(song.toMediaItem())
         connection.seekToNext()
-        PlayerBottomSheetBridge.expandSoft()
+        PlayerBottomSheetBridge.collapseToMiniPlayerNow()
     }
 
     fun replaceWith(result: AiCoverPlayable) {
@@ -455,6 +455,7 @@ internal fun CoverSearchScreen(
                 thumbnail = result.song.thumbnail,
             ),
         )
+        PlayerBottomSheetBridge.collapseToMiniPlayerNow()
         navController.popBackStack()
     }
 

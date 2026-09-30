@@ -25,6 +25,7 @@ internal object OriginalVersionNavigationBridge {
     fun open(request: OriginalVersionRequest): Boolean {
         currentRequest = request
         val navController = navControllerRef?.get() ?: return false
+        PlayerBottomSheetBridge.collapseToMiniPlayerNow()
         navController.navigate(ROUTE) { launchSingleTop = true }
         return true
     }

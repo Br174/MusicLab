@@ -65,12 +65,20 @@ object PlayerBottomSheetBridge {
         state = candidate
     }
 
+    internal fun detach(candidate: BottomSheetState) {
+        if (state === candidate) state = null
+    }
+
     fun expandSoft() {
         state?.expandSoft()
     }
 
     fun collapseSoft() {
         state?.collapseSoft()
+    }
+
+    fun collapseToMiniPlayerNow() {
+        state?.collapseToMiniPlayerNow()
     }
 }
 
@@ -227,6 +235,15 @@ class BottomSheetState(
         collapse(spring(stiffness = Spring.StiffnessMediumLow))
     }
 
+    fun collapseToMiniPlayerNow() {
+        onAnchorChanged(collapsedAnchor)
+        coroutineScope.launch {
+            // snapTo cancels any competing expand animation before placing the real
+            // player exactly on the mini-player anchor. External navigation must win.
+            animatable.snapTo(collapsedBound)
+        }
+    }
+
     fun expandSoft() {
         expand(spring(stiffness = Spring.StiffnessMediumLow))
     }
@@ -378,12 +395,6 @@ fun rememberBottomSheetState(
             coroutineScope = coroutineScope,
             animatable = animatable,
             collapsedBound = collapsedBound
-        ).also { state ->
-            // The app's primary player is the only custom sheet with a real
-            // collapsed mini-player height above a 0.dp dismissed bound.
-            if (dismissedBound == 0.dp && collapsedBound > dismissedBound) {
-                PlayerBottomSheetBridge.attach(state)
-            }
-        }
+        )
     }
 }

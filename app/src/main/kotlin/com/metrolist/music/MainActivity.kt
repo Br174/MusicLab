@@ -186,6 +186,7 @@ import com.metrolist.music.ui.component.BottomSheetMenu
 import com.metrolist.music.ui.component.BottomSheetPage
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
+import com.metrolist.music.ui.component.PlayerBottomSheetBridge
 import com.metrolist.music.ui.component.rememberBottomSheetState
 import com.metrolist.music.ui.component.shimmer.ShimmerTheme
 import com.metrolist.music.ui.menu.YouTubeSongMenu
@@ -857,6 +858,13 @@ class MainActivity : FragmentActivity() {
                         expandedBound = maxHeight,
                     )
 
+                // LAB19: bind the global MusicLab bridge explicitly to the real player.
+                // Generic BottomSheet instances are never allowed to steal this reference.
+                DisposableEffect(playerBottomSheetState) {
+                    PlayerBottomSheetBridge.attach(playerBottomSheetState)
+                    onDispose { PlayerBottomSheetBridge.detach(playerBottomSheetState) }
+                }
+
                 val playerReadyState =
                     playerConnection?.service?.isPlayerReady?.collectAsStateWithLifecycle()
                         ?: remember { mutableStateOf(false) }
@@ -928,7 +936,7 @@ class MainActivity : FragmentActivity() {
                         !playerBottomSheetState.isCollapsed &&
                         !playerBottomSheetState.isDismissed
                     ) {
-                        playerBottomSheetState.collapseSoft()
+                        playerBottomSheetState.collapseToMiniPlayerNow()
                     }
 
                     // Track previous tab for animations

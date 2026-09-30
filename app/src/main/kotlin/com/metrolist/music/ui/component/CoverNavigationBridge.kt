@@ -34,6 +34,7 @@ internal object CoverNavigationBridge {
     fun open(request: CoverSearchRequest): Boolean {
         currentRequest = request
         val navController = navControllerRef?.get() ?: return false
+        PlayerBottomSheetBridge.collapseToMiniPlayerNow()
         navController.navigate(ROUTE) {
             launchSingleTop = true
         }

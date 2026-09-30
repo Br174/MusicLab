@@ -278,13 +278,14 @@ internal fun OriginalVersionScreen(
                 thumbnail = song.thumbnail,
             ),
         )
+        PlayerBottomSheetBridge.collapseToMiniPlayerNow()
         navController.popBackStack()
     }
 
     fun preview(song: SongItem) {
         connection?.playNext(song.toMediaItem())
         connection?.seekToNext()
-        PlayerBottomSheetBridge.expandSoft()
+        PlayerBottomSheetBridge.collapseToMiniPlayerNow()
     }
 
     val nonStudioIds = (searchResult.liveVersions + searchResult.remixVersions).map { it.song.id }.toSet()

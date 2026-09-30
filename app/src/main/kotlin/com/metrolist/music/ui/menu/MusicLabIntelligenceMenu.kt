@@ -33,13 +33,14 @@ import com.metrolist.music.intelligence.MusicIntelligenceSettings
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.ui.component.CoverNavigationBridge
 import com.metrolist.music.ui.component.CoverSearchRequest
+import com.metrolist.music.ui.component.BottomSheetState
+import com.metrolist.music.ui.component.PlayerBottomSheetBridge
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
 import com.metrolist.music.ui.component.OriginalVersionNavigationBridge
 import com.metrolist.music.ui.component.OriginalVersionRequest
-import com.metrolist.music.ui.component.PlayerBottomSheetBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,12 +55,18 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun MusicLabIntelligenceActions(
     mediaMetadata: MediaMetadata,
+    playerBottomSheetState: BottomSheetState? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val navController = LocalNavController.current
     val scope = rememberCoroutineScope()
     val settings = MusicIntelligenceSettings.from(context)
+
+    fun collapsePlayerToMiniNow() {
+        playerBottomSheetState?.collapseToMiniPlayerNow()
+            ?: PlayerBottomSheetBridge.collapseToMiniPlayerNow()
+    }
 
     if (!settings.enabled) return
 
@@ -174,6 +181,7 @@ internal fun MusicLabIntelligenceActions(
                         onClick = {
                             // Originali deve aprirsi subito: l'identificazione AI avviene
                             // all'interno della schermata e non deve bloccare la navigazione.
+                            collapsePlayerToMiniNow()
                             val opened = OriginalVersionNavigationBridge.open(
                                 OriginalVersionRequest(
                                     title = mediaMetadata.title,
@@ -183,7 +191,7 @@ internal fun MusicLabIntelligenceActions(
                                 ),
                             )
                             if (opened) {
-                                PlayerBottomSheetBridge.collapseSoft()
+                                collapsePlayerToMiniNow()
                                 onDismiss()
                             } else {
                                 Toast.makeText(context, "Originali non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
@@ -207,6 +215,7 @@ internal fun MusicLabIntelligenceActions(
                         onClick = {
                             // Come Originali, la schermata Cover possiede già il proprio
                             // motore AI: apriamo immediatamente e lasciamo il lavoro al suo pipeline.
+                            collapsePlayerToMiniNow()
                             val opened = CoverNavigationBridge.open(
                                 CoverSearchRequest(
                                     title = mediaMetadata.title,
@@ -216,7 +225,7 @@ internal fun MusicLabIntelligenceActions(
                                 ),
                             )
                             if (opened) {
-                                PlayerBottomSheetBridge.collapseSoft()
+                                collapsePlayerToMiniNow()
                                 onDismiss()
                             } else {
                                 Toast.makeText(context, "Cover non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
@@ -245,12 +254,13 @@ internal fun MusicLabIntelligenceActions(
                         },
                         icon = { Icon(painterResource(R.drawable.person), contentDescription = null) },
                         onClick = {
+                            collapsePlayerToMiniNow()
                             Toast.makeText(context, "Sto identificando l'artista corretto…", Toast.LENGTH_SHORT).show()
                             scope.launch {
                                 val resolved = resolveCanonical()
                                 val browseId = resolved?.artistBrowseId
                                 if (!browseId.isNullOrBlank()) {
-                                    PlayerBottomSheetBridge.collapseSoft()
+                                    collapsePlayerToMiniNow()
                                     navController.navigate("artist/$browseId")
                                     onDismiss()
                                 } else {
@@ -270,12 +280,13 @@ internal fun MusicLabIntelligenceActions(
                         },
                         icon = { Icon(painterResource(R.drawable.album), contentDescription = null) },
                         onClick = {
+                            collapsePlayerToMiniNow()
                             Toast.makeText(context, "Sto identificando l'album corretto…", Toast.LENGTH_SHORT).show()
                             scope.launch {
                                 val resolved = resolveCanonical()
                                 val browseId = resolved?.albumBrowseId
                                 if (!browseId.isNullOrBlank()) {
-                                    PlayerBottomSheetBridge.collapseSoft()
+                                    collapsePlayerToMiniNow()
                                     navController.navigate("album/$browseId")
                                     onDismiss()
                                 } else {
