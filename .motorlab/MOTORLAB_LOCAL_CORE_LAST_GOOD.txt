@@ -110,10 +110,10 @@ CENTRAL SYNC
 Compare local release with MOTORLAB_RELEASE_MANIFEST_V1.txt at safe boundaries only. Never switch release mid active write/build/test/promotion. Preserve current verified local bundle as LAST_GOOD before adoption.
 
 FALLBACK
-If central state is unavailable, use previously VERIFIED local bundle/LAST_GOOD and live project evidence conservatively.
+If central state is unavailable, use VERIFIED local bundle/LAST_GOOD and live project evidence conservatively.
 
 PLATFORM LIMIT
-A repository cannot force activation when the host exposes no project/software-build signal, nor wake a host with no execution cycle. Once a supported signal exists, first-boot activation and continuity reconciliation are mandatory.
+A repository cannot wake a host with no execution cycle or identify a project when the host exposes no supported project/software-build signal. Progress updates require a user-visible execution/control point.
 
 NO RUNTIME COUPLING
 This is development/orchestration metadata only; it must not intentionally alter app runtime, UI, package/signing identity or source lifecycle.
