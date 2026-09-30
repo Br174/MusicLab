@@ -168,8 +168,8 @@ replace_once(
 )
 replace_once(
     cover_screen,
-    '''        navController.popBackStack()\n    }\n\n    val coverResults =\n''',
-    '''        PlayerBottomSheetBridge.collapseToMiniPlayerNow()\n        navController.popBackStack()\n    }\n\n    val coverResults =\n''',
+    '''        navController.popBackStack()\n    }\n\n    val coverResults = playables.filter { it.candidate.category == AiCoverCategory.COVER }\n''',
+    '''        PlayerBottomSheetBridge.collapseToMiniPlayerNow()\n        navController.popBackStack()\n    }\n\n    val coverResults = playables.filter { it.candidate.category == AiCoverCategory.COVER }\n''',
     "Cover replace stays mini",
 )
 replace_once(
