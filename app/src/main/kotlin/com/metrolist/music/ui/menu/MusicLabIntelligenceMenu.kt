@@ -39,6 +39,7 @@ import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
 import com.metrolist.music.ui.component.OriginalVersionNavigationBridge
 import com.metrolist.music.ui.component.OriginalVersionRequest
+import com.metrolist.music.ui.component.PlayerBottomSheetBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -171,22 +172,21 @@ internal fun MusicLabIntelligenceActions(
                         },
                         text = "Originali",
                         onClick = {
-                            scope.launch {
-                                val seed = resolveCanonical()
-                                if (seed == null) {
-                                    Toast.makeText(context, "Identificazione AI non disponibile", Toast.LENGTH_SHORT).show()
-                                    return@launch
-                                }
-                                val opened = OriginalVersionNavigationBridge.open(
-                                    OriginalVersionRequest(
-                                        title = seed.title,
-                                        artist = seed.artist,
-                                        durationSec = mediaMetadata.duration,
-                                        currentYouTubeId = mediaMetadata.id,
-                                    ),
-                                )
-                                if (opened) onDismiss()
-                                else Toast.makeText(context, "Originali non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
+                            // Originali deve aprirsi subito: l'identificazione AI avviene
+                            // all'interno della schermata e non deve bloccare la navigazione.
+                            val opened = OriginalVersionNavigationBridge.open(
+                                OriginalVersionRequest(
+                                    title = mediaMetadata.title,
+                                    artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                                    durationSec = mediaMetadata.duration,
+                                    currentYouTubeId = mediaMetadata.id,
+                                ),
+                            )
+                            if (opened) {
+                                PlayerBottomSheetBridge.collapseSoft()
+                                onDismiss()
+                            } else {
+                                Toast.makeText(context, "Originali non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
                             }
                         },
                     ),
@@ -205,22 +205,21 @@ internal fun MusicLabIntelligenceActions(
                         },
                         text = "Cover",
                         onClick = {
-                            scope.launch {
-                                val seed = resolveCanonical()
-                                if (seed == null) {
-                                    Toast.makeText(context, "Identificazione AI non disponibile", Toast.LENGTH_SHORT).show()
-                                    return@launch
-                                }
-                                val opened = CoverNavigationBridge.open(
-                                    CoverSearchRequest(
-                                        title = seed.title,
-                                        originalArtist = seed.artist,
-                                        durationSec = mediaMetadata.duration,
-                                        currentYouTubeId = mediaMetadata.id,
-                                    ),
-                                )
-                                if (opened) onDismiss()
-                                else Toast.makeText(context, "Cover non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
+                            // Come Originali, la schermata Cover possiede già il proprio
+                            // motore AI: apriamo immediatamente e lasciamo il lavoro al suo pipeline.
+                            val opened = CoverNavigationBridge.open(
+                                CoverSearchRequest(
+                                    title = mediaMetadata.title,
+                                    originalArtist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                                    durationSec = mediaMetadata.duration,
+                                    currentYouTubeId = mediaMetadata.id,
+                                ),
+                            )
+                            if (opened) {
+                                PlayerBottomSheetBridge.collapseSoft()
+                                onDismiss()
+                            } else {
+                                Toast.makeText(context, "Cover non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
                             }
                         },
                     ),
@@ -251,6 +250,7 @@ internal fun MusicLabIntelligenceActions(
                                 val resolved = resolveCanonical()
                                 val browseId = resolved?.artistBrowseId
                                 if (!browseId.isNullOrBlank()) {
+                                    PlayerBottomSheetBridge.collapseSoft()
                                     navController.navigate("artist/$browseId")
                                     onDismiss()
                                 } else {
@@ -275,6 +275,7 @@ internal fun MusicLabIntelligenceActions(
                                 val resolved = resolveCanonical()
                                 val browseId = resolved?.albumBrowseId
                                 if (!browseId.isNullOrBlank()) {
+                                    PlayerBottomSheetBridge.collapseSoft()
                                     navController.navigate("album/$browseId")
                                     onDismiss()
                                 } else {
