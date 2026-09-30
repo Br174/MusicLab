@@ -11,6 +11,8 @@ on:
       - ".github/**/*.md"
       - ".github/FUNDING.yml"
       - ".github/ISSUE_TEMPLATE/**"
+      - ".motorlab/**"
+      - "MOTORLAB_PROJECT_HOOK.txt"
 
 permissions:
   contents: write
