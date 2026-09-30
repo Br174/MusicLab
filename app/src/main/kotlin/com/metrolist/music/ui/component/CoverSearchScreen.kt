@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -32,7 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,6 +72,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 private val CoverAiFirstGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
+private const val COVER_PAGE_SIZE = 10
 
 private enum class AiCoverTab {
     COVER,
@@ -168,6 +172,8 @@ internal fun CoverSearchScreen(
     }
 
     var selectedTab by remember(sessionKey) { mutableStateOf(AiCoverTab.COVER) }
+    var visibleResultCount by remember(sessionKey, selectedTab) { mutableIntStateOf(COVER_PAGE_SIZE) }
+    val listState = rememberLazyListState()
     var initialLoading by remember(sessionKey) { mutableStateOf(!session.initialLoaded) }
     var backgroundLoading by remember(sessionKey) { mutableStateOf(session.initialLoaded && !session.backgroundComplete) }
     var failed by remember(sessionKey) { mutableStateOf(false) }
@@ -182,6 +188,7 @@ internal fun CoverSearchScreen(
     var youtubeHits by remember(sessionKey) { mutableStateOf(session.youtubeHits) }
 
     var startingSong by remember(sessionKey) { mutableStateOf<SongItem?>(null) }
+    var startingYear by remember(sessionKey) { mutableStateOf<Int?>(null) }
     var showKeyDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var keyDraft by remember { mutableStateOf("") }
@@ -197,6 +204,9 @@ internal fun CoverSearchScreen(
         val id = currentYouTubeId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         startingSong = withContext(Dispatchers.IO) {
             YouTube.queue(listOf(id)).getOrNull()?.firstOrNull()
+        }
+        startingYear = startingSong?.let { song ->
+            withContext(Dispatchers.IO) { CoverYearResolver.resolve(song) }
         }
     }
 
@@ -230,6 +240,7 @@ internal fun CoverSearchScreen(
                     originalInfo = null
                     knownCandidates = emptyList()
                     playables = emptyList()
+                    visibleResultCount = COVER_PAGE_SIZE
                     showKeyDialog = false
                 }) { Text("Salva") }
             },
@@ -397,6 +408,25 @@ internal fun CoverSearchScreen(
     val liveResults = playables.filter { it.candidate.category == AiCoverCategory.LIVE && liveAiEnabled }
     val remixResults = playables.filter { it.candidate.category == AiCoverCategory.REMIX && remixAiEnabled }
     val foreignResults = playables.filter { it.candidate.category == AiCoverCategory.FOREIGN && foreignAiEnabled }
+    val selectedResults = when (selectedTab) {
+        AiCoverTab.COVER -> coverResults
+        AiCoverTab.LIVE -> liveResults
+        AiCoverTab.REMIX -> remixResults
+        AiCoverTab.FOREIGN -> foreignResults
+    }
+    val shouldLoadNextPage by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 1
+        }
+    }
+
+    LaunchedEffect(shouldLoadNextPage, selectedTab, selectedResults.size) {
+        if (shouldLoadNextPage && visibleResultCount < selectedResults.size) {
+            visibleResultCount = minOf(visibleResultCount + COVER_PAGE_SIZE, selectedResults.size)
+        }
+    }
 
     if (showDiagnosticsDialog) {
         AlertDialog(
@@ -458,7 +488,10 @@ internal fun CoverSearchScreen(
                 TextButton(onClick = { navController.popBackStack() }) { Text("Chiudi") }
             }
 
-            LazyColumn(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f),
+            ) {
                 if (!aiMasterEnabled || !coverAiEnabled) {
                     item {
                         Text(
@@ -481,7 +514,7 @@ internal fun CoverSearchScreen(
                             )
                             Text(
                                 text = info.year?.let { "Prima pubblicazione: $it" }
-                                    ?: "Prima pubblicazione: anno non indicato dall'AI",
+                                    ?: "Prima pubblicazione: data non disponibile",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                             )
@@ -509,7 +542,12 @@ internal fun CoverSearchScreen(
                     startingSong?.let { originalSong ->
                         item {
                             CoverSectionTitle("Originale di partenza")
-                            CoverStartRow(info = originalInfo, song = originalSong, onPlay = { play(originalSong) })
+                            CoverStartRow(
+                                info = originalInfo,
+                                fallbackYear = startingYear,
+                                song = originalSong,
+                                onPlay = { play(originalSong) },
+                            )
                             Spacer(Modifier.height(16.dp))
                         }
                     }
@@ -571,16 +609,10 @@ internal fun CoverSearchScreen(
                             }
                         }
 
-                        val visible = when (selectedTab) {
-                            AiCoverTab.COVER -> coverResults
-                            AiCoverTab.LIVE -> liveResults
-                            AiCoverTab.REMIX -> remixResults
-                            AiCoverTab.FOREIGN -> foreignResults
-                        }
-
-                        if (visible.isNotEmpty()) {
+                        val page = selectedResults.take(visibleResultCount)
+                        if (page.isNotEmpty()) {
                             items(
-                                items = visible,
+                                items = page,
                                 key = { "${selectedTab.name}-${it.candidate.stableKey}-${it.song.id}" },
                             ) { result ->
                                 AiCoverResultRow(
@@ -688,6 +720,7 @@ private fun CoverSectionTitle(text: String) {
 @Composable
 private fun CoverStartRow(
     info: AiCoverOriginalInfo?,
+    fallbackYear: Int?,
     song: SongItem,
     onPlay: () -> Unit,
 ) {
@@ -718,7 +751,7 @@ private fun CoverStartRow(
                 overflow = TextOverflow.Ellipsis,
             )
             AiCoverCredits(
-                year = info?.year,
+                year = info?.year ?: fallbackYear,
                 album = info?.album,
                 songwriters = info?.songwriters.orEmpty(),
                 composers = info?.composers.orEmpty(),
@@ -760,7 +793,7 @@ private fun AiCoverResultRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = result.candidate.year?.let { "Anno AI: $it" } ?: "Anno AI non disponibile",
+                text = result.candidate.year?.let { "Data: $it" } ?: "Data non disponibile",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -800,7 +833,11 @@ private fun AiCoverCredits(
     producers: List<String>,
     label: String?,
 ) {
-    year?.let { Text("Anno AI: $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+    Text(
+        text = year?.let { "Data: $it" } ?: "Data non disponibile",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
     album?.let {
         Text("Album: $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
