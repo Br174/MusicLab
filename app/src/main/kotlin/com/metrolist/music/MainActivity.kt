@@ -923,7 +923,11 @@ class MainActivity : FragmentActivity() {
                     // MusicLab LAB17: the expanded player is never persistent over another page.
                     // The full player is an overlay, not a Nav destination, so a back-stack change
                     // means the user selected app content and the player must become the mini-player.
-                    if (navBackStackEntry?.destination?.route != null && playerBottomSheetState.isExpanded) {
+                    if (
+                        navBackStackEntry?.destination?.route != null &&
+                        !playerBottomSheetState.isCollapsed &&
+                        !playerBottomSheetState.isDismissed
+                    ) {
                         playerBottomSheetState.collapseSoft()
                     }
 
@@ -1151,7 +1155,7 @@ class MainActivity : FragmentActivity() {
                                     currentBackStackEntry,
                                 ) {
                                     { screen: Screens, isSelected: Boolean ->
-                                        if (playerBottomSheetState.isExpanded) {
+                                        if (!playerBottomSheetState.isCollapsed && !playerBottomSheetState.isDismissed) {
                                             playerBottomSheetState.collapseSoft()
                                         }
                                         if (isSelected) {
@@ -1301,7 +1305,7 @@ class MainActivity : FragmentActivity() {
                             val onRailItemClick: (Screens, Boolean) -> Unit =
                                 remember(navController, coroutineScope, topAppBarScrollBehavior, playerBottomSheetState) {
                                     { screen: Screens, isSelected: Boolean ->
-                                        if (playerBottomSheetState.isExpanded) {
+                                        if (!playerBottomSheetState.isCollapsed && !playerBottomSheetState.isDismissed) {
                                             playerBottomSheetState.collapseSoft()
                                         }
 
