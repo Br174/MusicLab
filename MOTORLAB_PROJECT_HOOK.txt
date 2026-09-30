@@ -5,67 +5,57 @@ PROJECT_REPOSITORY=Br174/MusicLab
 MOTORLAB_CONTROL_REPOSITORY=Br174/Chatgpt
 MOTORLAB_CORE_ENTRYPOINT=MOTORLAB_CORE_ENTRYPOINT_V1.txt
 MOTORLAB_RELEASE_MANIFEST=MOTORLAB_RELEASE_MANIFEST_V1.txt
-MOTORLAB_PROJECT_CONTINUITY_MODULE=MOTORLAB_PROJECT_CONTINUITY_V1.txt
 MOTORLAB_PROJECT_STATE=MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt
 MOTORLAB_CHANGE_HISTORY_MODULE=MOTORLAB_CHANGE_HISTORY_REGISTRY_V1.txt
 MOTORLAB_CHANGE_REGISTRY=MOTORLAB_CHANGE_REGISTRY_MUSICLAB_V1.txt
+MOTORLAB_PRE_CHANGE_APPROVAL_GATE=MOTORLAB_PRE_CHANGE_APPROVAL_GATE_V1.txt
+MOTORLAB_MODIFICATION_RESTORE_REGISTER_MODULE=MOTORLAB_MODIFICATION_RESTORE_REGISTER_V1.txt
+MOTORLAB_MODIFICATION_RESTORE_REGISTER=MOTORLAB_MODIFICATION_RESTORE_REGISTER_MUSICLAB_V1.txt
 MOTORLAB_SATELLITE_SYNC_MODULE=MOTORLAB_SATELLITE_SYNC_V1.txt
 MOTORLAB_FAST_ITERATION_NO_SPIN_MODULE=MOTORLAB_FAST_ITERATION_NO_SPIN_V1.txt
 MOTORLAB_LOCAL_CORE=.motorlab/MOTORLAB_LOCAL_CORE.txt
 MOTORLAB_LOCAL_LAST_GOOD=.motorlab/MOTORLAB_LOCAL_CORE_LAST_GOOD.txt
 MOTORLAB_LOCAL_SYNC_STATE=.motorlab/MOTORLAB_SYNC_STATE.txt
-MOTORLAB_BOOTSTRAP_MODULE=MOTORLAB_AUTO_BOOTSTRAP_V1.txt
-MOTORLAB_GLOBAL_PERSISTENT_ACTIVATION_MODULE=MOTORLAB_GLOBAL_PERSISTENT_ACTIVATION_V1.txt
-MOTORLAB_SESSION_BOOT_BANNER_MODULE=MOTORLAB_SESSION_BOOT_BANNER_V1.txt
-MOTORLAB_WATCHDOG_MODULE=MOTORLAB_WATCHDOG_V1.txt
-MOTORLAB_RESUME_RECOVERY_MODULE=MOTORLAB_RESUME_RECOVERY_V1.txt
 MOTORLAB_ACTIVATION_MODE=implicit-persistent-local-first
 MOTORLAB_PRE_RESPONSE_BOOT_GATE=required
 MOTORLAB_PROJECT_CONTINUITY=required
-MOTORLAB_CHANGE_HISTORY=required
-MOTORLAB_SEMANTIC_CHANGE_LOOKUP=required
+MOTORLAB_TECHNICAL_CHANGE_HISTORY=required
+MOTORLAB_PRE_CHANGE_APPROVAL=required
+MOTORLAB_VISIBLE_RESTORE_REGISTER=required
+MOTORLAB_VISIBLE_RESTORE_AUTO_CAPTURE=forbidden
+MOTORLAB_SIMPLE_STABLE_RESTORE_NUMBERS=required
+MOTORLAB_MULTI_CHANGE_ITEM_CONFIRMATION=required
 MOTORLAB_SELECTIVE_EXACT_RESTORE=required
-MOTORLAB_PROJECT_CHAT_POLICY=promptless-cross-chat-continuity
 MOTORLAB_NATIVE_ENGINE_POLICY=coexist-preserve
-MOTORLAB_VISIBLE_ACTIVATION_PROOF=required
 MOTORLAB_ITERATION_MODE=risk-scaled
 MOTORLAB_NO_SPIN_HANDOFF=required
 MOTORLAB_FOREGROUND_JOB_PROBES_MAX=2
 MOTORLAB_FULL_REGRESSION_AT=high-risk,candidate,madre
 MOTORLAB_FAST_LAB=conditional
 MOTORLAB_BACKGROUND_MODE=github-actions
-MOTORLAB_REGRESSION_MAP=MusicLab-r13-default-profile
+MOTORLAB_REGRESSION_MAP=MusicLab-r14-default-profile
 
 PURPOSE
-Persistent MusicLab-side structural hook for MotorLab. Every recognizable MusicLab chat activates MotorLab first, loads the verified local satellite, reconciles central MusicLab continuity against live GitHub state, preserves native MusicLab engines, and continues the latest logical operation without a transfer prompt. r12 enforces risk-scaled iteration/No-Spin; r13 adds semantic historical change lookup and selective exact restore from immutable Git provenance.
+Persistent MusicLab-side MotorLab hook. r14 keeps technical history separate from Bruno's visible Registro Modifiche e Ripristini and enforces a hard plan-before-write gate for every new application/project modification.
 
 MANDATORY RULES
-1. MotorLab activates before substantive MusicLab response/tool/write/build work.
-2. First user-visible line is "⚙️ MotorLab attivo".
-3. Do not require Bruno to paste activation or transfer prompts.
-4. Load MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt and reconcile against live repo/ref/head/workflow/job/artifact evidence before choosing current starting point.
-5. Load MOTORLAB_CHANGE_REGISTRY_MUSICLAB_V1.txt for historical semantic lookup/restoration; it never overrides newer current-state evidence.
-6. Live newer evidence wins over stale continuity/older UAB registry/chat memory for current state.
-7. Preserve same ACTIVE_OPERATION_ID/progress floor across chat ids while logical task remains same.
-8. If unfinished work exists, Resume Recovery + Watchdog continue it before unrelated writes.
-9. Refresh central MusicLab continuity at material continuation-relevant transitions when technically possible.
-10. Load local sync/core immediately; synchronize central release only at safe boundaries and preserve LAST_GOOD.
-11. MotorLab coexists with MusicLab playback/search/AI/runtime engines and never replaces them.
-12. Satellite/continuity/history metadata must not alter MusicLab application logic, UI, package identity, signing, audio/search/AI behavior or lifecycle state.
-13. Apply Change Compatibility Guard before writes/restores and preserve single-writer/lifecycle safety.
-14. Apply MOTORLAB_FAST_ITERATION_NO_SPIN_V1.txt; eligible isolated LAB loops use LOW/MEDIUM/HIGH risk profile while CANDIDATA/MADRE gates remain unchanged.
-15. When a persistent executor has accepted work and job id/checkpoint/next-safe-step are recorded, do not keep ordinary chat polling indefinitely; max two unchanged foreground probes by default, then HANDOFF_COMPLETE.
-16. For a historical request such as "player", search the semantic MusicLab registry first. Verify selected commit/ref before writing.
-17. If several materially different registered matches remain and Bruno has not specified one, show concise date/LAB-labelled choices instead of guessing.
-18. Default feature restore creates a new isolated LAB from current proper baseline and replays only the selected registered change while preserving unrelated later work; never direct-edit MADRE.
-19. A whole old version is restored only on explicit whole-version intent.
-20. If an older MusicLab change predates r13 and is not indexed, perform bounded verified Git/ledger backfill, persist the new record, then use it.
-21. Every newly verified Bruno-requested material MusicLab change and every successful restore is automatically written through to the central change registry when possible.
-22. UAB remains canonical for installable MusicLab APK/ZIP output; avoid redundant build/test phases that add no distinct verification value.
+1. First user-visible project line: "⚙️ MotorLab attivo".
+2. Reconcile MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt against newer live repository/job/artifact evidence before choosing the current starting point.
+3. Preserve MusicLab native playback/search/AI/runtime engines and lifecycle identity.
+4. Before EVERY NEW MusicLab write-capable modification, initial wording such as modifica/correggi/aggiungi/togli/ripristina is intent only. Perform read-only preparation, show Bruno the concise pre-change report, then wait for his approval of that report before source/config/lifecycle writes.
+5. Approval continuity applies only within the described scope. Material expansion requires an amended report and new approval before broadened writes.
+6. Apply Change Compatibility Guard, single-writer, Root Cause Closure and lifecycle protections.
+7. Technical change history may keep verified/superseded/backfilled records and exact Git provenance; it is not the visible confirmed restore list.
+8. The visible Registro Modifiche e Ripristini contains only specific modifications Bruno confirms as working and wants conserved.
+9. Use plain stable numbers 1,2,3... One feature family keeps one number; a newer confirmed working implementation updates the same slot.
+10. A multi-change LAB/APK never auto-registers as a whole. Save only the exact item(s) Bruno identifies for conservation. If his description is ambiguous, confirm the intended subchange before saving.
+11. Failed/unconfirmed/experimental attempts never enter the visible register. Existing pre-r14 technical records are not promoted automatically.
+12. After an actual persisted save/update, explicitly tell Bruno the register number.
+13. "Ripristina N" resolves N read-only, presents the restore plan, waits for Bruno approval, then uses selective isolated-LAB restore unless whole-version rollback was explicitly requested.
+14. Restore attempts do not advance the visible slot until Bruno confirms the result works and wants it conserved.
+15. Eligible isolated LAB loops use risk-scaled Fast Iteration/No-Spin; HIGH risk and CANDIDATA/MADRE retain full gates.
+16. Synchronize newer MotorLab releases only at safe boundaries, preserving LAST_GOOD. Metadata-only sync must not intentionally alter application runtime.
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.7
-Established: 2026-09-29
-Revision 1.5: r8 pre-response gate + Project Continuity.
-Revision 1.6: r12 MusicLab risk-scaled FAST LAB + No-Spin durable handoff.
-Revision 1.7: r13 semantic Change History registry, automatic verified change capture and selective exact restore/backfill.
+MOTORLAB-PROJECT-HOOK-V1.8
+Revision 1.8: r14 hard pre-change approval + user-confirmed numbered Registro Modifiche e Ripristini.
