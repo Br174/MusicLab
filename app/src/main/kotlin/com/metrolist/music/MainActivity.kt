@@ -920,10 +920,10 @@ class MainActivity : FragmentActivity() {
 
                     topAppBarScrollBehavior.state.resetHeightOffset()
 
-                    // Collapse player when navigating to equalizer
-                    if (navBackStackEntry?.destination?.route == "equalizer" &&
-                        playerBottomSheetState.isExpanded
-                    ) {
+                    // MusicLab LAB17: the expanded player is never persistent over another page.
+                    // The full player is an overlay, not a Nav destination, so a back-stack change
+                    // means the user selected app content and the player must become the mini-player.
+                    if (navBackStackEntry?.destination?.route != null && playerBottomSheetState.isExpanded) {
                         playerBottomSheetState.collapseSoft()
                     }
 

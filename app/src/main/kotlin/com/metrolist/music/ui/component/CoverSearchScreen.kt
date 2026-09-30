@@ -5,6 +5,7 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -73,6 +74,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 private val CoverAiFirstGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 private const val COVER_PAGE_SIZE = 10
+private const val MIN_COVER_PLAYABLE_TARGET = 50
+private const val MAX_COVER_RECOVERY_ROUNDS = 6
 
 private enum class AiCoverTab {
     COVER,
@@ -192,6 +195,9 @@ internal fun CoverSearchScreen(
     var showKeyDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var keyDraft by remember { mutableStateOf("") }
+    var detailResult by remember(sessionKey) { mutableStateOf<AiCoverPlayable?>(null) }
+    var detailCredits by remember(sessionKey) { mutableStateOf<GeminiVersionCredits?>(null) }
+    var detailLoading by remember(sessionKey) { mutableStateOf(false) }
 
     fun categoryEnabled(category: AiCoverCategory): Boolean = when (category) {
         AiCoverCategory.COVER -> true
@@ -379,6 +385,54 @@ internal fun CoverSearchScreen(
             }
         }.onFailure { failed = true }
 
+        // STEP 4: il target riguarda risultati realmente riproducibili, non semplici nomi AI.
+        // Se molti candidati non vengono localizzati, chiediamo nuovi nomi con strategie
+        // differenti e riproviamo YTM -> YouTube. Due passate senza progresso fermano il ciclo.
+        var noProgressPasses = 0
+        for (round in 0 until MAX_COVER_RECOVERY_ROUNDS) {
+            val playableCovers = playables.count { it.candidate.category == AiCoverCategory.COVER }
+            if (playableCovers >= MIN_COVER_PLAYABLE_TARGET || noProgressPasses >= 2) break
+
+            val beforeCandidates = knownCandidates.size
+            val beforePlayables = playables.size
+            val recovered = runCatching {
+                GeminiAiCoverDiscovery.discoverRecoveryBatch(
+                    originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
+                    originalArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist,
+                    existing = knownCandidates,
+                    config = config,
+                    round = round,
+                )
+            }.getOrDefault(emptyList())
+                .filter { categoryEnabled(it.category) }
+                .filter { candidate -> knownCandidates.none { it.stableKey == candidate.stableKey } }
+
+            if (recovered.isNotEmpty()) {
+                knownCandidates = (knownCandidates + recovered).distinctBy { it.stableKey }
+                expandedCandidateCount += recovered.size
+                session.knownCandidates = knownCandidates
+                session.expandedCandidateCount = expandedCandidateCount
+
+                val resolved = runCatching {
+                    AiCoverSearchEngine.resolveCandidates(
+                        candidates = recovered,
+                        currentYouTubeId = currentYouTubeId,
+                        pauseBetweenBatches = false,
+                    )
+                }.getOrDefault(AiCoverResolveResult(emptyList(), AiCoverResolveStats()))
+
+                playables = mergePlayables(playables, resolved.playables)
+                youtubeMusicHits += resolved.stats.youtubeMusicHits
+                youtubeHits += resolved.stats.youtubeHits
+                session.playables = playables
+                session.youtubeMusicHits = youtubeMusicHits
+                session.youtubeHits = youtubeHits
+            }
+
+            val madeProgress = knownCandidates.size > beforeCandidates || playables.size > beforePlayables
+            noProgressPasses = if (madeProgress) 0 else noProgressPasses + 1
+        }
+
         session.backgroundComplete = true
         backgroundLoading = false
     }
@@ -428,6 +482,30 @@ internal fun CoverSearchScreen(
         }
     }
 
+    LaunchedEffect(detailResult?.song?.id, geminiConfig, originalInfo?.title, originalInfo?.artist) {
+        val result = detailResult ?: return@LaunchedEffect
+        detailCredits = null
+        detailLoading = true
+        val info = originalInfo
+        val identity = GeminiOriginalIdentity(
+            title = info?.title?.ifBlank { title } ?: title,
+            originalArtists = listOf(info?.artist?.ifBlank { originalArtist } ?: originalArtist).filter { it.isNotBlank() },
+            year = info?.year,
+            songwriters = info?.songwriters.orEmpty(),
+            composers = info?.composers.orEmpty(),
+            lyricists = info?.lyricists.orEmpty(),
+            producers = info?.producers.orEmpty(),
+            label = info?.label,
+            album = info?.album,
+            mode = GeminiOriginalMode.MODEL_KNOWLEDGE,
+            webSourceCount = 0,
+        )
+        detailCredits = runCatching {
+            GeminiOriginalVersionCredits.enrich(identity, listOf(result.song), geminiConfig)[result.song.id]
+        }.getOrNull()
+        detailLoading = false
+    }
+
     if (showDiagnosticsDialog) {
         AlertDialog(
             onDismissRequest = { showDiagnosticsDialog = false },
@@ -468,6 +546,19 @@ internal fun CoverSearchScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showDiagnosticsDialog = false }) { Text("Chiudi") }
+            },
+        )
+    }
+
+    detailResult?.let { selected ->
+        CoverDetailDialog(
+            result = selected,
+            credits = detailCredits,
+            loading = detailLoading,
+            onDismiss = { detailResult = null },
+            onReplace = {
+                replaceWith(selected)
+                detailResult = null
             },
         )
     }
@@ -521,15 +612,9 @@ internal fun CoverSearchScreen(
                             info.language?.let {
                                 Text("Lingua originale: $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            AiCoverCredits(
-                                year = info.year,
-                                album = info.album,
-                                songwriters = info.songwriters,
-                                composers = info.composers,
-                                lyricists = info.lyricists,
-                                producers = info.producers,
-                                label = info.label,
-                            )
+                            info.album?.let { album ->
+                                Text("Album: $album", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             Text(
                                 text = "L'AI decide le informazioni editoriali. YouTube e YouTube Music servono esclusivamente a trovare una riproduzione.",
                                 style = MaterialTheme.typography.labelSmall,
@@ -619,6 +704,7 @@ internal fun CoverSearchScreen(
                                     result = result,
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
+                                    onDetails = { detailResult = result },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -726,22 +812,17 @@ private fun CoverStartRow(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onPlay, onLongClick = {}).padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
     ) {
         AsyncImage(
             model = song.thumbnail,
-            contentDescription = null,
+            contentDescription = "Riproduci",
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)),
+            modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onPlay),
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                info?.title?.ifBlank { song.title } ?: song.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Text(info?.title?.ifBlank { song.title } ?: song.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 info?.artist?.ifBlank { song.artists.joinToString(", ") { it.name } }
                     ?: song.artists.joinToString(", ") { it.name },
@@ -750,16 +831,12 @@ private fun CoverStartRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            AiCoverCredits(
-                year = info?.year ?: fallbackYear,
-                album = info?.album,
-                songwriters = info?.songwriters.orEmpty(),
-                composers = info?.composers.orEmpty(),
-                lyricists = info?.lyricists.orEmpty(),
-                producers = info?.producers.orEmpty(),
-                label = info?.label,
+            Text(
+                text = (info?.year ?: fallbackYear)?.let { "Data: $it" } ?: "Data non disponibile",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
             )
-            Text("Tocca la locandina per ascoltare", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            info?.album?.let { album -> Text("Album: $album", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
@@ -770,57 +847,94 @@ private fun AiCoverResultRow(
     result: AiCoverPlayable,
     onPlay: () -> Unit,
     onReplace: () -> Unit,
+    onDetails: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onPlay, onLongClick = onLongClick).padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onDetails, onLongClick = onLongClick).padding(vertical = 6.dp),
     ) {
         AsyncImage(
             model = result.song.thumbnail,
-            contentDescription = null,
+            contentDescription = "Riproduci",
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)),
+            modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onPlay),
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(result.candidate.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                result.candidate.artist,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Text(result.candidate.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 text = result.candidate.year?.let { "Data: $it" } ?: "Data non disponibile",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            result.candidate.language?.let {
-                Text("Lingua: $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             result.candidate.album?.let { album ->
-                Text("Album: $album", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Album: $album", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            AiCoverCreditsWithoutYearAlbum(
-                songwriters = result.candidate.songwriters,
-                composers = result.candidate.composers,
-                lyricists = result.candidate.lyricists,
-                producers = result.candidate.producers,
-                label = result.candidate.label,
+            Text(
+                "${coverCategoryLabel(result.candidate.category)} · ${result.playbackSource}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text("Riproduzione: ${result.playbackSource}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Tocca la locandina per ascoltare", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Button(
-            onClick = onReplace,
+            onClick = onDetails,
             modifier = Modifier.padding(start = 8.dp).height(36.dp),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        ) {
-            Text("Sostituisci", style = MaterialTheme.typography.labelSmall)
-        }
+        ) { Text("Dettagli", style = MaterialTheme.typography.labelSmall) }
     }
+}
+
+@Composable
+private fun CoverDetailDialog(
+    result: AiCoverPlayable,
+    credits: GeminiVersionCredits?,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onReplace: () -> Unit,
+) {
+    val candidate = result.candidate
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(candidate.title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(candidate.artist, style = MaterialTheme.typography.titleSmall)
+                Text("Tipo: ${coverCategoryLabel(candidate.category)}")
+                Text((credits?.year ?: candidate.year)?.let { "Data: $it" } ?: "Data: non disponibile")
+                (credits?.album ?: candidate.album)?.let { Text("Album: $it") }
+                candidate.language?.let { Text("Lingua: $it") }
+                Text("Riproduzione: ${result.playbackSource}", style = MaterialTheme.typography.bodySmall)
+                if (loading) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Recupero informazioni complete…", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                val songwriters = credits?.songwriters?.takeIf { it.isNotEmpty() } ?: candidate.songwriters
+                val composers = credits?.composers?.takeIf { it.isNotEmpty() } ?: candidate.composers
+                val lyricists = credits?.lyricists?.takeIf { it.isNotEmpty() } ?: candidate.lyricists
+                val producers = credits?.producers?.takeIf { it.isNotEmpty() } ?: candidate.producers
+                val label = credits?.label ?: candidate.label
+                if (songwriters.isNotEmpty()) Text("Autori: ${songwriters.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                if (composers.isNotEmpty()) Text("Compositori: ${composers.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                if (lyricists.isNotEmpty()) Text("Parolieri: ${lyricists.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                if (producers.isNotEmpty()) Text("Produttori: ${producers.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                label?.let { Text("Etichetta: $it", style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = { TextButton(onClick = onReplace) { Text("Sostituisci") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } },
+    )
+}
+
+private fun coverCategoryLabel(category: AiCoverCategory): String = when (category) {
+    AiCoverCategory.COVER -> "Studio"
+    AiCoverCategory.LIVE -> "Live"
+    AiCoverCategory.REMIX -> "Remix"
+    AiCoverCategory.FOREIGN -> "Studio · straniera"
 }
 
 @Composable

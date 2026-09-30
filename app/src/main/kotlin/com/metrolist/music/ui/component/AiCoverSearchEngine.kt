@@ -79,43 +79,42 @@ internal object AiCoverSearchEngine {
         val queries = when (candidate.category) {
             AiCoverCategory.COVER -> listOf(
                 "${candidate.title} ${candidate.artist}",
+                "${candidate.artist} ${candidate.title}",
                 "${candidate.title} ${candidate.artist} official audio",
+                "${candidate.title} ${candidate.artist} cover",
+                "${candidate.title} ${candidate.artist} lyrics",
             )
             AiCoverCategory.FOREIGN -> listOf(
                 "${candidate.title} ${candidate.artist}$languageSuffix",
+                "${candidate.artist} ${candidate.title}$languageSuffix",
                 "${candidate.title} ${candidate.artist} official audio$languageSuffix",
+                "${candidate.title} ${candidate.artist} lyrics$languageSuffix",
             )
             AiCoverCategory.REMIX -> listOf(
                 "${candidate.title} ${candidate.artist} remix",
+                "${candidate.artist} ${candidate.title} remix",
                 "${candidate.title} ${candidate.artist} rework",
+                "${candidate.title} ${candidate.artist} mix",
             )
             AiCoverCategory.LIVE -> listOf(
                 "${candidate.title} ${candidate.artist} live",
+                "${candidate.artist} ${candidate.title} live",
                 "${candidate.title} ${candidate.artist} performance",
+                "${candidate.title} ${candidate.artist} session",
             )
+        }.distinct()
+
+        // STEP playback 1: YouTube Music su tutte le query, perché offre album/cover più puliti.
+        for (query in queries) {
+            searchAndPick(query, YouTube.SearchFilter.FILTER_SONG, candidate, currentYouTubeId)?.let {
+                return datedPlayable(candidate, it, "YouTube Music")
+            }
         }
 
+        // STEP playback 2: se YTM non localizza la versione, usa il catalogo video YouTube.
         for (query in queries) {
-            when (candidate.category) {
-                AiCoverCategory.LIVE -> {
-                    searchAndPick(query, YouTube.SearchFilter.FILTER_VIDEO, candidate, currentYouTubeId)?.let {
-                        return datedPlayable(candidate, it, "YouTube")
-                    }
-                    searchAndPick(query, YouTube.SearchFilter.FILTER_SONG, candidate, currentYouTubeId)?.let {
-                        return datedPlayable(candidate, it, "YouTube Music")
-                    }
-                }
-                AiCoverCategory.COVER,
-                AiCoverCategory.FOREIGN,
-                AiCoverCategory.REMIX,
-                -> {
-                    searchAndPick(query, YouTube.SearchFilter.FILTER_SONG, candidate, currentYouTubeId)?.let {
-                        return datedPlayable(candidate, it, "YouTube Music")
-                    }
-                    searchAndPick(query, YouTube.SearchFilter.FILTER_VIDEO, candidate, currentYouTubeId)?.let {
-                        return datedPlayable(candidate, it, "YouTube")
-                    }
-                }
+            searchAndPick(query, YouTube.SearchFilter.FILTER_VIDEO, candidate, currentYouTubeId)?.let {
+                return datedPlayable(candidate, it, "YouTube")
             }
         }
         return null

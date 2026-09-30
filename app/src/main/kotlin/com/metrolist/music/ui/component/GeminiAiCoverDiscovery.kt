@@ -82,7 +82,11 @@ internal object GeminiAiCoverDiscovery {
     private val initialCache = ConcurrentHashMap<String, CachedDiscovery>()
     private val expandedCache = ConcurrentHashMap<String, CachedDiscovery>()
 
-    /** Prima corsia: fino a dieci cover studio, poi il resto continua in background. */
+    /**
+     * STEP 1: stabilisce la composizione canonica e raccoglie un primo gruppo leggero.
+     * Cloudflare e Gemini non sono più alternativi: le due risposte vengono unite.
+     * In questa fase chiediamo solo i metadati essenziali; i crediti completi sono on-demand.
+     */
     suspend fun discoverInitial(
         originalTitle: String,
         originalArtist: String,
@@ -91,47 +95,44 @@ internal object GeminiAiCoverDiscovery {
         if (originalTitle.isBlank() || (config.apiKey.isBlank() && config.cloudEndpoint.isBlank())) {
             return@withContext AiCoverDiscoveryResult(null, emptyList())
         }
-        val cacheKey = "initial16|${config.model}|${canonical(originalTitle)}|${canonical(originalArtist)}"
+        val cacheKey = "initial17|${config.model}|${canonical(originalTitle)}|${canonical(originalArtist)}"
         initialCache[cacheKey]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let {
             return@withContext it.value
         }
 
-        if (config.cloudEndpoint.isNotBlank()) {
-            val cloudResult = CloudMusicDiscovery.discoverCover(
+        val cloud = if (config.cloudEndpoint.isNotBlank()) {
+            CloudMusicDiscovery.discoverCover(
                 title = originalTitle,
                 artist = originalArtist,
                 config = config,
                 phase = "initial",
+                focus = "STEP 1: identifica con precisione la composizione canonica e il vero interprete originale; poi restituisci prime cover studio reali con soli titolo, artista, anno e album essenziali.",
             )
-            if (cloudResult != null) {
-                val result = sanitize(cloudResult, originalArtist, AiCoverCategory.COVER, INITIAL_LIMIT)
-                initialCache[cacheKey] = CachedDiscovery(result, System.currentTimeMillis() + CACHE_TTL_MS)
-                return@withContext result
-            }
-        }
-        if (config.apiKey.isBlank()) return@withContext AiCoverDiscoveryResult(null, emptyList())
+        } else null
 
-        val prompt = """Sei il cervello musicale AI-first di MusicLab.
-La tua risposta è l'autorità editoriale: YouTube/YouTube Music non decidono metadati, artista, album o crediti.
+        val direct = if (config.apiKey.isNotBlank()) {
+            val prompt = """Sei il motore musicale AI-first di MusicLab. Lavora a STEP e non confondere l'interprete della traccia corrente con l'interprete originale.
 
-Composizione di partenza:
-Titolo: ${originalTitle.trim()}
-Interprete indicato: ${originalArtist.trim().ifBlank { "sconosciuto" }}
+STEP 1 — IDENTITÀ CANONICA.
+Traccia di partenza:
+Titolo/video: ${originalTitle.trim()}
+Interprete/canale: ${originalArtist.trim().ifBlank { "sconosciuto" }}
 
-PRIMA RISPOSTA VELOCE: restituisci al massimo $INITIAL_LIMIT cover IN STUDIO reali e sicure della stessa composizione, eseguite da artisti diversi dall'originale. Privilegia velocità e affidabilità; distribuisci le versioni nel tempo quando possibile.
-Non inserire live, remix, karaoke, reaction, tutorial, backing track, mashup o medley.
-Identifica anche il vero originale canonico.
-Per questa prima risposta titolo, artista, categoria, lingua e anno sono prioritari; album e crediti possono essere null o vuoti se richiedono più tempo.
+Prima stabilisci qual è la COMPOSIZIONE e chi l'ha INCISA/INTERPRETATA ORIGINARIAMENTE. Se la traccia di partenza è una cover, live, duetto o video TV, NON usare automaticamente quel cantante come originale. Distingui interprete originale da autore/compositore. Usa la ricerca Google quando serve a evitare un'identità sbagliata.
+
+STEP 2 — PRIMO GRUPPO.
+Dopo l'identità, restituisci fino a $INITIAL_LIMIT cover IN STUDIO reali della stessa composizione, eseguite da altri artisti. In questa fase servono solo titolo, artista, categoria, lingua, anno e album se noto. NON spendere spazio sui crediti completi: verranno richiesti solo quando l'utente apre i dettagli.
+Escludi karaoke, reaction, tutorial, backing track, mashup e medley.
 
 Rispondi SOLO JSON:
 {
- "original":{"title":"","artist":"","year":null,"album":null,"language":null,"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null},
- "versions":[{"title":"","artist":"","category":"cover","language":null,"year":null,"album":null,"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}]
+ "original":{"title":"","artist":"","year":null,"album":null,"language":null},
+ "versions":[{"title":"","artist":"","category":"cover","language":null,"year":null,"album":null}]
 }"""
+            executeWithFallbackModels(config, prompt, 2400, true)?.let { parse(it, originalArtist) }
+        } else null
 
-        val text = executeWithFallbackModels(config, prompt, 2600, false)
-            ?: return@withContext AiCoverDiscoveryResult(null, emptyList())
-        val result = sanitize(parse(text, originalArtist), originalArtist, AiCoverCategory.COVER, INITIAL_LIMIT)
+        val result = mergeDiscoveries(cloud, direct, originalArtist, AiCoverCategory.COVER, INITIAL_LIMIT)
         initialCache[cacheKey] = CachedDiscovery(result, System.currentTimeMillis() + CACHE_TTL_MS)
         result
     }
@@ -231,6 +232,22 @@ Rispondi SOLO JSON:
         }
     }
 
+    /**
+     * STEP di recupero richiesto dalla UI quando i candidati trovati non diventano
+     * abbastanza risultati riproducibili. Ogni round usa una strategia diversa e
+     * riceve l'elenco già noto, quindi l'AI si auto-interroga senza ripetere gli stessi nomi.
+     */
+    suspend fun discoverRecoveryBatch(
+        originalTitle: String,
+        originalArtist: String,
+        existing: List<AiCoverCandidate>,
+        config: GeminiCoverVerificationConfig,
+        round: Int,
+    ): List<AiCoverCandidate> = withContext(Dispatchers.IO) {
+        val focus = COVER_PLAYABLE_RECOVERY_FOCI[round.coerceAtLeast(0) % COVER_PLAYABLE_RECOVERY_FOCI.size]
+        discoverResearchRound(originalTitle, originalArtist, existing, focus, config)
+    }
+
     private fun discoverResearchRound(
         originalTitle: String,
         originalArtist: String,
@@ -238,8 +255,8 @@ Rispondi SOLO JSON:
         focus: ResearchFocus,
         config: GeminiCoverVerificationConfig,
     ): List<AiCoverCandidate> {
-        if (config.cloudEndpoint.isNotBlank()) {
-            val cloudResult = runCatching {
+        val cloudVersions = if (config.cloudEndpoint.isNotBlank()) {
+            runCatching {
                 kotlinx.coroutines.runBlocking {
                     CloudMusicDiscovery.discoverCover(
                         title = originalTitle,
@@ -247,50 +264,72 @@ Rispondi SOLO JSON:
                         config = config,
                         phase = "expand",
                         existing = existing,
-                        focus = focus.instructions,
+                        focus = "STEP DI RICERCA: ${focus.instructions} Restituisci soprattutto NUOVI nomi/versioni; crediti completi non necessari ora.",
                     )
                 }
-            }.getOrNull()
-            if (cloudResult != null) {
-                return sanitize(cloudResult, originalArtist, focus.category, focus.limit).versions
-            }
-        }
-        if (config.apiKey.isBlank()) return emptyList()
+            }.getOrNull()?.let { sanitize(it, originalArtist, focus.category, focus.limit).versions }.orEmpty()
+        } else emptyList()
 
-        val excluded = existing.take(220).joinToString("\n") {
+        if (config.apiKey.isBlank()) return cloudVersions.distinctBy { it.stableKey }.take(focus.limit)
+
+        val excluded = existing.take(260).joinToString("\n") {
             "- ${it.artist} — ${it.title} [${it.category.name.lowercase()}${it.language?.let { l -> ", $l" }.orEmpty()}]"
         }
 
-        val prompt = """Sei il motore musicale AI-first centrale di MusicLab.
-Devi trovare versioni REALI della stessa composizione. Sei TU a decidere identità, categoria e metadati. Non chiedere a YouTube di decidere nulla.
+        val prompt = """Sei il motore musicale AI-first centrale di MusicLab. Devi lavorare A STEP e massimizzare i risultati REALI, non fermarti ai nomi più famosi.
 
-Composizione:
+Composizione canonica:
 Titolo: ${originalTitle.trim()}
 Interprete originale: ${originalArtist.trim().ifBlank { "sconosciuto" }}
 
-FOCUS DI QUESTA PASSATA:
+STEP CORRENTE:
 ${focus.instructions}
 
-Regole di classificazione ESCLUSIVE:
-- cover = incisione/registrazione IN STUDIO pubblicata da un interprete diverso dall'originale, nella lingua dell'originale;
-- live = esecuzione non da studio: concerto, TV, radio, sessione, festival o performance video;
-- remix = remix/rework/club mix/radio mix/extended mix;
-- straniera = incisione IN STUDIO in una lingua diversa dall'originale, inclusi adattamenti con titolo tradotto o totalmente diverso.
-Se si sovrappongono caratteristiche usa la precedenza: remix > live > straniera > cover.
-Escludi l'interprete originale, karaoke, reaction, tutorial, backing track, mashup, medley e tribute anonimi.
-Non inventare versioni per raggiungere un numero. Cerca anche versioni poco note e storiche. Restituisci fino a ${focus.limit} elementi nuovi.
-Per OGNI elemento indica l'anno di pubblicazione quando è documentabile; non inventare l'anno se non è verificabile.
-Prima scopri titolo/artista/categoria/lingua/anno; album e crediti vanno aggiunti se li conosci senza rallentare inutilmente.
+Obiettivo di questo step: trovare fino a ${focus.limit} elementi NUOVI della stessa composizione. Se la prima memoria mentale produce pochi nomi, riesamina per decenni, album, singoli, paesi, programmi TV, festival o pubblicazioni digitali coerenti con il focus. Non ripetere gli elementi già noti.
+
+Classificazione:
+- cover = incisione IN STUDIO da un interprete diverso dall'originale nella lingua originale;
+- live = concerto, TV, radio, sessione, festival o performance non da studio;
+- remix = remix/rework/mix attribuito;
+- straniera = incisione IN STUDIO in altra lingua, anche con titolo tradotto.
+Precedenza: remix > live > straniera > cover.
+Escludi karaoke, reaction, tutorial, backing track, mashup, medley e tribute anonimi.
+Non inventare per raggiungere il numero.
+
+IMPORTANTE: in questa fase restituisci SOLO metadati essenziali per la localizzazione audio: titolo, artista, categoria, lingua, anno e album se noto. I crediti completi saranno richiesti soltanto quando l'utente apre Dettagli.
 
 Già note, da NON ripetere:
 ${excluded.ifBlank { "(nessuna)" }}
 
 Rispondi SOLO JSON:
-{"original":null,"versions":[{"title":"","artist":"","category":"cover|live|remix|straniera","language":null,"year":null,"album":null,"songwriters":[],"composers":[],"lyricists":[],"producers":[],"label":null}]}
+{"original":null,"versions":[{"title":"","artist":"","category":"cover|live|remix|straniera","language":null,"year":null,"album":null}]}
 """
 
-        val text = executeWithFallbackModels(config, prompt, 4300, focus.deepResearch) ?: return emptyList()
-        return sanitize(parse(text, originalArtist), originalArtist, focus.category, focus.limit).versions
+        val directVersions = executeWithFallbackModels(config, prompt, 4300, focus.deepResearch)
+            ?.let { sanitize(parse(it, originalArtist), originalArtist, focus.category, focus.limit).versions }
+            .orEmpty()
+
+        return (cloudVersions + directVersions)
+            .distinctBy { it.stableKey }
+            .take(focus.limit)
+    }
+
+    private fun mergeDiscoveries(
+        cloud: AiCoverDiscoveryResult?,
+        direct: AiCoverDiscoveryResult?,
+        originalArtist: String,
+        forcedCategory: AiCoverCategory?,
+        limit: Int,
+    ): AiCoverDiscoveryResult {
+        val original = direct?.original ?: cloud?.original
+        val merged = AiCoverDiscoveryResult(
+            original = original,
+            versions = buildList {
+                cloud?.versions?.let(::addAll)
+                direct?.versions?.let(::addAll)
+            }.distinctBy { it.stableKey },
+        )
+        return sanitize(merged, originalArtist, forcedCategory, limit)
     }
 
     private fun sanitize(
@@ -484,10 +523,19 @@ Rispondi SOLO JSON:
         ResearchFocus(AiCoverCategory.COVER, "Ultimo recupero cover studio: trova qualsiasi reinterpretazione reale della stessa composizione ancora assente. Non inventare elementi per raggiungere il target.", 24, true),
     )
 
+    private val COVER_PLAYABLE_RECOVERY_FOCI = listOf(
+        ResearchFocus(AiCoverCategory.COVER, "Nuovo giro: cerca cover studio reali non ancora elencate, artista per artista e decennio per decennio. Privilegia incisioni ufficiali/localizzabili.", 36, true),
+        ResearchFocus(AiCoverCategory.COVER, "Nuovo giro: esplora cataloghi, compilation, singoli, talent/show e reinterpretazioni ufficiali meno note della stessa composizione.", 36, true),
+        ResearchFocus(AiCoverCategory.COVER, "Nuovo giro: cerca reinterpretazioni studio internazionali nella stessa lingua originale e pubblicazioni digitali attribuite.", 36, true),
+        ResearchFocus(AiCoverCategory.COVER, "Nuovo giro: verifica quali interpreti e incisioni reali della composizione sono ancora assenti dalla lista già nota.", 40, true),
+        ResearchFocus(AiCoverCategory.COVER, "Recupero profondo: usa ricerca web per trovare cover studio documentate che i passaggi precedenti non hanno nominato.", 40, true),
+        ResearchFocus(AiCoverCategory.COVER, "Ultimo giro: trova soltanto nuove cover studio reali ancora assenti; se non esistono altri risultati affidabili restituisci lista vuota.", 40, true),
+    )
+
     private val DISALLOWED = Regex("\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b")
     private const val INITIAL_LIMIT = 10
     private const val MIN_COVER_TARGET = 50
-    private const val MAX_TOTAL_CANDIDATES = 240
+    private const val MAX_TOTAL_CANDIDATES = 320
     private const val CONCURRENT_RESEARCH = 3
     private const val MAX_EMPTY_PASSES = 2
     private const val MAX_COVER_RECOVERY_EMPTY_PASSES = 2

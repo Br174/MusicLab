@@ -63,63 +63,102 @@ internal object GeminiOriginalDiscovery {
     ): GeminiOriginalIdentity? = withContext(Dispatchers.IO) {
         if (currentTitle.isBlank()) return@withContext null
 
-        val cacheKey = "v2|${config.model}|${currentTitle.trim().lowercase()}|${currentArtist.trim().lowercase()}"
-        cache[cacheKey]
-            ?.takeIf { it.expiresAtMs > System.currentTimeMillis() }
-            ?.let { return@withContext it.identity }
+        val cacheKey = "v3|${config.model}|${currentTitle.trim().lowercase()}|${currentArtist.trim().lowercase()}"
+        cache[cacheKey]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let { return@withContext it.identity }
 
-        if (config.cloudEndpoint.isNotBlank()) {
-            val cloudIdentity = CloudMusicDiscovery.identifyOriginal(
-                title = currentTitle,
-                artist = currentArtist,
-                config = config,
-            )
-            if (cloudIdentity != null) {
-                cache[cacheKey] = CachedIdentity(
-                    identity = cloudIdentity,
-                    expiresAtMs = System.currentTimeMillis() + CACHE_TTL_MS,
-                )
-                return@withContext cloudIdentity
-            }
-        }
-        if (!config.isUsable()) return@withContext null
+        val cloudIdentity = if (config.cloudEndpoint.isNotBlank()) {
+            CloudMusicDiscovery.identifyOriginal(currentTitle, currentArtist, config)
+        } else null
 
-        val prompt =
-            """Sei il motore Originali di un'app musicale. La traccia corrente può essere una cover, un live, un duetto, una performance TV o avere un titolo descrittivo.
+        val directIdentity = if (config.isUsable()) {
+            val prompt = """Sei il motore Originali di MusicLab. Lavora per STEP.
 
+STEP 1 — IDENTITÀ CANONICA.
+La traccia corrente può essere cover, live, duetto, TV o avere un titolo descrittivo.
 Titolo/video: ${currentTitle.trim()}
 Interprete/canale: ${currentArtist.trim().ifBlank { "sconosciuto" }}
 
-Decidi direttamente, usando la tua conoscenza, qual è la stessa CANZONE nell'incisione originale e chi è l'INTERPRETE ORIGINALE. La tua decisione è quella usata dall'app: non proporre alternative, non chiedere conferme e non fare verifiche esterne.
+Stabilisci la COMPOSIZIONE canonica e chi è il vero INTERPRETE ORIGINALE della prima incisione/pubblicazione. Non confondere autore o compositore con interprete, e non assumere che l'artista corrente sia l'originale. Usa la ricerca Google per verificare i casi ambigui.
 
-Se conosci anno e crediti, inseriscili direttamente in base alla tua conoscenza. Usa null o [] solo quando davvero non li conosci. Includi quando noti: autori, compositori, parolieri, produttori, etichetta e album/singolo.
+In questo step NON servono crediti completi. Restituisci solo titolo canonico, interprete originale, anno della prima pubblicazione e album/singolo se noto. I crediti saranno caricati soltanto quando l'utente apre Dettagli.
 
-Rispondi SOLO con JSON valido:
+Rispondi SOLO JSON valido:
 {
   "title":"titolo canonico",
   "original_artists":["interprete originale"],
   "year":1965,
-  "songwriters":["nome"],
-  "composers":["nome"],
-  "lyricists":["nome"],
-  "producers":["nome"],
-  "label":"etichetta oppure null",
   "album":"album o singolo oppure null"
 }"""
+            executeWithFallbackModels(prompt, config, useGoogleSearch = true, maxOutputTokens = 900)?.let(::parseIdentity)
+        } else null
 
-        val response = executeWithFallbackModels(
+        val identity = mergeIdentities(cloudIdentity, directIdentity) ?: return@withContext null
+        cache[cacheKey] = CachedIdentity(identity, System.currentTimeMillis() + CACHE_TTL_MS)
+        identity
+    }
+
+    /**
+     * STEP 2/3 di Originali: Gemini suggerisce nuove interrogazioni quando le ricerche
+     * standard non hanno ancora prodotto almeno il target di versioni riproducibili.
+     */
+    suspend fun planVersionQueries(
+        identity: GeminiOriginalIdentity,
+        existingQueries: List<String>,
+        round: Int,
+        config: GeminiCoverVerificationConfig?,
+    ): List<String> = withContext(Dispatchers.IO) {
+        if (config == null || !config.isUsable()) return@withContext emptyList()
+        val excluded = existingQueries.take(80).joinToString("\n") { "- $it" }
+        val prompt = """Sei il pianificatore di ricerca della funzione Originali di MusicLab.
+Composizione: ${identity.title}
+Interprete originale: ${identity.originalArtists.joinToString(", ")}
+Anno originale: ${identity.year ?: "sconosciuto"}
+
+Siamo al giro ${round + 1}. Dobbiamo localizzare almeno 10 registrazioni/performance REALI della stessa composizione in cui compare l'interprete originale. Non devi inventare risultati: devi produrre QUERY DI RICERCA utili per YouTube Music e YouTube.
+
+Cerca strategie diverse: incisioni studio/remaster, album e singoli, live, TV/radio, sessioni, duetti/collaborazioni, acoustic/unplugged, remix ufficiali, anni/eventi noti. Se i giri precedenti hanno fallito, cambia strategia.
+
+Query già usate, da NON ripetere:
+${excluded.ifBlank { "(nessuna)" }}
+
+Restituisci fino a 18 query complete e concise. Nessun credito.
+Rispondi SOLO JSON: {"queries":["query 1","query 2"]}
+"""
+        val answer = executeWithFallbackModels(
             prompt = prompt,
             config = config,
-            useGoogleSearch = false,
-            maxOutputTokens = 750,
-        ) ?: return@withContext null
+            useGoogleSearch = round > 0,
+            maxOutputTokens = 1400,
+        ) ?: return@withContext emptyList()
+        parseQueries(answer.text)
+            .filter { it.isNotBlank() && it !in existingQueries }
+            .distinct()
+            .take(18)
+    }
 
-        val parsed = parseIdentity(response) ?: return@withContext null
-        cache[cacheKey] = CachedIdentity(
-            identity = parsed,
-            expiresAtMs = System.currentTimeMillis() + CACHE_TTL_MS,
+    private fun mergeIdentities(
+        cloud: GeminiOriginalIdentity?,
+        direct: GeminiOriginalIdentity?,
+    ): GeminiOriginalIdentity? {
+        if (direct == null) return cloud
+        if (cloud == null) return direct
+        return direct.copy(
+            year = direct.year ?: cloud.year,
+            album = direct.album ?: cloud.album,
+            songwriters = direct.songwriters.ifEmpty { cloud.songwriters },
+            composers = direct.composers.ifEmpty { cloud.composers },
+            lyricists = direct.lyricists.ifEmpty { cloud.lyricists },
+            producers = direct.producers.ifEmpty { cloud.producers },
+            label = direct.label ?: cloud.label,
         )
-        parsed
+    }
+
+    private fun parseQueries(text: String): List<String> {
+        val root = extractJsonObject(text) ?: return emptyList()
+        return root["queries"]?.runCatching { jsonArray }?.getOrNull()
+            ?.mapNotNull { it.runCatching { jsonPrimitive }.getOrNull()?.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+            ?.distinct()
+            .orEmpty()
     }
 
     private fun GeminiCoverVerificationConfig.isUsable(): Boolean =

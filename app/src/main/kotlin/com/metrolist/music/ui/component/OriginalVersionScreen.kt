@@ -68,7 +68,7 @@ private val OriginalGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 private const val ORIGINAL_PAGE_SIZE = 10
 
 private enum class OriginalResultsTab {
-    VERSIONS,
+    STUDIO,
     LIVE,
     WITH_OTHERS,
     REMIX,
@@ -128,7 +128,7 @@ internal fun OriginalVersionScreen(
     }
     var failed by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var showDiagnosticsDialog by remember(request.currentYouTubeId) { mutableStateOf(false) }
-    var selectedTab by remember(request.currentYouTubeId) { mutableStateOf(OriginalResultsTab.VERSIONS) }
+    var selectedTab by remember(request.currentYouTubeId) { mutableStateOf(OriginalResultsTab.STUDIO) }
     var visibleVersionCount by remember(request.currentYouTubeId, selectedTab) {
         mutableIntStateOf(ORIGINAL_PAGE_SIZE)
     }
@@ -142,6 +142,8 @@ internal fun OriginalVersionScreen(
 
     var currentOverride by remember(request.currentYouTubeId) { mutableStateOf<YouTubeMatchOverride?>(null) }
     var startingVersion by remember(request.currentYouTubeId) { mutableStateOf<CoverHubResult?>(null) }
+    var detailResult by remember(request.currentYouTubeId) { mutableStateOf<CoverHubResult?>(null) }
+    var detailLoading by remember(request.currentYouTubeId) { mutableStateOf(false) }
 
     // Load the starting version independently: it must never delay the AI or the first results.
     LaunchedEffect(request.currentYouTubeId) {
@@ -185,7 +187,7 @@ internal fun OriginalVersionScreen(
         creditsLoading = false
         versionCredits = emptyMap()
         failed = false
-        selectedTab = OriginalResultsTab.VERSIONS
+        selectedTab = OriginalResultsTab.STUDIO
         visibleVersionCount = ORIGINAL_PAGE_SIZE
 
         val identified = runCatching {
@@ -217,55 +219,32 @@ internal fun OriginalVersionScreen(
         backgroundLoading = true
         creditsLoading = true
 
-        val initialSongs = buildList<SongItem> {
-            initial.original?.song?.let(::add)
-            initial.versions.forEach { add(it.song) }
-        }.distinctBy { it.id }
-            .take(10)
-
-        val initialCreditsJob = launch {
-            val credits = runCatching {
-                GeminiOriginalVersionCredits.enrich(
-                    identity = identity,
-                    songs = initialSongs,
-                    config = geminiConfig,
-                )
-            }.getOrDefault(emptyMap())
-            if (credits.isNotEmpty()) versionCredits = versionCredits + credits
-        }
-
         val expanded = runCatching {
             OriginalVersionSearchEngine.findExpandedVersions(
                 identity = identity,
                 currentYouTubeId = request.currentYouTubeId,
                 seed = initial,
+                geminiConfig = geminiConfig,
             )
         }.onFailure { failed = true }
             .getOrNull()
 
         if (expanded != null) searchResult = expanded
         backgroundLoading = false
-
-        initialCreditsJob.join()
-
-        val finalResult = expanded ?: initial
-        val remainingSongs = buildList<SongItem> {
-            finalResult.original?.song?.let(::add)
-            finalResult.versions.forEach { add(it.song) }
-        }.distinctBy { it.id }
-            .filter { it.id !in versionCredits }
-
-        for (batch in remainingSongs.chunked(10)) {
-            val credits = runCatching {
-                GeminiOriginalVersionCredits.enrich(
-                    identity = identity,
-                    songs = batch,
-                    config = geminiConfig,
-                )
-            }.getOrDefault(emptyMap())
-            if (credits.isNotEmpty()) versionCredits = versionCredits + credits
-        }
         creditsLoading = false
+        creditsLoading = false
+    }
+
+    LaunchedEffect(detailResult?.song?.id, searchResult.aiIdentity?.title, geminiConfig) {
+        val selected = detailResult ?: return@LaunchedEffect
+        val identity = searchResult.aiIdentity ?: return@LaunchedEffect
+        if (versionCredits[selected.song.id] != null) return@LaunchedEffect
+        detailLoading = true
+        val loaded = runCatching {
+            GeminiOriginalVersionCredits.enrich(identity, listOf(selected.song), geminiConfig)
+        }.getOrDefault(emptyMap())
+        if (loaded.isNotEmpty()) versionCredits = versionCredits + loaded
+        detailLoading = false
     }
 
     LaunchedEffect(link) {
@@ -308,8 +287,10 @@ internal fun OriginalVersionScreen(
         PlayerBottomSheetBridge.expandSoft()
     }
 
+    val nonStudioIds = (searchResult.liveVersions + searchResult.remixVersions).map { it.song.id }.toSet()
+    val studioVersions = searchResult.versions.filter { it.song.id !in nonStudioIds }
     val selectedVersions = when (selectedTab) {
-        OriginalResultsTab.VERSIONS -> searchResult.versions
+        OriginalResultsTab.STUDIO -> studioVersions
         OriginalResultsTab.LIVE -> searchResult.liveVersions
         OriginalResultsTab.WITH_OTHERS -> searchResult.withOthersVersions
         OriginalResultsTab.REMIX -> searchResult.remixVersions
@@ -404,13 +385,26 @@ internal fun OriginalVersionScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
-                        "Crediti AI caricati: ${versionCredits.size}${if (creditsLoading) " · altri in background" else ""}",
+                        "Dettagli AI caricati su richiesta: ${versionCredits.size}",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showDiagnosticsDialog = false }) { Text("Chiudi") }
+            },
+        )
+    }
+
+    detailResult?.let { selected ->
+        OriginalDetailDialog(
+            result = selected,
+            credits = versionCredits[selected.song.id],
+            loading = detailLoading,
+            onDismiss = { detailResult = null },
+            onReplace = {
+                replaceWith(selected.song)
+                detailResult = null
             },
         )
     }
@@ -480,6 +474,7 @@ internal fun OriginalVersionScreen(
                             creditsLoading = creditsLoading,
                             onPreview = { preview(candidate) },
                             onReplace = { replaceWith(candidate) },
+                            onDetails = { detailResult = CoverHubResult(song = candidate, year = manualYear, source = "Link manuale") },
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
                     }
@@ -497,9 +492,9 @@ internal fun OriginalVersionScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
-                        AiCreditsBlock(identity)
+                        identity.album?.let { Text("Album / pubblicazione: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Text(
-                            text = "L'AI decide direttamente originale, anno, album e crediti. YouTube e YouTube Music servono esclusivamente a trovare le versioni riproducibili.",
+                            text = "L'AI identifica originale, anno e pubblicazione. I crediti completi vengono caricati solo aprendo Dettagli; YouTube Music e YouTube servono a localizzare la riproduzione.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 5.dp, bottom = 12.dp),
@@ -536,6 +531,7 @@ internal fun OriginalVersionScreen(
                                 creditsLoading = creditsLoading,
                                 onPreview = { preview(original.song) },
                                 onReplace = { replaceWith(original.song) },
+                                onDetails = { detailResult = original },
                             )
                             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                         }
@@ -546,7 +542,7 @@ internal fun OriginalVersionScreen(
                             VersionSectionTitle("Altre versioni dello stesso cantante")
                             OriginalResultsTabs(
                                 selected = selectedTab,
-                                versionsCount = searchResult.versions.size,
+                                versionsCount = studioVersions.size,
                                 liveCount = searchResult.liveVersions.size,
                                 withOthersCount = searchResult.withOthersVersions.size,
                                 remixCount = searchResult.remixVersions.size,
@@ -586,6 +582,7 @@ internal fun OriginalVersionScreen(
                                 creditsLoading = creditsLoading,
                                 onPreview = { preview(version.song) },
                                 onReplace = { replaceWith(version.song) },
+                                onDetails = { detailResult = version },
                             )
                             Spacer(Modifier.height(8.dp))
                         }
@@ -657,6 +654,7 @@ internal fun OriginalVersionScreen(
                             creditsLoading = creditsLoading,
                             onPreview = { preview(starting.song) },
                             onReplace = { replaceWith(starting.song) },
+                            onDetails = { detailResult = starting },
                         )
                     }
                 }
@@ -698,10 +696,10 @@ private fun OriginalResultsTabs(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         OriginalResultChip(
-            label = "Versioni",
+            label = "Studio",
             count = versionsCount,
-            selected = selected == OriginalResultsTab.VERSIONS,
-            onClick = { onSelected(OriginalResultsTab.VERSIONS) },
+            selected = selected == OriginalResultsTab.STUDIO,
+            onClick = { onSelected(OriginalResultsTab.STUDIO) },
         )
         if (liveCount > 0) {
             OriginalResultChip(
@@ -816,31 +814,22 @@ private fun OriginalVersionRow(
     creditsLoading: Boolean,
     onPreview: () -> Unit,
     onReplace: () -> Unit,
+    onDetails: () -> Unit,
 ) {
     val displayYear = credits?.year ?: result.year
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPreview)
-            .padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onDetails).padding(vertical = 6.dp),
     ) {
         AsyncImage(
             model = result.song.thumbnail,
-            contentDescription = null,
+            contentDescription = "Riproduci",
             contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(84.dp)
-                .clip(RoundedCornerShape(8.dp)),
+            modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onPreview),
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                result.song.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Text(result.song.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 result.song.artists.joinToString(", ") { it.name },
                 style = MaterialTheme.typography.bodyMedium,
@@ -849,49 +838,51 @@ private fun OriginalVersionRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = displayYear?.let { "Data: $it" }
-                    ?: if (creditsLoading) "Data in arrivo…" else "Data non disponibile",
+                text = displayYear?.let { "Data: $it" } ?: "Data non disponibile",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            credits?.album?.let { album ->
-                Text(
-                    text = "Album: $album",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            VersionCreditsBlock(credits)
-            if (result.source.isNotBlank()) {
-                Text(
-                    text = "Riproduzione: ${result.source}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(
-                "Tocca la locandina per ascoltare",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            credits?.album?.let { album -> Text("Album: $album", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            if (result.source.isNotBlank()) Text("Riproduzione: ${result.source}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Button(
-            onClick = onReplace,
-            modifier = Modifier
-                .padding(start = 8.dp)
-                .height(36.dp),
+            onClick = onDetails,
+            modifier = Modifier.padding(start = 8.dp).height(36.dp),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        ) {
-            Text(
-                "Sostituisci",
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
+        ) { Text("Dettagli", style = MaterialTheme.typography.labelSmall) }
     }
+}
+
+@Composable
+private fun OriginalDetailDialog(
+    result: CoverHubResult,
+    credits: GeminiVersionCredits?,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onReplace: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(result.song.title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(result.song.artists.joinToString(", ") { it.name }, style = MaterialTheme.typography.titleSmall)
+                Text((credits?.year ?: result.year)?.let { "Data: $it" } ?: "Data: non disponibile")
+                credits?.album?.let { Text("Album: $it") }
+                if (result.source.isNotBlank()) Text("Riproduzione: ${result.source}", style = MaterialTheme.typography.bodySmall)
+                if (loading) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Recupero informazioni complete…", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                credits?.let { VersionCreditsBlock(it) }
+            }
+        },
+        confirmButton = { TextButton(onClick = onReplace) { Text("Sostituisci") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } },
+    )
 }
 
 @Composable
