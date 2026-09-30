@@ -35,6 +35,27 @@ internal enum class AiCoverCategory {
     FOREIGN,
 }
 
+internal enum class AiBrainDecisionStatus {
+    APPROVED,
+    PROBABLE,
+    UNCERTAIN,
+    REJECTED;
+
+    companion object {
+        fun fromWire(value: String?): AiBrainDecisionStatus? {
+            val normalized = value?.trim()?.uppercase().orEmpty()
+            if (normalized.isBlank()) return null
+            return entries.firstOrNull { it.name == normalized }
+        }
+    }
+}
+
+internal data class AiBrainSignal(
+    val kind: String,
+    val strength: String,
+    val direction: String? = null,
+)
+
 internal data class AiCoverOriginalInfo(
     val title: String,
     val artist: String,
@@ -60,6 +81,11 @@ internal data class AiCoverCandidate(
     val lyricists: List<String> = emptyList(),
     val producers: List<String> = emptyList(),
     val label: String? = null,
+    val sameWorkScore: Int? = null,
+    val versionTypeScore: Int? = null,
+    val brainStatus: AiBrainDecisionStatus? = null,
+    val brainAdmission: String? = null,
+    val brainSignals: List<AiBrainSignal> = emptyList(),
 ) {
     val stableKey: String
         get() = "${category.name}|${canonical(artist)}|${canonical(title)}|${canonical(language.orEmpty())}"
