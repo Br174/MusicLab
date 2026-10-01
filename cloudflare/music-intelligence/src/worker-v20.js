@@ -181,6 +181,19 @@ function versionIdentity(version) {
   return `${canonical(version?.title)}|${canonical(version?.artist)}`;
 }
 
+function normalizeStorageCategory(value) {
+  const category = canonical(value || 'cover');
+  if (category.includes('remix') || category.includes('rework')) return 'remix';
+  if (category.includes('live') || category.includes('dal vivo')) return 'live';
+  if (category.includes('stran') || category.includes('adapt')) return 'straniera';
+  if (category.includes('original')) return 'originale';
+  return 'cover';
+}
+
+function versionStorageKey(version) {
+  return `${normalizeStorageCategory(version?.category)}|${canonical(version?.artist)}|${canonical(version?.title)}|${canonical(version?.language || '')}`;
+}
+
 function numericScore(value) {
   const score = Number(value);
   return Number.isInteger(score) && score >= 0 && score <= 100 ? score : null;
@@ -196,6 +209,97 @@ function safeJson(value) {
     return value ? JSON.parse(value) : {};
   } catch {
     return {};
+  }
+}
+
+function normalizeSignalStrength(value) {
+  const strength = String(value || '').trim().toLowerCase();
+  return ['very_strong', 'strong', 'medium', 'weak', 'none'].includes(strength) ? strength : 'medium';
+}
+
+function normalizeSignalDirection(value) {
+  const direction = String(value || '').trim().toLowerCase();
+  return ['positive', 'negative', 'neutral'].includes(direction) ? direction : 'positive';
+}
+
+export async function persistBrainAnnotations(db, input, payload) {
+  if (!db || !payload || !Array.isArray(payload?.versions) || payload.versions.length === 0) return;
+
+  const originalTitle = String(payload?.original?.title || input?.title || '').trim();
+  const originalArtist = String(payload?.original?.artist || input?.artist || '').trim();
+  if (!originalTitle || !originalArtist) return;
+
+  const work = await db.prepare(
+    'SELECT id FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1',
+  ).bind(searchKey(originalTitle, originalArtist), MEMORY_RESOLVER_VERSION).first();
+  if (!work?.id) return;
+
+  const rows = await db.prepare(
+    'SELECT id,version_key,same_work_score,version_type_score,decision_status FROM versions WHERE work_id=?1',
+  ).bind(work.id).all();
+  const storedByKey = new Map((rows?.results || []).map(row => [String(row.version_key || ''), row]));
+
+  for (const version of payload.versions) {
+    const stored = storedByKey.get(versionStorageKey(version));
+    if (!stored?.id) continue;
+
+    const sameWorkScore = numericScore(version?.sameWorkScore) ?? numericScore(stored.same_work_score) ?? 50;
+    const versionTypeScore = numericScore(version?.versionTypeScore) ?? numericScore(stored.version_type_score) ?? 50;
+    const decisionStatus = normalizeDecisionStatus(version?.brainStatus) || normalizeDecisionStatus(stored.decision_status) || 'UNCERTAIN';
+    const reason = String(version?.brainAdmission || version?.aiReason || '').trim();
+    const signals = Array.isArray(version?.brainSignals) ? version.brainSignals : [];
+
+    await db.prepare(`
+      UPDATE versions
+      SET same_work_score=?1,version_type_score=?2,decision_status=?3,ai_reason=?4,updated_at=CURRENT_TIMESTAMP
+      WHERE id=?5
+    `).bind(sameWorkScore, versionTypeScore, decisionStatus, reason || null, stored.id).run();
+
+    const decisionChanged =
+      sameWorkScore !== numericScore(stored.same_work_score) ||
+      versionTypeScore !== numericScore(stored.version_type_score) ||
+      decisionStatus !== normalizeDecisionStatus(stored.decision_status);
+    if (decisionChanged) {
+      await db.prepare(`
+        INSERT INTO decision_history(
+          version_id,work_id,decision_status,same_work_score,version_type_score,decided_by,reason,evidence_snapshot_json
+        ) VALUES(?1,?2,?3,?4,?5,'ai',?6,?7)
+      `).bind(
+        stored.id,
+        work.id,
+        decisionStatus,
+        sameWorkScore,
+        versionTypeScore,
+        reason || null,
+        JSON.stringify(signals),
+      ).run();
+    }
+
+    for (const signal of signals) {
+      const kind = String(signal?.kind || '').trim();
+      if (!kind) continue;
+      const strength = normalizeSignalStrength(signal?.strength);
+      const direction = normalizeSignalDirection(signal?.direction);
+      await db.prepare(`
+        INSERT INTO version_evidence(
+          version_id,work_id,source,signal_kind,strength,direction,note,payload_json
+        )
+        SELECT ?1,?2,?3,?4,?5,?6,?7,?8
+        WHERE NOT EXISTS(
+          SELECT 1 FROM version_evidence
+          WHERE version_id=?1 AND source=?3 AND signal_kind=?4 AND strength=?5 AND direction=?6
+        )
+      `).bind(
+        stored.id,
+        work.id,
+        'brain',
+        kind,
+        strength,
+        direction,
+        reason || null,
+        JSON.stringify(signal),
+      ).run();
+    }
   }
 }
 
@@ -241,6 +345,13 @@ async function forwardDiscovery(request, env, ctx, phase) {
   if (!response.ok) return response;
   const payload = await response.json();
   const decorated = decorateDiscoveryPayload(payload, mode);
+
+  if (env.DB) {
+    const persistence = persistBrainAnnotations(env.DB, input, decorated).catch(() => undefined);
+    if (typeof ctx?.waitUntil === 'function') ctx.waitUntil(persistence);
+    else await persistence;
+  }
+
   return new Response(JSON.stringify(decorated), { status: response.status, headers: response.headers });
 }
 
