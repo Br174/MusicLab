@@ -10,6 +10,10 @@ const cloud = readFileSync(
   'app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt',
   'utf8',
 );
+const originals = readFileSync(
+  'app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngine.kt',
+  'utf8',
+);
 
 test('Android candidate model carries Brain metadata without changing stable identity', () => {
   for (const token of [
@@ -50,4 +54,14 @@ test('Android asks D1 memory before starting new Cover research rounds', () => {
   assert.ok(memoryIndex >= 0, 'Cover engine does not read learned D1 memory');
   assert.ok(researchIndex >= 0, 'Cover research loop not found');
   assert.ok(memoryIndex < researchIndex, 'D1 memory must be read before new AI research');
+});
+
+test('Originali uses learned D1 memory as search plan before generic queries', () => {
+  assert.ok(cloud.includes('mode: String = "cover"'), 'memory client must support Cover and Originali modes');
+  const memoryIndex = originals.indexOf('CloudMusicDiscovery.discoverMemory(');
+  const genericIndex = originals.indexOf('defaultVersionQueries(identity)');
+  assert.ok(memoryIndex >= 0, 'Originali does not read learned D1 memory');
+  assert.ok(originals.includes('mode = "originals"'), 'Originali memory request does not select originals mode');
+  assert.ok(genericIndex >= 0, 'Originali generic query planner not found');
+  assert.ok(memoryIndex < genericIndex, 'Originali must consult D1 before generic query planning');
 });
