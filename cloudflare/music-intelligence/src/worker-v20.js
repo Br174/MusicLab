@@ -487,6 +487,23 @@ export async function completeCoverageMissions(db, missions, resultCount = 0) {
   }
 }
 
+export async function failCoverageMissions(db, missions) {
+  if (!db || !Array.isArray(missions) || missions.length === 0) return;
+  for (const mission of missions) {
+    if (!mission?.id || !mission?.workId || !mission?.family || !mission?.dimensionKey) continue;
+    await db.prepare(`
+      UPDATE search_missions
+      SET status=?1,result_count=0,unique_result_count=0,updated_at=CURRENT_TIMESTAMP
+      WHERE id=?2
+    `).bind('failed', mission.id).run();
+    await db.prepare(`
+      UPDATE coverage_cells
+      SET state=?1,result_count=0,last_mission_id=?2,updated_at=CURRENT_TIMESTAMP
+      WHERE work_id=?3 AND family=?4 AND dimension_key=?5
+    `).bind('unsearched', mission.id, mission.workId, mission.family, mission.dimensionKey).run();
+  }
+}
+
 async function forwardDiscovery(request, env, ctx, phase) {
   const input = await request.clone().json();
   const mode = input?.mode === 'originals' ? 'originals' : 'cover';
@@ -542,8 +559,21 @@ async function forwardDiscovery(request, env, ctx, phase) {
     headers: request.headers,
     body: JSON.stringify(input),
   });
-  const response = await legacyWorker.fetch(forwarded, env, ctx);
-  if (!response.ok) return response;
+  let response;
+  try {
+    response = await legacyWorker.fetch(forwarded, env, ctx);
+  } catch (error) {
+    if (env.DB && coverageMissions.length) {
+      await failCoverageMissions(env.DB, coverageMissions).catch(() => undefined);
+    }
+    throw error;
+  }
+  if (!response.ok) {
+    if (env.DB && coverageMissions.length) {
+      await failCoverageMissions(env.DB, coverageMissions).catch(() => undefined);
+    }
+    return response;
+  }
   const payload = await response.json();
   const decorated = decorateDiscoveryPayload(payload, mode);
 
