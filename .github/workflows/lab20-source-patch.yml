@@ -1,0 +1,110 @@
+name: LAB20 Scoped Source Patch
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-ai-brain-20
+    paths:
+      - '.github/workflows/lab20-source-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-originali-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply exact LAB20 Originali coverage patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              p.write_text(text.replace(old, new, 1))
+
+          cover_hub = 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt'
+          replace_exact(
+              cover_hub,
+              '''    val score: Double = 0.0,\n)''',
+              '''    val score: Double = 0.0,\n    val brainCandidate: AiCoverCandidate? = null,\n)''',
+              'CoverHubResult Brain field',
+          )
+
+          originals = 'app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngine.kt'
+          replace_exact(
+              originals,
+              '''                async(Dispatchers.IO) {\n                    searchQueryPages(\n                        query = "${candidate.title} ${candidate.artist}".trim(),\n                        targetTitle = exactBaseTitle(candidate.title),\n                        originalArtists = originalArtists,\n                        filter = filter,\n                        source = source,\n                    )\n                }''',
+              '''                async(Dispatchers.IO) {\n                    val outcome = searchQueryPages(\n                        query = "${candidate.title} ${candidate.artist}".trim(),\n                        targetTitle = exactBaseTitle(candidate.title),\n                        originalArtists = originalArtists,\n                        filter = filter,\n                        source = source,\n                    )\n                    outcome.copy(\n                        results = outcome.results.map { result -> result.copy(brainCandidate = candidate) },\n                    )\n                }''',
+              'remembered Originali Brain propagation',
+          )
+          replace_exact(
+              originals,
+              '''            score = maxOf(previous.score, candidate.score),\n        )''',
+              '''            score = maxOf(previous.score, candidate.score),\n            brainCandidate = previous.brainCandidate ?: candidate.brainCandidate,\n        )''',
+              'Originali merge Brain preservation',
+          )
+
+          screen = 'app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt'
+          replace_exact(
+              screen,
+              '''    var selectedTab by remember(request.currentYouTubeId) { mutableStateOf(OriginalResultsTab.STUDIO) }\n    var visibleVersionCount by remember(request.currentYouTubeId, selectedTab) {\n        mutableIntStateOf(ORIGINAL_PAGE_SIZE)\n    }''',
+              '''    var selectedTab by remember(request.currentYouTubeId) { mutableStateOf(OriginalResultsTab.STUDIO) }\n    var selectedOriginalCoverageMode by remember(request.currentYouTubeId) { mutableStateOf(AiCoverageMode.PRECISE) }\n    var visibleVersionCount by remember(request.currentYouTubeId, selectedTab, selectedOriginalCoverageMode) {\n        mutableIntStateOf(ORIGINAL_PAGE_SIZE)\n    }''',
+              'Originali independent coverage state',
+          )
+          replace_exact(
+              screen,
+              '''    val selectedVersions = when (selectedTab) {\n        OriginalResultsTab.STUDIO -> studioVersions\n        OriginalResultsTab.LIVE -> searchResult.liveVersions\n        OriginalResultsTab.WITH_OTHERS -> searchResult.withOthersVersions\n        OriginalResultsTab.REMIX -> searchResult.remixVersions\n    }\n    val shouldLoadNextPage by remember {''',
+              '''    val selectedVersions = when (selectedTab) {\n        OriginalResultsTab.STUDIO -> studioVersions\n        OriginalResultsTab.LIVE -> searchResult.liveVersions\n        OriginalResultsTab.WITH_OTHERS -> searchResult.withOthersVersions\n        OriginalResultsTab.REMIX -> searchResult.remixVersions\n    }\n    val filteredSelectedVersions = AiCoverageFilter.visibleItems(\n        selectedVersions,\n        selectedOriginalCoverageMode,\n    ) { it.brainCandidate }\n    val shouldLoadNextPage by remember {''',
+              'Originali coverage projection',
+          )
+          replace_exact(
+              screen,
+              '''    LaunchedEffect(shouldLoadNextPage, selectedTab, selectedVersions.size) {\n        if (shouldLoadNextPage && visibleVersionCount < selectedVersions.size) {\n            visibleVersionCount = minOf(visibleVersionCount + ORIGINAL_PAGE_SIZE, selectedVersions.size)\n        }\n    }''',
+              '''    LaunchedEffect(shouldLoadNextPage, selectedTab, selectedOriginalCoverageMode, filteredSelectedVersions.size) {\n        if (shouldLoadNextPage && visibleVersionCount < filteredSelectedVersions.size) {\n            visibleVersionCount = minOf(visibleVersionCount + ORIGINAL_PAGE_SIZE, filteredSelectedVersions.size)\n        }\n    }''',
+              'Originali filtered pagination growth',
+          )
+          replace_exact(
+              screen,
+              '''                            OriginalResultsTabs(\n                                selected = selectedTab,\n                                versionsCount = studioVersions.size,\n                                liveCount = searchResult.liveVersions.size,\n                                withOthersCount = searchResult.withOthersVersions.size,\n                                remixCount = searchResult.remixVersions.size,\n                                onSelected = { selectedTab = it },\n                            )\n                            if (backgroundLoading) {''',
+              '''                            OriginalResultsTabs(\n                                selected = selectedTab,\n                                versionsCount = studioVersions.size,\n                                liveCount = searchResult.liveVersions.size,\n                                withOthersCount = searchResult.withOthersVersions.size,\n                                remixCount = searchResult.remixVersions.size,\n                                onSelected = { selectedTab = it },\n                            )\n                            Spacer(Modifier.height(8.dp))\n                            AiCoverageSelector(\n                                selected = selectedOriginalCoverageMode,\n                                onSelected = { selectedOriginalCoverageMode = it },\n                            )\n                            if (backgroundLoading) {''',
+              'Originali coverage selector UI',
+          )
+          replace_exact(
+              screen,
+              '''                        val page = selectedVersions.take(visibleVersionCount)''',
+              '''                        val page = filteredSelectedVersions.take(visibleVersionCount)''',
+              'Originali coverage before pagination',
+          )
+          PY
+
+          git diff --check
+          git diff -- app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngine.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt
+
+      - name: Commit scoped patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No source changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngine.kt \
+            app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt
+          git commit -m 'feat(lab20): wire Originali Brain coverage'
+          git push origin HEAD:${GITHUB_REF_NAME}
