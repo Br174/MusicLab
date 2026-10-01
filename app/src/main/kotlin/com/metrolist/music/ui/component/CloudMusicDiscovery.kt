@@ -58,6 +58,7 @@ internal object CloudMusicDiscovery {
         title: String,
         artist: String,
         config: GeminiCoverVerificationConfig,
+        mode: String = "cover",
         limit: Int = 150,
     ): AiCoverDiscoveryResult? = withContext(Dispatchers.IO) {
         val endpoint = config.cloudEndpoint.trim().trimEnd('/')
@@ -66,7 +67,7 @@ internal object CloudMusicDiscovery {
         val body = buildJsonObject {
             put("title", title.trim())
             put("artist", artist.trim())
-            put("mode", "cover")
+            put("mode", if (mode == "originals") "originals" else "cover")
             put("limit", limit.coerceIn(1, 150))
         }
         val request =
