@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../src/worker-v20.js';
+import worker from '../src/worker-v20-parallel.js';
 
 function dbWithCanonicalMemory() {
   const writes = [];
@@ -95,10 +95,6 @@ test('cover expand fans Coverage Map into three focused AI lanes and reuses cano
     const prompt = String(body?.contents?.[0]?.parts?.[0]?.text || '');
     if (prompt) prompts.push(prompt);
 
-    if (/resolver musicale canonico/i.test(prompt)) {
-      throw new Error('canonical resolver must not run when D1 already has canonical identity');
-    }
-
     discoveryIndex += 1;
     return discoveryResponse(discoveryIndex);
   };
@@ -108,7 +104,9 @@ test('cover expand fans Coverage Map into three focused AI lanes and reuses cano
     assert.equal(response.status, 200);
     const payload = await response.json();
 
+    const resolverPrompts = prompts.filter(prompt => /resolver musicale canonico/i.test(prompt));
     const researchPrompts = prompts.filter(prompt => /ricercatore discografico AI centrale/i.test(prompt));
+    assert.equal(resolverPrompts.length, 0);
     assert.equal(researchPrompts.length, 3);
     assert.equal(new Set(researchPrompts).size, 3);
     assert.equal(payload.versions.length, 3);
