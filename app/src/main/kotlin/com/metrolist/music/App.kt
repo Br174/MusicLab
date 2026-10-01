@@ -148,11 +148,11 @@ class App :
             // Apply settings, including proxy configuration, before building extraction transport.
             initializeSettings()
 
-            // Warm player config/cipher immediately after settings are ready. This is best-effort
-            // and must never wait for visitorData: first playback can supply/refresh that state itself.
+            // Prepare only the lightweight cipher runtime while Home is starting. Full extractor
+            // prewarm may mint a PO token through WebView/Main and must stay off the app-start path.
             launch(Dispatchers.IO) {
-                runCatching { InnerTubeXPlayer.prewarm() }
-                    .onFailure { Timber.tag("InnerTubeXPlayer").d(it, "Playback prewarm did not complete; first play will retry normally") }
+                runCatching { InnerTubeXPlayer.prepare() }
+                    .onFailure { Timber.tag("InnerTubeXPlayer").d(it, "Lightweight playback preparation did not complete; first play will retry normally") }
             }
 
             observeSettingsChanges()

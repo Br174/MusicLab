@@ -291,7 +291,7 @@ import com.metrolist.music.extensions.tryOrNull
 
 private const val INSTANT_SILENCE_SKIP_STEP_MS = 15_000L
 private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
-private const val PLAYBACK_START_BUFFER_MS = 2_000
+private const val PLAYBACK_START_BUFFER_MS = 1_250
 private const val PLAYBACK_REBUFFER_MS = 4_000
 
 /** When the queue has this many or fewer items (or items ahead of current), load more from paginated queues (e.g. Spotify). */
