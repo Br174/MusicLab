@@ -1,6 +1,6 @@
 name: LAB20 UAB Delivery Gate
 
-# gate-revision: 5 — exact-SHA Brain + Android + APK/ZIP final gate
+# gate-revision: 6 — exact-SHA Brain + device regressions + Android + APK/ZIP final gate
 on:
   push:
     branches:
@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run complete MusicLab Brain regression suite
+      - name: Run complete MusicLab Brain and device regression suite
         run: node --test cloudflare/music-intelligence/test/*.test.mjs
 
       - name: Verify additive D1 migrations
@@ -79,8 +79,8 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Run Android Brain contract tests
-        run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --warning-mode summary
+      - name: Run Android Brain and playback-locator contract tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --tests com.metrolist.music.ui.component.AiCoverSearchEngineTest --warning-mode summary
 
       - name: UAB preflight diagnostics
         shell: bash
