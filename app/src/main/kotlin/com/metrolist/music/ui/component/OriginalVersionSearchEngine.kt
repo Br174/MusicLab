@@ -122,7 +122,6 @@ internal object OriginalVersionSearchEngine {
         music.results.forEach { mergeInto(merged, it) }
         includeCurrentIfOriginal(currentYouTubeId, targetTitle, originalArtists, merged)
 
-        // YTM viene esaurito per primo; YouTube normale entra solo se il primo step è corto.
         val video = if (merged.size < INITIAL_RESULTS_LIMIT) {
             searchFirstPage(query, targetTitle, originalArtists, YouTube.SearchFilter.FILTER_VIDEO, "YouTube")
                 .also { outcome -> outcome.results.forEach { mergeInto(merged, it) } }
@@ -170,7 +169,7 @@ internal object OriginalVersionSearchEngine {
         seed.original?.let { mergeInto(merged, it) }
         seed.versions.forEach { mergeInto(merged, it) }
 
-        val memoryQueries = if (
+        val memoryCandidates = if (
             geminiConfig != null &&
             geminiConfig.cloudEndpoint.isNotBlank() &&
             geminiConfig.useCloudMemory &&
@@ -184,24 +183,23 @@ internal object OriginalVersionSearchEngine {
                     mode = "originals",
                     limit = ORIGINAL_MEMORY_QUERY_LIMIT,
                 )
-            }.getOrNull()?.versions.orEmpty()
-                .map { candidate -> "${candidate.title} ${candidate.artist}".trim() }
-                .filter { it.isNotBlank() }
-                .distinct()
+            }.getOrNull()?.versions.orEmpty().distinctBy { it.stableKey }
         } else {
             emptyList()
         }
 
+        val memoryQueries = memoryCandidates
+            .map { candidate -> "${candidate.title} ${candidate.artist}".trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
         val usedQueries = memoryQueries.toMutableList()
         var musicOutcome = OriginalArtistSearchOutcome(emptyList(), 0, OriginalSearchStageStatus.NOT_RUN)
-        if (memoryQueries.isNotEmpty()) {
-            val memoryMusic = searchAiArtistVersions(
-                identity,
-                targetTitle,
-                originalArtists,
-                YouTube.SearchFilter.FILTER_SONG,
-                "YouTube Music · memoria MusicLab",
-                memoryQueries,
+        if (memoryCandidates.isNotEmpty()) {
+            val memoryMusic = searchRememberedOriginalVersions(
+                candidates = memoryCandidates,
+                originalArtists = originalArtists,
+                filter = YouTube.SearchFilter.FILTER_SONG,
+                source = "YouTube Music · memoria MusicLab",
             )
             memoryMusic.results.forEach { mergeInto(merged, it) }
             musicOutcome = mergeOutcomes(musicOutcome, memoryMusic)
@@ -230,8 +228,6 @@ internal object OriginalVersionSearchEngine {
             videoOutcome.results.forEach { mergeInto(merged, it) }
         }
 
-        // AI self-interrogation: if the real playable count is still short, ask Gemini for
-        // a different search plan and execute it step by step, always YTM before YouTube.
         var noProgressPasses = 0
         for (round in 0 until MAX_AI_SEARCH_ROUNDS) {
             if (merged.size >= MIN_ORIGINAL_PLAYABLE_TARGET || noProgressPasses >= 2) break
@@ -320,6 +316,48 @@ internal object OriginalVersionSearchEngine {
             "${identity.title} $leadArtist official",
             "${identity.title} $leadArtist performance",
         ).filter { leadArtist.isNotBlank() }.distinct()
+    }
+
+    private suspend fun searchRememberedOriginalVersions(
+        candidates: List<AiCoverCandidate>,
+        originalArtists: Set<String>,
+        filter: YouTube.SearchFilter,
+        source: String,
+    ): OriginalArtistSearchOutcome = coroutineScope {
+        if (candidates.isEmpty() || originalArtists.isEmpty()) {
+            return@coroutineScope OriginalArtistSearchOutcome(emptyList(), 0, OriginalSearchStageStatus.NOT_RUN)
+        }
+
+        val queryOutcomes = mutableListOf<QueryOutcome>()
+        val batches = candidates.distinctBy { it.stableKey }.chunked(2)
+        for ((batchIndex, batch) in batches.withIndex()) {
+            val outcomes = batch.map { candidate ->
+                async(Dispatchers.IO) {
+                    searchQueryPages(
+                        query = "${candidate.title} ${candidate.artist}".trim(),
+                        targetTitle = exactBaseTitle(candidate.title),
+                        originalArtists = originalArtists,
+                        filter = filter,
+                        source = source,
+                    )
+                }
+            }.awaitAll()
+            queryOutcomes += outcomes
+            if (batchIndex < batches.lastIndex) delay(BACKGROUND_BATCH_PAUSE_MS)
+        }
+
+        val merged = linkedMapOf<String, CoverHubResult>()
+        queryOutcomes.flatMap { it.results }.forEach { mergeInto(merged, it) }
+        val pages = queryOutcomes.sumOf { it.pages }
+        val anyFailure = queryOutcomes.any { it.failed }
+        val anySuccess = queryOutcomes.any { it.succeeded }
+        val status = when {
+            merged.isNotEmpty() -> OriginalSearchStageStatus.OK
+            anyFailure -> OriginalSearchStageStatus.ERROR
+            anySuccess -> OriginalSearchStageStatus.NO_RESULTS
+            else -> OriginalSearchStageStatus.NOT_RUN
+        }
+        OriginalArtistSearchOutcome(merged.values.take(MAX_RESULTS_PER_SOURCE), pages, status)
     }
 
     private suspend fun searchAiArtistVersions(
