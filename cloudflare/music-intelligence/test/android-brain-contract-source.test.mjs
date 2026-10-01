@@ -74,7 +74,7 @@ test('Originali remembered adaptations are matched against their remembered titl
   assert.ok(originals.includes('searchRememberedOriginalVersions('), 'missing remembered-version resolver');
   assert.ok(
     originals.includes('targetTitle = exactBaseTitle(candidate.title)'),
-    'remembered adapted titles must be validated against the candidate title such as El mundo',
+    'remembered adapted titles must be validated against the candidate title such as El mondo',
   );
   assert.ok(
     originals.includes('query = "${candidate.title} ${candidate.artist}".trim()'),
@@ -103,6 +103,10 @@ test('Cover session performs one MusicBrainz lookup and reuses its neutral evide
   assert.ok(
     coverScreen.includes('sourceEvidence.attachToAiAccepted(recovered)'),
     'recovery AI candidates must reuse the same source evidence',
+  );
+  assert.ok(
+    coverScreen.includes('sourceEvidence = null'),
+    'invalidating a Cover session must clear stale source evidence',
   );
   const enrichIndex = coverScreen.indexOf('sourceEvidence.attachToAiAccepted(discovery.versions)');
   const playbackIndex = coverScreen.indexOf('AiCoverSearchEngine.resolveCandidates(');
