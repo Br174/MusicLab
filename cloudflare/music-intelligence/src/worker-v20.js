@@ -177,6 +177,10 @@ function searchKey(title, artist) {
   return `${canonical(title)}|${canonical(artist)}`;
 }
 
+function versionIdentity(version) {
+  return `${canonical(version?.title)}|${canonical(version?.artist)}`;
+}
+
 function numericScore(value) {
   const score = Number(value);
   return Number.isInteger(score) && score >= 0 && score <= 100 ? score : null;
@@ -198,6 +202,28 @@ function safeJson(value) {
 async function forwardDiscovery(request, env, ctx, phase) {
   const input = await request.clone().json();
   const mode = input?.mode === 'originals' ? 'originals' : 'cover';
+
+  if (phase === 'expand' && input?.useMemory !== false && env.DB) {
+    const memory = await buildMemoryPayload(input, env);
+    if (!memory?.errore && Array.isArray(memory?.versions) && memory.versions.length) {
+      const existing = new Set(
+        (Array.isArray(input?.existing) ? input.existing : [])
+          .map(versionIdentity)
+          .filter(Boolean),
+      );
+      const unseen = memory.versions.filter(version => !existing.has(versionIdentity(version)));
+      if (unseen.length) {
+        const payload = decorateDiscoveryPayload({
+          ...memory,
+          fase: 'expand',
+          provenienza: 'memoria',
+          versions: unseen,
+        }, mode);
+        return json(payload);
+      }
+    }
+  }
+
   if (phase === 'expand') {
     input.focus = buildBrainFocus({
       title: String(input?.title || '').trim(),
@@ -218,12 +244,11 @@ async function forwardDiscovery(request, env, ctx, phase) {
   return new Response(JSON.stringify(decorated), { status: response.status, headers: response.headers });
 }
 
-async function memoryDiscovery(request, env) {
-  const input = await request.json();
+async function buildMemoryPayload(input, env) {
   const title = String(input?.title || '').trim();
   const artist = String(input?.artist || '').trim();
   const mode = input?.mode === 'originals' ? 'originals' : 'cover';
-  if (!title || !artist) return json({ errore: 'title e artist obbligatori' }, 400);
+  if (!title || !artist) return { errore: 'title e artist obbligatori', status: 400 };
 
   const requestedLimit = Number(input?.limit);
   const limit = Number.isFinite(requestedLimit)
@@ -237,12 +262,12 @@ async function memoryDiscovery(request, env) {
     original: null,
     versions: [],
   };
-  if (!env.DB) return json(empty);
+  if (!env.DB) return empty;
 
   const work = await env.DB.prepare(
     'SELECT * FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1',
   ).bind(searchKey(title, artist), MEMORY_RESOLVER_VERSION).first();
-  if (!work?.id) return json(empty);
+  if (!work?.id) return empty;
 
   const queryLimit = Math.min(MAX_MEMORY_RESULTS * 2, Math.max(MAX_MEMORY_RESULTS, limit * 2));
   const rows = await env.DB.prepare(`
@@ -279,7 +304,7 @@ async function memoryDiscovery(request, env) {
       aiReason: row.ai_reason || null,
     }));
 
-  const payload = {
+  return {
     stato: 'pronto',
     fase: 'memory',
     provenienza: versions.length ? 'memoria' : 'memoria-vuota',
@@ -294,6 +319,11 @@ async function memoryDiscovery(request, env) {
     },
     versions,
   };
+}
+
+async function memoryDiscovery(request, env) {
+  const payload = await buildMemoryPayload(await request.json(), env);
+  if (payload?.errore) return json({ errore: payload.errore }, payload.status || 400);
   return json(payload);
 }
 
