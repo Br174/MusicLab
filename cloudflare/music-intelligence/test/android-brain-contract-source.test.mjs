@@ -112,3 +112,28 @@ test('Cover session performs one MusicBrainz lookup and reuses its neutral evide
   const playbackIndex = coverScreen.indexOf('AiCoverSearchEngine.resolveCandidates(');
   assert.ok(enrichIndex >= 0 && playbackIndex > enrichIndex, 'source evidence must be attached before YouTube playback resolution');
 });
+
+test('Cover coverage selector filters the existing tab results before visible pagination without joining discovery keys', () => {
+  assert.ok(
+    coverScreen.includes('var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }'),
+    'Cover must keep coverage as local display state',
+  );
+  assert.ok(
+    coverScreen.includes('AiCoverageFilter.visibleItems(selectedTabResults, selectedCoverageMode) { it.candidate }'),
+    'Cover must filter the already-discovered tab results',
+  );
+  assert.ok(
+    coverScreen.includes('AiCoverageSelector(\n                                selected = selectedCoverageMode'),
+    'Coverage selector must be wired into the Cover UI',
+  );
+
+  const projectionIndex = coverScreen.indexOf('AiCoverageFilter.visibleItems(selectedTabResults, selectedCoverageMode)');
+  const paginationIndex = coverScreen.indexOf('selectedResults.take(visibleResultCount)');
+  assert.ok(projectionIndex >= 0 && paginationIndex > projectionIndex, 'coverage projection must happen before visible pagination');
+
+  const discoveryEffectStart = coverScreen.indexOf('LaunchedEffect(\n        sessionKey,');
+  const discoveryEffectBody = coverScreen.indexOf('    ) {', discoveryEffectStart);
+  assert.ok(discoveryEffectStart >= 0 && discoveryEffectBody > discoveryEffectStart, 'Cover discovery LaunchedEffect not found');
+  const discoveryKeys = coverScreen.slice(discoveryEffectStart, discoveryEffectBody);
+  assert.ok(!discoveryKeys.includes('selectedCoverageMode'), 'changing coverage must never relaunch AI discovery');
+});
