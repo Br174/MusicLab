@@ -5,6 +5,8 @@ import {
   buildWorkSignature,
   normalizeSourceResult,
   evidenceSignalsForCandidate,
+  collectSourceEvidence,
+  formatSourceEvidenceForBrain,
 } from '../src/source-router.js';
 
 test('source plan starts from memory then free structured sources', () => {
@@ -13,8 +15,15 @@ test('source plan starts from memory then free structured sources', () => {
     ['d1', 'musicbrainz', 'wikidata'],
   );
   assert.deepEqual(
-    buildSourcePlan({ secondHandSongs: true, discogs: true, lastfm: true, webGap: true }),
-    ['d1', 'musicbrainz', 'wikidata', 'discogs', 'lastfm', 'secondhandsongs', 'web_gap'],
+    buildSourcePlan({
+      secondHandSongs: true,
+      coverInfo: true,
+      discogs: true,
+      lastfm: true,
+      webGap: true,
+      youtubeFallback: true,
+    }),
+    ['d1', 'musicbrainz', 'wikidata', 'discogs', 'lastfm', 'coverinfo', 'secondhandsongs', 'web_gap', 'youtube_ytm'],
   );
 });
 
@@ -74,4 +83,47 @@ test('structured identifiers and matching credits become positive evidence only'
 test('source absence never emits different-work confirmation by inference', () => {
   const result = normalizeSourceResult('discogs', { status: 'no_match', candidates: [] });
   assert.equal(result.negativeEvidence.some(item => item.kind === 'different_work_confirmed'), false);
+});
+
+test('runtime source lanes query free structured providers and degrade missing optional providers neutrally', async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('musicbrainz.org/ws/2/work')) {
+      return new Response(JSON.stringify({ works: [{ id: 'mb-work-1', title: 'Il mondo', score: 100 }] }), { status: 200 });
+    }
+    if (String(url).includes('query.wikidata.org/sparql')) {
+      return new Response(JSON.stringify({ results: { bindings: [{ item: { value: 'http://www.wikidata.org/entity/Q1' }, itemLabel: { value: 'Il mondo' } }] } }), { status: 200 });
+    }
+    throw new Error(`unexpected URL ${url}`);
+  };
+
+  const evidence = await collectSourceEvidence({
+    title: 'Il mondo',
+    artist: 'Jimmy Fontana',
+    fetchImpl,
+    env: {},
+  });
+
+  assert.equal(evidence.find(item => item.source === 'musicbrainz')?.status, 'ok');
+  assert.equal(evidence.find(item => item.source === 'wikidata')?.status, 'ok');
+  assert.equal(evidence.find(item => item.source === 'discogs')?.status, 'unavailable');
+  assert.equal(evidence.find(item => item.source === 'lastfm')?.status, 'unavailable');
+  assert.ok(calls.some(url => url.includes('musicbrainz.org/ws/2/work')));
+  assert.ok(calls.some(url => url.includes('query.wikidata.org/sparql')));
+});
+
+test('structured evidence is converted into explicit non-veto context for the Brain', () => {
+  const text = formatSourceEvidenceForBrain([
+    normalizeSourceResult('musicbrainz', {
+      status: 'ok',
+      candidates: [{ title: 'Il mondo', id: 'mb-work-1' }],
+    }),
+    normalizeSourceResult('wikidata', { status: 'unavailable', error: 'timeout' }),
+  ]);
+
+  assert.match(text, /MusicBrainz/i);
+  assert.match(text, /Il mondo/);
+  assert.match(text, /Wikidata/i);
+  assert.match(text, /non.*veto|nessun.*veto/i);
 });
