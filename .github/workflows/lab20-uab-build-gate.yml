@@ -1,0 +1,84 @@
+name: LAB20 UAB Delivery Gate
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-ai-brain-20
+    paths:
+      - '.github/workflows/lab20-uab-build-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab20-uab-delivery-gate
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build-lab20-apk-zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout LAB20 source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK path
+        shell: bash
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: UAB preflight diagnostics
+        shell: bash
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build LAB20 APK and ZIP with UAB
+        shell: bash
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verify LAB20 deliverables
+        shell: bash
+        run: |
+          test -s dist/uab/apk/MusicLab-LAB-20.apk
+          test -s dist/uab/MusicLab-LAB-20-APK.zip
+          test -s dist/uab/apk/SHA256SUMS.txt
+          unzip -tq dist/uab/MusicLab-LAB-20-APK.zip
+          test "$(unzip -Z1 dist/uab/MusicLab-LAB-20-APK.zip | grep -c '\.apk$')" -eq 1
+          echo '--- SHA256 ---'
+          cat dist/uab/apk/SHA256SUMS.txt
+          echo '--- Files ---'
+          ls -lh dist/uab/apk/MusicLab-LAB-20.apk dist/uab/MusicLab-LAB-20-APK.zip
+
+      - name: Upload LAB20 APK ZIP and log
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB-20
+          path: |
+            dist/uab/apk/MusicLab-LAB-20.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB-20-APK.zip
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
