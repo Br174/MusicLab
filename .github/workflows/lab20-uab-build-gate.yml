@@ -1,5 +1,6 @@
 name: LAB20 UAB Delivery Gate
 
+# gate-revision: 2 — rebuild after nullable Brain metadata fix
 on:
   push:
     branches:
