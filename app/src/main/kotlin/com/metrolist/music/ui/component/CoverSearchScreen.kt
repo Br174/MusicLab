@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,8 +68,10 @@ import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.YouTubeMatchOverride
 import com.metrolist.music.ui.menu.YouTubeSongMenu
+import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
@@ -201,6 +204,7 @@ internal fun CoverSearchScreen(
     var detailResult by remember(sessionKey) { mutableStateOf<AiCoverPlayable?>(null) }
     var detailCredits by remember(sessionKey) { mutableStateOf<GeminiVersionCredits?>(null) }
     var detailLoading by remember(sessionKey) { mutableStateOf(false) }
+    val brainReviewScope = rememberCoroutineScope()
 
     fun categoryEnabled(category: AiCoverCategory): Boolean = when (category) {
         AiCoverCategory.COVER -> true
@@ -472,6 +476,48 @@ internal fun CoverSearchScreen(
         navController.popBackStack()
     }
 
+    fun updateBrainCandidate(updated: AiCoverCandidate) {
+        knownCandidates = knownCandidates.map { candidate ->
+            if (candidate.stableKey == updated.stableKey) updated else candidate
+        }
+        playables = playables.map { playable ->
+            if (playable.candidate.stableKey == updated.stableKey) playable.copy(candidate = updated) else playable
+        }
+        session.knownCandidates = knownCandidates
+        session.playables = playables
+    }
+
+    fun saveBrainDecision(result: AiCoverPlayable, status: AiBrainDecisionStatus) {
+        val config = geminiConfig ?: return
+        val sourceTitle = originalInfo?.title?.ifBlank { title } ?: title
+        val sourceArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist
+        brainReviewScope.launch {
+            val saved = CloudMusicDiscovery.saveBrainDecision(
+                originalTitle = sourceTitle,
+                originalArtist = sourceArtist,
+                candidate = result.candidate,
+                status = status,
+                config = config,
+            )
+            if (saved) updateBrainCandidate(result.candidate.copy(brainStatus = status))
+        }
+    }
+
+    fun verifyCandidateBetter(result: AiCoverPlayable) {
+        val config = geminiConfig ?: return
+        val sourceTitle = originalInfo?.title?.ifBlank { title } ?: title
+        val sourceArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist
+        brainReviewScope.launch {
+            CloudMusicDiscovery.verifyCandidate(
+                originalTitle = sourceTitle,
+                originalArtist = sourceArtist,
+                candidate = result.candidate,
+                mode = "cover",
+                config = config,
+            )?.let(::updateBrainCandidate)
+        }
+    }
+
     val coverResults = playables.filter { it.candidate.category == AiCoverCategory.COVER }
     val liveResults = playables.filter { it.candidate.category == AiCoverCategory.LIVE && liveAiEnabled }
     val remixResults = playables.filter { it.candidate.category == AiCoverCategory.REMIX && remixAiEnabled }
@@ -482,7 +528,11 @@ internal fun CoverSearchScreen(
         AiCoverTab.REMIX -> remixResults
         AiCoverTab.FOREIGN -> foreignResults
     }
-    val selectedResults = AiCoverageFilter.visibleItems(selectedTabResults, selectedCoverageMode) { it.candidate }
+    val reviewResults = selectedTabResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
+    val selectedResults = AiCoverageFilter.visibleItems(
+        selectedTabResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN },
+        selectedCoverageMode,
+    ) { it.candidate }
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -731,6 +781,7 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
+                                    onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(result.candidate.title)) },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -763,6 +814,49 @@ internal fun CoverSearchScreen(
                                     },
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                        }
+
+                        if (reviewResults.isNotEmpty()) {
+                            item {
+                                Spacer(Modifier.height(14.dp))
+                                CoverSectionTitle("Da verificare")
+                                Text(
+                                    "Risultati che il Brain conserva per una decisione esplicita.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 6.dp),
+                                )
+                            }
+                            items(
+                                items = reviewResults,
+                                key = { "review-${it.candidate.stableKey}-${it.song.id}" },
+                            ) { result ->
+                                AiCoverResultRow(
+                                    result = result,
+                                    onPlay = { play(result.song) },
+                                    onReplace = { replaceWith(result) },
+                                    onDetails = { detailResult = result },
+                                    onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(result.candidate.title)) },
+                                    onLongClick = {
+                                        menuState.show {
+                                            YouTubeSongMenu(
+                                                song = result.song,
+                                                onDismiss = menuState::dismiss,
+                                            )
+                                        }
+                                    },
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    TextButton(onClick = { play(result.song) }) { Text("Ascolta") }
+                                    TextButton(onClick = { saveBrainDecision(result, AiBrainDecisionStatus.APPROVED) }) { Text("Conferma") }
+                                    TextButton(onClick = { saveBrainDecision(result, AiBrainDecisionStatus.REJECTED) }) { Text("Rifiuta") }
+                                    TextButton(onClick = { verifyCandidateBetter(result) }) { Text("Verifica meglio") }
+                                }
+                                Spacer(Modifier.height(8.dp))
                             }
                         }
                     }
@@ -874,6 +968,7 @@ private fun AiCoverResultRow(
     onPlay: () -> Unit,
     onReplace: () -> Unit,
     onDetails: () -> Unit,
+    onTitleSearch: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     Row(
@@ -888,7 +983,13 @@ private fun AiCoverResultRow(
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(result.candidate.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                result.candidate.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(onClick = onTitleSearch),
+            )
             Text(result.candidate.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 text = result.candidate.year?.let { "Data: $it" } ?: "Data non disponibile",
