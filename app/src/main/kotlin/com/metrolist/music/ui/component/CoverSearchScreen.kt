@@ -528,11 +528,12 @@ internal fun CoverSearchScreen(
         AiCoverTab.REMIX -> remixResults
         AiCoverTab.FOREIGN -> foreignResults
     }
-    val reviewResults = selectedTabResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
-    val selectedResults = AiCoverageFilter.visibleItems(
-        selectedTabResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN },
+    val coverageVisibleResults = AiCoverageFilter.visibleItems(
+        selectedTabResults,
         selectedCoverageMode,
     ) { it.candidate }
+    val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
+    val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo

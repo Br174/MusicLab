@@ -137,6 +137,25 @@ internal object AiCoverSearchEngine {
         return AiCoverPlayable(datedCandidate, song, playbackSource)
     }
 
+    internal fun isPlaybackTitleCompatible(
+        candidate: AiCoverCandidate,
+        rawSongTitle: String,
+    ): Boolean {
+        val targetTitle = canonicalTitle(candidate.title)
+        if (targetTitle.isBlank()) return false
+
+        var resolvedTitle = canonicalTitle(rawSongTitle)
+        val targetArtist = canonicalArtist(candidate.artist)
+        if (targetArtist.isNotBlank()) {
+            resolvedTitle = when {
+                resolvedTitle.startsWith("$targetArtist ") -> resolvedTitle.removePrefix("$targetArtist ").trim()
+                resolvedTitle.endsWith(" $targetArtist") -> resolvedTitle.removeSuffix(" $targetArtist").trim()
+                else -> resolvedTitle
+            }
+        }
+        return resolvedTitle == targetTitle
+    }
+
     private suspend fun searchAndPick(
         query: String,
         filter: YouTube.SearchFilter,
@@ -171,6 +190,8 @@ internal object AiCoverSearchEngine {
         targetArtist: String,
         candidate: AiCoverCandidate,
     ): Int {
+        if (!isPlaybackTitleCompatible(candidate, song.title)) return 0
+
         val songTitle = canonicalTitle(song.title)
         val artistNames = song.artists.map { canonicalArtist(it.name) }
         val titleHasArtist = tokenPhrase(songTitle, targetArtist)

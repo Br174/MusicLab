@@ -123,35 +123,22 @@ test('Cover session performs one MusicBrainz lookup and reuses its neutral evide
   assert.ok(enrichIndex >= 0 && playbackIndex > enrichIndex, 'source evidence must be attached before YouTube playback resolution');
 });
 
-test('Cover separates UNCERTAIN review before coverage and visible pagination without joining discovery keys', () => {
-  assert.ok(
-    coverScreen.includes('var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }'),
-    'Cover must keep coverage as local display state',
-  );
-  assert.ok(
-    compactCoverScreen.includes('val reviewResults = selectedTabResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'),
-    'Cover must split UNCERTAIN candidates into the review queue',
-  );
-  assert.ok(
-    compactCoverScreen.includes('selectedTabResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }, selectedCoverageMode,'),
-    'Cover must apply coverage to the already-discovered non-review results',
-  );
-  assert.ok(
-    coverScreen.includes('AiCoverageSelector(\n                                selected = selectedCoverageMode'),
-    'Coverage selector must be wired into the Cover UI',
-  );
-
-  const reviewIndex = coverScreen.indexOf('val reviewResults = selectedTabResults.filter');
-  const projectionIndex = coverScreen.indexOf('val selectedResults = AiCoverageFilter.visibleItems(');
+test('Cover applies coverage to the complete tab before review split and pagination without joining discovery keys', () => {
+  assert.ok(coverScreen.includes('var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }'));
+  assert.ok(compactCoverScreen.includes('val coverageVisibleResults = AiCoverageFilter.visibleItems( selectedTabResults, selectedCoverageMode,'));
+  assert.ok(compactCoverScreen.includes('val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));
+  assert.ok(compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));
+  assert.ok(coverScreen.includes('AiCoverageSelector(\n                                selected = selectedCoverageMode'));
+  const projectionIndex = coverScreen.indexOf('val coverageVisibleResults = AiCoverageFilter.visibleItems(');
+  const reviewIndex = coverScreen.indexOf('val reviewResults = coverageVisibleResults.filter');
   const paginationIndex = coverScreen.indexOf('selectedResults.take(visibleResultCount)');
-  assert.ok(reviewIndex >= 0 && projectionIndex > reviewIndex, 'review split must happen before coverage projection');
-  assert.ok(paginationIndex > projectionIndex, 'coverage projection must happen before visible pagination');
-
+  assert.ok(projectionIndex >= 0 && reviewIndex > projectionIndex);
+  assert.ok(paginationIndex > reviewIndex);
   const discoveryEffectStart = coverScreen.indexOf('LaunchedEffect(\n        sessionKey,');
   const discoveryEffectBody = coverScreen.indexOf('    ) {', discoveryEffectStart);
-  assert.ok(discoveryEffectStart >= 0 && discoveryEffectBody > discoveryEffectStart, 'Cover discovery LaunchedEffect not found');
+  assert.ok(discoveryEffectStart >= 0 && discoveryEffectBody > discoveryEffectStart);
   const discoveryKeys = coverScreen.slice(discoveryEffectStart, discoveryEffectBody);
-  assert.ok(!discoveryKeys.includes('selectedCoverageMode'), 'changing coverage must never relaunch AI discovery');
+  assert.ok(!discoveryKeys.includes('selectedCoverageMode'));
 });
 
 test('Originali preserves Brain metadata, separates review and filters before pagination', () => {
