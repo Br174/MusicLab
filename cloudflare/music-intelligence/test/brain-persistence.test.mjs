@@ -78,3 +78,47 @@ test('Brain scores, decision and evidence are persisted beside the learned versi
   assert.equal(evidence.args[4], 'strong');
   assert.equal(evidence.args[5], 'positive');
 });
+
+test('Work Signature, identifiers, aliases and translated titles are persisted without becoming mandatory', async () => {
+  assert.equal(typeof brainWorker.persistWorkSignature, 'function');
+
+  const db = persistenceDb();
+  const signature = {
+    canonicalTitle: 'Il mondo',
+    originalArtist: 'Jimmy Fontana',
+    aliases: ['Il Mondo (My World)', 'The World'],
+    translatedTitles: ['El mundo', 'El món'],
+    writers: ['Gianni Meccia'],
+    composers: ['Jimmy Fontana', 'Carlo Pes'],
+    lyricists: ['Gianni Meccia'],
+    publishers: [],
+    iswc: 'T-005.001.002-0',
+    musicbrainzWorkId: 'mb-work-1',
+    year: 1965,
+    language: 'it',
+  };
+
+  await brainWorker.persistWorkSignature(db, signature);
+
+  const workUpdate = db.writes.find(entry => entry.sql.includes('UPDATE works'));
+  assert.ok(workUpdate, 'expected Work Signature update');
+  assert.equal(workUpdate.args[1], 'T-005.001.002-0');
+  assert.equal(workUpdate.args[2], 'mb-work-1');
+  assert.equal(workUpdate.args[3], 'work-1');
+  assert.deepEqual(JSON.parse(workUpdate.args[0]).translatedTitles, ['El mundo', 'El món']);
+
+  const aliasWrites = db.writes.filter(entry => entry.sql.includes('INSERT INTO work_aliases'));
+  assert.equal(aliasWrites.length, 4);
+  assert.deepEqual(aliasWrites.map(entry => entry.args[1]), [
+    'Il Mondo (My World)',
+    'The World',
+    'El mundo',
+    'El món',
+  ]);
+  assert.deepEqual(aliasWrites.map(entry => entry.args[3]), [
+    'alternate',
+    'alternate',
+    'translated',
+    'translated',
+  ]);
+});
