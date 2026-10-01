@@ -41,3 +41,13 @@ test('Cloud parser preserves Worker Brain metadata and LAB20 client marker', () 
     assert.ok(cloud.includes(token), `missing Cloud Brain parser token: ${token}`);
   }
 });
+
+test('Android asks D1 memory before starting new Cover research rounds', () => {
+  assert.ok(cloud.includes('suspend fun discoverMemory('), 'missing Cloud memory-only client method');
+  assert.ok(cloud.includes('/api/v1/memory/discover'), 'missing memory-only Worker route');
+  const memoryIndex = source.indexOf('CloudMusicDiscovery.discoverMemory(');
+  const researchIndex = source.indexOf('for (roundGroup in RESEARCH_ROUNDS.chunked');
+  assert.ok(memoryIndex >= 0, 'Cover engine does not read learned D1 memory');
+  assert.ok(researchIndex >= 0, 'Cover research loop not found');
+  assert.ok(memoryIndex < researchIndex, 'D1 memory must be read before new AI research');
+});
