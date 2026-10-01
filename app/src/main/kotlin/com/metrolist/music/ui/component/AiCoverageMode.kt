@@ -53,8 +53,10 @@ internal object AiCoverageFilter {
     fun <T> visibleItems(
         items: List<T>,
         mode: AiCoverageMode,
-        candidateOf: (T) -> AiCoverCandidate,
-    ): List<T> = items.filter { item -> isVisible(candidateOf(item), mode) }
+        candidateOf: (T) -> AiCoverCandidate?,
+    ): List<T> = items.filter { item ->
+        candidateOf(item)?.let { candidate -> isVisible(candidate, mode) } ?: true
+    }
 
     fun toReview(candidates: List<AiCoverCandidate>): List<AiCoverCandidate> =
         candidates.filter { it.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
