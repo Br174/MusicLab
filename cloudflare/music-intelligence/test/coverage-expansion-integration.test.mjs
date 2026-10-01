@@ -73,6 +73,20 @@ function geminiResponse() {
   });
 }
 
+async function expandRequest(db) {
+  return worker.fetch(new Request('https://musiclab.test/api/v1/discover/expand', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Il mondo',
+      artist: 'Jimmy Fontana',
+      mode: 'cover',
+      useMemory: true,
+      existing: [],
+    }),
+  }), { DB: db, GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'test-model' }, {});
+}
+
 test('expand uses fresh Coverage Map missions after D1 memory is exhausted and closes them on success', async () => {
   const db = integrationDb();
   const prompts = [];
@@ -85,17 +99,7 @@ test('expand uses fresh Coverage Map missions after D1 memory is exhausted and c
   };
 
   try {
-    const response = await worker.fetch(new Request('https://musiclab.test/api/v1/discover/expand', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        title: 'Il mondo',
-        artist: 'Jimmy Fontana',
-        mode: 'cover',
-        useMemory: true,
-        existing: [],
-      }),
-    }), { DB: db, GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'test-model' }, {});
+    const response = await expandRequest(db);
 
     assert.equal(response.status, 200);
     const payload = await response.json();
@@ -116,6 +120,31 @@ test('expand uses fresh Coverage Map missions after D1 memory is exhausted and c
     assert.equal(cellUpdates.length, missionInserts.length);
     assert.ok(missionUpdates.every(entry => entry.args[0] === 'completed'));
     assert.ok(cellUpdates.every(entry => entry.args[0] === 'searched'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('failed AI expansion marks missions failed and releases Coverage cells for retry', async () => {
+  const db = integrationDb();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{"error":"temporary"}', {
+    status: 503,
+    headers: { 'content-type': 'application/json' },
+  });
+
+  try {
+    const response = await expandRequest(db);
+    assert.equal(response.status, 500);
+
+    const missionInserts = db.writes.filter(entry => entry.sql.includes('INSERT INTO search_missions'));
+    const missionUpdates = db.writes.filter(entry => entry.sql.includes('UPDATE search_missions'));
+    const cellUpdates = db.writes.filter(entry => entry.sql.includes('UPDATE coverage_cells'));
+    assert.ok(missionInserts.length > 0);
+    assert.equal(missionUpdates.length, missionInserts.length);
+    assert.equal(cellUpdates.length, missionInserts.length);
+    assert.ok(missionUpdates.every(entry => entry.args[0] === 'failed'));
+    assert.ok(cellUpdates.every(entry => entry.args[0] === 'unsearched'));
   } finally {
     globalThis.fetch = originalFetch;
   }
