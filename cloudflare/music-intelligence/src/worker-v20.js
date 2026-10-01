@@ -490,9 +490,11 @@ export async function completeCoverageMissions(db, missions, resultCount = 0) {
 async function forwardDiscovery(request, env, ctx, phase) {
   const input = await request.clone().json();
   const mode = input?.mode === 'originals' ? 'originals' : 'cover';
+  let memory = null;
+  let coverageMissions = [];
 
   if (phase === 'expand' && input?.useMemory !== false && env.DB) {
-    const memory = await buildMemoryPayload(input, env);
+    memory = await buildMemoryPayload(input, env);
     if (!memory?.errore && Array.isArray(memory?.versions) && memory.versions.length) {
       const existing = new Set(
         (Array.isArray(input?.existing) ? input.existing : [])
@@ -513,11 +515,26 @@ async function forwardDiscovery(request, env, ctx, phase) {
   }
 
   if (phase === 'expand') {
+    if (env.DB) {
+      coverageMissions = await planCoverageMissions(env.DB, {
+        ...input,
+        year: input?.year ?? memory?.original?.year ?? null,
+        language: input?.language ?? memory?.original?.language ?? null,
+      }, 6).catch(() => []);
+    }
+    const missionFocus = coverageMissions
+      .map(mission => mission.queryText)
+      .filter(Boolean)
+      .join('\n');
+    const requestedFocus = [
+      String(input?.focus || '').trim(),
+      missionFocus ? `Missioni Coverage Map nuove:\n${missionFocus}` : '',
+    ].filter(Boolean).join('\n');
     input.focus = buildBrainFocus({
       title: String(input?.title || '').trim(),
       artist: String(input?.artist || '').trim(),
       mode,
-      focus: String(input?.focus || '').trim(),
+      focus: requestedFocus,
     });
   }
   const forwarded = new Request(request.url, {
@@ -531,7 +548,11 @@ async function forwardDiscovery(request, env, ctx, phase) {
   const decorated = decorateDiscoveryPayload(payload, mode);
 
   if (env.DB) {
-    const persistence = persistDiscoveryBrainMemory(env.DB, input, decorated).catch(() => undefined);
+    const tasks = [persistDiscoveryBrainMemory(env.DB, input, decorated)];
+    if (coverageMissions.length) {
+      tasks.push(completeCoverageMissions(env.DB, coverageMissions, decorated.versions.length));
+    }
+    const persistence = Promise.all(tasks).catch(() => undefined);
     if (typeof ctx?.waitUntil === 'function') ctx.waitUntil(persistence);
     else await persistence;
   }
