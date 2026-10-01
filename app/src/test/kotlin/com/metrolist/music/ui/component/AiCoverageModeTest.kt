@@ -69,6 +69,22 @@ class AiCoverageModeTest {
     }
 
     @Test
+    fun `Originali PRECISE projects retained Brain metadata while preserving legacy results`() {
+        data class OriginalResult(val id: String, val brainCandidate: AiCoverCandidate?)
+
+        val source = listOf(
+            OriginalResult("strong", candidate(94, 91, AiBrainDecisionStatus.APPROVED)),
+            OriginalResult("weak", candidate(54, 52, AiBrainDecisionStatus.PROBABLE)),
+            OriginalResult("legacy", null),
+        )
+
+        val visible = AiCoverageFilter.visibleItems(source, AiCoverageMode.PRECISE) { it.brainCandidate }
+
+        assertEquals(listOf("strong", "legacy"), visible.map { it.id })
+        assertEquals(listOf("strong", "weak", "legacy"), source.map { it.id })
+    }
+
+    @Test
     fun `rejected candidates stay hidden even in All`() {
         val rejected = candidate(100, 100, AiBrainDecisionStatus.REJECTED)
         assertFalse(AiCoverageFilter.isVisible(rejected, AiCoverageMode.ALL))
