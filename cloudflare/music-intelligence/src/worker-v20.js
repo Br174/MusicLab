@@ -342,6 +342,28 @@ export async function persistBrainAnnotations(db, input, payload) {
   }
 }
 
+export async function persistDiscoveryBrainMemory(db, input, payload) {
+  if (!db || !payload) return;
+  const original = payload?.original || {};
+  const credits = original?.credits && typeof original.credits === 'object' ? original.credits : {};
+  const signature = buildWorkSignature({
+    title: original?.title || input?.title,
+    artist: original?.artist || input?.artist,
+    aliases: input?.aliases,
+    translatedTitles: input?.translatedTitles,
+    writers: credits?.songwriters?.length ? credits.songwriters : input?.writers,
+    composers: credits?.composers?.length ? credits.composers : input?.composers,
+    lyricists: credits?.lyricists?.length ? credits.lyricists : input?.lyricists,
+    publishers: input?.publishers,
+    iswc: input?.iswc,
+    musicbrainzWorkId: input?.musicbrainzWorkId,
+    year: original?.year ?? input?.year,
+    language: original?.language ?? input?.language,
+  });
+  await persistWorkSignature(db, signature);
+  await persistBrainAnnotations(db, input, payload);
+}
+
 async function forwardDiscovery(request, env, ctx, phase) {
   const input = await request.clone().json();
   const mode = input?.mode === 'originals' ? 'originals' : 'cover';
@@ -386,7 +408,7 @@ async function forwardDiscovery(request, env, ctx, phase) {
   const decorated = decorateDiscoveryPayload(payload, mode);
 
   if (env.DB) {
-    const persistence = persistBrainAnnotations(env.DB, input, decorated).catch(() => undefined);
+    const persistence = persistDiscoveryBrainMemory(env.DB, input, decorated).catch(() => undefined);
     if (typeof ctx?.waitUntil === 'function') ctx.waitUntil(persistence);
     else await persistence;
   }
