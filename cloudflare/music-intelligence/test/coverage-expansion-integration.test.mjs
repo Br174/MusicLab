@@ -87,11 +87,20 @@ async function expandRequest(db) {
   }), { DB: db, GEMINI_API_KEY: 'test-key', GEMINI_MODEL: 'test-model' }, {});
 }
 
-test('expand uses fresh Coverage Map missions after D1 memory is exhausted and closes them on success', async () => {
+test('expand uses fresh Coverage Map missions and structured evidence after D1 memory is exhausted', async () => {
   const db = integrationDb();
   const prompts = [];
+  const urls = [];
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, init = {}) => {
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    urls.push(href);
+    if (href.includes('musicbrainz.org/ws/2/work')) {
+      return new Response(JSON.stringify({ works: [{ id: 'mb-work-1', title: 'Il mondo', score: 100 }] }), { status: 200 });
+    }
+    if (href.includes('query.wikidata.org/sparql')) {
+      return new Response(JSON.stringify({ results: { bindings: [{ item: { value: 'http://www.wikidata.org/entity/Q123' }, itemLabel: { value: 'Il mondo' } }] } }), { status: 200 });
+    }
     const body = JSON.parse(String(init.body || '{}'));
     const prompt = body?.contents?.[0]?.parts?.[0]?.text;
     if (prompt) prompts.push(prompt);
@@ -109,6 +118,12 @@ test('expand uses fresh Coverage Map missions after D1 memory is exhausted and c
     const combinedPrompt = prompts.join('\n');
     assert.match(combinedPrompt, /1960s/i);
     assert.match(combinedPrompt, /studio cover|studio_cover/i);
+    assert.ok(urls.some(url => url.includes('musicbrainz.org/ws/2/work')), 'MusicBrainz must be queried at runtime');
+    assert.ok(urls.some(url => url.includes('query.wikidata.org/sparql')), 'Wikidata must be queried at runtime');
+    assert.match(combinedPrompt, /EVIDENZE DA FONTI STRUTTURATE/i);
+    assert.match(combinedPrompt, /MusicBrainz/i);
+    assert.match(combinedPrompt, /Wikidata/i);
+    assert.match(combinedPrompt, /non.*veto|nessun.*veto/i);
 
     const missionInserts = db.writes.filter(entry => entry.sql.includes('INSERT INTO search_missions'));
     const cellInFlight = db.writes.filter(entry => entry.sql.includes('INSERT INTO coverage_cells'));
@@ -128,10 +143,19 @@ test('expand uses fresh Coverage Map missions after D1 memory is exhausted and c
 test('failed AI expansion marks missions failed and releases Coverage cells for retry', async () => {
   const db = integrationDb();
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response('{"error":"temporary"}', {
-    status: 503,
-    headers: { 'content-type': 'application/json' },
-  });
+  globalThis.fetch = async (url) => {
+    const href = String(url);
+    if (href.includes('musicbrainz.org/ws/2/work')) {
+      return new Response(JSON.stringify({ works: [] }), { status: 200 });
+    }
+    if (href.includes('query.wikidata.org/sparql')) {
+      return new Response(JSON.stringify({ results: { bindings: [] } }), { status: 200 });
+    }
+    return new Response('{"error":"temporary"}', {
+      status: 503,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
 
   try {
     const response = await expandRequest(db);
