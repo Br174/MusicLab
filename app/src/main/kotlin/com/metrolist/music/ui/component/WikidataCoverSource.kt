@@ -1,6 +1,11 @@
 package com.metrolist.music.ui.component
 
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.jsoup.Jsoup
 import java.net.URLEncoder
 import java.text.Normalizer
@@ -41,6 +46,7 @@ internal object WikidataCoverSource {
     private const val ERROR_CACHE_TTL_MS = 10L * 60L * 1000L
     private const val USER_AGENT = "MusicLab/0.9.2 (https://github.com/Br174/MusicLab)"
 
+    private val json = Json { ignoreUnknownKeys = true }
     private val cache = ConcurrentHashMap<String, CacheEntry>()
 
     private data class CacheEntry(
@@ -164,37 +170,40 @@ internal object WikidataCoverSource {
     }
 
     internal fun parseEntityPayload(payload: String, entityId: String): WikidataWorkEvidence? {
-        val root = runCatching { JSONObject(payload) }.getOrNull() ?: return null
-        val entity = root.optJSONObject("entities")?.optJSONObject(entityId) ?: return null
+        val root = parseObject(payload) ?: return null
+        val entities = root["entities"].asObject() ?: return null
+        val entity = entities[entityId].asObject() ?: return null
 
         val titles = linkedSetOf<String>()
-        val labels = entity.optJSONObject("labels")
-        labels?.keys()?.forEach { language ->
-            labels.optJSONObject(language)?.optString("value")
+        entity["labels"].asObject()?.values?.forEach { rawLabel ->
+            rawLabel.asObject()
+                ?.get("value")
+                .asString()
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
                 ?.let(titles::add)
         }
 
         val aliases = linkedSetOf<String>()
-        val aliasesObject = entity.optJSONObject("aliases")
-        aliasesObject?.keys()?.forEach { language ->
-            val values = aliasesObject.optJSONArray(language) ?: return@forEach
-            for (index in 0 until values.length()) {
-                values.optJSONObject(index)?.optString("value")
+        entity["aliases"].asObject()?.values?.forEach { rawAliases ->
+            rawAliases.asArray()?.forEach { rawAlias ->
+                rawAlias.asObject()
+                    ?.get("value")
+                    .asString()
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
                     ?.let(aliases::add)
             }
         }
 
-        val claims = entity.optJSONObject("claims")
+        val claims = entity["claims"].asObject()
         val composerIds = claimEntityIds(claims, "P86")
         val lyricistIds = claimEntityIds(claims, "P676")
 
         if (titles.isEmpty() && aliases.isEmpty()) return null
+        val declaredId = entity["id"].asString()?.trim().orEmpty()
         return WikidataWorkEvidence(
-            entityId = entity.optString("id").takeIf { it.isNotBlank() } ?: entityId,
+            entityId = declaredId.ifBlank { entityId },
             titles = titles.toList(),
             aliases = aliases.filterNot { alias -> titles.any { canonical(it) == canonical(alias) } },
             composerEntityIds = composerIds,
@@ -203,30 +212,27 @@ internal object WikidataCoverSource {
     }
 
     internal fun parseSearchEntityIds(payload: String): List<String> {
-        val root = runCatching { JSONObject(payload) }.getOrNull() ?: return emptyList()
-        val search = root.optJSONArray("search") ?: return emptyList()
-        return buildList {
-            for (index in 0 until search.length()) {
-                search.optJSONObject(index)?.optString("id")
-                    ?.trim()
-                    ?.takeIf { it.matches(Regex("Q\\d+")) }
-                    ?.let(::add)
-            }
+        val root = parseObject(payload) ?: return emptyList()
+        val search = root["search"].asArray() ?: return emptyList()
+        return search.mapNotNull { raw ->
+            raw.asObject()
+                ?.get("id")
+                .asString()
+                ?.trim()
+                ?.takeIf { it.matches(Regex("Q\\d+")) }
         }.distinct().take(MAX_SEARCH_RESULTS)
     }
 
-    private fun claimEntityIds(claims: JSONObject?, property: String): List<String> {
-        val statements = claims?.optJSONArray(property) ?: return emptyList()
-        return buildList {
-            for (index in 0 until statements.length()) {
-                val id = statements.optJSONObject(index)
-                    ?.optJSONObject("mainsnak")
-                    ?.optJSONObject("datavalue")
-                    ?.optJSONObject("value")
-                    ?.optString("id")
-                    ?.trim()
-                if (!id.isNullOrBlank() && id.matches(Regex("Q\\d+"))) add(id)
-            }
+    private fun claimEntityIds(claims: JsonObject?, property: String): List<String> {
+        val statements = claims?.get(property).asArray() ?: return emptyList()
+        return statements.mapNotNull { rawStatement ->
+            rawStatement.asObject()
+                ?.get("mainsnak").asObject()
+                ?.get("datavalue").asObject()
+                ?.get("value").asObject()
+                ?.get("id").asString()
+                ?.trim()
+                ?.takeIf { it.matches(Regex("Q\\d+")) }
         }.distinct()
     }
 
@@ -255,6 +261,14 @@ internal object WikidataCoverSource {
             .takeIf { it.statusCode() in 200..299 }
             ?.body()
     }.getOrNull()
+
+    private fun parseObject(payload: String): JsonObject? = runCatching {
+        json.parseToJsonElement(payload).asObject()
+    }.getOrNull()
+
+    private fun JsonElement?.asObject(): JsonObject? = this as? JsonObject
+    private fun JsonElement?.asArray(): JsonArray? = this as? JsonArray
+    private fun JsonElement?.asString(): String? = (this as? JsonPrimitive)?.contentOrNull
 
     private fun canonical(value: String): String =
         Normalizer.normalize(value, Normalizer.Form.NFD)
