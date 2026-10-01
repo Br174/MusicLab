@@ -65,3 +65,15 @@ test('Originali uses learned D1 memory as search plan before generic queries', (
   assert.ok(genericIndex >= 0, 'Originali generic query planner not found');
   assert.ok(memoryIndex < genericIndex, 'Originali must consult D1 before generic query planning');
 });
+
+test('Originali remembered adaptations are matched against their remembered title, not only the canonical title', () => {
+  assert.ok(originals.includes('searchRememberedOriginalVersions('), 'missing remembered-version resolver');
+  assert.ok(
+    originals.includes('targetTitle = exactBaseTitle(candidate.title)'),
+    'remembered adapted titles must be validated against the candidate title such as El mundo',
+  );
+  assert.ok(
+    originals.includes('query = "${candidate.title} ${candidate.artist}".trim()'),
+    'remembered candidate title and artist must drive the playback locator query',
+  );
+});
