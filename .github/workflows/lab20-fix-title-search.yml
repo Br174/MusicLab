@@ -1,0 +1,67 @@
+name: LAB20 One-shot Originali title-search fix
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-ai-brain-20
+    paths:
+      - '.github/workflows/lab20-fix-title-search.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lab20-one-shot-title-search-fix
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: uab-build/musiclab-ai-brain-20
+
+      - name: Apply the two exact missing call-site arguments
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt')
+          text = path.read_text()
+
+          replacements = [
+              (
+                  '                            onDetails = { detailResult = CoverHubResult(song = candidate, year = manualYear, source = "Link manuale") },\n                        )',
+                  '                            onDetails = { detailResult = CoverHubResult(song = candidate, year = manualYear, source = "Link manuale") },\n                            onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(candidate.title)) },\n                        )',
+              ),
+              (
+                  '                                onDetails = { detailResult = original },\n                            )',
+                  '                                onDetails = { detailResult = original },\n                                onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(original.song.title)) },\n                            )',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one match, found {count}: {old[:90]!r}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+          git diff --check
+          git diff -- app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt
+
+      - name: Commit only the verified source fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt
+          test "$(git diff --cached --name-only | wc -l)" -eq 1
+          test "$(git diff --cached --name-only)" = 'app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt'
+          git commit -m 'fix(lab20): wire missing Originali title searches'
+          git push origin HEAD:uab-build/musiclab-ai-brain-20
