@@ -48,5 +48,5 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Run Android Brain contract test
-        run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --warning-mode summary
+      - name: Run Android Brain contract tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --warning-mode summary
