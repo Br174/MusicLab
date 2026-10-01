@@ -11,13 +11,18 @@ const coverResolver = readFileSync('app/src/main/kotlin/com/metrolist/music/ui/c
 const compactCoverScreen = coverScreen.replace(/\s+/g, ' ');
 
 test('app startup prepares playback without running full extractor prewarm or WebView token work', () => {
+  const prepareIndex = innerTubePlayer.indexOf('suspend fun prepare()');
+  const fullPrewarmIndex = innerTubePlayer.indexOf('suspend fun prewarm()');
+  assert.ok(prepareIndex >= 0, 'InnerTubeXPlayer must expose a lightweight startup preparation path');
+  assert.ok(fullPrewarmIndex > prepareIndex, 'lightweight preparation must remain distinct from full prewarm');
+  const prepareBlock = innerTubePlayer.slice(prepareIndex, fullPrewarmIndex);
   assert.ok(
-    innerTubePlayer.includes('suspend fun prepare()'),
-    'InnerTubeXPlayer must expose a lightweight startup preparation path',
+    prepareBlock.includes('bundle().cipherService.initialize()'),
+    'lightweight preparation must initialize only the cipher runtime',
   );
   assert.ok(
-    innerTubePlayer.includes('bundle().cipherService.initialize()'),
-    'lightweight preparation must initialize only the cipher runtime',
+    !prepareBlock.includes('extractor.prewarm()'),
+    'lightweight preparation must never invoke extractor prewarm or PO-token/WebView work',
   );
   assert.ok(
     app.includes('InnerTubeXPlayer.prepare()'),
