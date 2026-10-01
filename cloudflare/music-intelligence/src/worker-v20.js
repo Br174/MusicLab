@@ -7,6 +7,7 @@ import {
   statusForScore,
   thresholdForCoverageMode,
 } from './brain.js';
+import { buildSourcePlan, buildWorkSignature } from './source-router.js';
 
 const DEFAULT_LANGUAGES = ['inglese', 'spagnolo', 'francese', 'portoghese', 'tedesco', 'italiano'];
 
@@ -26,6 +27,50 @@ export function buildBrainFocus({ title, artist, mode = 'cover', focus = '', lan
     `Lingue prioritarie: ${missions.join(', ')}.`,
     `Piste bilingui suggerite: ${queries.join(' | ')}.`,
   ].filter(Boolean).join('\n');
+}
+
+export function buildBrainPlanPayload(input = {}) {
+  const title = String(input?.title || '').trim();
+  const artist = String(input?.artist || '').trim();
+  const languages = Array.isArray(input?.languages) && input.languages.length
+    ? input.languages
+    : DEFAULT_LANGUAGES;
+  const workSignature = buildWorkSignature({
+    title,
+    artist,
+    aliases: input?.aliases,
+    translatedTitles: input?.translatedTitles,
+    writers: input?.writers,
+    composers: input?.composers,
+    lyricists: input?.lyricists,
+    publishers: input?.publishers,
+    iswc: input?.iswc,
+    musicbrainzWorkId: input?.musicbrainzWorkId,
+    year: input?.year,
+    language: input?.language,
+  });
+  const sourceOptions = input?.sources && typeof input.sources === 'object' ? input.sources : {};
+
+  return {
+    title,
+    artist,
+    mode: input?.mode === 'originals' ? 'originals' : 'cover',
+    workSignature,
+    sourcePlan: buildSourcePlan(sourceOptions),
+    dualLanguageQueries: buildDualLanguageQueries({
+      title,
+      artist,
+      writers: workSignature.writers,
+      composers: workSignature.composers,
+    }),
+    languageMissions: buildLanguageMissions({
+      title,
+      artist,
+      targetLanguages: languages,
+      writers: workSignature.writers,
+      composers: workSignature.composers,
+    }),
+  };
 }
 
 export function decorateDiscoveryPayload(payload, mode = 'cover') {
@@ -137,17 +182,9 @@ async function forwardDiscovery(request, env, ctx, phase) {
 
 async function brainPlan(request) {
   const input = await request.json();
-  const title = String(input?.title || '').trim();
-  const artist = String(input?.artist || '').trim();
-  if (!title) return json({ errore: 'title obbligatorio' }, 400);
-  const languages = Array.isArray(input?.languages) && input.languages.length ? input.languages : DEFAULT_LANGUAGES;
-  return json({
-    title,
-    artist,
-    mode: input?.mode === 'originals' ? 'originals' : 'cover',
-    dualLanguageQueries: buildDualLanguageQueries({ title, artist, writers: input?.writers || [], composers: input?.composers || [] }),
-    languageMissions: buildLanguageMissions({ title, artist, targetLanguages: languages, writers: input?.writers || [], composers: input?.composers || [] }),
-  });
+  const plan = buildBrainPlanPayload(input);
+  if (!plan.title) return json({ errore: 'title obbligatorio' }, 400);
+  return json(plan);
 }
 
 async function saveDecision(request, env) {
