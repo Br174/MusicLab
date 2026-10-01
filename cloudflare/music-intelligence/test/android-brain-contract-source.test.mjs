@@ -14,6 +14,14 @@ const originals = readFileSync(
   'app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngine.kt',
   'utf8',
 );
+const coverHub = readFileSync(
+  'app/src/main/kotlin/com/metrolist/music/ui/component/CoverHubSearchEngine.kt',
+  'utf8',
+);
+const originalScreen = readFileSync(
+  'app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionScreen.kt',
+  'utf8',
+);
 const coverScreen = readFileSync(
   'app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt',
   'utf8',
@@ -136,4 +144,37 @@ test('Cover coverage selector filters the existing tab results before visible pa
   assert.ok(discoveryEffectStart >= 0 && discoveryEffectBody > discoveryEffectStart, 'Cover discovery LaunchedEffect not found');
   const discoveryKeys = coverScreen.slice(discoveryEffectStart, discoveryEffectBody);
   assert.ok(!discoveryKeys.includes('selectedCoverageMode'), 'changing coverage must never relaunch AI discovery');
+});
+
+test('Originali preserves Brain metadata through playback resolution and filters before pagination', () => {
+  assert.ok(
+    coverHub.includes('val brainCandidate: AiCoverCandidate? = null'),
+    'CoverHubResult must carry the optional Brain candidate that produced a playable result',
+  );
+  assert.ok(
+    originals.includes('result.copy(brainCandidate = candidate)'),
+    'remembered Originali playback results must retain their Brain candidate metadata',
+  );
+  assert.ok(
+    originalScreen.includes('var selectedOriginalCoverageMode by remember(request.currentYouTubeId) { mutableStateOf(AiCoverageMode.PRECISE) }'),
+    'Originali must own an independent PRECISE coverage state',
+  );
+  assert.ok(
+    originalScreen.includes('AiCoverageFilter.visibleItems(selectedVersions, selectedOriginalCoverageMode) { it.brainCandidate }'),
+    'Originali must filter already-resolved results by their retained Brain candidate',
+  );
+  assert.ok(
+    originalScreen.includes('AiCoverageSelector(\n                                selected = selectedOriginalCoverageMode'),
+    'Originali coverage selector must be wired into its UI independently from Cover',
+  );
+
+  const projectionIndex = originalScreen.indexOf('AiCoverageFilter.visibleItems(selectedVersions, selectedOriginalCoverageMode)');
+  const paginationIndex = originalScreen.indexOf('filteredSelectedVersions.take(visibleVersionCount)');
+  assert.ok(projectionIndex >= 0 && paginationIndex > projectionIndex, 'Originali coverage projection must happen before pagination');
+
+  const discoveryEffectStart = originalScreen.indexOf('LaunchedEffect(\n        request.currentYouTubeId,');
+  const discoveryEffectBody = originalScreen.indexOf('    ) {', discoveryEffectStart);
+  assert.ok(discoveryEffectStart >= 0 && discoveryEffectBody > discoveryEffectStart, 'Originali discovery LaunchedEffect not found');
+  const discoveryKeys = originalScreen.slice(discoveryEffectStart, discoveryEffectBody);
+  assert.ok(!discoveryKeys.includes('selectedOriginalCoverageMode'), 'changing Originali coverage must not relaunch AI discovery');
 });
