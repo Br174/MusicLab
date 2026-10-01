@@ -10,6 +10,8 @@ import {
 import { buildSourcePlan, buildWorkSignature } from './source-router.js';
 
 const DEFAULT_LANGUAGES = ['inglese', 'spagnolo', 'francese', 'portoghese', 'tedesco', 'italiano'];
+const MEMORY_RESOLVER_VERSION = 12;
+const MAX_MEMORY_RESULTS = 150;
 
 export function buildBrainFocus({ title, artist, mode = 'cover', focus = '', languages = DEFAULT_LANGUAGES } = {}) {
   const queries = buildDualLanguageQueries({ title, artist }).slice(0, 10);
@@ -97,9 +99,9 @@ export function decorateDiscoveryPayload(payload, mode = 'cover') {
 function decorateVersion(original, version, mode) {
   const signals = collectSignals(original, version);
   const evidence = evaluateEvidence({ positives: signals, negatives: [] });
-  let sameWorkScore = evidence.sameWorkScore;
-  let versionTypeScore = 50;
-  let admission = { admitted: true, reason: 'originals_lane' };
+  let sameWorkScore = numericScore(version?.sameWorkScore) ?? evidence.sameWorkScore;
+  let versionTypeScore = numericScore(version?.versionTypeScore) ?? 50;
+  let admission = { admitted: true, reason: version?.brainAdmission || 'originals_lane' };
 
   if (mode === 'cover' && original?.artist && version?.artist) {
     admission = admitCoverCandidate({
@@ -107,24 +109,27 @@ function decorateVersion(original, version, mode) {
       candidateArtist: version.artist,
       signals,
     });
-    if (admission.admitted) versionTypeScore = 75;
-    else if (admission.reason === 'same_performer') versionTypeScore = 25;
-    else versionTypeScore = 35;
+    if (numericScore(version?.versionTypeScore) == null) {
+      if (admission.admitted) versionTypeScore = 75;
+      else if (admission.reason === 'same_performer') versionTypeScore = 25;
+      else versionTypeScore = 35;
+    }
   } else if (mode === 'originals') {
     const sameArtist = normalize(original?.artist) && normalize(original?.artist) === normalize(version?.artist);
-    versionTypeScore = sameArtist ? 75 : 30;
+    if (numericScore(version?.versionTypeScore) == null) versionTypeScore = sameArtist ? 75 : 30;
     if (sameArtist && sameWorkScore < 50) sameWorkScore = 50;
   }
 
   const combined = Math.min(sameWorkScore, versionTypeScore);
-  const brainStatus = statusForScore(combined);
+  const storedStatus = normalizeDecisionStatus(version?.brainStatus);
+  const brainStatus = storedStatus || statusForScore(combined);
   return {
     ...version,
     sameWorkScore,
     versionTypeScore,
     brainStatus,
-    brainAdmission: admission.reason,
-    brainSignals: signals,
+    brainAdmission: version?.brainAdmission || admission.reason,
+    brainSignals: Array.isArray(version?.brainSignals) && version.brainSignals.length ? version.brainSignals : signals,
   };
 }
 
@@ -157,6 +162,39 @@ function normalize(value) {
   return String(value || '').trim().toLocaleLowerCase('it-IT').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 }
 
+function canonical(value) {
+  return String(value ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function searchKey(title, artist) {
+  return `${canonical(title)}|${canonical(artist)}`;
+}
+
+function numericScore(value) {
+  const score = Number(value);
+  return Number.isInteger(score) && score >= 0 && score <= 100 ? score : null;
+}
+
+function normalizeDecisionStatus(value) {
+  const status = String(value || '').trim().toUpperCase();
+  return ['APPROVED', 'PROBABLE', 'UNCERTAIN', 'REJECTED'].includes(status) ? status : null;
+}
+
+function safeJson(value) {
+  try {
+    return value ? JSON.parse(value) : {};
+  } catch {
+    return {};
+  }
+}
+
 async function forwardDiscovery(request, env, ctx, phase) {
   const input = await request.clone().json();
   const mode = input?.mode === 'originals' ? 'originals' : 'cover';
@@ -178,6 +216,85 @@ async function forwardDiscovery(request, env, ctx, phase) {
   const payload = await response.json();
   const decorated = decorateDiscoveryPayload(payload, mode);
   return new Response(JSON.stringify(decorated), { status: response.status, headers: response.headers });
+}
+
+async function memoryDiscovery(request, env) {
+  const input = await request.json();
+  const title = String(input?.title || '').trim();
+  const artist = String(input?.artist || '').trim();
+  const mode = input?.mode === 'originals' ? 'originals' : 'cover';
+  if (!title || !artist) return json({ errore: 'title e artist obbligatori' }, 400);
+
+  const requestedLimit = Number(input?.limit);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(Math.trunc(requestedLimit), MAX_MEMORY_RESULTS))
+    : MAX_MEMORY_RESULTS;
+  const empty = {
+    stato: 'pronto',
+    fase: 'memory',
+    provenienza: 'memoria-vuota',
+    seed: { title, artist },
+    original: null,
+    versions: [],
+  };
+  if (!env.DB) return json(empty);
+
+  const work = await env.DB.prepare(
+    'SELECT * FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1',
+  ).bind(searchKey(title, artist), MEMORY_RESOLVER_VERSION).first();
+  if (!work?.id) return json(empty);
+
+  const queryLimit = Math.min(MAX_MEMORY_RESULTS * 2, Math.max(MAX_MEMORY_RESULTS, limit * 2));
+  const rows = await env.DB.prepare(`
+    SELECT canonical_title, canonical_artist, category, language, year, album, credits_json,
+           same_work_score, version_type_score, decision_status, ai_reason
+    FROM versions
+    WHERE work_id=?1
+    ORDER BY user_verified DESC,
+             CASE WHEN decision_status='APPROVED' THEN 0 WHEN decision_status='PROBABLE' THEN 1 WHEN decision_status='UNCERTAIN' THEN 2 ELSE 3 END,
+             CASE WHEN year IS NULL THEN 1 ELSE 0 END, year ASC, canonical_artist ASC
+    LIMIT ?2
+  `).bind(work.id, queryLimit).all();
+
+  const originalArtistKey = canonical(work.original_artist);
+  const versions = (rows?.results || [])
+    .filter(row => {
+      const samePerformer = originalArtistKey && canonical(row.canonical_artist) === originalArtistKey;
+      return mode === 'originals' ? samePerformer : !samePerformer;
+    })
+    .slice(0, limit)
+    .map(row => ({
+      title: row.canonical_title,
+      artist: row.canonical_artist,
+      category: row.category,
+      language: row.language,
+      year: row.year,
+      album: row.album,
+      credits: safeJson(row.credits_json),
+      sameWorkScore: numericScore(row.same_work_score),
+      versionTypeScore: numericScore(row.version_type_score),
+      brainStatus: normalizeDecisionStatus(row.decision_status),
+      brainAdmission: null,
+      brainSignals: [],
+      aiReason: row.ai_reason || null,
+    }));
+
+  const payload = {
+    stato: 'pronto',
+    fase: 'memory',
+    provenienza: versions.length ? 'memoria' : 'memoria-vuota',
+    seed: { title, artist },
+    original: {
+      title: work.canonical_title,
+      artist: work.original_artist,
+      year: work.original_year,
+      language: work.original_language,
+      album: null,
+      credits: safeJson(work.credits_json),
+    },
+    versions,
+  };
+  return json(payload);
 }
 
 async function brainPlan(request) {
@@ -223,6 +340,7 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/plan') return brainPlan(request);
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/decision') return saveDecision(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/v1/memory/discover') return memoryDiscovery(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/discover/initial') return forwardDiscovery(request, env, ctx, 'initial');
     if (request.method === 'POST' && url.pathname === '/api/v1/discover/expand') return forwardDiscovery(request, env, ctx, 'expand');
     return legacyWorker.fetch(request, env, ctx);
