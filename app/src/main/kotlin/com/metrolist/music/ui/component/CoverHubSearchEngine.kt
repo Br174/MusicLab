@@ -25,6 +25,7 @@ internal data class CoverHubResult(
     val source: String = "MusicLab",
     val confirmed: Boolean = false,
     val score: Double = 0.0,
+    val brainCandidate: AiCoverCandidate? = null,
 )
 
 internal data class CoverSourceStats(

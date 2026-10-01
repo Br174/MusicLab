@@ -333,12 +333,15 @@ internal object OriginalVersionSearchEngine {
         for ((batchIndex, batch) in batches.withIndex()) {
             val outcomes = batch.map { candidate ->
                 async(Dispatchers.IO) {
-                    searchQueryPages(
+                    val outcome = searchQueryPages(
                         query = "${candidate.title} ${candidate.artist}".trim(),
                         targetTitle = exactBaseTitle(candidate.title),
                         originalArtists = originalArtists,
                         filter = filter,
                         source = source,
+                    )
+                    outcome.copy(
+                        results = outcome.results.map { result -> result.copy(brainCandidate = candidate) },
                     )
                 }
             }.awaitAll()
@@ -590,6 +593,7 @@ internal object OriginalVersionSearchEngine {
             source = sources,
             confirmed = previous.confirmed || candidate.confirmed,
             score = maxOf(previous.score, candidate.score),
+            brainCandidate = previous.brainCandidate ?: candidate.brainCandidate,
         )
     }
 

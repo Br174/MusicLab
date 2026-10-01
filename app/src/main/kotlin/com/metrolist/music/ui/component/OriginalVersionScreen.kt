@@ -129,7 +129,8 @@ internal fun OriginalVersionScreen(
     var failed by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var showDiagnosticsDialog by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var selectedTab by remember(request.currentYouTubeId) { mutableStateOf(OriginalResultsTab.STUDIO) }
-    var visibleVersionCount by remember(request.currentYouTubeId, selectedTab) {
+    var selectedOriginalCoverageMode by remember(request.currentYouTubeId) { mutableStateOf(AiCoverageMode.PRECISE) }
+    var visibleVersionCount by remember(request.currentYouTubeId, selectedTab, selectedOriginalCoverageMode) {
         mutableIntStateOf(ORIGINAL_PAGE_SIZE)
     }
     val listState = rememberLazyListState()
@@ -296,6 +297,10 @@ internal fun OriginalVersionScreen(
         OriginalResultsTab.WITH_OTHERS -> searchResult.withOthersVersions
         OriginalResultsTab.REMIX -> searchResult.remixVersions
     }
+    val filteredSelectedVersions = AiCoverageFilter.visibleItems(
+        selectedVersions,
+        selectedOriginalCoverageMode,
+    ) { it.brainCandidate }
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -304,9 +309,9 @@ internal fun OriginalVersionScreen(
         }
     }
 
-    LaunchedEffect(shouldLoadNextPage, selectedTab, selectedVersions.size) {
-        if (shouldLoadNextPage && visibleVersionCount < selectedVersions.size) {
-            visibleVersionCount = minOf(visibleVersionCount + ORIGINAL_PAGE_SIZE, selectedVersions.size)
+    LaunchedEffect(shouldLoadNextPage, selectedTab, selectedOriginalCoverageMode, filteredSelectedVersions.size) {
+        if (shouldLoadNextPage && visibleVersionCount < filteredSelectedVersions.size) {
+            visibleVersionCount = minOf(visibleVersionCount + ORIGINAL_PAGE_SIZE, filteredSelectedVersions.size)
         }
     }
 
@@ -549,6 +554,11 @@ internal fun OriginalVersionScreen(
                                 remixCount = searchResult.remixVersions.size,
                                 onSelected = { selectedTab = it },
                             )
+                            Spacer(Modifier.height(8.dp))
+                            AiCoverageSelector(
+                                selected = selectedOriginalCoverageMode,
+                                onSelected = { selectedOriginalCoverageMode = it },
+                            )
                             if (backgroundLoading) {
                                 Row(
                                     modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
@@ -572,7 +582,7 @@ internal fun OriginalVersionScreen(
                             }
                         }
 
-                        val page = selectedVersions.take(visibleVersionCount)
+                        val page = filteredSelectedVersions.take(visibleVersionCount)
                         items(
                             items = page,
                             key = { "${selectedTab.name}-${it.song.id}" },
