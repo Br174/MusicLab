@@ -1,6 +1,6 @@
 name: LAB20 UAB Delivery Gate
 
-# gate-revision: 3 — exact-SHA Brain + Android + APK/ZIP final gate
+# gate-revision: 4 — exact-SHA Brain + Android + APK/ZIP final gate
 on:
   push:
     branches:
