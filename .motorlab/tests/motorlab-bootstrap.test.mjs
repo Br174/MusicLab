@@ -8,12 +8,13 @@ import { spawnSync } from 'node:child_process';
 const repo = resolve(new URL('../../', import.meta.url).pathname);
 const read = (path) => readFile(join(repo, path), 'utf8');
 
-test('AGENTS.md makes MotorLab a mandatory project bootstrap', async () => {
-  const agents = await read('AGENTS.md');
+test('AGENTS.override.md makes MotorLab a mandatory project bootstrap while preserving native rules', async () => {
+  const agents = await read('AGENTS.override.md');
   assert.match(agents, /MotorLab bootstrap/i);
   assert.match(agents, /⚙️ MotorLab attivo/);
   assert.match(agents, /MOTORLAB_PROJECT_HOOK\.txt/);
   assert.match(agents, /.motorlab\/MOTORLAB_LOCAL_CORE\.txt/);
+  assert.match(agents, /AGENTS\.md/);
   assert.match(agents, /coexist|preserve/i);
 });
 
