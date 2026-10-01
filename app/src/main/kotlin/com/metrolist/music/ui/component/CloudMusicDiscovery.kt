@@ -88,6 +88,86 @@ internal object CloudMusicDiscovery {
         parseCover(root)
     }
 
+    suspend fun saveBrainDecision(
+        originalTitle: String,
+        originalArtist: String,
+        candidate: AiCoverCandidate,
+        status: AiBrainDecisionStatus,
+        config: GeminiCoverVerificationConfig,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val endpoint = config.cloudEndpoint.trim().trimEnd('/')
+        if (endpoint.isBlank() || originalTitle.isBlank() || originalArtist.isBlank()) return@withContext false
+
+        val body = buildJsonObject {
+            put("originalTitle", originalTitle.trim())
+            put("originalArtist", originalArtist.trim())
+            put("status", status.name)
+            candidate.sameWorkScore?.let { put("sameWorkScore", it) }
+            candidate.versionTypeScore?.let { put("versionTypeScore", it) }
+            put("reason", "manual_android_lab20")
+            put(
+                "candidate",
+                buildJsonObject {
+                    put("title", candidate.title)
+                    put("artist", candidate.artist)
+                    put("category", candidate.category.cloudName)
+                    candidate.language?.takeIf { it.isNotBlank() }?.let { put("language", it) }
+                },
+            )
+            put(
+                "evidence",
+                buildJsonArray {
+                    candidate.brainSignals.forEach { signal ->
+                        add(
+                            buildJsonObject {
+                                put("kind", signal.kind)
+                                put("strength", signal.strength)
+                                signal.direction?.takeIf { it.isNotBlank() }?.let { put("direction", it) }
+                            },
+                        )
+                    }
+                },
+            )
+        }
+        val request = Request.Builder()
+            .url("$endpoint/api/v1/brain/decision")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("x-musiclab-client", "android-lab20")
+            .post(body.toString().toRequestBody(mediaType))
+            .build()
+
+        runCatching {
+            client.newCall(request).execute().use { response -> response.isSuccessful }
+        }.getOrDefault(false)
+    }
+
+    suspend fun verifyCandidate(
+        originalTitle: String,
+        originalArtist: String,
+        candidate: AiCoverCandidate,
+        mode: String,
+        config: GeminiCoverVerificationConfig,
+    ): AiCoverCandidate? = withContext(Dispatchers.IO) {
+        val focus = "Verifica meglio esclusivamente il candidato «${candidate.title}» di ${candidate.artist}. " +
+            "Riesamina stessa opera e tipo di versione con tutte le evidenze disponibili; non sostituirlo con altri candidati."
+        val root = request(
+            title = originalTitle,
+            artist = originalArtist,
+            mode = if (mode == "originals") "originals" else "cover",
+            phase = "expand",
+            existing = emptyList(),
+            focus = focus,
+            config = config.copy(useCloudMemory = false),
+        ) ?: return@withContext null
+
+        val versions = parseCover(root)?.versions.orEmpty()
+        versions.firstOrNull { it.stableKey == candidate.stableKey }
+            ?: versions.firstOrNull {
+                it.title.equals(candidate.title, ignoreCase = true) &&
+                    it.artist.equals(candidate.artist, ignoreCase = true)
+            }
+    }
+
     suspend fun identifyOriginal(
         title: String,
         artist: String,

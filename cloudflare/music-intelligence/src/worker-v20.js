@@ -194,6 +194,18 @@ function versionStorageKey(version) {
   return `${normalizeStorageCategory(version?.category)}|${canonical(version?.artist)}|${canonical(version?.title)}|${canonical(version?.language || '')}`;
 }
 
+export function decisionIdentityKeys(input = {}) {
+  const candidate = input?.candidate && typeof input.candidate === 'object' ? input.candidate : {};
+  const originalTitle = String(input?.originalTitle || '').trim();
+  const originalArtist = String(input?.originalArtist || '').trim();
+  const candidateTitle = String(candidate?.title || '').trim();
+  const candidateArtist = String(candidate?.artist || '').trim();
+  return {
+    workSearchKey: originalTitle && originalArtist ? searchKey(originalTitle, originalArtist) : '',
+    versionKey: candidateTitle && candidateArtist ? versionStorageKey(candidate) : '',
+  };
+}
+
 function numericScore(value) {
   const score = Number(value);
   return Number.isInteger(score) && score >= 0 && score <= 100 ? score : null;
@@ -680,24 +692,58 @@ async function brainPlan(request) {
   return json(plan);
 }
 
-async function saveDecision(request, env) {
-  if (!env.DB) return json({ stato: 'ignorato', motivo: 'D1 non configurato' });
-  const input = await request.json();
-  const versionId = String(input?.versionId || '').trim();
-  const workId = String(input?.workId || '').trim();
+export async function saveBrainDecision(db, input = {}) {
+  if (!db) return { httpStatus: 200, body: { stato: 'ignorato', motivo: 'D1 non configurato' } };
+
   const status = String(input?.status || '').trim().toUpperCase();
-  if (!versionId || !workId || !['APPROVED', 'PROBABLE', 'UNCERTAIN', 'REJECTED'].includes(status)) {
-    return json({ errore: 'decisione non valida' }, 400);
+  if (!['APPROVED', 'PROBABLE', 'UNCERTAIN', 'REJECTED'].includes(status)) {
+    return { httpStatus: 400, body: { errore: 'decisione non valida' } };
   }
+
+  let workId = String(input?.workId || '').trim();
+  let versionId = String(input?.versionId || '').trim();
+  const keys = decisionIdentityKeys(input);
+  const candidate = input?.candidate && typeof input.candidate === 'object' ? input.candidate : {};
+
+  if (!workId && keys.workSearchKey) {
+    const work = await db.prepare('SELECT id FROM works WHERE search_key=?1 AND resolver_version=?2 LIMIT 1')
+      .bind(keys.workSearchKey, MEMORY_RESOLVER_VERSION).first();
+    workId = String(work?.id || '').trim();
+  }
+  if (!workId) return { httpStatus: 404, body: { errore: 'opera non trovata' } };
+
+  if (!versionId && keys.versionKey) {
+    const exact = await db.prepare('SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1')
+      .bind(workId, keys.versionKey).first();
+    versionId = String(exact?.id || '').trim();
+  }
+  if (!versionId) {
+    const candidateTitle = String(candidate?.title || '').trim();
+    const candidateArtist = String(candidate?.artist || '').trim();
+    if (candidateTitle && candidateArtist) {
+      const fallback = await db.prepare(`SELECT id FROM versions
+        WHERE work_id=?1 AND canonical_title=?2 COLLATE NOCASE AND canonical_artist=?3 COLLATE NOCASE
+        ORDER BY updated_at DESC LIMIT 1`)
+        .bind(workId, candidateTitle, candidateArtist).first();
+      versionId = String(fallback?.id || '').trim();
+    }
+  }
+  if (!versionId) return { httpStatus: 404, body: { errore: 'versione non trovata' } };
+
   const userVerified = status === 'APPROVED' ? 1 : 0;
   const userRejected = status === 'REJECTED' ? 1 : 0;
-  await env.DB.prepare('UPDATE versions SET decision_status=?1,user_verified=?2,user_rejected=?3,updated_at=CURRENT_TIMESTAMP WHERE id=?4 AND work_id=?5')
+  await db.prepare('UPDATE versions SET decision_status=?1,user_verified=?2,user_rejected=?3,updated_at=CURRENT_TIMESTAMP WHERE id=?4 AND work_id=?5')
     .bind(status, userVerified, userRejected, versionId, workId).run();
-  await env.DB.prepare(`INSERT INTO decision_history(version_id,work_id,decision_status,same_work_score,version_type_score,decided_by,reason,evidence_snapshot_json)
+  await db.prepare(`INSERT INTO decision_history(version_id,work_id,decision_status,same_work_score,version_type_score,decided_by,reason,evidence_snapshot_json)
     VALUES(?1,?2,?3,?4,?5,'user',?6,?7)`)
     .bind(versionId, workId, status, input?.sameWorkScore ?? null, input?.versionTypeScore ?? null,
       String(input?.reason || ''), JSON.stringify(input?.evidence || [])).run();
-  return json({ stato: 'salvato', status });
+  return { httpStatus: 200, body: { stato: 'salvato', status } };
+}
+
+async function saveDecision(request, env) {
+  const result = await saveBrainDecision(env.DB, await request.json());
+  return json(result.body, result.httpStatus);
 }
 
 function json(payload, status = 200) {
