@@ -123,6 +123,27 @@ setup_parallel_install() {
   [[ -n "${UAB_EFFECTIVE_APP_NAME:-}" ]] && status "Nome app LAB: $UAB_EFFECTIVE_APP_NAME"
 }
 
+ensure_debug_keystore() {
+  local keystore="${UAB_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}"
+  [[ -f "$keystore" ]] && return 0
+
+  command -v keytool >/dev/null 2>&1 || fail "debug.keystore assente e keytool non disponibile per generarlo." 26
+  mkdir -p "$(dirname "$keystore")"
+  status "debug.keystore assente: genero automaticamente il keystore Android debug standard."
+  keytool -genkeypair \
+    -keystore "$keystore" \
+    -storepass android \
+    -alias androiddebugkey \
+    -keypass android \
+    -dname "CN=Android Debug,O=Android,C=US" \
+    -keyalg RSA \
+    -keysize 2048 \
+    -validity 10000 \
+    -noprompt >/dev/null 2>&1 || fail "Impossibile generare il debug.keystore standard." 26
+  [[ -s "$keystore" ]] || fail "debug.keystore generato ma non valido." 26
+  status "debug.keystore pronto: $keystore"
+}
+
 run_hook() {
   local phase="$1"
   local configured_script="$2"
@@ -189,6 +210,7 @@ status "Output: $OUTPUT_DIR"
 
 cd "$PROJECT_ROOT"
 run_hook "Pre-build" "${UAB_PRE_BUILD_SCRIPT:-}" "$PROJECT_ROOT/.uab/pre-build.sh"
+ensure_debug_keystore
 
 set +e
 ./gradlew "$TASK" --console=plain --warning-mode summary ${UAB_GRADLE_ARGS:-} 2>&1 | tee -a "$LOG_FILE"
