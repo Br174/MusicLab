@@ -10,14 +10,13 @@ const coverResolver = readFileSync('app/src/main/kotlin/com/metrolist/music/ui/c
 const compactCoverScreen = coverScreen.replace(/\s+/g, ' ');
 
 test('playback prewarms extractor without a fixed multi-second delay', () => {
-  const warmStart = app.indexOf('// Warm player config, cipher, and optional PO-token state off the first-play path.');
-  assert.ok(warmStart >= 0, 'missing InnerTubeX prewarm block');
-  const warmEnd = app.indexOf('observeSettingsChanges()', warmStart);
-  assert.ok(warmEnd > warmStart, 'prewarm block must complete before settings observation marker');
-  const warmBlock = app.slice(warmStart, warmEnd);
-  assert.ok(warmBlock.includes('InnerTubeXPlayer.prewarm()'), 'prewarm must remain enabled');
+  const prewarmIndex = app.indexOf('InnerTubeXPlayer.prewarm()');
+  assert.ok(prewarmIndex >= 0, 'missing InnerTubeX prewarm call');
+  const warmBlock = app.slice(Math.max(0, prewarmIndex - 600), prewarmIndex + 120);
   assert.ok(!warmBlock.includes('delay(2500)'), 'prewarm must not wait a fixed 2.5 seconds before starting');
   assert.ok(!warmBlock.includes('while (YouTube.visitorData == null'), 'prewarm must not wait for visitorData before preparing extraction');
+  const settingsIndex = app.lastIndexOf('initializeSettings()', prewarmIndex);
+  assert.ok(settingsIndex >= 0 && settingsIndex < prewarmIndex, 'prewarm must run after base settings initialize');
 });
 
 test('playback keeps enough startup and rebuffer reserve for real mobile streams', () => {
