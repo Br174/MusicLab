@@ -18,6 +18,7 @@ const cloudClient = readFileSync(
 
 test('Brain decision identity resolves the same D1 work/version keys without exposing database ids', () => {
   assert.equal(typeof brainWorker.decisionIdentityKeys, 'function');
+  assert.equal(typeof brainWorker.saveBrainDecision, 'function');
   const keys = brainWorker.decisionIdentityKeys({
     originalTitle: 'Il mondo',
     originalArtist: 'Jimmy Fontana',
@@ -48,6 +49,7 @@ test('Android cloud client can persist a manual Brain decision and request deepe
 test('Cover exposes UNCERTAIN review actions and raw title search without AI', () => {
   for (const token of [
     'Da verificare',
+    'Ascolta',
     'Conferma',
     'Rifiuta',
     'Verifica meglio',
@@ -62,6 +64,7 @@ test('Cover exposes UNCERTAIN review actions and raw title search without AI', (
 test('Originali exposes independent UNCERTAIN review actions and raw title search without AI', () => {
   for (const token of [
     'Da verificare',
+    'Ascolta',
     'Conferma',
     'Rifiuta',
     'Verifica meglio',
