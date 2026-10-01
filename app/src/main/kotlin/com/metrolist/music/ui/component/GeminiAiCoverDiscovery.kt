@@ -197,6 +197,23 @@ Rispondi SOLO JSON:
 
         val collected = linkedMapOf<String, AiCoverCandidate>()
         existing.forEach { collected[it.stableKey] = it }
+
+        if (config.cloudEndpoint.isNotBlank() && config.useCloudMemory) {
+            val remembered = CloudMusicDiscovery.discoverMemory(
+                title = originalTitle,
+                artist = originalArtist,
+                config = config,
+                limit = MAX_TOTAL_CANDIDATES,
+            )?.versions.orEmpty()
+            val freshMemory = remembered
+                .filter { !collected.containsKey(it.stableKey) }
+                .take((MAX_TOTAL_CANDIDATES - collected.size).coerceAtLeast(0))
+            freshMemory.forEach { collected[it.stableKey] = it }
+            if (freshMemory.isNotEmpty()) {
+                onBatch(freshMemory.sortedWith(candidateOrder))
+            }
+        }
+
         var emptyPasses = 0
 
         for (roundGroup in RESEARCH_ROUNDS.chunked(CONCURRENT_RESEARCH)) {
