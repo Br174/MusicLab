@@ -85,6 +85,24 @@ class AiCoverageModeTest {
     }
 
     @Test
+    fun `Originali can switch coverage locally without changing resolved pool`() {
+        data class OriginalResult(val id: String, val brainCandidate: AiCoverCandidate?)
+
+        val source = listOf(
+            OriginalResult("precise", candidate(92, 90, AiBrainDecisionStatus.APPROVED)),
+            OriginalResult("wide", candidate(61, 58, AiBrainDecisionStatus.PROBABLE)),
+            OriginalResult("legacy", null),
+        )
+
+        val precise = AiCoverageFilter.visibleItems(source, AiCoverageMode.PRECISE) { it.brainCandidate }
+        val wide = AiCoverageFilter.visibleItems(source, AiCoverageMode.WIDE) { it.brainCandidate }
+
+        assertEquals(listOf("precise", "legacy"), precise.map { it.id })
+        assertEquals(listOf("precise", "wide", "legacy"), wide.map { it.id })
+        assertEquals(listOf("precise", "wide", "legacy"), source.map { it.id })
+    }
+
+    @Test
     fun `rejected candidates stay hidden even in All`() {
         val rejected = candidate(100, 100, AiBrainDecisionStatus.REJECTED)
         assertFalse(AiCoverageFilter.isVisible(rejected, AiCoverageMode.ALL))
