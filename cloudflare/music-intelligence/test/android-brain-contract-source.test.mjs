@@ -26,6 +26,7 @@ const coverScreen = readFileSync(
   'app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt',
   'utf8',
 );
+const compactOriginalScreen = originalScreen.replace(/\s+/g, ' ');
 
 test('Android candidate model carries Brain metadata without changing stable identity', () => {
   for (const token of [
@@ -160,7 +161,7 @@ test('Originali preserves Brain metadata through playback resolution and filters
     'Originali must own an independent PRECISE coverage state',
   );
   assert.ok(
-    originalScreen.includes('AiCoverageFilter.visibleItems(selectedVersions, selectedOriginalCoverageMode) { it.brainCandidate }'),
+    compactOriginalScreen.includes('AiCoverageFilter.visibleItems( selectedVersions, selectedOriginalCoverageMode, ) { it.brainCandidate }'),
     'Originali must filter already-resolved results by their retained Brain candidate',
   );
   assert.ok(
@@ -168,7 +169,7 @@ test('Originali preserves Brain metadata through playback resolution and filters
     'Originali coverage selector must be wired into its UI independently from Cover',
   );
 
-  const projectionIndex = originalScreen.indexOf('AiCoverageFilter.visibleItems(selectedVersions, selectedOriginalCoverageMode)');
+  const projectionIndex = originalScreen.indexOf('val filteredSelectedVersions = AiCoverageFilter.visibleItems(');
   const paginationIndex = originalScreen.indexOf('filteredSelectedVersions.take(visibleVersionCount)');
   assert.ok(projectionIndex >= 0 && paginationIndex > projectionIndex, 'Originali coverage projection must happen before pagination');
 
