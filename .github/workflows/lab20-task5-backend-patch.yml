@@ -1,0 +1,64 @@
+name: LAB20 Task5 Backend Patch
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-ai-brain-20
+    paths:
+      - '.github/workflows/lab20-task5-backend-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply exact backend and Android cloud client patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              p.write_text(text.replace(old, new, 1))
+
+          worker = 'cloudflare/music-intelligence/src/worker-v20.js'
+          replace_exact(
+              worker,
+              '''function versionStorageKey(version) {\n  return `${normalizeStorageCategory(version?.category)}|${canonical(version?.artist)}|${canonical(version?.title)}|${canonical(version?.language || '')}`;\n}\n''',
+              '''function versionStorageKey(version) {\n  return `${normalizeStorageCategory(version?.category)}|${canonical(version?.artist)}|${canonical(version?.title)}|${canonical(version?.language || '')}`;\n}\n\nexport function decisionIdentityKeys(input = {}) {\n  const candidate = input?.candidate && typeof input.candidate === 'object' ? input.candidate : {};\n  const originalTitle = String(input?.originalTitle || '').trim();\n  const originalArtist = String(input?.originalArtist || '').trim();\n  const candidateTitle = String(candidate?.title || '').trim();\n  const candidateArtist = String(candidate?.artist || '').trim();\n  return {\n    workSearchKey: originalTitle && originalArtist ? searchKey(originalTitle, originalArtist) : '',\n    versionKey: candidateTitle && candidateArtist ? versionStorageKey(candidate) : '',\n  };\n}\n''',
+              'decision identity keys',
+          )
+
+          old_save = '''async function saveDecision(request, env) {\n  if (!env.DB) return json({ stato: 'ignorato', motivo: 'D1 non configurato' });\n  const input = await request.json();\n  const versionId = String(input?.versionId || '').trim();\n  const workId = String(input?.workId || '').trim();\n  const status = String(input?.status || '').trim().toUpperCase();\n  if (!versionId || !workId || !['APPROVED', 'PROBABLE', 'UNCERTAIN', 'REJECTED'].includes(status)) {\n    return json({ errore: 'decisione non valida' }, 400);\n  }\n  const userVerified = status === 'APPROVED' ? 1 : 0;\n  const userRejected = status === 'REJECTED' ? 1 : 0;\n  await env.DB.prepare('UPDATE versions SET decision_status=?1,user_verified=?2,user_rejected=?3,updated_at=CURRENT_TIMESTAMP WHERE id=?4 AND work_id=?5')\n    .bind(status, userVerified, userRejected, versionId, workId).run();\n  await env.DB.prepare(`INSERT INTO decision_history(version_id,work_id,decision_status,same_work_score,version_type_score,decided_by,reason,evidence_snapshot_json)\n    VALUES(?1,?2,?3,?4,?5,'user',?6,?7)`)\n    .bind(versionId, workId, status, input?.sameWorkScore ?? null, input?.versionTypeScore ?? null,\n      String(input?.reason || ''), JSON.stringify(input?.evidence || [])).run();\n  return json({ stato: 'salvato', status });\n}\n'''
+          new_save = '''export async function saveBrainDecision(db, input = {}) {\n  if (!db) return { httpStatus: 200, body: { stato: 'ignorato', motivo: 'D1 non configurato' } };\n\n  const status = String(input?.status || '').trim().toUpperCase();\n  if (!['APPROVED', 'PROBABLE', 'UNCERTAIN', 'REJECTED'].includes(status)) {\n    return { httpStatus: 400, body: { errore: 'decisione non valida' } };\n  }\n\n  let workId = String(input?.workId || '').trim();\n  let versionId = String(input?.versionId || '').trim();\n  const keys = decisionIdentityKeys(input);\n  const candidate = input?.candidate && typeof input.candidate === 'object' ? input.candidate : {};\n\n  if (!workId && keys.workSearchKey) {\n    const work = await db.prepare('SELECT id FROM works WHERE search_key=?1 AND resolver_version=?2 LIMIT 1')\n      .bind(keys.workSearchKey, MEMORY_RESOLVER_VERSION).first();\n    workId = String(work?.id || '').trim();\n  }\n  if (!workId) return { httpStatus: 404, body: { errore: 'opera non trovata' } };\n\n  if (!versionId && keys.versionKey) {\n    const exact = await db.prepare('SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1')\n      .bind(workId, keys.versionKey).first();\n    versionId = String(exact?.id || '').trim();\n  }\n  if (!versionId) {\n    const candidateTitle = String(candidate?.title || '').trim();\n    const candidateArtist = String(candidate?.artist || '').trim();\n    if (candidateTitle && candidateArtist) {\n      const fallback = await db.prepare(`SELECT id FROM versions\n        WHERE work_id=?1 AND canonical_title=?2 COLLATE NOCASE AND canonical_artist=?3 COLLATE NOCASE\n        ORDER BY updated_at DESC LIMIT 1`)\n        .bind(workId, candidateTitle, candidateArtist).first();\n      versionId = String(fallback?.id || '').trim();\n    }\n  }\n  if (!versionId) return { httpStatus: 404, body: { errore: 'versione non trovata' } };\n\n  const userVerified = status === 'APPROVED' ? 1 : 0;\n  const userRejected = status === 'REJECTED' ? 1 : 0;\n  await db.prepare('UPDATE versions SET decision_status=?1,user_verified=?2,user_rejected=?3,updated_at=CURRENT_TIMESTAMP WHERE id=?4 AND work_id=?5')\n    .bind(status, userVerified, userRejected, versionId, workId).run();\n  await db.prepare(`INSERT INTO decision_history(version_id,work_id,decision_status,same_work_score,version_type_score,decided_by,reason,evidence_snapshot_json)\n    VALUES(?1,?2,?3,?4,?5,'user',?6,?7)`)\n    .bind(versionId, workId, status, input?.sameWorkScore ?? null, input?.versionTypeScore ?? null,\n      String(input?.reason || ''), JSON.stringify(input?.evidence || [])).run();\n  return { httpStatus: 200, body: { stato: 'salvato', status } };\n}\n\nasync function saveDecision(request, env) {\n  const result = await saveBrainDecision(env.DB, await request.json());\n  return json(result.body, result.httpStatus);\n}\n'''
+          replace_exact(worker, old_save, new_save, 'identity-aware Brain decision persistence')
+
+          cloud = 'app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt'
+          anchor = '''    suspend fun identifyOriginal(\n        title: String,\n        artist: String,\n        config: GeminiCoverVerificationConfig,\n    ): GeminiOriginalIdentity? = withContext(Dispatchers.IO) {'''
+          methods = '''    suspend fun saveBrainDecision(\n        originalTitle: String,\n        originalArtist: String,\n        candidate: AiCoverCandidate,\n        status: AiBrainDecisionStatus,\n        config: GeminiCoverVerificationConfig,\n    ): Boolean = withContext(Dispatchers.IO) {\n        val endpoint = config.cloudEndpoint.trim().trimEnd('/')\n        if (endpoint.isBlank() || originalTitle.isBlank() || originalArtist.isBlank()) return@withContext false\n\n        val body = buildJsonObject {\n            put("originalTitle", originalTitle.trim())\n            put("originalArtist", originalArtist.trim())\n            put("status", status.name)\n            candidate.sameWorkScore?.let { put("sameWorkScore", it) }\n            candidate.versionTypeScore?.let { put("versionTypeScore", it) }\n            put("reason", "manual_android_lab20")\n            put(\n                "candidate",\n                buildJsonObject {\n                    put("title", candidate.title)\n                    put("artist", candidate.artist)\n                    put("category", candidate.category.cloudName)\n                    candidate.language?.takeIf { it.isNotBlank() }?.let { put("language", it) }\n                },\n            )\n            put(\n                "evidence",\n                buildJsonArray {\n                    candidate.brainSignals.forEach { signal ->\n                        add(\n                            buildJsonObject {\n                                put("kind", signal.kind)\n                                put("strength", signal.strength)\n                                signal.direction?.takeIf { it.isNotBlank() }?.let { put("direction", it) }\n                            },\n                        )\n                    }\n                },\n            )\n        }\n        val request = Request.Builder()\n            .url("$endpoint/api/v1/brain/decision")\n            .addHeader("Content-Type", "application/json")\n            .addHeader("x-musiclab-client", "android-lab20")\n            .post(body.toString().toRequestBody(mediaType))\n            .build()\n\n        runCatching {\n            client.newCall(request).execute().use { response -> response.isSuccessful }\n        }.getOrDefault(false)\n    }\n\n    suspend fun verifyCandidate(\n        originalTitle: String,\n        originalArtist: String,\n        candidate: AiCoverCandidate,\n        mode: String,\n        config: GeminiCoverVerificationConfig,\n    ): AiCoverCandidate? = withContext(Dispatchers.IO) {\n        val focus = "Verifica meglio esclusivamente il candidato «${candidate.title}» di ${candidate.artist}. " +\n            "Riesamina stessa opera e tipo di versione con tutte le evidenze disponibili; non sostituirlo con altri candidati."\n        val root = request(\n            title = originalTitle,\n            artist = originalArtist,\n            mode = if (mode == "originals") "originals" else "cover",\n            phase = "expand",\n            existing = emptyList(),\n            focus = focus,\n            config = config.copy(useCloudMemory = false),\n        ) ?: return@withContext null\n\n        val versions = parseCover(root)?.versions.orEmpty()\n        versions.firstOrNull { it.stableKey == candidate.stableKey }\n            ?: versions.firstOrNull {\n                it.title.equals(candidate.title, ignoreCase = true) &&\n                    it.artist.equals(candidate.artist, ignoreCase = true)\n            }\n    }\n\n'''
+          replace_exact(cloud, anchor, methods + anchor, 'Android Brain decision and deeper verification client')
+          PY
+
+          git diff --check
+          node --test cloudflare/music-intelligence/test/task5-app-integration.test.mjs || true
+
+      - name: Commit backend and client GREEN foundation
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/music-intelligence/src/worker-v20.js app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt
+          git commit -m 'feat(lab20): persist Brain review decisions by identity'
+          git push origin HEAD:${GITHUB_REF_NAME}
