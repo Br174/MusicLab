@@ -88,6 +88,7 @@ private class AiCoverSession {
     var initialLoaded: Boolean = false
     var backgroundComplete: Boolean = false
     var originalInfo: AiCoverOriginalInfo? = null
+    var sourceEvidence: AiCoverSourceEvidence? = null
     var knownCandidates: List<AiCoverCandidate> = emptyList()
     var playables: List<AiCoverPlayable> = emptyList()
     var initialCandidateCount: Int = 0
@@ -100,6 +101,7 @@ private class AiCoverSession {
         initialLoaded = false
         backgroundComplete = false
         originalInfo = null
+        sourceEvidence = null
         knownCandidates = emptyList()
         playables = emptyList()
         initialCandidateCount = 0
@@ -286,6 +288,13 @@ internal fun CoverSearchScreen(
 
         failed = false
 
+        val sourceEvidence = session.sourceEvidence ?: withContext(Dispatchers.IO) {
+            AiCoverSourceEvidence.fromMusicBrainz(
+                runCatching { MusicBrainzCoverSource.lookup(title, originalArtist) }
+                    .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) },
+            )
+        }.also { session.sourceEvidence = it }
+
         if (!session.initialLoaded) {
             initialLoading = true
             val discovery = runCatching {
@@ -297,13 +306,14 @@ internal fun CoverSearchScreen(
             }.onFailure { failed = true }
                 .getOrDefault(AiCoverDiscoveryResult(null, emptyList()))
 
+            val initialWithEvidence = sourceEvidence.attachToAiAccepted(discovery.versions)
             originalInfo = discovery.original ?: AiCoverOriginalInfo(title = title, artist = originalArtist)
-            knownCandidates = discovery.versions
-            initialCandidateCount = discovery.versions.size
+            knownCandidates = initialWithEvidence
+            initialCandidateCount = initialWithEvidence.size
 
             val resolved = runCatching {
                 AiCoverSearchEngine.resolveCandidates(
-                    candidates = discovery.versions,
+                    candidates = initialWithEvidence,
                     currentYouTubeId = currentYouTubeId,
                     pauseBetweenBatches = false,
                 )
@@ -348,7 +358,8 @@ internal fun CoverSearchScreen(
                 existing = knownCandidates,
                 config = config,
             ) { discoveredBatch ->
-                val enabledBatch = discoveredBatch.filter { candidate -> categoryEnabled(candidate.category) }
+                val evidencedBatch = sourceEvidence.attachToAiAccepted(discoveredBatch)
+                val enabledBatch = evidencedBatch.filter { candidate -> categoryEnabled(candidate.category) }
                 if (enabledBatch.isEmpty()) return@discoverExpandedBatches
 
                 withContext(Dispatchers.Main) {
@@ -404,18 +415,19 @@ internal fun CoverSearchScreen(
                     round = round,
                 )
             }.getOrDefault(emptyList())
+            val recoveredWithEvidence = sourceEvidence.attachToAiAccepted(recovered)
                 .filter { categoryEnabled(it.category) }
                 .filter { candidate -> knownCandidates.none { it.stableKey == candidate.stableKey } }
 
-            if (recovered.isNotEmpty()) {
-                knownCandidates = (knownCandidates + recovered).distinctBy { it.stableKey }
-                expandedCandidateCount += recovered.size
+            if (recoveredWithEvidence.isNotEmpty()) {
+                knownCandidates = (knownCandidates + recoveredWithEvidence).distinctBy { it.stableKey }
+                expandedCandidateCount += recoveredWithEvidence.size
                 session.knownCandidates = knownCandidates
                 session.expandedCandidateCount = expandedCandidateCount
 
                 val resolved = runCatching {
                     AiCoverSearchEngine.resolveCandidates(
-                        candidates = recovered,
+                        candidates = recoveredWithEvidence,
                         currentYouTubeId = currentYouTubeId,
                         pauseBetweenBatches = false,
                     )
