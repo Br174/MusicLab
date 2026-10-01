@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBrainFocus, decorateDiscoveryPayload } from '../src/worker-v20.js';
+import { buildBrainFocus, buildBrainPlanPayload, decorateDiscoveryPayload } from '../src/worker-v20.js';
 
 test('brain focus preserves the original title and asks in Italian and English', () => {
   const focus = buildBrainFocus({ title: 'Il mondo', artist: 'Jimmy Fontana', mode: 'cover' });
@@ -9,6 +9,39 @@ test('brain focus preserves the original title and asks in Italian and English',
   assert.match(focus, /versione|reinterpretazione/i);
   assert.match(focus, /non tradurre letteralmente/i);
   assert.match(focus, /fonte.*evidenza/i);
+});
+
+test('Brain planner exposes COSA, DOVE and COME in one contract', () => {
+  const plan = buildBrainPlanPayload({
+    title: 'Il mondo',
+    artist: 'Jimmy Fontana',
+    mode: 'cover',
+    aliases: ['The World'],
+    translatedTitles: ['El mundo'],
+    writers: ['Gianni Meccia'],
+    composers: ['Jimmy Fontana'],
+    iswc: 'T-005.001.002-0',
+    musicbrainzWorkId: 'work-123',
+    languages: ['inglese', 'spagnolo'],
+  });
+
+  assert.equal(plan.workSignature.canonicalTitle, 'Il mondo');
+  assert.deepEqual(plan.workSignature.translatedTitles, ['El mundo']);
+  assert.deepEqual(plan.sourcePlan, ['d1', 'musicbrainz', 'wikidata']);
+  assert.ok(plan.dualLanguageQueries.some(query => /cover/i.test(query)));
+  assert.deepEqual(plan.languageMissions.map(item => item.language), ['inglese', 'spagnolo']);
+});
+
+test('optional source lanes are explicit and never silently mandatory', () => {
+  const plan = buildBrainPlanPayload({
+    title: 'Il mondo',
+    artist: 'Jimmy Fontana',
+    sources: { secondHandSongs: true, discogs: true, lastfm: true, webGap: true },
+  });
+  assert.deepEqual(
+    plan.sourcePlan,
+    ['d1', 'musicbrainz', 'wikidata', 'discogs', 'lastfm', 'secondhandsongs', 'web_gap'],
+  );
 });
 
 test('decorator retains weak but plausible cover as UNCERTAIN instead of deleting it', () => {
