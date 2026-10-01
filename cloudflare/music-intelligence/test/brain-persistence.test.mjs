@@ -39,15 +39,19 @@ function persistenceDb() {
   };
 }
 
-test('Brain scores, decision and evidence are persisted beside the learned version', async () => {
-  assert.equal(typeof brainWorker.persistBrainAnnotations, 'function');
-
-  const db = persistenceDb();
-  await brainWorker.persistBrainAnnotations(db, {
-    title: 'Il mondo',
-    artist: 'Jimmy Fontana',
-  }, {
-    original: { title: 'Il mondo', artist: 'Jimmy Fontana' },
+function brainPayload() {
+  return {
+    original: {
+      title: 'Il mondo',
+      artist: 'Jimmy Fontana',
+      year: 1965,
+      language: 'it',
+      credits: {
+        songwriters: ['Gianni Meccia'],
+        composers: ['Jimmy Fontana', 'Carlo Pes'],
+        lyricists: ['Gianni Meccia'],
+      },
+    },
     versions: [{
       title: 'Il mondo',
       artist: 'Milva',
@@ -59,7 +63,17 @@ test('Brain scores, decision and evidence are persisted beside the learned versi
       brainAdmission: 'two_key_rule',
       brainSignals: [{ kind: 'composer_match', strength: 'strong', direction: 'positive' }],
     }],
-  });
+  };
+}
+
+test('Brain scores, decision and evidence are persisted beside the learned version', async () => {
+  assert.equal(typeof brainWorker.persistBrainAnnotations, 'function');
+
+  const db = persistenceDb();
+  await brainWorker.persistBrainAnnotations(db, {
+    title: 'Il mondo',
+    artist: 'Jimmy Fontana',
+  }, brainPayload());
 
   const update = db.writes.find(entry => entry.sql.includes('UPDATE versions'));
   assert.ok(update, 'expected versions score/status update');
@@ -105,7 +119,7 @@ test('Work Signature, identifiers, aliases and translated titles are persisted w
   assert.equal(workUpdate.args[1], 'T-005.001.002-0');
   assert.equal(workUpdate.args[2], 'mb-work-1');
   assert.equal(workUpdate.args[3], 'work-1');
-  assert.deepEqual(JSON.parse(workUpdate.args[0]).translatedTitles, ['El mundo', 'El món']);
+  assert.deepEqual(JSON.parse(workUpdate.args[0]).translatedTitles, ['El mondo'.replace('mondo', 'mundo'), 'El món']);
 
   const aliasWrites = db.writes.filter(entry => entry.sql.includes('work_aliases'));
   assert.equal(aliasWrites.length, 4);
@@ -121,4 +135,23 @@ test('Work Signature, identifiers, aliases and translated titles are persisted w
     'translated',
     'translated',
   ]);
+});
+
+test('fresh discovery has one complete persistence path for Work Signature and Brain annotations', async () => {
+  assert.equal(typeof brainWorker.persistDiscoveryBrainMemory, 'function');
+
+  const db = persistenceDb();
+  await brainWorker.persistDiscoveryBrainMemory(db, {
+    title: 'Il mondo',
+    artist: 'Jimmy Fontana',
+    aliases: ['The World'],
+    translatedTitles: ['El mundo'],
+    iswc: null,
+    musicbrainzWorkId: null,
+  }, brainPayload());
+
+  assert.ok(db.writes.some(entry => entry.sql.includes('UPDATE works')), 'expected Work Signature persistence');
+  assert.ok(db.writes.some(entry => entry.sql.includes('work_aliases')), 'expected alias persistence');
+  assert.ok(db.writes.some(entry => entry.sql.includes('UPDATE versions')), 'expected Brain annotation persistence');
+  assert.ok(db.writes.some(entry => entry.sql.includes('decision_history')), 'expected AI decision history persistence');
 });
