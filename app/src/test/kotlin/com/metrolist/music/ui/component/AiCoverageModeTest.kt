@@ -29,6 +29,11 @@ class AiCoverageModeTest {
     }
 
     @Test
+    fun `wide is the default coverage mode`() {
+        assertEquals(AiCoverageMode.WIDE, AiCoverageMode.DEFAULT)
+    }
+
+    @Test
     fun `changing coverage only filters the existing candidate pool`() {
         val pool = listOf(
             candidate(92, 91, AiBrainDecisionStatus.APPROVED),
@@ -44,6 +49,23 @@ class AiCoverageModeTest {
         assertEquals(3, AiCoverageFilter.visible(pool, AiCoverageMode.WIDE).size)
         assertEquals(4, AiCoverageFilter.visible(pool, AiCoverageMode.EXPLORE).size)
         assertEquals(5, AiCoverageFilter.visible(pool, AiCoverageMode.ALL).size)
+    }
+
+    @Test
+    fun `coverage projection happens before pagination and does not mutate source items`() {
+        data class Result(val candidate: AiCoverCandidate, val id: String)
+
+        val hiddenFirst = Result(candidate(45, 44, AiBrainDecisionStatus.PROBABLE), "hidden")
+        val visibleFirst = Result(candidate(90, 88, AiBrainDecisionStatus.PROBABLE), "visible-1")
+        val visibleSecond = Result(candidate(72, 65, AiBrainDecisionStatus.PROBABLE), "visible-2")
+        val source = listOf(hiddenFirst, visibleFirst, visibleSecond)
+
+        val page = AiCoverageFilter
+            .visibleItems(source, AiCoverageMode.WIDE) { it.candidate }
+            .take(2)
+
+        assertEquals(listOf("visible-1", "visible-2"), page.map { it.id })
+        assertEquals(listOf("hidden", "visible-1", "visible-2"), source.map { it.id })
     }
 
     @Test
