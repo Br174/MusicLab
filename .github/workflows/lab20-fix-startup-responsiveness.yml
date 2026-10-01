@@ -29,51 +29,26 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # 1) Keep a lightweight startup path that initializes QuickJS/cipher only.
           path = Path('app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt')
           text = path.read_text()
-          old = '    suspend fun prewarm() = bundle().extractor.prewarm()\n'
-          new = '''    /**
-     * Lightweight app-start preparation. Builds the extraction stack and initializes
-     * the QuickJS cipher runtime only; unlike prewarm(), this never fetches player
-     * configuration or mints a PO token through WebView.
-     */
-    suspend fun prepare() {
-        bundle().cipherService.initialize()
-    }
-
-    suspend fun prewarm() = bundle().extractor.prewarm()
-'''
+          old = "    suspend fun prewarm() = bundle().extractor.prewarm()\n"
+          new = "    /**\n     * Lightweight app-start preparation. Builds the extraction stack and initializes\n     * the QuickJS cipher runtime only; unlike prewarm(), this never fetches player\n     * configuration or mints a PO token through WebView.\n     */\n    suspend fun prepare() {\n        bundle().cipherService.initialize()\n    }\n\n    suspend fun prewarm() = bundle().extractor.prewarm()\n"
           if text.count(old) != 1:
               raise SystemExit(f'InnerTubeXPlayer prewarm anchor count={text.count(old)}')
           path.write_text(text.replace(old, new, 1))
 
-          # 2) App startup must not execute full extractor prewarm while Home is rendering.
           path = Path('app/src/main/kotlin/com/metrolist/music/App.kt')
           text = path.read_text()
-          old = '''            // Warm player config/cipher immediately after settings are ready. This is best-effort
-            // and must never wait for visitorData: first playback can supply/refresh that state itself.
-            launch(Dispatchers.IO) {
-                runCatching { InnerTubeXPlayer.prewarm() }
-                    .onFailure { Timber.tag("InnerTubeXPlayer").d(it, "Playback prewarm did not complete; first play will retry normally") }
-            }
-'''
-          new = '''            // Prepare only the lightweight cipher runtime while Home is starting. Full extractor
-            // prewarm may mint a PO token through WebView/Main and must stay off the app-start path.
-            launch(Dispatchers.IO) {
-                runCatching { InnerTubeXPlayer.prepare() }
-                    .onFailure { Timber.tag("InnerTubeXPlayer").d(it, "Lightweight playback preparation did not complete; first play will retry normally") }
-            }
-'''
+          old = "            // Warm player config/cipher immediately after settings are ready. This is best-effort\n            // and must never wait for visitorData: first playback can supply/refresh that state itself.\n            launch(Dispatchers.IO) {\n                runCatching { InnerTubeXPlayer.prewarm() }\n                    .onFailure { Timber.tag(\"InnerTubeXPlayer\").d(it, \"Playback prewarm did not complete; first play will retry normally\") }\n            }\n"
+          new = "            // Prepare only the lightweight cipher runtime while Home is starting. Full extractor\n            // prewarm may mint a PO token through WebView/Main and must stay off the app-start path.\n            launch(Dispatchers.IO) {\n                runCatching { InnerTubeXPlayer.prepare() }\n                    .onFailure { Timber.tag(\"InnerTubeXPlayer\").d(it, \"Lightweight playback preparation did not complete; first play will retry normally\") }\n            }\n"
           if text.count(old) != 1:
               raise SystemExit(f'App startup prewarm anchor count={text.count(old)}')
           path.write_text(text.replace(old, new, 1))
 
-          # 3) Preserve the proven 4s rebuffer reserve, but reduce artificial first-audio wait.
           path = Path('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt')
           text = path.read_text()
-          old = 'private const val PLAYBACK_START_BUFFER_MS = 2_000\nprivate const val PLAYBACK_REBUFFER_MS = 4_000\n'
-          new = 'private const val PLAYBACK_START_BUFFER_MS = 1_250\nprivate const val PLAYBACK_REBUFFER_MS = 4_000\n'
+          old = "private const val PLAYBACK_START_BUFFER_MS = 2_000\nprivate const val PLAYBACK_REBUFFER_MS = 4_000\n"
+          new = "private const val PLAYBACK_START_BUFFER_MS = 1_250\nprivate const val PLAYBACK_REBUFFER_MS = 4_000\n"
           if text.count(old) != 1:
               raise SystemExit(f'MusicService buffer anchor count={text.count(old)}')
           path.write_text(text.replace(old, new, 1))
@@ -90,10 +65,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt \
-            app/src/main/kotlin/com/metrolist/music/App.kt \
-            app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt
+          git add app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt app/src/main/kotlin/com/metrolist/music/App.kt app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt
           test "$(git diff --cached --name-only | wc -l)" -eq 3
           git commit -m 'fix(lab20): restore startup responsiveness without audio stutter'
           git push origin HEAD:uab-build/musiclab-ai-brain-20
