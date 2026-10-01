@@ -364,6 +364,129 @@ export async function persistDiscoveryBrainMemory(db, input, payload) {
   await persistBrainAnnotations(db, input, payload);
 }
 
+function coverageMissionText(input, family, dimensionKey) {
+  const title = String(input?.title || '').trim();
+  const artist = String(input?.artist || '').trim();
+  const mode = input?.mode === 'originals' ? 'originals' : 'cover';
+  const target = `${title}${artist ? ` — ${artist}` : ''}`;
+  if (family === 'era') return `Esplora ${target} nel decennio ${dimensionKey}. Cerca registrazioni/versioni reali non ancora note.`;
+  if (family === 'language_adaptation') return `Esplora ${target} in ${dimensionKey}: adattamenti reali, titoli alternativi e opere collegate; non limitarti alla traduzione letterale.`;
+  if (family === 'release_context') return `Esplora ${target} nel contesto ${dimensionKey.replaceAll('_', ' ')} e cerca risultati reali non ancora noti.`;
+  if (mode === 'originals') return `Esplora ${target} come ${dimensionKey.replaceAll('_', ' ')} dello stesso interprete originale, distinguendo registrazioni realmente diverse dalle semplici ristampe.`;
+  return `Esplora ${target} come ${dimensionKey.replaceAll('_', ' ')} della stessa composizione con performer diverso.`;
+}
+
+function desiredCoverageCells(input) {
+  const mode = input?.mode === 'originals' ? 'originals' : 'cover';
+  const year = Number(input?.year);
+  const startYear = Number.isInteger(year) && year >= 1800 && year <= 2100 ? year : 1960;
+  const startDecade = Math.floor(startYear / 10) * 10;
+  const currentDecade = Math.floor(new Date().getUTCFullYear() / 10) * 10;
+  const eraCells = [];
+  for (let decade = startDecade; decade <= currentDecade; decade += 10) {
+    eraCells.push({ family: 'era', dimensionKey: `${decade}s`, strategy: 'decade_sweep' });
+  }
+
+  const versionTypes = mode === 'originals'
+    ? ['studio', 'rerecording', 'live', 'acoustic', 'duet', 'tv_radio', 'foreign_language', 'remix']
+    : ['studio_cover', 'foreign_adaptation', 'acoustic', 'live', 'remix', 'tribute'];
+  const versionCells = versionTypes.map(dimensionKey => ({ family: 'version_type', dimensionKey, strategy: 'version_type_sweep' }));
+  const languageCells = DEFAULT_LANGUAGES.map(dimensionKey => ({
+    family: 'language_adaptation',
+    dimensionKey,
+    strategy: 'adaptation_sweep',
+    targetLanguage: dimensionKey,
+  }));
+  const releaseCells = ['singles', 'albums', 'compilations', 'tv_radio', 'festivals'].map(dimensionKey => ({
+    family: 'release_context',
+    dimensionKey,
+    strategy: 'release_context_sweep',
+  }));
+
+  const interleaved = [];
+  if (eraCells.length) interleaved.push(eraCells.shift());
+  while (versionCells.length || languageCells.length || eraCells.length || releaseCells.length) {
+    if (versionCells.length) interleaved.push(versionCells.shift());
+    if (languageCells.length) interleaved.push(languageCells.shift());
+    if (eraCells.length) interleaved.push(eraCells.shift());
+    if (releaseCells.length) interleaved.push(releaseCells.shift());
+  }
+  return interleaved;
+}
+
+export async function planCoverageMissions(db, input, limit = 6) {
+  if (!db) return [];
+  const title = String(input?.title || '').trim();
+  const artist = String(input?.artist || '').trim();
+  if (!title || !artist) return [];
+
+  const work = await db.prepare(
+    'SELECT id FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1',
+  ).bind(searchKey(title, artist), MEMORY_RESOLVER_VERSION).first();
+  if (!work?.id) return [];
+
+  const existing = await db.prepare(
+    'SELECT family,dimension_key,state FROM coverage_cells WHERE work_id=?1',
+  ).bind(work.id).all();
+  const unavailable = new Set(
+    (existing?.results || [])
+      .filter(row => ['searched', 'empty', 'in_flight'].includes(String(row?.state || '')))
+      .map(row => `${row.family}|${row.dimension_key}`),
+  );
+  const boundedLimit = Math.max(1, Math.min(Number(limit) || 6, 12));
+  const selected = desiredCoverageCells(input)
+    .filter(cell => !unavailable.has(`${cell.family}|${cell.dimensionKey}`))
+    .slice(0, boundedLimit);
+
+  const missions = [];
+  for (const cell of selected) {
+    const id = crypto.randomUUID();
+    const queryText = coverageMissionText(input, cell.family, cell.dimensionKey);
+    const mission = {
+      id,
+      workId: work.id,
+      family: cell.family,
+      dimensionKey: cell.dimensionKey,
+      strategy: cell.strategy,
+      targetLanguage: cell.targetLanguage || null,
+      queryText,
+    };
+    await db.prepare(`
+      INSERT INTO search_missions(
+        id,work_id,family,dimension_key,target_language,strategy,query_text,status
+      ) VALUES(?1,?2,?3,?4,?5,?6,?7,'running')
+    `).bind(id, work.id, cell.family, cell.dimensionKey, cell.targetLanguage || null, cell.strategy, queryText).run();
+    await db.prepare(`
+      INSERT INTO coverage_cells(work_id,family,dimension_key,state,result_count,last_mission_id,updated_at)
+      VALUES(?1,?2,?3,'in_flight',0,?4,CURRENT_TIMESTAMP)
+      ON CONFLICT(work_id,family,dimension_key) DO UPDATE SET
+        state='in_flight',last_mission_id=excluded.last_mission_id,updated_at=CURRENT_TIMESTAMP
+    `).bind(work.id, cell.family, cell.dimensionKey, id).run();
+    missions.push(mission);
+  }
+  return missions;
+}
+
+export async function completeCoverageMissions(db, missions, resultCount = 0) {
+  if (!db || !Array.isArray(missions) || missions.length === 0) return;
+  const count = Math.max(0, Number(resultCount) || 0);
+  const missionStatus = count > 0 ? 'completed' : 'empty';
+  const cellState = count > 0 ? 'searched' : 'empty';
+  for (const mission of missions) {
+    if (!mission?.id || !mission?.workId || !mission?.family || !mission?.dimensionKey) continue;
+    await db.prepare(`
+      UPDATE search_missions
+      SET status=?1,result_count=?2,unique_result_count=?3,updated_at=CURRENT_TIMESTAMP
+      WHERE id=?4
+    `).bind(missionStatus, count, count, mission.id).run();
+    await db.prepare(`
+      UPDATE coverage_cells
+      SET state=?1,result_count=?2,last_mission_id=?3,updated_at=CURRENT_TIMESTAMP
+      WHERE work_id=?4 AND family=?5 AND dimension_key=?6
+    `).bind(cellState, count, mission.id, mission.workId, mission.family, mission.dimensionKey).run();
+  }
+}
+
 async function forwardDiscovery(request, env, ctx, phase) {
   const input = await request.clone().json();
   const mode = input?.mode === 'originals' ? 'originals' : 'cover';
