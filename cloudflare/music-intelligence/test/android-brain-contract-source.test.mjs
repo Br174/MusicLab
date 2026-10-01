@@ -14,6 +14,10 @@ const originals = readFileSync(
   'app/src/main/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngine.kt',
   'utf8',
 );
+const coverScreen = readFileSync(
+  'app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt',
+  'utf8',
+);
 
 test('Android candidate model carries Brain metadata without changing stable identity', () => {
   for (const token of [
@@ -76,4 +80,31 @@ test('Originali remembered adaptations are matched against their remembered titl
     originals.includes('query = "${candidate.title} ${candidate.artist}".trim()'),
     'remembered candidate title and artist must drive the playback locator query',
   );
+});
+
+test('Cover session performs one MusicBrainz lookup and reuses its neutral evidence before playback resolution', () => {
+  assert.ok(
+    coverScreen.includes('var sourceEvidence: AiCoverSourceEvidence? = null'),
+    'Cover session must retain one evidence snapshot',
+  );
+  assert.equal(
+    coverScreen.split('MusicBrainzCoverSource.lookup(').length - 1,
+    1,
+    'MusicBrainz must be looked up once per Cover session, never per batch/candidate',
+  );
+  assert.ok(
+    coverScreen.includes('sourceEvidence.attachToAiAccepted(discovery.versions)'),
+    'initial AI candidates must receive source evidence before playback resolution',
+  );
+  assert.ok(
+    coverScreen.includes('sourceEvidence.attachToAiAccepted(discoveredBatch)'),
+    'expanded AI candidates must reuse the same source evidence',
+  );
+  assert.ok(
+    coverScreen.includes('sourceEvidence.attachToAiAccepted(recovered)'),
+    'recovery AI candidates must reuse the same source evidence',
+  );
+  const enrichIndex = coverScreen.indexOf('sourceEvidence.attachToAiAccepted(discovery.versions)');
+  const playbackIndex = coverScreen.indexOf('AiCoverSearchEngine.resolveCandidates(');
+  assert.ok(enrichIndex >= 0 && playbackIndex > enrichIndex, 'source evidence must be attached before YouTube playback resolution');
 });
