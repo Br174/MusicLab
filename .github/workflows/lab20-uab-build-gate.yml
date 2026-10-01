@@ -1,6 +1,6 @@
 name: LAB20 UAB Delivery Gate
 
-# gate-revision: 6 — exact-SHA Brain + device regressions + Android + APK/ZIP final gate
+# gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
   push:
     branches:
