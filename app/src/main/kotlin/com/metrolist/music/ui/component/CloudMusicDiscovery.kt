@@ -54,6 +54,39 @@ internal object CloudMusicDiscovery {
         parseCover(root)
     }
 
+    suspend fun discoverMemory(
+        title: String,
+        artist: String,
+        config: GeminiCoverVerificationConfig,
+        limit: Int = 150,
+    ): AiCoverDiscoveryResult? = withContext(Dispatchers.IO) {
+        val endpoint = config.cloudEndpoint.trim().trimEnd('/')
+        if (endpoint.isBlank() || title.isBlank() || !config.useCloudMemory) return@withContext null
+
+        val body = buildJsonObject {
+            put("title", title.trim())
+            put("artist", artist.trim())
+            put("mode", "cover")
+            put("limit", limit.coerceIn(1, 150))
+        }
+        val request =
+            Request.Builder()
+                .url("$endpoint/api/v1/memory/discover")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("x-musiclab-client", "android-lab20")
+                .post(body.toString().toRequestBody(mediaType))
+                .build()
+
+        val root = runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val text = response.body?.string() ?: return@use null
+                json.parseToJsonElement(text).jsonObject
+            }
+        }.getOrNull() ?: return@withContext null
+        parseCover(root)
+    }
+
     suspend fun identifyOriginal(
         title: String,
         artist: String,
