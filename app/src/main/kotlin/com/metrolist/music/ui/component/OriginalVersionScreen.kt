@@ -533,6 +533,7 @@ internal fun OriginalVersionScreen(
                             onPreview = { preview(candidate) },
                             onReplace = { replaceWith(candidate) },
                             onDetails = { detailResult = CoverHubResult(song = candidate, year = manualYear, source = "Link manuale") },
+                            onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(candidate.title)) },
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
                     }
@@ -590,6 +591,7 @@ internal fun OriginalVersionScreen(
                                 onPreview = { preview(original.song) },
                                 onReplace = { replaceWith(original.song) },
                                 onDetails = { detailResult = original },
+                                onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(original.song.title)) },
                             )
                             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                         }
