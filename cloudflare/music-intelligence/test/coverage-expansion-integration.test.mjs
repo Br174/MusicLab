@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../src/worker-v20.js';
+import worker from '../src/worker-v20-runtime.js';
 
 function integrationDb() {
   const writes = [];
