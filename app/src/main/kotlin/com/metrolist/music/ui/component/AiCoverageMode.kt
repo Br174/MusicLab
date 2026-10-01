@@ -15,6 +15,11 @@ internal enum class AiCoverageMode(
     WIDE(50, "Ampia"),
     EXPLORE(30, "Esplora"),
     ALL(15, "Tutto"),
+    ;
+
+    companion object {
+        val DEFAULT: AiCoverageMode = WIDE
+    }
 }
 
 internal object AiCoverageFilter {
@@ -44,6 +49,12 @@ internal object AiCoverageFilter {
 
     fun visible(candidates: List<AiCoverCandidate>, mode: AiCoverageMode): List<AiCoverCandidate> =
         candidates.filter { isVisible(it, mode) }
+
+    fun <T> visibleItems(
+        items: List<T>,
+        mode: AiCoverageMode,
+        candidateOf: (T) -> AiCoverCandidate,
+    ): List<T> = items.filter { item -> isVisible(candidateOf(item), mode) }
 
     fun toReview(candidates: List<AiCoverCandidate>): List<AiCoverCandidate> =
         candidates.filter { it.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
