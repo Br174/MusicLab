@@ -1,0 +1,66 @@
+name: LAB20 One-shot audio device regression fix
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-ai-brain-20
+    paths:
+      - '.github/workflows/lab20-fix-audio-device-regressions.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lab20-one-shot-audio-device-regressions
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: uab-build/musiclab-ai-brain-20
+
+      - name: Patch first-play prewarm and stream buffer reserve
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/kotlin/com/metrolist/music/App.kt')
+          text = path.read_text()
+          old = "            // Warm player config, cipher, and optional PO-token state off the first-play path.\n            launch(Dispatchers.IO) {\n                delay(2500)\n                var waitedMs = 0\n                while (YouTube.visitorData == null && waitedMs < 12_000) {\n                    delay(500)\n                    waitedMs += 500\n                }\n                runCatching { InnerTubeXPlayer.prewarm() }\n            }\n\n            observeSettingsChanges()\n"
+          new = "            // Warm player config/cipher immediately after settings are ready. This is best-effort\n            // and must never wait for visitorData: first playback can supply/refresh that state itself.\n            launch(Dispatchers.IO) {\n                runCatching { InnerTubeXPlayer.prewarm() }\n                    .onFailure { Timber.tag(\"InnerTubeXPlayer\").d(it, \"Playback prewarm did not complete; first play will retry normally\") }\n            }\n\n            observeSettingsChanges()\n"
+          if text.count(old) != 1:
+              raise SystemExit(f'App prewarm anchor count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+
+          path = Path('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt')
+          text = path.read_text()
+          constants_anchor = "private const val INSTANT_SILENCE_SKIP_STEP_MS = 15_000L\nprivate const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L\n"
+          constants_new = "private const val INSTANT_SILENCE_SKIP_STEP_MS = 15_000L\nprivate const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L\nprivate const val PLAYBACK_START_BUFFER_MS = 2_000\nprivate const val PLAYBACK_REBUFFER_MS = 4_000\n"
+          if text.count(constants_anchor) != 1:
+              raise SystemExit(f'MusicService constants anchor count={text.count(constants_anchor)}')
+          text = text.replace(constants_anchor, constants_new, 1)
+
+          old_load = "                    // Start playback once ~750ms is buffered (media3's default is 1000ms) so first\n                    // audio is audible a touch sooner. min/max/after-rebuffer match the media3 1.x\n                    // defaults (50s / 50s / 2000ms) so buffering and post-stall recovery are unchanged.\n                    DefaultLoadControl\n                        .Builder()\n                        .setBufferDurationsMs(50_000, 50_000, 750, 2_000)\n                        .build(),\n"
+          new_load = "                    // Device regression guard: do not start on a 750ms sliver and then audibly\n                    // rebuffer on bursty mobile streams. Prewarm removes extractor setup from the\n                    // first-play path; this reserve stabilizes playback once audio starts.\n                    DefaultLoadControl\n                        .Builder()\n                        .setBufferDurationsMs(50_000, 50_000, PLAYBACK_START_BUFFER_MS, PLAYBACK_REBUFFER_MS)\n                        .build(),\n"
+          if text.count(old_load) != 1:
+              raise SystemExit(f'MusicService load-control anchor count={text.count(old_load)}')
+          path.write_text(text.replace(old_load, new_load, 1))
+          PY
+          git diff --check
+          grep -n -A10 -B4 'InnerTubeXPlayer.prewarm' app/src/main/kotlin/com/metrolist/music/App.kt
+          grep -n -A8 -B4 'PLAYBACK_START_BUFFER_MS' app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt
+
+      - name: Commit only audio root-cause fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/kotlin/com/metrolist/music/App.kt app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt
+          test "$(git diff --cached --name-only | wc -l)" -eq 2
+          git commit -m 'fix(lab20): stabilize first-play audio startup'
+          git push origin HEAD:uab-build/musiclab-ai-brain-20
