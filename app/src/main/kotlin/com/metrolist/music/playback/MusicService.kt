@@ -291,6 +291,8 @@ import com.metrolist.music.extensions.tryOrNull
 
 private const val INSTANT_SILENCE_SKIP_STEP_MS = 15_000L
 private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
+private const val PLAYBACK_START_BUFFER_MS = 2_000
+private const val PLAYBACK_REBUFFER_MS = 4_000
 
 /** When the queue has this many or fewer items (or items ahead of current), load more from paginated queues (e.g. Spotify). */
 private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
@@ -1454,12 +1456,12 @@ class MusicService :
                 )
                 .setRenderersFactory(createRenderersFactory(normalizationProcessor, eqProcessor, silenceProcessor, useAudioTrackPlaybackParams))
                 .setLoadControl(
-                    // Start playback once ~750ms is buffered (media3's default is 1000ms) so first
-                    // audio is audible a touch sooner. min/max/after-rebuffer match the media3 1.x
-                    // defaults (50s / 50s / 2000ms) so buffering and post-stall recovery are unchanged.
+                    // Device regression guard: do not start on a 750ms sliver and then audibly
+                    // rebuffer on bursty mobile streams. Prewarm removes extractor setup from the
+                    // first-play path; this reserve stabilizes playback once audio starts.
                     DefaultLoadControl
                         .Builder()
-                        .setBufferDurationsMs(50_000, 50_000, 750, 2_000)
+                        .setBufferDurationsMs(50_000, 50_000, PLAYBACK_START_BUFFER_MS, PLAYBACK_REBUFFER_MS)
                         .build(),
                 )
                 .setHandleAudioBecomingNoisy(true)

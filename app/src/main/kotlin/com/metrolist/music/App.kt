@@ -148,15 +148,11 @@ class App :
             // Apply settings, including proxy configuration, before building extraction transport.
             initializeSettings()
 
-            // Warm player config, cipher, and optional PO-token state off the first-play path.
+            // Warm player config/cipher immediately after settings are ready. This is best-effort
+            // and must never wait for visitorData: first playback can supply/refresh that state itself.
             launch(Dispatchers.IO) {
-                delay(2500)
-                var waitedMs = 0
-                while (YouTube.visitorData == null && waitedMs < 12_000) {
-                    delay(500)
-                    waitedMs += 500
-                }
                 runCatching { InnerTubeXPlayer.prewarm() }
+                    .onFailure { Timber.tag("InnerTubeXPlayer").d(it, "Playback prewarm did not complete; first play will retry normally") }
             }
 
             observeSettingsChanges()
