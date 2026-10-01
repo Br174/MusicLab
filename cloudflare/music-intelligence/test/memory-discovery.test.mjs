@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../src/index.js';
+import worker from '../src/worker-v20.js';
 
 function memoryDb(versions = [], hasWork = true) {
   const work = hasWork ? {
