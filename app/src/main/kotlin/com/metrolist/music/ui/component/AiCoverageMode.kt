@@ -4,7 +4,8 @@ package com.metrolist.music.ui.component
  * User-facing breadth of MusicLab Brain results.
  *
  * This never launches a new search: it only changes which already-discovered
- * candidates are visible. Thresholds mirror the cloud Brain contract.
+ * candidates are visible. Thresholds mirror the cloud Brain contract except
+ * ALL, which is intentionally a zero-floor user view of every non-rejected item.
  */
 internal enum class AiCoverageMode(
     val minimumScore: Int,
@@ -14,7 +15,7 @@ internal enum class AiCoverageMode(
     SELECTED(70, "Selezionata"),
     WIDE(50, "Ampia"),
     EXPLORE(30, "Esplora"),
-    ALL(15, "Tutto"),
+    ALL(0, "Tutto"),
     ;
 
     companion object {
