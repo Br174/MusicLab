@@ -107,7 +107,7 @@ test('Work Signature, identifiers, aliases and translated titles are persisted w
   assert.equal(workUpdate.args[3], 'work-1');
   assert.deepEqual(JSON.parse(workUpdate.args[0]).translatedTitles, ['El mundo', 'El món']);
 
-  const aliasWrites = db.writes.filter(entry => entry.sql.includes('INSERT INTO work_aliases'));
+  const aliasWrites = db.writes.filter(entry => entry.sql.includes('work_aliases'));
   assert.equal(aliasWrites.length, 4);
   assert.deepEqual(aliasWrites.map(entry => entry.args[1]), [
     'Il Mondo (My World)',
