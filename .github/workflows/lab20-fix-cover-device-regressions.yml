@@ -29,118 +29,78 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # 1. Coverage must apply to the entire tab before UNCERTAIN is split into review.
           path = Path('app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt')
           text = path.read_text()
-          old = '''    val reviewResults = selectedTabResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
-    val selectedResults = AiCoverageFilter.visibleItems(
-        selectedTabResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN },
-        selectedCoverageMode,
-    ) { it.candidate }
-'''
-          new = '''    val coverageVisibleResults = AiCoverageFilter.visibleItems(
-        selectedTabResults,
-        selectedCoverageMode,
-    ) { it.candidate }
-    val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
-    val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
-'''
+          old = "    val reviewResults = selectedTabResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }\n    val selectedResults = AiCoverageFilter.visibleItems(\n        selectedTabResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN },\n        selectedCoverageMode,\n    ) { it.candidate }\n"
+          new = "    val coverageVisibleResults = AiCoverageFilter.visibleItems(\n        selectedTabResults,\n        selectedCoverageMode,\n    ) { it.candidate }\n    val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }\n    val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }\n"
           if text.count(old) != 1:
               raise SystemExit(f'CoverSearchScreen coverage anchor count={text.count(old)}')
           path.write_text(text.replace(old, new, 1))
 
-          # 2. The playback locator may remove technical noise / an artist prefix, but it may
-          #    never turn "Il mondo" into another composition such as "Il mondo che vorrei".
           path = Path('app/src/main/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngine.kt')
           text = path.read_text()
-          helper_anchor = '''    private suspend fun searchAndPick(
-'''
-          helper = '''    internal fun isPlaybackTitleCompatible(
-        candidate: AiCoverCandidate,
-        rawSongTitle: String,
-    ): Boolean {
-        val targetTitle = canonicalTitle(candidate.title)
-        if (targetTitle.isBlank()) return false
-
-        var resolvedTitle = canonicalTitle(rawSongTitle)
-        val targetArtist = canonicalArtist(candidate.artist)
-        if (targetArtist.isNotBlank()) {
-            resolvedTitle = when {
-                resolvedTitle.startsWith("$targetArtist ") -> resolvedTitle.removePrefix("$targetArtist ").trim()
-                resolvedTitle.endsWith(" $targetArtist") -> resolvedTitle.removeSuffix(" $targetArtist").trim()
-                else -> resolvedTitle
-            }
-        }
-        return resolvedTitle == targetTitle
-    }
-
-    private suspend fun searchAndPick(
-'''
-          if text.count(helper_anchor) != 1:
-              raise SystemExit(f'AiCoverSearchEngine helper anchor count={text.count(helper_anchor)}')
-          text = text.replace(helper_anchor, helper, 1)
-
-          score_anchor = '''    ): Int {
-        val songTitle = canonicalTitle(song.title)
-        val artistNames = song.artists.map { canonicalArtist(it.name) }
-'''
-          score_new = '''    ): Int {
-        if (!isPlaybackTitleCompatible(candidate, song.title)) return 0
-
-        val songTitle = canonicalTitle(song.title)
-        val artistNames = song.artists.map { canonicalArtist(it.name) }
-'''
+          anchor = "    private suspend fun searchAndPick(\n"
+          helper_lines = [
+              '    internal fun isPlaybackTitleCompatible(',
+              '        candidate: AiCoverCandidate,',
+              '        rawSongTitle: String,',
+              '    ): Boolean {',
+              '        val targetTitle = canonicalTitle(candidate.title)',
+              '        if (targetTitle.isBlank()) return false',
+              '',
+              '        var resolvedTitle = canonicalTitle(rawSongTitle)',
+              '        val targetArtist = canonicalArtist(candidate.artist)',
+              '        if (targetArtist.isNotBlank()) {',
+              '            resolvedTitle = when {',
+              '                resolvedTitle.startsWith("$targetArtist ") -> resolvedTitle.removePrefix("$targetArtist ").trim()',
+              '                resolvedTitle.endsWith(" $targetArtist") -> resolvedTitle.removeSuffix(" $targetArtist").trim()',
+              '                else -> resolvedTitle',
+              '            }',
+              '        }',
+              '        return resolvedTitle == targetTitle',
+              '    }',
+              '',
+              '    private suspend fun searchAndPick(',
+          ]
+          helper = '\n'.join(helper_lines) + '\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'AiCoverSearchEngine helper anchor count={text.count(anchor)}')
+          text = text.replace(anchor, helper, 1)
+          score_anchor = "    ): Int {\n        val songTitle = canonicalTitle(song.title)\n        val artistNames = song.artists.map { canonicalArtist(it.name) }\n"
+          score_new = "    ): Int {\n        if (!isPlaybackTitleCompatible(candidate, song.title)) return 0\n\n        val songTitle = canonicalTitle(song.title)\n        val artistNames = song.artists.map { canonicalArtist(it.name) }\n"
           if text.count(score_anchor) != 1:
               raise SystemExit(f'AiCoverSearchEngine score anchor count={text.count(score_anchor)}')
           path.write_text(text.replace(score_anchor, score_new, 1))
 
-          # 3. Update the older source contract so it guards the corrected order instead of
-          #    preserving the bug that split UNCERTAIN before coverage.
           path = Path('cloudflare/music-intelligence/test/android-brain-contract-source.test.mjs')
           text = path.read_text()
           start = text.index("test('Cover separates UNCERTAIN review before coverage")
           end = text.index("test('Originali preserves Brain metadata", start)
-          block = '''test('Cover applies coverage to the complete tab before review split and pagination without joining discovery keys', () => {
-  assert.ok(
-    coverScreen.includes('var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }'),
-    'Cover must keep coverage as local display state',
-  );
-  assert.ok(
-    compactCoverScreen.includes('val coverageVisibleResults = AiCoverageFilter.visibleItems( selectedTabResults, selectedCoverageMode,'),
-    'Cover must apply coverage to the complete selected tab',
-  );
-  assert.ok(
-    compactCoverScreen.includes('val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'),
-    'Cover must derive UNCERTAIN review results from the selected coverage projection',
-  );
-  assert.ok(
-    compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'),
-    'Cover main results and review results must share one coverage projection',
-  );
-  assert.ok(
-    coverScreen.includes('AiCoverageSelector(\\n                                selected = selectedCoverageMode'),
-    'Coverage selector must be wired into the Cover UI',
-  );
-
-  const projectionIndex = coverScreen.indexOf('val coverageVisibleResults = AiCoverageFilter.visibleItems(');
-  const reviewIndex = coverScreen.indexOf('val reviewResults = coverageVisibleResults.filter');
-  const paginationIndex = coverScreen.indexOf('selectedResults.take(visibleResultCount)');
-  assert.ok(projectionIndex >= 0 && reviewIndex > projectionIndex, 'coverage projection must happen before review split');
-  assert.ok(paginationIndex > reviewIndex, 'coverage/review projection must happen before visible pagination');
-
-  const discoveryEffectStart = coverScreen.indexOf('LaunchedEffect(\\n        sessionKey,');
-  const discoveryEffectBody = coverScreen.indexOf('    ) {', discoveryEffectStart);
-  assert.ok(discoveryEffectStart >= 0 && discoveryEffectBody > discoveryEffectStart, 'Cover discovery LaunchedEffect not found');
-  const discoveryKeys = coverScreen.slice(discoveryEffectStart, discoveryEffectBody);
-  assert.ok(!discoveryKeys.includes('selectedCoverageMode'), 'changing coverage must never relaunch AI discovery');
-});
-
-'''
+          block_lines = [
+              "test('Cover applies coverage to the complete tab before review split and pagination without joining discovery keys', () => {",
+              "  assert.ok(coverScreen.includes('var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }'));",
+              "  assert.ok(compactCoverScreen.includes('val coverageVisibleResults = AiCoverageFilter.visibleItems( selectedTabResults, selectedCoverageMode,'));",
+              "  assert.ok(compactCoverScreen.includes('val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));",
+              "  assert.ok(compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));",
+              "  assert.ok(coverScreen.includes('AiCoverageSelector(\\n                                selected = selectedCoverageMode'));",
+              "  const projectionIndex = coverScreen.indexOf('val coverageVisibleResults = AiCoverageFilter.visibleItems(');",
+              "  const reviewIndex = coverScreen.indexOf('val reviewResults = coverageVisibleResults.filter');",
+              "  const paginationIndex = coverScreen.indexOf('selectedResults.take(visibleResultCount)');",
+              "  assert.ok(projectionIndex >= 0 && reviewIndex > projectionIndex);",
+              "  assert.ok(paginationIndex > reviewIndex);",
+              "  const discoveryEffectStart = coverScreen.indexOf('LaunchedEffect(\\n        sessionKey,');",
+              "  const discoveryEffectBody = coverScreen.indexOf('    ) {', discoveryEffectStart);",
+              "  assert.ok(discoveryEffectStart >= 0 && discoveryEffectBody > discoveryEffectStart);",
+              "  const discoveryKeys = coverScreen.slice(discoveryEffectStart, discoveryEffectBody);",
+              "  assert.ok(!discoveryKeys.includes('selectedCoverageMode'));",
+              "});",
+              '',
+          ]
+          block = '\n'.join(block_lines) + '\n'
           path.write_text(text[:start] + block + text[end:])
           PY
-
           git diff --check
-          grep -n -A12 -B3 'coverageVisibleResults' app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
+          grep -n -A8 -B3 'coverageVisibleResults' app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt
           grep -n -A20 -B3 'isPlaybackTitleCompatible' app/src/main/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngine.kt
 
       - name: Commit only Cover regression fix
@@ -148,10 +108,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt \
-            app/src/main/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngine.kt \
-            cloudflare/music-intelligence/test/android-brain-contract-source.test.mjs
+          git add app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt app/src/main/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngine.kt cloudflare/music-intelligence/test/android-brain-contract-source.test.mjs
           test "$(git diff --cached --name-only | wc -l)" -eq 3
           git commit -m 'fix(lab20): close Cover device regressions'
           git push origin HEAD:uab-build/musiclab-ai-brain-20
