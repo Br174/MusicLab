@@ -222,6 +222,45 @@ function normalizeSignalDirection(value) {
   return ['positive', 'negative', 'neutral'].includes(direction) ? direction : 'positive';
 }
 
+export async function persistWorkSignature(db, signature) {
+  if (!db || !signature) return;
+  const title = String(signature?.canonicalTitle || '').trim();
+  const artist = String(signature?.originalArtist || '').trim();
+  if (!title || !artist) return;
+
+  const work = await db.prepare(
+    'SELECT id FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1',
+  ).bind(searchKey(title, artist), MEMORY_RESOLVER_VERSION).first();
+  if (!work?.id) return;
+
+  const iswc = String(signature?.iswc || '').trim() || null;
+  const musicbrainzWorkId = String(signature?.musicbrainzWorkId || '').trim() || null;
+  await db.prepare(`
+    UPDATE works
+    SET work_signature_json=?1,
+        iswc=COALESCE(?2,iswc),
+        musicbrainz_work_id=COALESCE(?3,musicbrainz_work_id),
+        updated_at=CURRENT_TIMESTAMP
+    WHERE id=?4
+  `).bind(JSON.stringify(signature), iswc, musicbrainzWorkId, work.id).run();
+
+  const aliases = [
+    ...(Array.isArray(signature?.aliases) ? signature.aliases.map(alias => ({ alias, kind: 'alternate' })) : []),
+    ...(Array.isArray(signature?.translatedTitles) ? signature.translatedTitles.map(alias => ({ alias, kind: 'translated' })) : []),
+  ];
+  const seen = new Set();
+  for (const entry of aliases) {
+    const alias = String(entry.alias || '').trim();
+    const key = `${canonical(alias)}|${entry.kind}`;
+    if (!alias || seen.has(key)) continue;
+    seen.add(key);
+    await db.prepare(`
+      INSERT OR IGNORE INTO work_aliases(work_id,alias,language,alias_kind,source,confidence)
+      VALUES(?1,?2,?3,?4,?5,?6)
+    `).bind(work.id, alias, null, entry.kind, 'brain', entry.kind === 'translated' ? 75 : 70).run();
+  }
+}
+
 export async function persistBrainAnnotations(db, input, payload) {
   if (!db || !payload || !Array.isArray(payload?.versions) || payload.versions.length === 0) return;
 
