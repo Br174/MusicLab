@@ -20,12 +20,12 @@ class AiCoverageModeTest {
     )
 
     @Test
-    fun `coverage thresholds are monotonic`() {
+    fun `coverage thresholds are monotonic and All has no hidden score floor`() {
         assertEquals(85, AiCoverageMode.PRECISE.minimumScore)
         assertEquals(70, AiCoverageMode.SELECTED.minimumScore)
         assertEquals(50, AiCoverageMode.WIDE.minimumScore)
         assertEquals(30, AiCoverageMode.EXPLORE.minimumScore)
-        assertEquals(15, AiCoverageMode.ALL.minimumScore)
+        assertEquals(0, AiCoverageMode.ALL.minimumScore)
     }
 
     @Test
@@ -41,6 +41,7 @@ class AiCoverageModeTest {
             candidate(58, 56, AiBrainDecisionStatus.PROBABLE),
             candidate(38, 35, AiBrainDecisionStatus.UNCERTAIN),
             candidate(22, 20, AiBrainDecisionStatus.UNCERTAIN),
+            candidate(0, 0, AiBrainDecisionStatus.UNCERTAIN),
             candidate(99, 99, AiBrainDecisionStatus.REJECTED),
         )
 
@@ -48,7 +49,7 @@ class AiCoverageModeTest {
         assertEquals(2, AiCoverageFilter.visible(pool, AiCoverageMode.SELECTED).size)
         assertEquals(3, AiCoverageFilter.visible(pool, AiCoverageMode.WIDE).size)
         assertEquals(4, AiCoverageFilter.visible(pool, AiCoverageMode.EXPLORE).size)
-        assertEquals(5, AiCoverageFilter.visible(pool, AiCoverageMode.ALL).size)
+        assertEquals(6, AiCoverageFilter.visible(pool, AiCoverageMode.ALL).size)
     }
 
     @Test
@@ -106,6 +107,13 @@ class AiCoverageModeTest {
     fun `rejected candidates stay hidden even in All`() {
         val rejected = candidate(100, 100, AiBrainDecisionStatus.REJECTED)
         assertFalse(AiCoverageFilter.isVisible(rejected, AiCoverageMode.ALL))
+    }
+
+    @Test
+    fun `All keeps zero-score uncertain candidates available for review`() {
+        val uncertain = candidate(0, 0, AiBrainDecisionStatus.UNCERTAIN)
+        assertTrue(AiCoverageFilter.isVisible(uncertain, AiCoverageMode.ALL))
+        assertTrue(uncertain in AiCoverageFilter.toReview(listOf(uncertain)))
     }
 
     @Test
