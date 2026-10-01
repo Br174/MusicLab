@@ -177,7 +177,8 @@ internal fun CoverSearchScreen(
     }
 
     var selectedTab by remember(sessionKey) { mutableStateOf(AiCoverTab.COVER) }
-    var visibleResultCount by remember(sessionKey, selectedTab) { mutableIntStateOf(COVER_PAGE_SIZE) }
+    var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }
+    var visibleResultCount by remember(sessionKey, selectedTab, selectedCoverageMode) { mutableIntStateOf(COVER_PAGE_SIZE) }
     val listState = rememberLazyListState()
     var initialLoading by remember(sessionKey) { mutableStateOf(!session.initialLoaded) }
     var backgroundLoading by remember(sessionKey) { mutableStateOf(session.initialLoaded && !session.backgroundComplete) }
@@ -475,12 +476,13 @@ internal fun CoverSearchScreen(
     val liveResults = playables.filter { it.candidate.category == AiCoverCategory.LIVE && liveAiEnabled }
     val remixResults = playables.filter { it.candidate.category == AiCoverCategory.REMIX && remixAiEnabled }
     val foreignResults = playables.filter { it.candidate.category == AiCoverCategory.FOREIGN && foreignAiEnabled }
-    val selectedResults = when (selectedTab) {
+    val selectedTabResults = when (selectedTab) {
         AiCoverTab.COVER -> coverResults
         AiCoverTab.LIVE -> liveResults
         AiCoverTab.REMIX -> remixResults
         AiCoverTab.FOREIGN -> foreignResults
     }
+    val selectedResults = AiCoverageFilter.visibleItems(selectedTabResults, selectedCoverageMode) { it.candidate }
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -682,6 +684,17 @@ internal fun CoverSearchScreen(
                                 remixEnabled = remixAiEnabled,
                                 foreignEnabled = foreignAiEnabled,
                                 onSelected = { selectedTab = it },
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "Copertura",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 5.dp),
+                            )
+                            AiCoverageSelector(
+                                selected = selectedCoverageMode,
+                                onSelected = { selectedCoverageMode = it },
                             )
 
                             if (backgroundLoading) {
