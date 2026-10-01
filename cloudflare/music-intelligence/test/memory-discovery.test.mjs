@@ -59,6 +59,14 @@ async function memoryRequest(env, body = {}) {
   }), env, {});
 }
 
+async function discoveryRequest(env, phase = 'expand', body = {}) {
+  return worker.fetch(new Request(`https://musiclab.test/api/v1/discover/${phase}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Il mondo', artist: 'Jimmy Fontana', mode: 'cover', useMemory: true, ...body }),
+  }), env, {});
+}
+
 test('memory-only discovery returns all learned D1 candidates without Gemini', async () => {
   const versions = Array.from({ length: 12 }, (_, index) => version(index));
   const response = await memoryRequest({ DB: memoryDb(versions) });
@@ -83,4 +91,23 @@ test('memory-only discovery is bounded even when caller asks for too much', asyn
   const response = await memoryRequest({ DB: memoryDb(versions) }, { limit: 9999 });
   const payload = await response.json();
   assert.equal(payload.versions.length, 150);
+});
+
+test('expand serves unseen D1 memory before Gemini and does not require an AI key', async () => {
+  const versions = Array.from({ length: 12 }, (_, index) => version(index));
+  const existing = versions.slice(0, 5).map(item => ({
+    title: item.canonical_title,
+    artist: item.canonical_artist,
+    category: item.category,
+    language: item.language,
+  }));
+
+  const response = await discoveryRequest({ DB: memoryDb(versions) }, 'expand', { existing });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.provenienza, 'memoria');
+  assert.equal(payload.fase, 'expand');
+  assert.equal(payload.versions.length, 7);
+  assert.equal(payload.versions[0].title, 'Il mondo 5');
+  assert.equal(payload.versions[0].brainStatus, 'UNCERTAIN');
 });
