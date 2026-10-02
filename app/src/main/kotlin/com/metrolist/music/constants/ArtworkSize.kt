@@ -4,25 +4,24 @@
  */
 package com.metrolist.music.constants
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.stringPreferencesKey
 
 val ArtworkSizeKey = stringPreferencesKey("artworkSize")
 
-enum class ArtworkSize {
-    SMALL,
-    MEDIUM,
-    LARGE,
-    VERY_LARGE,
+enum class ArtworkSize(
+    val thumbnailHeight: Dp,
+) {
+    // LAB26: the entire scale is larger than the old implementation.
+    SMALL(124.dp),
+    MEDIUM(152.dp),
+    LARGE(184.dp),
+    VERY_LARGE(224.dp),
 }
 
 /**
- * In-memory mirror of the persisted preference. App.kt keeps this synchronized
- * with DataStore so common dimension constants can react without each screen
- * owning a separate preference reader.
+ * Home and album artwork are intentionally isolated from the global artwork
+ * preference. They keep the proven pre-LAB26 grid size.
  */
-object ArtworkSizeRuntime {
-    var current by mutableStateOf(ArtworkSize.MEDIUM)
-}
+val ProtectedArtworkHeight: Dp = GridThumbnailHeight
