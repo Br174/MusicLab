@@ -60,8 +60,16 @@ test('Tutto coverage really includes every non-rejected Brain score including UN
     'UNCERTAIN results must respect the selected coverage mode instead of bypassing it',
   );
   assert.ok(
-    compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'),
-    'main results must be derived from the same coverage projection',
+    compactCoverScreen.includes('val confirmedResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }'),
+    'confirmed results must be derived from the same coverage projection',
+  );
+  assert.ok(
+    compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filter { it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN && it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED }'),
+    'unconfirmed main results must be derived from the same coverage projection',
+  );
+  assert.ok(
+    coverScreen.includes('exhaustive = true'),
+    'Tutto must actively exhaust the playback locator for unresolved candidates',
   );
 });
 
