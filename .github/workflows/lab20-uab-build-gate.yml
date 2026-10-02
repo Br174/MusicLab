@@ -1,5 +1,5 @@
 name: LAB24 UAB Delivery Gate
-# gate-revision: playback-smooth-v1
+# gate-revision: playback-smooth-v2-final
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
