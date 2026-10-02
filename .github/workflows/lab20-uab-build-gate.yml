@@ -1,11 +1,11 @@
-name: LAB23 UAB Delivery Gate
-# gate-revision: spotify-fast-title-v2-final
+name: LAB24 UAB Delivery Gate
+# gate-revision: playback-smooth-v1
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
   push:
     branches:
-      - uab-build/musiclab-spotify-fast-23
+      - uab-build/musiclab-playback-smooth-24
     paths:
       - '.github/workflows/lab20-uab-build-gate.yml'
 
@@ -13,17 +13,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: lab23-uab-delivery-gate
+  group: lab24-uab-delivery-gate
   cancel-in-progress: true
 
 jobs:
   build:
-    name: verify-and-build-lab23-apk-zip
+    name: verify-and-build-lab24-apk-zip
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
-      - name: Checkout exact LAB23 source
+      - name: Checkout exact LAB24 source
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -32,7 +32,7 @@ jobs:
       - name: Record exact source SHA
         shell: bash
         run: |
-          echo "LAB23 final source: $GITHUB_SHA"
+          echo "LAB24 final source: $GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Set up Node 22
@@ -100,7 +100,7 @@ jobs:
         shell: bash
         run: bash tools/universal-apk-builder/diagnose.sh .
 
-      - name: Build LAB23 APK and ZIP with UAB
+      - name: Build LAB24 APK and ZIP with UAB
         shell: bash
         run: bash tools/universal-apk-builder/build-apk.sh .
         env:
@@ -115,30 +115,30 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
           test "$(cat dist/uab/BUILD_SHA.txt)" = "$GITHUB_SHA"
 
-      - name: Verify LAB23 deliverables
+      - name: Verify LAB24 deliverables
         shell: bash
         run: |
-          test -s dist/uab/apk/MusicLab-LAB-23.apk
-          test -s dist/uab/MusicLab-LAB-23-APK.zip
+          test -s dist/uab/apk/MusicLab-LAB-24.apk
+          test -s dist/uab/MusicLab-LAB-24-APK.zip
           test -s dist/uab/apk/SHA256SUMS.txt
           test -s dist/uab/BUILD_SHA.txt
-          unzip -tq dist/uab/MusicLab-LAB-23-APK.zip
-          test "$(unzip -Z1 dist/uab/MusicLab-LAB-23-APK.zip | grep -c '\.apk$')" -eq 1
+          unzip -tq dist/uab/MusicLab-LAB-24-APK.zip
+          test "$(unzip -Z1 dist/uab/MusicLab-LAB-24-APK.zip | grep -c '\.apk$')" -eq 1
           echo '--- Source SHA ---'
           cat dist/uab/BUILD_SHA.txt
           echo '--- SHA256 ---'
           cat dist/uab/apk/SHA256SUMS.txt
           echo '--- Files ---'
-          ls -lh dist/uab/apk/MusicLab-LAB-23.apk dist/uab/MusicLab-LAB-23-APK.zip
+          ls -lh dist/uab/apk/MusicLab-LAB-24.apk dist/uab/MusicLab-LAB-24-APK.zip
 
-      - name: Upload LAB23 APK ZIP and verification evidence
+      - name: Upload LAB24 APK ZIP and verification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-23
+          name: MusicLab-LAB-24
           path: |
-            dist/uab/apk/MusicLab-LAB-23.apk
+            dist/uab/apk/MusicLab-LAB-24.apk
             dist/uab/apk/SHA256SUMS.txt
-            dist/uab/MusicLab-LAB-23-APK.zip
+            dist/uab/MusicLab-LAB-24-APK.zip
             dist/uab/BUILD_SHA.txt
             dist/uab/logs/*.log
           if-no-files-found: error
