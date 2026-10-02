@@ -2,7 +2,7 @@
  * Resolves AI-decided cover/remix/live/foreign candidates to playable media.
  * The MusicLab Brain owns musical identity; playback providers only locate a playable video id.
  *
- * LAB22 Cover Web Locator:
+ * LAB23 Spotify + Fast First Results (extends LAB22 Cover Web Locator):
  * - keeps YouTube Music for clean catalogue matches;
  * - adds a genuinely separate www.youtube.com WEB search lane;
  * - uses the real YouTube WEB continuation tokens for rare/user-uploaded versions;
@@ -43,6 +43,7 @@ internal object AiCoverSearchEngine {
         currentYouTubeId: String?,
         pauseBetweenBatches: Boolean,
         exhaustive: Boolean = false,
+        fastOnly: Boolean = false,
     ): AiCoverResolveResult = coroutineScope {
         if (candidates.isEmpty()) return@coroutineScope AiCoverResolveResult(emptyList(), AiCoverResolveStats())
 
@@ -57,7 +58,7 @@ internal object AiCoverSearchEngine {
         for ((batchIndex, batch) in batches.withIndex()) {
             val batchResolved =
                 batch.map { candidate ->
-                    async(Dispatchers.IO) { resolveOne(candidate, currentYouTubeId, exhaustive) }
+                    async(Dispatchers.IO) { resolveOne(candidate, currentYouTubeId, exhaustive, fastOnly) }
                 }.awaitAll().filterNotNull()
 
             batchResolved.forEach { playable ->
@@ -92,6 +93,7 @@ internal object AiCoverSearchEngine {
         candidate: AiCoverCandidate,
         currentYouTubeId: String?,
         exhaustive: Boolean,
+        fastOnly: Boolean,
     ): AiCoverPlayable? {
         val queries = locatorQueries(candidate)
         if (queries.isEmpty()) return null
@@ -124,6 +126,10 @@ internal object AiCoverSearchEngine {
             maxPages = 1,
             allowUploaderFallback = true,
         )?.let { return datedPlayable(candidate, it, "YouTube Music video") }
+
+        // LAB23 first-paint lane: never make the user wait for metadata variants or deep pages.
+        // The same candidate is retried by the normal background resolver immediately afterwards.
+        if (fastOnly) return null
 
         val metadataLimit = if (exhaustive) EXHAUSTIVE_METADATA_QUERY_LIMIT else METADATA_QUERY_LIMIT
         for (query in queries.drop(1).take(metadataLimit)) {
@@ -402,6 +408,15 @@ internal object AiCoverSearchEngine {
         if (artistMatch) score += 34
         if (titleHasArtist) score += 30
         if (albumMatch) score += 20
+
+        val spotifyDuration = candidate.spotifyDurationSec
+        val songDuration = song.duration
+        if (spotifyDuration != null && songDuration != null) {
+            val durationDiff = kotlin.math.abs(spotifyDuration - songDuration)
+            if (durationDiff <= 3) score += 10
+            else if (durationDiff <= 8) score += 6
+            else if (durationDiff <= 15) score += 3
+        }
 
         if (allowUploaderFallback && exactTitle && !artistMatch && !titleHasArtist && !albumMatch) {
             score += 18
