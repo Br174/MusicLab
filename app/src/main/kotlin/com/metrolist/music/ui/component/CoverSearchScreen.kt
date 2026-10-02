@@ -74,6 +74,7 @@ import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -218,6 +219,7 @@ internal fun CoverSearchScreen(
     var spotifyAvailable by remember(sessionKey) { mutableStateOf(session.spotifyAvailable) }
     var spotifyDiscovered by remember(sessionKey) { mutableStateOf(session.spotifyDiscovered) }
     var spotifyEnriched by remember(sessionKey) { mutableStateOf(session.spotifyEnriched) }
+    var yearEnrichmentInFlight by remember(sessionKey) { mutableStateOf(false) }
 
     var startingSong by remember(sessionKey) { mutableStateOf<SongItem?>(null) }
     var startingYear by remember(sessionKey) { mutableStateOf<Int?>(null) }
@@ -234,6 +236,33 @@ internal fun CoverSearchScreen(
         AiCoverCategory.LIVE -> liveAiEnabled
         AiCoverCategory.REMIX -> remixAiEnabled
         AiCoverCategory.FOREIGN -> foreignAiEnabled
+    }
+
+    fun applyYearUpdates(
+        yearsByStableKey: Map<String, Int>,
+        signalKind: String,
+    ) {
+        if (yearsByStableKey.isEmpty()) return
+        fun update(candidate: AiCoverCandidate): AiCoverCandidate {
+            if (candidate.year != null) return candidate
+            val year = yearsByStableKey[candidate.stableKey] ?: return candidate
+            val yearSignal = AiBrainSignal(
+                kind = signalKind,
+                strength = "medium",
+                direction = "positive",
+            )
+            return candidate.copy(
+                year = year,
+                brainSignals = (candidate.brainSignals + yearSignal).distinct(),
+            )
+        }
+
+        knownCandidates = knownCandidates.map(::update)
+        playables = playables.map { playable ->
+            playable.copy(candidate = update(playable.candidate))
+        }
+        session.knownCandidates = knownCandidates
+        session.playables = playables
     }
 
     LaunchedEffect(currentYouTubeId, initialLoading) {
@@ -768,6 +797,109 @@ internal fun CoverSearchScreen(
         allModeResolving = false
     }
 
+    LaunchedEffect(
+        sessionKey,
+        backgroundLoading,
+        allModeResolving,
+        playables.map { "${it.song.id}:${it.candidate.year ?: 0}" },
+    ) {
+        if (initialLoading || backgroundLoading || allModeResolving || !session.backgroundComplete) {
+            return@LaunchedEffect
+        }
+
+        // Let the exhaustive locator claim the network first. If it starts, this
+        // effect is cancelled automatically because allModeResolving is a key.
+        delay(650)
+        if (allModeResolving) return@LaunchedEffect
+
+        var missing = playables
+            .filter { it.candidate.year == null }
+            .distinctBy { it.candidate.stableKey }
+        if (missing.isEmpty()) return@LaunchedEffect
+
+        yearEnrichmentInFlight = true
+        try {
+            // 1) Real YouTube Music album metadata, bounded to four concurrent lookups.
+            val youtubeYears = linkedMapOf<String, Int>()
+            missing.chunked(4).forEach { chunk ->
+                val resolved = coroutineScope {
+                    chunk.map { playable ->
+                        async(Dispatchers.IO) {
+                            playable.candidate.stableKey to CoverYearResolver.resolve(playable.song)
+                        }
+                    }.map { it.await() }
+                }
+                resolved.forEach { (key, year) ->
+                    if (year != null) youtubeYears[key] = year
+                }
+            }
+            applyYearUpdates(youtubeYears, "year_youtube_music")
+
+            // 2) Spotify and Brain years have already been merged above. Ask the
+            // server-side MusicLab AI once for the versions still missing a year.
+            missing = playables
+                .filter { it.candidate.year == null }
+                .distinctBy { it.candidate.stableKey }
+
+            val config = geminiConfig
+            if (missing.isNotEmpty() && config != null) {
+                val cloudYears = runCatching {
+                    CloudMusicDiscovery.resolveYearsBatch(
+                        originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
+                        originalArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist,
+                        candidates = missing.map { it.candidate },
+                        config = config,
+                    )
+                }.getOrDefault(emptyMap())
+                applyYearUpdates(cloudYears, "year_musiclab_ai")
+            }
+
+            // 3) If a direct Gemini key exists, use the existing batched metadata
+            // enricher only for the few rows the cloud still could not complete.
+            missing = playables
+                .filter { it.candidate.year == null }
+                .distinctBy { it.candidate.stableKey }
+
+            if (missing.isNotEmpty() && config != null && config.apiKey.isNotBlank()) {
+                val identity = GeminiOriginalIdentity(
+                    title = originalInfo?.title?.ifBlank { title } ?: title,
+                    originalArtists = listOf(
+                        originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist,
+                    ).filter { it.isNotBlank() },
+                    year = originalInfo?.year,
+                    songwriters = originalInfo?.songwriters.orEmpty(),
+                    composers = originalInfo?.composers.orEmpty(),
+                    lyricists = originalInfo?.lyricists.orEmpty(),
+                    producers = originalInfo?.producers.orEmpty(),
+                    label = originalInfo?.label,
+                    album = originalInfo?.album,
+                    mode = GeminiOriginalMode.MODEL_KNOWLEDGE,
+                    webSourceCount = 0,
+                )
+
+                missing.chunked(8).forEach { chunk ->
+                    val credits = runCatching {
+                        GeminiOriginalVersionCredits.enrich(
+                            identity = identity,
+                            songs = chunk.map { it.song },
+                            config = config,
+                        )
+                    }.getOrDefault(emptyMap())
+                    val directYears = buildMap {
+                        chunk.forEach { playable ->
+                            credits[playable.song.id]?.year?.let { year ->
+                                put(playable.candidate.stableKey, year)
+                            }
+                        }
+                    }
+                    applyYearUpdates(directYears, "year_gemini_ai")
+                }
+            }
+        } finally {
+            yearEnrichmentInFlight = false
+        }
+    }
+
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -863,6 +995,10 @@ internal fun CoverSearchScreen(
                     Text("Studio: ${coverResults.size} · Live: ${liveResults.size} · Mix: ${remixResults.size} · Straniere: ${foreignResults.size}")
                     Text("Riproduzione YouTube Music: $youtubeMusicHits", style = MaterialTheme.typography.bodySmall)
                     Text("Riproduzione YouTube: $youtubeHits", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (yearEnrichmentInFlight) "Anni: completamento in background" else "Anni: arricchimento completato o in attesa di nuove versioni",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     Spacer(Modifier.height(7.dp))
                     Text(
                         "I metadati sono decisi dall'AI. YouTube e YouTube Music servono soltanto a localizzare la riproduzione.",
@@ -1300,7 +1436,7 @@ private fun CoverStartRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "Anno: ${(info?.year ?: fallbackYear)?.toString() ?: "—"}",
+                text = "Anno: ${(info?.year ?: fallbackYear)?.toString() ?: "ricerca…"}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -1340,7 +1476,7 @@ private fun AiCoverResultRow(
             )
             Text(result.candidate.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                text = "Anno: ${result.candidate.year?.toString() ?: "—"}",
+                text = "Anno: ${result.candidate.year?.toString() ?: "ricerca…"}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -1383,7 +1519,7 @@ private fun CoverDetailDialog(
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(candidate.artist, style = MaterialTheme.typography.titleSmall)
                 Text("Tipo: ${coverCategoryLabel(candidate.category)}")
-                Text("Anno: ${(credits?.year ?: candidate.year)?.toString() ?: "—"}")
+                Text("Anno: ${(credits?.year ?: candidate.year)?.toString() ?: "ricerca…"}")
                 (credits?.album ?: candidate.album)?.let { Text("Album: $it") }
                 candidate.language?.let { Text("Lingua: $it") }
                 Text("Riproduzione: ${result.playbackSource}", style = MaterialTheme.typography.bodySmall)
@@ -1429,7 +1565,7 @@ private fun AiCoverCredits(
     label: String?,
 ) {
     Text(
-        text = year?.let { "Data: $it" } ?: "Data non disponibile",
+        text = year?.let { "Anno: $it" } ?: "Anno: ricerca…",
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.primary,
     )
