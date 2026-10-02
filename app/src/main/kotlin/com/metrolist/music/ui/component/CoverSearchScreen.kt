@@ -111,6 +111,7 @@ private class AiCoverSession {
     var spotifyAvailable: Boolean = false
     var spotifyDiscovered: Int = 0
     var spotifyEnriched: Int = 0
+    var exhaustiveLocatorComplete: Boolean = false
 
     fun invalidate() {
         initialLoaded = false
@@ -127,6 +128,7 @@ private class AiCoverSession {
         spotifyAvailable = false
         spotifyDiscovered = 0
         spotifyEnriched = 0
+        exhaustiveLocatorComplete = false
     }
 }
 
@@ -195,9 +197,8 @@ internal fun CoverSearchScreen(
     }
 
     var selectedTab by remember(sessionKey) { mutableStateOf(AiCoverTab.ALL) }
-    var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }
     var selectedSortMode by remember(sessionKey) { mutableStateOf(CoverSortMode.QUALITY) }
-    var visibleResultCount by remember(sessionKey, selectedTab, selectedCoverageMode, selectedSortMode) { mutableIntStateOf(COVER_PAGE_SIZE) }
+    var visibleResultCount by remember(sessionKey, selectedTab, selectedSortMode) { mutableIntStateOf(COVER_PAGE_SIZE) }
     val listState = rememberLazyListState()
     var initialLoading by remember(sessionKey) { mutableStateOf(!session.initialLoaded) }
     var backgroundLoading by remember(sessionKey) { mutableStateOf(session.initialLoaded && !session.backgroundComplete) }
@@ -433,6 +434,7 @@ internal fun CoverSearchScreen(
             initialBrainCandidates + expandedTitlePlayables.map { it.candidate },
         )
         expandedCandidateCount += (knownCandidates.size - beforeBrainCount).coerceAtLeast(0)
+        playables = syncPlayableCandidateMetadata(playables, knownCandidates)
 
         // Resolve Brain candidates not already covered by the fast title-only lane.
         val alreadyLocalizedIds = playables.map { it.candidate.stableKey }.toSet()
@@ -475,6 +477,8 @@ internal fun CoverSearchScreen(
         val beforeSpotifyCount = knownCandidates.size
         knownCandidates = mergeCandidatesByEvidence(knownCandidates, spotifyAssist.candidates)
         expandedCandidateCount += (knownCandidates.size - beforeSpotifyCount).coerceAtLeast(0)
+        playables = syncPlayableCandidateMetadata(playables, knownCandidates)
+        session.playables = playables
 
         val localizedAfterSpotify = playables.map { it.candidate.stableKey }.toSet()
         val spotifyToResolve = knownCandidates.filter { candidate ->
@@ -616,8 +620,7 @@ internal fun CoverSearchScreen(
 
     fun play(song: SongItem) {
         val connection = playerConnection ?: return
-        connection.playNext(song.toMediaItem())
-        connection.seekToNext()
+        connection.playNow(song.toMediaItem())
         PlayerBottomSheetBridge.collapseToMiniPlayerNow()
     }
 
@@ -699,12 +702,8 @@ internal fun CoverSearchScreen(
         AiCoverTab.REMIX -> remixResults
         AiCoverTab.FOREIGN -> foreignResults
     }
-    val coverageVisibleResults = AiCoverageFilter.visibleItems(
-        selectedTabResults,
-        selectedCoverageMode,
-    ) { it.candidate }
     val orderedCoverageResults = sortCoverResults(
-        items = coverageVisibleResults,
+        items = selectedTabResults,
         targetTitle = originalInfo?.title?.ifBlank { title } ?: title,
         mode = selectedSortMode,
     )
@@ -716,11 +715,16 @@ internal fun CoverSearchScreen(
     }
     LaunchedEffect(
         sessionKey,
-        selectedCoverageMode,
+        initialLoading,
         backgroundLoading,
         knownCandidates.map { "${it.stableKey}:${it.brainStatus}" },
     ) {
-        if (selectedCoverageMode != AiCoverageMode.ALL || backgroundLoading) {
+        if (
+            initialLoading ||
+            backgroundLoading ||
+            !session.backgroundComplete ||
+            session.exhaustiveLocatorComplete
+        ) {
             allModeResolving = false
             return@LaunchedEffect
         }
@@ -732,6 +736,7 @@ internal fun CoverSearchScreen(
                 candidate.stableKey !in alreadyLocalized
         }
         if (unresolved.isEmpty()) {
+            session.exhaustiveLocatorComplete = true
             allModeResolving = false
             return@LaunchedEffect
         }
@@ -754,6 +759,7 @@ internal fun CoverSearchScreen(
         session.playables = playables
         session.youtubeMusicHits = youtubeMusicHits
         session.youtubeHits = youtubeHits
+        session.exhaustiveLocatorComplete = true
         allModeResolving = false
     }
 
@@ -974,18 +980,6 @@ internal fun CoverSearchScreen(
                                 selected = selectedSortMode,
                                 onSelected = { selectedSortMode = it },
                             )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = "Copertura",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 5.dp),
-                            )
-                            AiCoverageSelector(
-                                selected = selectedCoverageMode,
-                                onSelected = { selectedCoverageMode = it },
-                            )
-
                             if (backgroundLoading || allModeResolving) {
                                 Row(
                                     modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
@@ -994,7 +988,7 @@ internal fun CoverSearchScreen(
                                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        if (allModeResolving) "Tutto: cerco su YouTube tutte le versioni AI ancora non localizzate…" else "Altre versioni stanno arrivando in background…",
+                                        if (allModeResolving) "Cerco in background le versioni ancora non localizzate…" else "Altre versioni stanno arrivando in background…",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1318,7 +1312,7 @@ private fun AiCoverResultRow(
             )
             Text(result.candidate.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                text = result.candidate.year?.let { "Data: $it" } ?: "Data non disponibile",
+                text = "Anno: ${result.candidate.year?.toString() ?: "—"}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -1361,7 +1355,7 @@ private fun CoverDetailDialog(
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(candidate.artist, style = MaterialTheme.typography.titleSmall)
                 Text("Tipo: ${coverCategoryLabel(candidate.category)}")
-                Text((credits?.year ?: candidate.year)?.let { "Data: $it" } ?: "Data: non disponibile")
+                Text("Anno: ${(credits?.year ?: candidate.year)?.toString() ?: "—"}")
                 (credits?.album ?: candidate.album)?.let { Text("Album: $it") }
                 candidate.language?.let { Text("Lingua: $it") }
                 Text("Riproduzione: ${result.playbackSource}", style = MaterialTheme.typography.bodySmall)
