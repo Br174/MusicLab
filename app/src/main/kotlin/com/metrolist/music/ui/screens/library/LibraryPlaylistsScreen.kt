@@ -74,6 +74,7 @@ import com.metrolist.music.constants.YtmSyncKey
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.ui.component.CreatePlaylistDialog
+import com.metrolist.music.ui.component.currentGridCellMinSize
 import com.metrolist.music.ui.component.HideOnScrollFAB
 import com.metrolist.music.ui.component.LibrarySearchEmptyPlaceholder
 import com.metrolist.music.ui.component.LibrarySearchHeader
@@ -698,7 +699,7 @@ fun LibraryPlaylistsScreen(
                     state = lazyGridState,
                     columns =
                     GridCells.Adaptive(
-                        minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp,
+                        minSize = currentGridCellMinSize(),
                     ),
                     contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                 ) {
