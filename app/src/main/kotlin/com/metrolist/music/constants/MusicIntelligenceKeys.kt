@@ -18,6 +18,7 @@ val MusicAiRemixEnabledKey = booleanPreferencesKey("musicAiRemixEnabled")
 val MusicAiForeignEnabledKey = booleanPreferencesKey("musicAiForeignEnabled")
 val MusicAiCloudMemoryEnabledKey = booleanPreferencesKey("musicAiCloudMemoryEnabled")
 val MusicAiBackgroundMetadataEnabledKey = booleanPreferencesKey("musicAiBackgroundMetadataEnabled")
+val TitleTapSearchEnabledKey = booleanPreferencesKey("titleTapSearchEnabled")
 
 /** Endpoint del Worker centrale MusicLab LAB11. */
 val MusicAiCloudEndpointKey = stringPreferencesKey("musicAiCloudEndpoint")
