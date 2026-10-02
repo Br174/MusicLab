@@ -1,5 +1,5 @@
 name: LAB25 UAB Delivery Gate
-# gate-revision: instant-playback-cover-v1
+# gate-revision: instant-playback-cover-v2-final
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
