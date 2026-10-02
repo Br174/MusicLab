@@ -589,6 +589,16 @@ internal fun CoverSearchScreen(
         detailLoading = false
     }
 
+    val locatorEligibleCount = knownCandidates.count { it.brainStatus != AiBrainDecisionStatus.REJECTED }
+    val titleMismatchCount = knownCandidates.count {
+        it.brainAdmission?.contains("title_meaning_mismatch") == true
+    }
+    val waitingEvidenceCount = knownCandidates.count {
+        it.brainStatus == AiBrainDecisionStatus.UNCERTAIN &&
+            (it.brainAdmission?.contains("waiting_same_work_evidence") == true)
+    }
+    val unresolvedLocatorCount = (locatorEligibleCount - playables.size).coerceAtLeast(0)
+
     if (showDiagnosticsDialog) {
         AlertDialog(
             onDismissRequest = { showDiagnosticsDialog = false },
@@ -614,6 +624,10 @@ internal fun CoverSearchScreen(
                     Text("Candidati iniziali: $initialCandidateCount", style = MaterialTheme.typography.bodySmall)
                     Text("Riproducibili mostrati subito: $initialPlayableCount", style = MaterialTheme.typography.bodySmall)
                     Text("Candidati aggiuntivi: $expandedCandidateCount", style = MaterialTheme.typography.bodySmall)
+                    Text("Ammessi al locator: $locatorEligibleCount", style = MaterialTheme.typography.bodySmall)
+                    Text("Respinti per titolo diverso: $titleMismatchCount", style = MaterialTheme.typography.bodySmall)
+                    Text("Da verificare per evidenza: $waitingEvidenceCount", style = MaterialTheme.typography.bodySmall)
+                    Text("Ammessi ma non localizzati: $unresolvedLocatorCount", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(7.dp))
                     Text(
                         if (backgroundLoading) "Ricerca estesa: in background" else "Ricerca estesa: completata",
