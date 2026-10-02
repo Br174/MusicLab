@@ -569,16 +569,23 @@ internal object OriginalVersionSearchEngine {
         return hasAdditionalArtist || WITH_OTHERS_REGEX.containsMatchIn(song.title.lowercase())
     }
 
-    private fun matchesAiTitle(value: String, targetTitle: String, originalArtists: Set<String>): Boolean {
-        val candidate = exactBaseTitle(value)
-        if (candidate == targetTitle) return true
-        if (originalArtists.any { candidate == "$it $targetTitle" || candidate == "$targetTitle $it" }) return true
-        if (!containsTokenPhrase(candidate, targetTitle)) return false
-        if (originalArtists.any { containsTokenPhrase(candidate, it) }) return true
-        val residual = candidate.replace(targetTitle, " ").trim().replace(Regex("\\s+"), " ")
-        if (residual.isBlank()) return true
-        return VERSION_MARKER_REGEX.containsMatchIn(residual) || YEAR_IN_TEXT_REGEX.containsMatchIn(residual) || CONTEXT_MARKER_REGEX.containsMatchIn(residual)
-    }
+    internal fun isOriginalTitleCompatible(
+        value: String,
+        targetTitle: String,
+        originalArtists: Set<String> = emptySet(),
+    ): Boolean =
+        TitleMeaningResolver.matchesBaseTitle(
+            targetTitle = targetTitle,
+            value = value,
+            artistAliases = originalArtists,
+        )
+
+    private fun matchesAiTitle(value: String, targetTitle: String, originalArtists: Set<String>): Boolean =
+        isOriginalTitleCompatible(
+            value = value,
+            targetTitle = targetTitle,
+            originalArtists = originalArtists,
+        )
 
     private fun containsTokenPhrase(value: String, phrase: String): Boolean =
         value.isNotBlank() && phrase.isNotBlank() && (value == phrase || value.startsWith("$phrase ") || value.endsWith(" $phrase") || value.contains(" $phrase "))
