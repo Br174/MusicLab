@@ -1,11 +1,11 @@
-name: LAB22 UAB Delivery Gate
-# gate-revision: cover-web-locator-v2-final
+name: LAB23 UAB Delivery Gate
+# gate-revision: spotify-fast-title-v1
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
   push:
     branches:
-      - uab-build/musiclab-cover-web-locator-22
+      - uab-build/musiclab-spotify-fast-23
     paths:
       - '.github/workflows/lab20-uab-build-gate.yml'
 
@@ -13,17 +13,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: lab22-uab-delivery-gate
+  group: lab23-uab-delivery-gate
   cancel-in-progress: true
 
 jobs:
   build:
-    name: verify-and-build-lab22-apk-zip
+    name: verify-and-build-lab23-apk-zip
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
-      - name: Checkout exact LAB22 source
+      - name: Checkout exact LAB23 source
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -32,7 +32,7 @@ jobs:
       - name: Record exact source SHA
         shell: bash
         run: |
-          echo "LAB22 final source: $GITHUB_SHA"
+          echo "LAB23 final source: $GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Set up Node 22
@@ -94,13 +94,13 @@ jobs:
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
       - name: Run Android Brain and playback-locator contract tests
-        run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --tests com.metrolist.music.ui.component.AiCoverSearchEngineTest --tests com.metrolist.music.ui.component.YouTubeWebSearchTest --tests com.metrolist.music.ui.component.AiCoverFlowResolverTest --tests com.metrolist.music.ui.component.OriginalVersionSearchEngineTest --warning-mode summary
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --tests com.metrolist.music.ui.component.AiCoverSearchEngineTest --tests com.metrolist.music.ui.component.YouTubeWebSearchTest --tests com.metrolist.music.ui.component.AiCoverFlowResolverTest --tests com.metrolist.music.ui.component.OriginalVersionSearchEngineTest --tests com.metrolist.music.ui.component.Lab23TitleSearchTest --warning-mode summary
 
       - name: UAB preflight diagnostics
         shell: bash
         run: bash tools/universal-apk-builder/diagnose.sh .
 
-      - name: Build LAB22 APK and ZIP with UAB
+      - name: Build LAB23 APK and ZIP with UAB
         shell: bash
         run: bash tools/universal-apk-builder/build-apk.sh .
         env:
@@ -115,30 +115,30 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
           test "$(cat dist/uab/BUILD_SHA.txt)" = "$GITHUB_SHA"
 
-      - name: Verify LAB22 deliverables
+      - name: Verify LAB23 deliverables
         shell: bash
         run: |
-          test -s dist/uab/apk/MusicLab-LAB-22.apk
-          test -s dist/uab/MusicLab-LAB-22-APK.zip
+          test -s dist/uab/apk/MusicLab-LAB-23.apk
+          test -s dist/uab/MusicLab-LAB-23-APK.zip
           test -s dist/uab/apk/SHA256SUMS.txt
           test -s dist/uab/BUILD_SHA.txt
-          unzip -tq dist/uab/MusicLab-LAB-22-APK.zip
-          test "$(unzip -Z1 dist/uab/MusicLab-LAB-22-APK.zip | grep -c '\.apk$')" -eq 1
+          unzip -tq dist/uab/MusicLab-LAB-23-APK.zip
+          test "$(unzip -Z1 dist/uab/MusicLab-LAB-23-APK.zip | grep -c '\.apk$')" -eq 1
           echo '--- Source SHA ---'
           cat dist/uab/BUILD_SHA.txt
           echo '--- SHA256 ---'
           cat dist/uab/apk/SHA256SUMS.txt
           echo '--- Files ---'
-          ls -lh dist/uab/apk/MusicLab-LAB-22.apk dist/uab/MusicLab-LAB-22-APK.zip
+          ls -lh dist/uab/apk/MusicLab-LAB-23.apk dist/uab/MusicLab-LAB-23-APK.zip
 
-      - name: Upload LAB22 APK ZIP and verification evidence
+      - name: Upload LAB23 APK ZIP and verification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-22
+          name: MusicLab-LAB-23
           path: |
-            dist/uab/apk/MusicLab-LAB-22.apk
+            dist/uab/apk/MusicLab-LAB-23.apk
             dist/uab/apk/SHA256SUMS.txt
-            dist/uab/MusicLab-LAB-22-APK.zip
+            dist/uab/MusicLab-LAB-23-APK.zip
             dist/uab/BUILD_SHA.txt
             dist/uab/logs/*.log
           if-no-files-found: error
