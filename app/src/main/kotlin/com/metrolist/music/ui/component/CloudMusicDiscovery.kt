@@ -88,6 +88,59 @@ internal object CloudMusicDiscovery {
         parseCover(root)
     }
 
+    /**
+     * LAB26 metadata fallback. Uses the existing cloud discovery endpoint so the
+     * server-side Gemini key can fill years without requiring a personal key on
+     * the phone. The request is batched and asks only for the existing versions.
+     */
+    suspend fun resolveYearsBatch(
+        originalTitle: String,
+        originalArtist: String,
+        candidates: List<AiCoverCandidate>,
+        config: GeminiCoverVerificationConfig,
+    ): Map<String, Int> = withContext(Dispatchers.IO) {
+        val missing = candidates
+            .filter { it.year == null }
+            .distinctBy { it.stableKey }
+            .take(40)
+        if (missing.isEmpty()) return@withContext emptyMap()
+
+        val focus =
+            """Completa ESCLUSIVAMENTE l'anno delle versioni già elencate in existing.
+Non aggiungere nuove versioni e non sostituire artista o titolo.
+Per ciascuna versione restituisci l'anno della prima pubblicazione pubblica di QUELLA specifica incisione/performance.
+Usa le evidenze disponibili; se non trovi una fonte strutturata, usa la conoscenza musicale del modello e fornisci comunque la migliore stima ragionevole dell'anno.
+Non usare l'anno della composizione originale se l'interprete ha inciso il brano in seguito.
+Non lasciare year nullo salvo impossibilità tecnica."""
+
+        val result = discoverCover(
+            title = originalTitle,
+            artist = originalArtist,
+            config = config,
+            phase = "expand",
+            existing = missing,
+            focus = focus,
+        ) ?: return@withContext emptyMap()
+
+        val inputByKey = missing.associateBy { it.stableKey }
+        val inputByText = missing.associateBy {
+            "${it.title.trim().lowercase()}|${it.artist.trim().lowercase()}"
+        }
+
+        buildMap {
+            result.versions.forEach { returned ->
+                val year = returned.year ?: return@forEach
+                val input =
+                    inputByKey[returned.stableKey]
+                        ?: inputByText[
+                            "${returned.title.trim().lowercase()}|${returned.artist.trim().lowercase()}"
+                        ]
+                        ?: return@forEach
+                put(input.stableKey, year)
+            }
+        }
+    }
+
     suspend fun saveBrainDecision(
         originalTitle: String,
         originalArtist: String,
