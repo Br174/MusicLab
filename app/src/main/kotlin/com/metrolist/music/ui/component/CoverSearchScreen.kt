@@ -234,7 +234,10 @@ internal fun CoverSearchScreen(
         AiCoverCategory.FOREIGN -> foreignAiEnabled
     }
 
-    LaunchedEffect(currentYouTubeId) {
+    LaunchedEffect(currentYouTubeId, initialLoading) {
+        // First-paint priority: do not spend a parallel network request on the source
+        // row until the native MusicLab title results are already visible.
+        if (initialLoading) return@LaunchedEffect
         val id = currentYouTubeId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         startingSong = withContext(Dispatchers.IO) {
             YouTube.queue(listOf(id)).getOrNull()?.firstOrNull()
@@ -1272,7 +1275,7 @@ private fun CoverStartRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = (info?.year ?: fallbackYear)?.let { "Data: $it" } ?: "Data non disponibile",
+                text = "Anno: ${(info?.year ?: fallbackYear)?.toString() ?: "—"}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
