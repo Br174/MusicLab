@@ -23,6 +23,43 @@ internal object TitleMeaningResolver {
         artistAliases: Set<String> = emptySet(),
     ): Boolean = classify(targetTitle, value, artistAliases) != TitleMeaningMatch.DIFFERENT
 
+    /**
+     * Lightweight relevance score used only for ordering search results.
+     * It never filters: exact/decorated matches stay on top, lexical similarities
+     * remain available below them for the normal endless-search experience.
+     */
+    fun qualityScore(
+        targetTitle: String,
+        value: String,
+        artistAliases: Set<String> = emptySet(),
+    ): Int {
+        return when (classify(targetTitle, value, artistAliases)) {
+            TitleMeaningMatch.EXACT -> 10
+            TitleMeaningMatch.DECORATED -> 9
+            TitleMeaningMatch.DIFFERENT -> {
+                val target = canonical(targetTitle)
+                val candidate = canonical(value)
+                if (target.isBlank() || candidate.isBlank()) return 0
+
+                val targetTokens = target.split(' ').filter(String::isNotBlank).toSet()
+                val candidateTokens = candidate.split(' ').filter(String::isNotBlank).toSet()
+                if (targetTokens.isEmpty() || candidateTokens.isEmpty()) return 0
+
+                val overlap = targetTokens.count { it in candidateTokens }
+                val ratio = overlap.toDouble() / targetTokens.size.toDouble()
+                when {
+                    candidate.startsWith("$target ") || candidate.endsWith(" $target") -> 6
+                    target.startsWith("$candidate ") || target.endsWith(" $candidate") -> 5
+                    ratio >= 1.0 -> 5
+                    ratio >= 0.75 -> 4
+                    ratio >= 0.50 -> 3
+                    ratio > 0.0 -> 1
+                    else -> 0
+                }
+            }
+        }
+    }
+
     fun classify(
         targetTitle: String,
         value: String,
