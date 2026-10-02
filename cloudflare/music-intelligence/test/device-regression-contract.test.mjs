@@ -56,20 +56,35 @@ test('Tutto coverage really includes every non-rejected Brain score including UN
     'coverage must project the complete selected tab before status splitting',
   );
   assert.ok(
-    compactCoverScreen.includes('val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'),
+    compactCoverScreen.includes('val reviewResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'),
     'UNCERTAIN results must respect the selected coverage mode instead of bypassing it',
   );
   assert.ok(
-    compactCoverScreen.includes('val confirmedResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }'),
+    compactCoverScreen.includes('val confirmedResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }'),
     'confirmed results must be derived from the same coverage projection',
   );
   assert.ok(
-    compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filter { it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN && it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED }'),
+    compactCoverScreen.includes('val selectedResults = orderedCoverageResults.filter { it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN && it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED }'),
     'unconfirmed main results must be derived from the same coverage projection',
   );
   assert.ok(
     coverScreen.includes('exhaustive = true'),
     'Tutto must actively exhaust the playback locator for unresolved candidates',
+  );
+});
+
+test('LAB23 fast title lane is additive and semantic-title safe', () => {
+  assert.ok(
+    coverScreen.includes('MusicLabTitleSearch.fast('),
+    'Cover must run the native title-only lane before background enrichment',
+  );
+  assert.ok(
+    coverScreen.includes('SpotifyMusicAssist.assistCover('),
+    'Spotify assist must be integrated without replacing the native title lane',
+  );
+  assert.ok(
+    coverScreen.includes('mergePlayables('),
+    'all discovery lanes must merge into one deduplicated playable pool',
   );
 });
 
