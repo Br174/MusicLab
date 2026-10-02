@@ -140,21 +140,12 @@ internal object AiCoverSearchEngine {
     internal fun isPlaybackTitleCompatible(
         candidate: AiCoverCandidate,
         rawSongTitle: String,
-    ): Boolean {
-        val targetTitle = canonicalTitle(candidate.title)
-        if (targetTitle.isBlank()) return false
-
-        var resolvedTitle = canonicalTitle(rawSongTitle)
-        val targetArtist = canonicalArtist(candidate.artist)
-        if (targetArtist.isNotBlank()) {
-            resolvedTitle = when {
-                resolvedTitle.startsWith("$targetArtist ") -> resolvedTitle.removePrefix("$targetArtist ").trim()
-                resolvedTitle.endsWith(" $targetArtist") -> resolvedTitle.removeSuffix(" $targetArtist").trim()
-                else -> resolvedTitle
-            }
-        }
-        return resolvedTitle == targetTitle
-    }
+    ): Boolean =
+        TitleMeaningResolver.matchesBaseTitle(
+            targetTitle = candidate.title,
+            value = rawSongTitle,
+            artistAliases = setOf(candidate.artist),
+        )
 
     private suspend fun searchAndPick(
         query: String,
