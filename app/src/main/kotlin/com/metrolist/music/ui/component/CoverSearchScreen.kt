@@ -85,6 +85,7 @@ private enum class AiCoverTab {
     LIVE,
     REMIX,
     FOREIGN,
+    ALL,
 }
 
 private class AiCoverSession {
@@ -185,6 +186,7 @@ internal fun CoverSearchScreen(
     val listState = rememberLazyListState()
     var initialLoading by remember(sessionKey) { mutableStateOf(!session.initialLoaded) }
     var backgroundLoading by remember(sessionKey) { mutableStateOf(session.initialLoaded && !session.backgroundComplete) }
+    var allModeResolving by remember(sessionKey) { mutableStateOf(false) }
     var failed by remember(sessionKey) { mutableStateOf(false) }
     var originalInfo by remember(sessionKey) { mutableStateOf(session.originalInfo) }
     var knownCandidates by remember(sessionKey) { mutableStateOf(session.knownCandidates) }
@@ -505,6 +507,12 @@ internal fun CoverSearchScreen(
     }
 
     fun saveBrainDecision(result: AiCoverPlayable, status: AiBrainDecisionStatus) {
+        val previousStatus = result.candidate.brainStatus
+        val optimisticCandidate = result.candidate.copy(brainStatus = status)
+
+        // LAB22: the UI decision is immediate. Persistence follows in background.
+        updateBrainCandidate(optimisticCandidate)
+
         val config = geminiConfig ?: return
         val sourceTitle = originalInfo?.title?.ifBlank { title } ?: title
         val sourceArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist
@@ -512,11 +520,14 @@ internal fun CoverSearchScreen(
             val saved = CloudMusicDiscovery.saveBrainDecision(
                 originalTitle = sourceTitle,
                 originalArtist = sourceArtist,
-                candidate = result.candidate,
+                candidate = optimisticCandidate,
                 status = status,
                 config = config,
             )
-            if (saved) updateBrainCandidate(result.candidate.copy(brainStatus = status))
+            if (!saved) {
+                updateBrainCandidate(result.candidate.copy(brainStatus = previousStatus))
+                failed = true
+            }
         }
     }
 
@@ -539,18 +550,67 @@ internal fun CoverSearchScreen(
     val liveResults = playables.filter { it.candidate.category == AiCoverCategory.LIVE && liveAiEnabled }
     val remixResults = playables.filter { it.candidate.category == AiCoverCategory.REMIX && remixAiEnabled }
     val foreignResults = playables.filter { it.candidate.category == AiCoverCategory.FOREIGN && foreignAiEnabled }
+    val allResults = playables.filter { categoryEnabled(it.candidate.category) }
     val selectedTabResults = when (selectedTab) {
         AiCoverTab.COVER -> coverResults
         AiCoverTab.LIVE -> liveResults
         AiCoverTab.REMIX -> remixResults
         AiCoverTab.FOREIGN -> foreignResults
+        AiCoverTab.ALL -> allResults
     }
     val coverageVisibleResults = AiCoverageFilter.visibleItems(
         selectedTabResults,
         selectedCoverageMode,
     ) { it.candidate }
+    val confirmedResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }
     val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
-    val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
+    val selectedResults = coverageVisibleResults.filter {
+        it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN &&
+            it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED
+    }
+    LaunchedEffect(
+        sessionKey,
+        selectedCoverageMode,
+        backgroundLoading,
+        knownCandidates.map { "${it.stableKey}:${it.brainStatus}" },
+    ) {
+        if (selectedCoverageMode != AiCoverageMode.ALL || backgroundLoading) {
+            allModeResolving = false
+            return@LaunchedEffect
+        }
+
+        val alreadyLocalized = playables.map { it.candidate.stableKey }.toSet()
+        val unresolved = knownCandidates.filter { candidate ->
+            candidate.brainStatus != AiBrainDecisionStatus.REJECTED &&
+                categoryEnabled(candidate.category) &&
+                candidate.stableKey !in alreadyLocalized
+        }
+        if (unresolved.isEmpty()) {
+            allModeResolving = false
+            return@LaunchedEffect
+        }
+
+        allModeResolving = true
+        val exhaustive = runCatching {
+            withContext(Dispatchers.IO) {
+                AiCoverSearchEngine.resolveCandidates(
+                    candidates = unresolved,
+                    currentYouTubeId = currentYouTubeId,
+                    pauseBetweenBatches = true,
+                    exhaustive = true,
+                )
+            }
+        }.getOrDefault(AiCoverResolveResult(emptyList(), AiCoverResolveStats()))
+
+        playables = mergePlayables(playables, exhaustive.playables)
+        youtubeMusicHits += exhaustive.stats.youtubeMusicHits
+        youtubeHits += exhaustive.stats.youtubeHits
+        session.playables = playables
+        session.youtubeMusicHits = youtubeMusicHits
+        session.youtubeHits = youtubeHits
+        allModeResolving = false
+    }
+
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -635,7 +695,7 @@ internal fun CoverSearchScreen(
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.height(7.dp))
-                    Text("Cover: ${coverResults.size} · Live: ${liveResults.size} · Remix: ${remixResults.size} · Straniere: ${foreignResults.size}")
+                    Text("Studio: ${coverResults.size} · Live: ${liveResults.size} · Remix: ${remixResults.size} · Straniere: ${foreignResults.size}")
                     Text("Riproduzione YouTube Music: $youtubeMusicHits", style = MaterialTheme.typography.bodySmall)
                     Text("Riproduzione YouTube: $youtubeHits", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(7.dp))
@@ -739,6 +799,7 @@ internal fun CoverSearchScreen(
                                 liveCount = liveResults.size,
                                 remixCount = remixResults.size,
                                 foreignCount = foreignResults.size,
+                                allCount = allResults.size,
                                 liveEnabled = liveAiEnabled,
                                 remixEnabled = remixAiEnabled,
                                 foreignEnabled = foreignAiEnabled,
@@ -756,7 +817,7 @@ internal fun CoverSearchScreen(
                                 onSelected = { selectedCoverageMode = it },
                             )
 
-                            if (backgroundLoading) {
+                            if (backgroundLoading || allModeResolving) {
                                 Row(
                                     modifier = Modifier.padding(top = 8.dp, bottom = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -764,14 +825,14 @@ internal fun CoverSearchScreen(
                                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        "Altre versioni stanno arrivando in background…",
+                                        if (allModeResolving) "Tutto: cerco su YouTube tutte le versioni AI ancora non localizzate…" else "Altre versioni stanno arrivando in background…",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             } else {
                                 Text(
-                                    text = "Cover = studio · Live = dal vivo · Remix = remix/rework · Straniere = adattamenti in altra lingua.",
+                                    text = "Studio = incisioni in studio · Live = dal vivo · Remix = remix/rework · Straniere = adattamenti in altra lingua · Tutto = tutte le categorie.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 7.dp, bottom = 6.dp),
@@ -779,8 +840,45 @@ internal fun CoverSearchScreen(
                             }
                         }
 
+                        if (confirmedResults.isNotEmpty()) {
+                            item {
+                                Spacer(Modifier.height(8.dp))
+                                CoverSectionTitle("Confermate")
+                                Text(
+                                    "Versioni già approvate e inviate alla memoria MusicLab.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 6.dp),
+                                )
+                            }
+                            items(
+                                items = confirmedResults,
+                                key = { "confirmed-${selectedTab.name}-${it.candidate.stableKey}-${it.song.id}" },
+                            ) { result ->
+                                AiCoverResultRow(
+                                    result = result,
+                                    onPlay = { play(result.song) },
+                                    onReplace = { replaceWith(result) },
+                                    onDetails = { detailResult = result },
+                                    onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(result.candidate.title)) },
+                                    onLongClick = {
+                                        menuState.show {
+                                            YouTubeSongMenu(
+                                                song = result.song,
+                                                onDismiss = menuState::dismiss,
+                                            )
+                                        }
+                                    },
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                        }
+
                         val page = selectedResults.take(visibleResultCount)
                         if (page.isNotEmpty()) {
+                            item {
+                                CoverSectionTitle("Da confermare")
+                            }
                             items(
                                 items = page,
                                 key = { "${selectedTab.name}-${it.candidate.stableKey}-${it.song.id}" },
@@ -802,7 +900,7 @@ internal fun CoverSearchScreen(
                                 )
                                 Spacer(Modifier.height(8.dp))
                             }
-                        } else if (backgroundLoading) {
+                        } else if (backgroundLoading || allModeResolving) {
                             item {
                                 Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -820,6 +918,7 @@ internal fun CoverSearchScreen(
                                         AiCoverTab.LIVE -> "Nessuna versione live riproducibile indicata dall'AI."
                                         AiCoverTab.REMIX -> "Nessun remix riproducibile indicato dall'AI."
                                         AiCoverTab.FOREIGN -> "Nessuna versione straniera riproducibile indicata dall'AI."
+                                        AiCoverTab.ALL -> "Nessuna versione riproducibile localizzata."
                                     },
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -884,6 +983,7 @@ private fun CoverResultsTabs(
     liveCount: Int,
     remixCount: Int,
     foreignCount: Int,
+    allCount: Int,
     liveEnabled: Boolean,
     remixEnabled: Boolean,
     foreignEnabled: Boolean,
@@ -893,10 +993,11 @@ private fun CoverResultsTabs(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        CoverResultChip("Cover", coverCount, selected == AiCoverTab.COVER) { onSelected(AiCoverTab.COVER) }
+        CoverResultChip("Studio", coverCount, selected == AiCoverTab.COVER) { onSelected(AiCoverTab.COVER) }
         if (liveEnabled) CoverResultChip("Live", liveCount, selected == AiCoverTab.LIVE) { onSelected(AiCoverTab.LIVE) }
         if (remixEnabled) CoverResultChip("Remix", remixCount, selected == AiCoverTab.REMIX) { onSelected(AiCoverTab.REMIX) }
         if (foreignEnabled) CoverResultChip("Straniere", foreignCount, selected == AiCoverTab.FOREIGN) { onSelected(AiCoverTab.FOREIGN) }
+        CoverResultChip("Tutto", allCount, selected == AiCoverTab.ALL) { onSelected(AiCoverTab.ALL) }
     }
 }
 
