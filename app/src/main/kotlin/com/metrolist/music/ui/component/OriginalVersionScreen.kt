@@ -405,10 +405,12 @@ internal fun OriginalVersionScreen(
                     Text(
                         if (diagnostics.backgroundComplete) {
                             "Ricerca estesa: completata"
+                        } else if (backgroundLoading) {
+                            "Ricerca estesa: in background"
                         } else if (diagnostics.initialVisible > 0) {
                             "Ricerca estesa: in background"
                         } else {
-                            "Ricerca estesa: non ancora avviata"
+                            "Ricerca estesa: pronta"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
