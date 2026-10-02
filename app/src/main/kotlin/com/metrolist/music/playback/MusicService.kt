@@ -297,7 +297,7 @@ private const val PLAYBACK_REBUFFER_MS = 4_000
 // LAB24 playback-priority prewarm: warm only two tracks and only after the
 // current song has a safe reserve. This is intentionally tiny compared with
 // offline pre-cache so it cannot monopolize mobile bandwidth.
-private const val SMART_PRELOAD_TRACKS = 2
+private const val SMART_PRELOAD_TRACKS = 1
 private const val SMART_PRELOAD_PREFIX_BYTES = 384L * 1024L
 private const val SMART_PRELOAD_STABLE_BUFFER_MS = 12_000L
 private const val SMART_PRELOAD_RESUME_BUFFER_MS = 8_000L
@@ -2213,6 +2213,46 @@ class MusicService :
 
     fun clearAutomix() {
         automixItems.value = emptyList()
+    }
+
+    /**
+     * LAB25 immediate playback path used by Cover/result browsing.
+     *
+     * This deliberately bypasses the heavier Play Next queue choreography. Background
+     * preloads are cancelled first, then the selected item is inserted directly after
+     * the current index and sought by exact index. An already prepared player is not
+     * re-prepared; Media3 starts resolving the new item immediately.
+     */
+    fun playNow(item: MediaItem) {
+        smartPreloadJob?.cancel()
+        smartPreloadJob = null
+        smartPreloadAnchorMediaId = null
+        preCacheJob?.cancel()
+        preCacheJob = null
+
+        if (player.currentMediaItem?.mediaId == item.mediaId) {
+            player.seekTo(0)
+            player.playWhenReady = true
+            return
+        }
+
+        val currentIndex = player.currentMediaItemIndex
+        if (
+            player.mediaItemCount == 0 ||
+            currentIndex == C.INDEX_UNSET ||
+            player.playbackState == Player.STATE_IDLE ||
+            player.playbackState == Player.STATE_ENDED
+        ) {
+            player.setMediaItem(item)
+            player.prepare()
+            player.playWhenReady = true
+            return
+        }
+
+        val targetIndex = (currentIndex + 1).coerceAtMost(player.mediaItemCount)
+        player.addMediaItem(targetIndex, item)
+        player.seekTo(targetIndex, 0L)
+        player.playWhenReady = true
     }
 
     fun playNext(items: List<MediaItem>) {
