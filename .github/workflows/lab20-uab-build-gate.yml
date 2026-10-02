@@ -1,5 +1,5 @@
 name: LAB23 UAB Delivery Gate
-# gate-revision: spotify-fast-title-v1
+# gate-revision: spotify-fast-title-v2-final
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
