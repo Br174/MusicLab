@@ -304,49 +304,60 @@ internal fun CoverSearchScreen(
 
         failed = false
 
-        val sourceEvidence = session.sourceEvidence ?: withContext(Dispatchers.IO) {
-            AiCoverSourceEvidence.fromMusicBrainz(
-                runCatching { MusicBrainzCoverSource.lookup(title, originalArtist) }
-                    .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) },
-            )
-        }.also { session.sourceEvidence = it }
+        var sourceEvidence =
+            session.sourceEvidence
+                ?: AiCoverSourceEvidence(
+                    status = MusicBrainzStatus.NO_MATCH,
+                    hints = emptyList(),
+                    promptContext = "",
+                )
 
         if (!session.initialLoaded) {
             initialLoading = true
+
+            // LAB23 FAST START: do not wait for MusicBrainz, Spotify, deep YouTube pages or
+            // personal/direct Gemini before trying to paint the first playable rows.
             val discovery = runCatching {
-                AiCoverFlowResolver.discoverInitial(
+                GeminiAiCoverDiscovery.discoverInitialFast(
                     originalTitle = title,
                     originalArtist = originalArtist,
                     config = config,
-                    sourceEvidence = sourceEvidence,
                 )
             }.onFailure { failed = true }
                 .getOrDefault(AiCoverDiscoveryResult(null, emptyList()))
 
             val resolvedOriginalInfo =
                 discovery.original ?: AiCoverOriginalInfo(title = title, artist = originalArtist)
-            val initialWithEvidence = AiCoverFlowResolver.applyEvidencePolicy(
-                originalTitle = resolvedOriginalInfo.title.ifBlank { title },
-                originalInfo = resolvedOriginalInfo,
-                candidates = sourceEvidence.attachToAiAccepted(discovery.versions),
-            )
+            val initialWithEvidence =
+                AiCoverFlowResolver.applyEvidencePolicy(
+                    originalTitle = resolvedOriginalInfo.title.ifBlank { title },
+                    originalInfo = resolvedOriginalInfo,
+                    candidates = discovery.versions,
+                )
+
             originalInfo = resolvedOriginalInfo
             knownCandidates = initialWithEvidence
             initialCandidateCount = initialWithEvidence.size
 
-            val resolved = runCatching {
+            val quickCandidates =
+                initialWithEvidence
+                    .filter { it.brainStatus != AiBrainDecisionStatus.REJECTED }
+                    .take(FAST_INITIAL_LOCATOR_CANDIDATES)
+
+            val quickResolved = runCatching {
                 AiCoverSearchEngine.resolveCandidates(
-                    candidates = initialWithEvidence.filter { it.brainStatus != AiBrainDecisionStatus.REJECTED },
+                    candidates = quickCandidates,
                     currentYouTubeId = currentYouTubeId,
                     pauseBetweenBatches = false,
+                    fastOnly = true,
                 )
             }.onFailure { failed = true }
                 .getOrDefault(AiCoverResolveResult(emptyList(), AiCoverResolveStats()))
 
-            playables = mergePlayables(emptyList(), resolved.playables)
+            playables = mergePlayables(emptyList(), quickResolved.playables)
             initialPlayableCount = playables.size
-            youtubeMusicHits += resolved.stats.youtubeMusicHits
-            youtubeHits += resolved.stats.youtubeHits
+            youtubeMusicHits += quickResolved.stats.youtubeMusicHits
+            youtubeHits += quickResolved.stats.youtubeHits
 
             session.initialLoaded = true
             session.originalInfo = originalInfo
@@ -356,6 +367,8 @@ internal fun CoverSearchScreen(
             session.initialPlayableCount = initialPlayableCount
             session.youtubeMusicHits = youtubeMusicHits
             session.youtubeHits = youtubeHits
+
+            // First paint is complete. Every expensive/enrichment lane continues below.
             initialLoading = false
         } else {
             originalInfo = session.originalInfo
