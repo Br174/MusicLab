@@ -71,6 +71,8 @@ import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -322,49 +324,27 @@ internal fun CoverSearchScreen(
         if (!session.initialLoaded) {
             initialLoading = true
 
-            // LAB23 FAST START: do not wait for MusicBrainz, Spotify, deep YouTube pages or
-            // personal/direct Gemini before trying to paint the first playable rows.
-            val discovery = runCatching {
-                GeminiAiCoverDiscovery.discoverInitialFast(
-                    originalTitle = title,
-                    originalArtist = originalArtist,
-                    config = config,
-                )
-            }.onFailure { failed = true }
-                .getOrDefault(AiCoverDiscoveryResult(null, emptyList()))
-
-            val resolvedOriginalInfo =
-                discovery.original ?: AiCoverOriginalInfo(title = title, artist = originalArtist)
-            val initialWithEvidence =
-                AiCoverFlowResolver.applyEvidencePolicy(
-                    originalTitle = resolvedOriginalInfo.title.ifBlank { title },
-                    originalInfo = resolvedOriginalInfo,
-                    candidates = discovery.versions,
-                )
-
-            originalInfo = resolvedOriginalInfo
-            knownCandidates = initialWithEvidence
-            initialCandidateCount = initialWithEvidence.size
-
-            val quickCandidates =
-                initialWithEvidence
-                    .filter { it.brainStatus != AiBrainDecisionStatus.REJECTED }
-                    .take(FAST_INITIAL_LOCATOR_CANDIDATES)
-
-            val quickResolved = runCatching {
-                AiCoverSearchEngine.resolveCandidates(
-                    candidates = quickCandidates,
+            // LAB23 FAST FIRST PAINT:
+            // one lightweight MusicLab title-only search, no artist/album/year constraint.
+            val titleFast = runCatching {
+                MusicLabTitleSearch.fast(
+                    title = title,
                     currentYouTubeId = currentYouTubeId,
-                    pauseBetweenBatches = false,
-                    fastOnly = true,
                 )
-            }.onFailure { failed = true }
-                .getOrDefault(AiCoverResolveResult(emptyList(), AiCoverResolveStats()))
+            }.getOrDefault(emptyList())
 
-            playables = mergePlayables(emptyList(), quickResolved.playables)
+            playables = mergePlayables(emptyList(), titleFast)
+            knownCandidates = mergeCandidatesByEvidence(
+                emptyList(),
+                titleFast.map { it.candidate },
+            )
+            originalInfo = AiCoverOriginalInfo(title = title, artist = originalArtist)
+            initialCandidateCount = knownCandidates.size
             initialPlayableCount = playables.size
-            youtubeMusicHits += quickResolved.stats.youtubeMusicHits
-            youtubeHits += quickResolved.stats.youtubeHits
+            youtubeMusicHits += titleFast.count { it.playbackSource.contains("YouTube Music") }
+            youtubeHits += titleFast.count {
+                it.playbackSource.contains("YouTube") && !it.playbackSource.contains("YouTube Music")
+            }
 
             session.initialLoaded = true
             session.originalInfo = originalInfo
@@ -375,7 +355,7 @@ internal fun CoverSearchScreen(
             session.youtubeMusicHits = youtubeMusicHits
             session.youtubeHits = youtubeHits
 
-            // First paint is complete. Every expensive/enrichment lane continues below.
+            // From this point the user can already use the visible rows.
             initialLoading = false
         } else {
             originalInfo = session.originalInfo
@@ -397,6 +377,135 @@ internal fun CoverSearchScreen(
         }
 
         backgroundLoading = true
+
+        // The two independent background lanes run together. Neither can delay first paint.
+        val backgroundSeed = runCatching {
+            coroutineScope {
+                val titleExpandedDeferred = async(Dispatchers.IO) {
+                    MusicLabTitleSearch.expanded(
+                        title = title,
+                        currentYouTubeId = currentYouTubeId,
+                    )
+                }
+                val brainInitialDeferred = async(Dispatchers.IO) {
+                    AiCoverFlowResolver.discoverInitial(
+                        originalTitle = title,
+                        originalArtist = originalArtist,
+                        config = config,
+                    )
+                }
+                titleExpandedDeferred.await() to brainInitialDeferred.await()
+            }
+        }.getOrElse {
+            failed = true
+            emptyList<AiCoverPlayable>() to AiCoverDiscoveryResult(null, emptyList())
+        }
+
+        val expandedTitlePlayables = backgroundSeed.first
+        val brainInitial = backgroundSeed.second
+
+        playables = mergePlayables(playables, expandedTitlePlayables)
+        youtubeMusicHits += expandedTitlePlayables.count { it.playbackSource.contains("YouTube Music") }
+        youtubeHits += expandedTitlePlayables.count {
+            it.playbackSource.contains("YouTube") && !it.playbackSource.contains("YouTube Music")
+        }
+
+        val resolvedOriginalInfo =
+            brainInitial.original ?: originalInfo ?: AiCoverOriginalInfo(title = title, artist = originalArtist)
+        originalInfo = resolvedOriginalInfo
+
+        // Resolver already warmed the MusicBrainz cache; this read is normally memory-only.
+        sourceEvidence = session.sourceEvidence ?: withContext(Dispatchers.IO) {
+            AiCoverSourceEvidence.fromMusicBrainz(
+                runCatching { MusicBrainzCoverSource.lookup(title, originalArtist) }
+                    .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) },
+            )
+        }.also { session.sourceEvidence = it }
+
+        val initialBrainCandidates = AiCoverFlowResolver.applyEvidencePolicy(
+            originalTitle = resolvedOriginalInfo.title.ifBlank { title },
+            originalInfo = resolvedOriginalInfo,
+            candidates = sourceEvidence.attachToAiAccepted(brainInitial.versions),
+        )
+        val beforeBrainCount = knownCandidates.size
+        knownCandidates = mergeCandidatesByEvidence(
+            knownCandidates,
+            initialBrainCandidates + expandedTitlePlayables.map { it.candidate },
+        )
+        expandedCandidateCount += (knownCandidates.size - beforeBrainCount).coerceAtLeast(0)
+
+        // Resolve Brain candidates not already covered by the fast title-only lane.
+        val alreadyLocalizedIds = playables.map { it.candidate.stableKey }.toSet()
+        val brainToResolve = knownCandidates.filter { candidate ->
+            candidate.brainStatus != AiBrainDecisionStatus.REJECTED &&
+                categoryEnabled(candidate.category) &&
+                candidate.stableKey !in alreadyLocalizedIds
+        }
+        if (brainToResolve.isNotEmpty()) {
+            val resolved = runCatching {
+                AiCoverSearchEngine.resolveCandidates(
+                    candidates = brainToResolve,
+                    currentYouTubeId = currentYouTubeId,
+                    pauseBetweenBatches = false,
+                )
+            }.getOrDefault(AiCoverResolveResult(emptyList(), AiCoverResolveStats()))
+            playables = mergePlayables(playables, resolved.playables)
+            youtubeMusicHits += resolved.stats.youtubeMusicHits
+            youtubeHits += resolved.stats.youtubeHits
+        }
+
+        // Spotify is a positive-only assist: discovery + metadata enrichment, never a veto.
+        val spotifyAssist = runCatching {
+            SpotifyMusicAssist.assistCover(
+                originalTitle = resolvedOriginalInfo.title.ifBlank { title },
+                originalArtist = resolvedOriginalInfo.artist.ifBlank { originalArtist },
+                existing = knownCandidates,
+            )
+        }.getOrElse {
+            SpotifyCoverAssistResult(
+                candidates = knownCandidates,
+                stats = SpotifyCoverAssistStats(available = false),
+            )
+        }
+
+        spotifyAvailable = spotifyAssist.stats.available
+        spotifyDiscovered = spotifyAssist.stats.discovered
+        spotifyEnriched = spotifyAssist.stats.enriched
+
+        val beforeSpotifyCount = knownCandidates.size
+        knownCandidates = mergeCandidatesByEvidence(knownCandidates, spotifyAssist.candidates)
+        expandedCandidateCount += (knownCandidates.size - beforeSpotifyCount).coerceAtLeast(0)
+
+        val localizedAfterSpotify = playables.map { it.candidate.stableKey }.toSet()
+        val spotifyToResolve = knownCandidates.filter { candidate ->
+            candidate.brainAdmission == "spotify_discovery" &&
+                candidate.brainStatus != AiBrainDecisionStatus.REJECTED &&
+                categoryEnabled(candidate.category) &&
+                candidate.stableKey !in localizedAfterSpotify
+        }
+        if (spotifyToResolve.isNotEmpty()) {
+            val spotifyResolved = runCatching {
+                AiCoverSearchEngine.resolveCandidates(
+                    candidates = spotifyToResolve,
+                    currentYouTubeId = currentYouTubeId,
+                    pauseBetweenBatches = false,
+                )
+            }.getOrDefault(AiCoverResolveResult(emptyList(), AiCoverResolveStats()))
+            playables = mergePlayables(playables, spotifyResolved.playables)
+            youtubeMusicHits += spotifyResolved.stats.youtubeMusicHits
+            youtubeHits += spotifyResolved.stats.youtubeHits
+        }
+
+        session.originalInfo = originalInfo
+        session.knownCandidates = knownCandidates
+        session.playables = playables
+        session.expandedCandidateCount = expandedCandidateCount
+        session.youtubeMusicHits = youtubeMusicHits
+        session.youtubeHits = youtubeHits
+        session.spotifyAvailable = spotifyAvailable
+        session.spotifyDiscovered = spotifyDiscovered
+        session.spotifyEnriched = spotifyEnriched
+
         runCatching {
             AiCoverFlowResolver.discoverExpandedBatches(
                 originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
@@ -414,20 +523,20 @@ internal fun CoverSearchScreen(
                 if (enabledBatch.isEmpty()) return@discoverExpandedBatches
 
                 withContext(Dispatchers.Main) {
-                    val fresh = enabledBatch.filter { candidate ->
-                        knownCandidates.none { it.stableKey == candidate.stableKey }
-                    }
-                    if (fresh.isNotEmpty()) {
-                        knownCandidates = (knownCandidates + fresh).distinctBy { it.stableKey }
-                        expandedCandidateCount += fresh.size
+                    val before = knownCandidates.size
+                    knownCandidates = mergeCandidatesByEvidence(knownCandidates, enabledBatch)
+                    val added = (knownCandidates.size - before).coerceAtLeast(0)
+                    if (added > 0) {
+                        expandedCandidateCount += added
                         session.knownCandidates = knownCandidates
                         session.expandedCandidateCount = expandedCandidateCount
                     }
                 }
 
+                val localized = playables.map { it.candidate.stableKey }.toSet()
                 val toResolve = enabledBatch.filter { candidate ->
                     candidate.brainStatus != AiBrainDecisionStatus.REJECTED &&
-                        playables.none { it.candidate.stableKey == candidate.stableKey }
+                        candidate.stableKey !in localized
                 }
                 if (toResolve.isEmpty()) return@discoverExpandedBatches
 
