@@ -34,6 +34,7 @@ import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.ui.component.IconButton
+import com.metrolist.music.ui.component.currentGridCellMinSize
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.YouTubeGridItem
 import com.metrolist.music.ui.component.shimmer.GridItemPlaceHolder
@@ -64,7 +65,7 @@ fun BrowseScreen(
     val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
+        columns = GridCells.Adaptive(minSize = currentGridCellMinSize()),
         contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
     ) {
         items?.let { items ->
