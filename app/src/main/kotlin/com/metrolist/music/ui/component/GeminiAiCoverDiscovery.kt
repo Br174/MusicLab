@@ -86,6 +86,9 @@ internal data class AiCoverCandidate(
     val brainStatus: AiBrainDecisionStatus? = null,
     val brainAdmission: String? = null,
     val brainSignals: List<AiBrainSignal> = emptyList(),
+    val spotifyTrackId: String? = null,
+    val spotifyIsrc: String? = null,
+    val spotifyDurationSec: Int? = null,
 ) {
     val stableKey: String
         get() = "${category.name}|${canonical(artist)}|${canonical(title)}|${canonical(language.orEmpty())}"
