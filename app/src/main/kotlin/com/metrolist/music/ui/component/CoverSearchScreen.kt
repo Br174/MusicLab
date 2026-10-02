@@ -303,10 +303,11 @@ internal fun CoverSearchScreen(
         if (!session.initialLoaded) {
             initialLoading = true
             val discovery = runCatching {
-                GeminiAiCoverDiscovery.discoverInitial(
+                AiCoverFlowResolver.discoverInitial(
                     originalTitle = title,
                     originalArtist = originalArtist,
                     config = config,
+                    sourceEvidence = sourceEvidence,
                 )
             }.onFailure { failed = true }
                 .getOrDefault(AiCoverDiscoveryResult(null, emptyList()))
@@ -357,11 +358,12 @@ internal fun CoverSearchScreen(
 
         backgroundLoading = true
         runCatching {
-            GeminiAiCoverDiscovery.discoverExpandedBatches(
+            AiCoverFlowResolver.discoverExpandedBatches(
                 originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
                 originalArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist,
                 existing = knownCandidates,
                 config = config,
+                sourceEvidence = sourceEvidence,
             ) { discoveredBatch ->
                 val evidencedBatch = sourceEvidence.attachToAiAccepted(discoveredBatch)
                 val enabledBatch = evidencedBatch.filter { candidate -> categoryEnabled(candidate.category) }
@@ -412,7 +414,7 @@ internal fun CoverSearchScreen(
             val beforeCandidates = knownCandidates.size
             val beforePlayables = playables.size
             val recovered = runCatching {
-                GeminiAiCoverDiscovery.discoverRecoveryBatch(
+                AiCoverFlowResolver.discoverRecoveryBatch(
                     originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
                     originalArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist,
                     existing = knownCandidates,
@@ -582,16 +584,21 @@ internal fun CoverSearchScreen(
                         when {
                             !aiMasterEnabled -> "Motore AI: disattivato"
                             !coverAiEnabled -> "Cover AI: disattivata"
-                            geminiConfig != null -> "Gemini AI: ok · decisione diretta"
-                            else -> "Gemini AI: non configurata"
+                            effectiveCloudEndpoint.isNotBlank() && effectiveKey.isNotBlank() ->
+                                "Resolver: Cloud MusicLab + Gemini diretto"
+                            effectiveCloudEndpoint.isNotBlank() ->
+                                "Resolver: Cloud MusicLab · Gemini diretto non configurato"
+                            effectiveKey.isNotBlank() ->
+                                "Resolver: Gemini diretto"
+                            else -> "Resolver AI: non configurato"
                         },
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.height(7.dp))
-                    Text("Candidati AI iniziali: $initialCandidateCount", style = MaterialTheme.typography.bodySmall)
+                    Text("Candidati iniziali: $initialCandidateCount", style = MaterialTheme.typography.bodySmall)
                     Text("Riproducibili mostrati subito: $initialPlayableCount", style = MaterialTheme.typography.bodySmall)
-                    Text("Candidati AI aggiuntivi: $expandedCandidateCount", style = MaterialTheme.typography.bodySmall)
+                    Text("Candidati aggiuntivi: $expandedCandidateCount", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(7.dp))
                     Text(
                         if (backgroundLoading) "Ricerca estesa: in background" else "Ricerca estesa: completata",
@@ -662,34 +669,6 @@ internal fun CoverSearchScreen(
                         )
                     }
                 } else {
-                    originalInfo?.let { info ->
-                        item {
-                            CoverSectionTitle("Identificato dall'AI")
-                            Text(
-                                text = "${info.title.ifBlank { title }} · ${info.artist.ifBlank { originalArtist }}",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                text = info.year?.let { "Prima pubblicazione: $it" }
-                                    ?: "Prima pubblicazione: data non disponibile",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            info.language?.let {
-                                Text("Lingua originale: $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            info.album?.let { album ->
-                                Text("Album: $album", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text(
-                                text = "L'AI decide le informazioni editoriali. YouTube e YouTube Music servono esclusivamente a trovare una riproduzione.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 5.dp, bottom = 12.dp),
-                            )
-                        }
-                    }
-
                     startingSong?.let { originalSong ->
                         item {
                             CoverSectionTitle("Originale di partenza")
