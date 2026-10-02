@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Lightweight title-only lane shared by Cover LAB23.
+ * Lightweight title-only lane shared by Cover LAB25 and the native MusicLab search semantics.
  *
  * It intentionally does not ask AI for every result and never uses artist/album/year
  * as query constraints. TitleMeaningResolver is the semantic gate.
@@ -22,11 +22,17 @@ internal object MusicLabTitleSearch {
         val cleanTitle = title.trim()
         if (cleanTitle.isBlank()) return@withContext emptyList()
 
+        // Same native MusicLab search path used by the standard search screen:
+        // SearchSummary returns the first mixed result page; Cover only keeps song rows.
         val songs = withTimeoutOrNull(FAST_TIMEOUT_MS) {
-            YouTube.search(cleanTitle, YouTube.SearchFilter.FILTER_SONG)
+            YouTube.searchSummary(cleanTitle)
                 .getOrNull()
-                ?.items
+                ?.summaries
+                ?.asSequence()
+                ?.flatMap { it.items.asSequence() }
                 ?.filterIsInstance<SongItem>()
+                ?.distinctBy { it.id }
+                ?.toList()
                 .orEmpty()
         }.orEmpty()
 
@@ -34,7 +40,7 @@ internal object MusicLabTitleSearch {
             targetTitle = cleanTitle,
             songs = songs,
             currentYouTubeId = currentYouTubeId,
-            source = "MusicLab titolo · YouTube Music",
+            source = "Ricerca MusicLab · titolo",
         ).take(FAST_RESULT_LIMIT)
     }
 
@@ -149,7 +155,7 @@ internal object MusicLabTitleSearch {
     private val DISALLOWED =
         Regex("\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b")
 
-    private const val FAST_TIMEOUT_MS = 4_500L
+    private const val FAST_TIMEOUT_MS = 2_750L
     private const val BACKGROUND_TIMEOUT_MS = 8_000L
     private const val FAST_RESULT_LIMIT = 24
     private const val BACKGROUND_RESULT_LIMIT = 60
