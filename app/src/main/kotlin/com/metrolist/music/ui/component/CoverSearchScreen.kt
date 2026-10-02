@@ -65,6 +65,7 @@ import com.metrolist.music.constants.MusicAiLiveEnabledKey
 import com.metrolist.music.constants.MusicAiRemixEnabledKey
 import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterModelKey
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.YouTubeMatchOverride
 import com.metrolist.music.ui.menu.YouTubeSongMenu
@@ -166,6 +167,7 @@ internal fun CoverSearchScreen(
     val remixAiEnabled by rememberPreference(MusicAiRemixEnabledKey, true)
     val foreignAiEnabled by rememberPreference(MusicAiForeignEnabledKey, true)
     val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
+    val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, true)
     val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
     val effectiveCloudEndpoint = cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
 
@@ -885,9 +887,12 @@ internal fun CoverSearchScreen(
                 replaceWith(selected)
                 detailResult = null
             },
-            onTitleSearch = {
-                navController.navigate(SearchRoutes.titleResultRoute(selected.candidate.title))
-            },
+            onTitleSearch =
+                if (titleTapSearchEnabled) {
+                    { navController.navigate(SearchRoutes.titleResultRoute(selected.candidate.title)) }
+                } else {
+                    null
+                },
         )
     }
 
@@ -932,13 +937,18 @@ internal fun CoverSearchScreen(
                                 fallbackYear = startingYear,
                                 song = originalSong,
                                 onPlay = { play(originalSong) },
-                                onTitleSearch = {
-                                    navController.navigate(
-                                        SearchRoutes.titleResultRoute(
-                                            originalInfo?.title?.ifBlank { originalSong.title } ?: originalSong.title,
-                                        ),
-                                    )
-                                },
+                                onTitleSearch =
+                                    if (titleTapSearchEnabled) {
+                                        {
+                                            navController.navigate(
+                                                SearchRoutes.titleResultRoute(
+                                                    originalInfo?.title?.ifBlank { originalSong.title } ?: originalSong.title,
+                                                ),
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
                             )
                             Spacer(Modifier.height(16.dp))
                         }
@@ -1026,7 +1036,12 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch =
+                                        if (titleTapSearchEnabled) {
+                                            { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) }
+                                        } else {
+                                            null
+                                        },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1054,7 +1069,12 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch =
+                                        if (titleTapSearchEnabled) {
+                                            { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) }
+                                        } else {
+                                            null
+                                        },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1111,7 +1131,12 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch =
+                                        if (titleTapSearchEnabled) {
+                                            { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) }
+                                        } else {
+                                            null
+                                        },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1245,7 +1270,7 @@ private fun CoverStartRow(
     fallbackYear: Int?,
     song: SongItem,
     onPlay: () -> Unit,
-    onTitleSearch: () -> Unit,
+    onTitleSearch: (() -> Unit)?,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1264,7 +1289,7 @@ private fun CoverStartRow(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(onClick = onTitleSearch),
+                modifier = onTitleSearch?.let { Modifier.clickable(onClick = it) } ?: Modifier,
             )
             Text(
                 info?.artist?.ifBlank { song.artists.joinToString(", ") { it.name } }
@@ -1291,7 +1316,7 @@ private fun AiCoverResultRow(
     onPlay: () -> Unit,
     onReplace: () -> Unit,
     onDetails: () -> Unit,
-    onTitleSearch: () -> Unit,
+    onTitleSearch: (() -> Unit)?,
     onLongClick: () -> Unit,
 ) {
     Row(
@@ -1311,7 +1336,7 @@ private fun AiCoverResultRow(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(onClick = onTitleSearch),
+                modifier = onTitleSearch?.let { Modifier.clickable(onClick = it) } ?: Modifier,
             )
             Text(result.candidate.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
@@ -1343,7 +1368,7 @@ private fun CoverDetailDialog(
     loading: Boolean,
     onDismiss: () -> Unit,
     onReplace: () -> Unit,
-    onTitleSearch: () -> Unit,
+    onTitleSearch: (() -> Unit)?,
 ) {
     val candidate = result.candidate
     AlertDialog(
@@ -1351,7 +1376,7 @@ private fun CoverDetailDialog(
         title = {
             Text(
                 candidate.title,
-                modifier = Modifier.clickable(onClick = onTitleSearch),
+                modifier = onTitleSearch?.let { Modifier.clickable(onClick = it) } ?: Modifier,
             )
         },
         text = {
