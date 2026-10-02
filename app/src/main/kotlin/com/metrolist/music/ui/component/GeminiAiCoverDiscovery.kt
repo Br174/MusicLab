@@ -10,7 +10,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -111,55 +110,6 @@ internal object GeminiAiCoverDiscovery {
     private val mediaType = "application/json; charset=utf-8".toMediaType()
     private val initialCache = ConcurrentHashMap<String, CachedDiscovery>()
     private val expandedCache = ConcurrentHashMap<String, CachedDiscovery>()
-
-    /**
-     * LAB23 first-paint discovery.
-     *
-     * Prefer the D1 memory lane, then the short-timeout Cloudflare Brain. Direct Gemini is
-     * deliberately left to the background full discovery so a personal API round-trip can
-     * never hold the first visible Cover results for tens of seconds.
-     */
-    suspend fun discoverInitialFast(
-        originalTitle: String,
-        originalArtist: String,
-        config: GeminiCoverVerificationConfig,
-    ): AiCoverDiscoveryResult = withContext(Dispatchers.IO) {
-        if (originalTitle.isBlank()) return@withContext AiCoverDiscoveryResult(null, emptyList())
-
-        if (config.cloudEndpoint.isNotBlank() && config.useCloudMemory) {
-            val remembered = withTimeoutOrNull(FAST_INITIAL_TIMEOUT_MS) {
-                CloudMusicDiscovery.discoverMemory(
-                    title = originalTitle,
-                    artist = originalArtist,
-                    config = config,
-                    limit = INITIAL_LIMIT,
-                )
-            }
-            if (remembered != null && remembered.versions.isNotEmpty()) {
-                return@withContext remembered.copy(versions = remembered.versions.take(INITIAL_LIMIT))
-            }
-        }
-
-        if (config.cloudEndpoint.isNotBlank()) {
-            val cloud = withTimeoutOrNull(FAST_INITIAL_TIMEOUT_MS) {
-                CloudMusicDiscovery.discoverCover(
-                    title = originalTitle,
-                    artist = originalArtist,
-                    config = config,
-                    phase = "initial",
-                    focus = "FAST START: identifica la composizione e restituisci subito le prime cover studio reali con titolo, artista, anno e album essenziali. Nessun credito completo.",
-                )
-            }
-            if (cloud != null) {
-                return@withContext cloud.copy(versions = cloud.versions.take(INITIAL_LIMIT))
-            }
-        }
-
-        // Cloud unavailable: bounded direct fallback. The normal background pass remains exhaustive.
-        withTimeoutOrNull(FAST_DIRECT_FALLBACK_TIMEOUT_MS) {
-            discoverInitial(originalTitle, originalArtist, config)
-        } ?: AiCoverDiscoveryResult(null, emptyList())
-    }
 
     /**
      * STEP 1: stabilisce la composizione canonica e raccoglie un primo gruppo leggero.
@@ -659,8 +609,6 @@ Rispondi SOLO JSON:
     private const val MAX_EMPTY_PASSES = 2
     private const val MAX_COVER_RECOVERY_EMPTY_PASSES = 2
     private const val CACHE_TTL_MS = 24L * 60L * 60L * 1000L
-    private const val FAST_INITIAL_TIMEOUT_MS = 9_000L
-    private const val FAST_DIRECT_FALLBACK_TIMEOUT_MS = 12_000L
     private const val CURRENT_MODEL = "gemini-3.5-flash-lite"
     private const val LEGACY_MODEL = "gemini-2.5-flash-lite"
 }
