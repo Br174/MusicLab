@@ -294,15 +294,14 @@ private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
 private const val PLAYBACK_START_BUFFER_MS = 1_250
 private const val PLAYBACK_REBUFFER_MS = 4_000
 
-// LAB24 playback-priority prewarm: warm only two tracks and only after the
-// current song has a safe reserve. This is intentionally tiny compared with
-// offline pre-cache so it cannot monopolize mobile bandwidth.
+// LAB25 playback-priority prewarm: warm only the single next track and only
+// after the current song has a safe reserve. No full-track background cache is
+// chained from this path, so current playback keeps network priority.
 private const val SMART_PRELOAD_TRACKS = 1
 private const val SMART_PRELOAD_PREFIX_BYTES = 384L * 1024L
 private const val SMART_PRELOAD_STABLE_BUFFER_MS = 12_000L
 private const val SMART_PRELOAD_RESUME_BUFFER_MS = 8_000L
 private const val SMART_PRELOAD_WAIT_MS = 18_000L
-private const val FULL_PRECACHE_SAFE_BUFFER_MS = 30_000L
 
 /** When the queue has this many or fewer items (or items ahead of current), load more from paginated queues (e.g. Spotify). */
 private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
@@ -4019,9 +4018,9 @@ class MusicService :
     }
 
     /**
-     * LAB24 playback-first prewarm.
+     * LAB25 playback-first prewarm.
      *
-     * It always targets at most the next two queue items, sequentially. The current
+     * It targets only the single next queue item. The current
      * song must already be READY with a healthy reserve before any network work starts.
      * If playback buffers or the user changes track, onPlaybackStateChanged /
      * onMediaItemTransition cancels this job immediately.
@@ -4030,8 +4029,7 @@ class MusicService :
      *  1. resolve and keep the signed stream URL in songUrlCache;
      *  2. cache only a small leading prefix, never the full song.
      *
-     * The user's optional full offline pre-cache still exists, but it is deferred until
-     * after this small prewarm and only while the current track has a much larger reserve.
+     * This path never chains a full-song background download.
      */
     private fun scheduleSmartPlaybackPreload() {
         if (!::player.isInitialized || !player.playWhenReady) return
@@ -4102,24 +4100,6 @@ class MusicService :
                 }
             }
 
-            // Full offline pre-cache is lower priority. Only start it after the two small
-            // prefixes are warm and the active song has a large reserve.
-            delay(750)
-            if (
-                isActive &&
-                player.currentMediaItem?.mediaId == anchorId &&
-                player.playbackState == Player.STATE_READY &&
-                player.totalBufferedDuration >= FULL_PRECACHE_SAFE_BUFFER_MS
-            ) {
-                withContext(Dispatchers.Main.immediate) {
-                    if (
-                        player.currentMediaItem?.mediaId == anchorId &&
-                        player.playbackState == Player.STATE_READY
-                    ) {
-                        triggerPreCache()
-                    }
-                }
-            }
         }
     }
 
