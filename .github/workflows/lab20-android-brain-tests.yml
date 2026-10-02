@@ -1,9 +1,9 @@
-name: LAB25 Instant Playback Cover Contract
+name: CANDIDATA LAB25 Android Contract
 
 on:
   push:
     branches:
-      - uab-build/musiclab-playback-title-cover-25
+      - candidate/musiclab-lab25-playback-cover
     paths:
       - 'app/src/main/kotlin/com/metrolist/music/ui/component/**'
       - 'app/src/main/kotlin/com/metrolist/music/ui/player/**'
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  android-instant-playback-cover-contract:
+  candidate-lab25-android-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -55,5 +55,5 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Run Android LAB25 playback Cover and Brain contract tests
+      - name: Run CANDIDATA LAB25 Android contract tests
         run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --tests com.metrolist.music.ui.component.AiCoverSearchEngineTest --tests com.metrolist.music.ui.component.YouTubeWebSearchTest --tests com.metrolist.music.ui.component.AiCoverFlowResolverTest --tests com.metrolist.music.ui.component.OriginalVersionSearchEngineTest --tests com.metrolist.music.ui.component.Lab23TitleSearchTest --warning-mode summary
