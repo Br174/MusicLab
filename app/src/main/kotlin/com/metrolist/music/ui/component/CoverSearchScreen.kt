@@ -876,6 +876,9 @@ internal fun CoverSearchScreen(
                 replaceWith(selected)
                 detailResult = null
             },
+            onTitleSearch = {
+                navController.navigate(SearchRoutes.titleResultRoute(selected.candidate.title))
+            },
         )
     }
 
@@ -920,6 +923,13 @@ internal fun CoverSearchScreen(
                                 fallbackYear = startingYear,
                                 song = originalSong,
                                 onPlay = { play(originalSong) },
+                                onTitleSearch = {
+                                    navController.navigate(
+                                        SearchRoutes.titleResultRoute(
+                                            originalInfo?.title?.ifBlank { originalSong.title } ?: originalSong.title,
+                                        ),
+                                    )
+                                },
                             )
                             Spacer(Modifier.height(16.dp))
                         }
@@ -1238,6 +1248,7 @@ private fun CoverStartRow(
     fallbackYear: Int?,
     song: SongItem,
     onPlay: () -> Unit,
+    onTitleSearch: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1251,7 +1262,13 @@ private fun CoverStartRow(
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(info?.title?.ifBlank { song.title } ?: song.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                info?.title?.ifBlank { song.title } ?: song.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(onClick = onTitleSearch),
+            )
             Text(
                 info?.artist?.ifBlank { song.artists.joinToString(", ") { it.name } }
                     ?: song.artists.joinToString(", ") { it.name },
@@ -1329,11 +1346,17 @@ private fun CoverDetailDialog(
     loading: Boolean,
     onDismiss: () -> Unit,
     onReplace: () -> Unit,
+    onTitleSearch: () -> Unit,
 ) {
     val candidate = result.candidate
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(candidate.title) },
+        title = {
+            Text(
+                candidate.title,
+                modifier = Modifier.clickable(onClick = onTitleSearch),
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(candidate.artist, style = MaterialTheme.typography.titleSmall)
