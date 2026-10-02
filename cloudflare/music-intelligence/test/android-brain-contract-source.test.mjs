@@ -26,6 +26,10 @@ const coverScreen = readFileSync(
   'app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt',
   'utf8',
 );
+const youtubeWeb = readFileSync(
+  'app/src/main/kotlin/com/metrolist/music/ui/component/YouTubeWebSearch.kt',
+  'utf8',
+);
 const compactCoverScreen = coverScreen.replace(/\s+/g, ' ');
 const compactOriginalScreen = originalScreen.replace(/\s+/g, ' ');
 
@@ -126,8 +130,9 @@ test('Cover session performs one MusicBrainz lookup and reuses its neutral evide
 test('Cover applies coverage to the complete tab before review split and pagination without joining discovery keys', () => {
   assert.ok(coverScreen.includes('var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }'));
   assert.ok(compactCoverScreen.includes('val coverageVisibleResults = AiCoverageFilter.visibleItems( selectedTabResults, selectedCoverageMode,'));
+  assert.ok(compactCoverScreen.includes('val confirmedResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }'));
   assert.ok(compactCoverScreen.includes('val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));
-  assert.ok(compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filterNot { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));
+  assert.ok(compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filter { it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN && it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED }'));
   assert.ok(coverScreen.includes('AiCoverageSelector(\n                                selected = selectedCoverageMode'));
   const projectionIndex = coverScreen.indexOf('val coverageVisibleResults = AiCoverageFilter.visibleItems(');
   const reviewIndex = coverScreen.indexOf('val reviewResults = coverageVisibleResults.filter');
@@ -198,4 +203,36 @@ test('Cover and Originali keep independent resolver pipelines under the same eng
     !coverScreen.includes('OriginalVersionSearchEngine.findExpandedVersions('),
     'Cover must never reuse the Originali expansion pipeline',
   );
+});
+
+
+test('LAB22 Cover uses regular youtube.com WEB search and operational Tutto recovery', () => {
+  assert.ok(
+    youtubeWeb.includes('https://www.youtube.com/youtubei/v1/search'),
+    'Cover WEB lane must call regular youtube.com instead of relabeling music.youtube.com video search',
+  );
+  assert.ok(youtubeWeb.includes('"clientName", "WEB"'), 'regular YouTube search must use the WEB client context');
+  assert.ok(
+    coverScreen.includes('selectedCoverageMode != AiCoverageMode.ALL || backgroundLoading'),
+    'Tutto must own an explicit exhaustive-locator trigger',
+  );
+  assert.ok(
+    coverScreen.includes('exhaustive = true'),
+    'Tutto must retry all still-unresolved non-rejected candidates with the exhaustive locator',
+  );
+  assert.ok(
+    coverScreen.includes('CoverResultChip("Studio"') && coverScreen.includes('CoverResultChip("Tutto"'),
+    'Cover category chips must expose Studio and Tutto',
+  );
+});
+
+test('Cover confirmation moves immediately before cloud persistence and keeps rollback on failure', () => {
+  const optimisticIndex = coverScreen.indexOf('updateBrainCandidate(optimisticCandidate)');
+  const persistIndex = coverScreen.indexOf('CloudMusicDiscovery.saveBrainDecision(');
+  assert.ok(optimisticIndex >= 0 && persistIndex > optimisticIndex, 'Conferma must update the visible section before cloud persistence');
+  assert.ok(
+    coverScreen.includes('updateBrainCandidate(result.candidate.copy(brainStatus = previousStatus))'),
+    'failed persistence must roll the optimistic confirmation back safely',
+  );
+  assert.ok(coverScreen.includes('CoverSectionTitle("Confermate")'), 'approved versions need a visible confirmed section');
 });
