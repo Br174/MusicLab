@@ -148,7 +148,7 @@ internal object SpotifyMusicAssist {
                     brainSignals = listOf(
                         AiBrainSignal(
                             kind = "spotify_exact_title_discovery",
-                            strength = "medium",
+                            strength = "weak",
                             direction = "positive",
                         ),
                     ),
@@ -306,7 +306,7 @@ internal object SpotifyMusicAssist {
     private const val COVER_SEARCH_LIMIT = 50
     private const val ORIGINAL_SEARCH_LIMIT = 40
     private const val MAX_ORIGINAL_HINTS = 20
-    private const val SPOTIFY_DISCOVERY_SAME_WORK_SCORE = 62
+    private const val SPOTIFY_DISCOVERY_SAME_WORK_SCORE = 55
     private const val SPOTIFY_DISCOVERY_VERSION_SCORE = 68
     private const val SPOTIFY_ENRICH_THRESHOLD = 0.78
 }
