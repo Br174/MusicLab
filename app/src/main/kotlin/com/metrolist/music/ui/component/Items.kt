@@ -618,6 +618,7 @@ fun SongGridItem(
     isActive: Boolean = false,
     isPlaying: Boolean = false,
     fillMaxWidth: Boolean = false,
+    thumbnailHeightOverride: Dp? = null,
 ) = GridItem(
     title = {
         val navController = LocalNavController.current
@@ -657,7 +658,7 @@ fun SongGridItem(
     },
     badges = badges,
     thumbnailContent = {
-        val gridHeight = currentGridThumbnailHeight()
+        val gridHeight = thumbnailHeightOverride ?: currentGridThumbnailHeight()
         ItemThumbnail(
             thumbnailUrl = song.song.thumbnailUrl,
             isActive = isActive,
@@ -672,6 +673,7 @@ fun SongGridItem(
         }
     },
     fillMaxWidth = fillMaxWidth,
+    thumbnailHeightOverride = thumbnailHeightOverride,
     modifier = modifier
 )
 
@@ -724,6 +726,7 @@ fun ArtistGridItem(
         }
     },
     fillMaxWidth: Boolean = false,
+    thumbnailHeightOverride: Dp? = null,
 ) = GridItem(
     title = artist.artist.name,
     subtitle = if (artist.songCount > 0) pluralStringResource(R.plurals.n_song, artist.songCount, artist.songCount) else "",
@@ -744,6 +747,7 @@ fun ArtistGridItem(
         )
     },
     fillMaxWidth = fillMaxWidth,
+    thumbnailHeightOverride = thumbnailHeightOverride,
     modifier = modifier
 )
 
@@ -1318,6 +1322,7 @@ fun YouTubeGridItem(
     isActive: Boolean = false,
     isPlaying: Boolean = false,
     fillMaxWidth: Boolean = false,
+    thumbnailHeightOverride: Dp? = null,
     // When non-null, overrides the default AlbumPlayButton onClick handler. Used by
     // Spotify-sourced album cards (item.id is a Spotify album id, so the default
     // YouTube-based lookup silently fails) — caller plays via SpotifyPlaylistQueue.
@@ -1412,7 +1417,7 @@ fun YouTubeGridItem(
     },
     thumbnailRatio = thumbnailRatio,
     fillMaxWidth = fillMaxWidth,
-    thumbnailHeightOverride = if (item is AlbumItem) ProtectedArtworkHeight else null,
+    thumbnailHeightOverride = if (item is AlbumItem) ProtectedArtworkHeight else thumbnailHeightOverride,
     modifier = modifier
 )
 
