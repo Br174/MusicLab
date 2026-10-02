@@ -1,0 +1,12 @@
+MUSICLAB CANDIDATE TRACE V1
+DATE=2026-10-02
+CANDIDATE_REF=candidate/musiclab-lab25-playback-cover
+BASE_MOTHER_REF=mother/musiclab-lab19-final
+BASE_MOTHER_SHA=6f3efabd77d6e0a918b91091bb1862986d1dc5fc
+APPROVED_LAB_REF=uab-build/musiclab-playback-title-cover-25
+APPROVED_LAB_SHA=c92314ed1c846f209e12d0806898d7f47a8a0eff
+REPLAY_CONTENT_COMMIT=8ee3d3b1ea82d81349616974cd393807108f223e
+REPLAY_METHOD=new commit using LAB25 verified tree with current MADRE LAB19 as direct parent
+RUNTIME_INTENT=Preserve device-approved LAB25 application behavior while entering Candidate lifecycle.
+RULE=Candidate must receive its own exact-SHA APK+ZIP and Bruno device test before any MADRE promotion.
+MADRE_MODIFIED=no
