@@ -69,3 +69,22 @@ test('LAB25 Cover uses direct Play Now instead of Play Next plus seek', () => {
   assert.match(cover, /connection\.playNow\(song\.toMediaItem\(\)\)/);
   assert.doesNotMatch(cover, /connection\.playNext\(song\.toMediaItem\(\)\)[\s\S]{0,120}connection\.seekToNext\(\)/);
 });
+
+
+test('LAB25 Cover native title lane uses the same MusicLab summary search and no second coverage filter', () => {
+  const cover = fs.readFileSync(
+    'app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt',
+    'utf8',
+  );
+  const titleSearch = fs.readFileSync(
+    'app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabTitleSearch.kt',
+    'utf8',
+  );
+  assert.match(titleSearch, /YouTube\.searchSummary\(cleanTitle\)/);
+  assert.doesNotMatch(titleSearch, /YouTube\.search\(cleanTitle, YouTube\.SearchFilter\.FILTER_SONG\)/);
+  assert.doesNotMatch(cover, /selectedCoverageMode/);
+  assert.doesNotMatch(cover, /AiCoverageSelector\(/);
+  assert.doesNotMatch(cover, /AiCoverageFilter\.visibleItems\(/);
+  assert.match(cover, /text = "Anno: \$\{result\.candidate\.year\?\.toString\(\) \?: "—"\}"/);
+  assert.match(cover, /private fun coverEvidenceScore\(/);
+});
