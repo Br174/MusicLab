@@ -294,6 +294,16 @@ private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
 private const val PLAYBACK_START_BUFFER_MS = 1_250
 private const val PLAYBACK_REBUFFER_MS = 4_000
 
+// LAB24 playback-priority prewarm: warm only two tracks and only after the
+// current song has a safe reserve. This is intentionally tiny compared with
+// offline pre-cache so it cannot monopolize mobile bandwidth.
+private const val SMART_PRELOAD_TRACKS = 2
+private const val SMART_PRELOAD_PREFIX_BYTES = 384L * 1024L
+private const val SMART_PRELOAD_STABLE_BUFFER_MS = 12_000L
+private const val SMART_PRELOAD_RESUME_BUFFER_MS = 8_000L
+private const val SMART_PRELOAD_WAIT_MS = 18_000L
+private const val FULL_PRECACHE_SAFE_BUFFER_MS = 30_000L
+
 /** When the queue has this many or fewer items (or items ahead of current), load more from paginated queues (e.g. Spotify). */
 private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
 // Hard cap on shuffle preload to prevent runaway queue growth on continuous
@@ -529,6 +539,8 @@ class MusicService :
     private var pausedDueToNetworkError = false
     private var silenceSkipJob: Job? = null
     private var preCacheJob: Job? = null
+    private var smartPreloadJob: Job? = null
+    private var smartPreloadAnchorMediaId: String? = null
 
     // Cached preferences to avoid runBlocking DataStore reads in hot paths
     @Volatile
@@ -2234,9 +2246,19 @@ class MusicService :
         val insertIndex = player.currentMediaItemIndex + 1
         val shuffleEnabled = player.shuffleModeEnabled
 
-        // Insert items immediately after the current item in the window/index space
+        // Insert items immediately after the current item in the window/index space.
+        // LAB24: do NOT call prepare() here. Re-preparing an already prepared player
+        // can interrupt the current stream and adds latency before an immediate
+        // seekToNext(); Media3 incorporates the added items into the live timeline.
         player.addMediaItems(insertIndex, items)
-        player.prepare()
+
+        // Queue order changed, so any old next-track prewarm is stale.
+        smartPreloadJob?.cancel()
+        smartPreloadJob = null
+        smartPreloadAnchorMediaId = null
+        if (player.playbackState == Player.STATE_READY) {
+            scheduleSmartPlaybackPreload()
+        }
 
         if (shuffleEnabled) {
             // Rebuild shuffle order so that newly inserted items are played next
@@ -2802,8 +2824,13 @@ class MusicService :
 
         setupAudioNormalization()
 
-        // Pre-cache upcoming tracks for offline playback
-        triggerPreCache()
+        // LAB24: a transition gives absolute priority to the newly selected/current
+        // song. Any background cache work from the previous track is cancelled here.
+        smartPreloadJob?.cancel()
+        smartPreloadJob = null
+        smartPreloadAnchorMediaId = null
+        preCacheJob?.cancel()
+        preCacheJob = null
 
         // Restart SponsorBlock for the new track (no-op when disabled).
         startSponsorBlockForCurrentTrack()
@@ -2862,6 +2889,28 @@ class MusicService :
         @Player.State playbackState: Int,
     ) {
         updateInitialBufferRecovery(playbackState)
+
+        when (playbackState) {
+            Player.STATE_BUFFERING -> {
+                // Current audio always wins. Kill any background reader immediately;
+                // READY will restart a small prewarm only after buffer has recovered.
+                smartPreloadJob?.cancel()
+                smartPreloadJob = null
+                smartPreloadAnchorMediaId = null
+                preCacheJob?.cancel()
+                preCacheJob = null
+            }
+
+            Player.STATE_READY -> scheduleSmartPlaybackPreload()
+
+            Player.STATE_IDLE, Player.STATE_ENDED -> {
+                smartPreloadJob?.cancel()
+                smartPreloadJob = null
+                smartPreloadAnchorMediaId = null
+                preCacheJob?.cancel()
+                preCacheJob = null
+            }
+        }
 
         if (playbackState == Player.STATE_ENDED) {
             player.currentMediaItem?.mediaId?.let { mediaId ->
@@ -3927,6 +3976,239 @@ class MusicService :
                 player.play()
             }
         }
+    }
+
+    /**
+     * LAB24 playback-first prewarm.
+     *
+     * It always targets at most the next two queue items, sequentially. The current
+     * song must already be READY with a healthy reserve before any network work starts.
+     * If playback buffers or the user changes track, onPlaybackStateChanged /
+     * onMediaItemTransition cancels this job immediately.
+     *
+     * The prewarm has two cheap stages:
+     *  1. resolve and keep the signed stream URL in songUrlCache;
+     *  2. cache only a small leading prefix, never the full song.
+     *
+     * The user's optional full offline pre-cache still exists, but it is deferred until
+     * after this small prewarm and only while the current track has a much larger reserve.
+     */
+    private fun scheduleSmartPlaybackPreload() {
+        if (!::player.isInitialized || !player.playWhenReady) return
+        val anchorId = player.currentMediaItem?.mediaId ?: return
+        if (smartPreloadAnchorMediaId == anchorId) return
+
+        smartPreloadJob?.cancel()
+        smartPreloadAnchorMediaId = anchorId
+
+        smartPreloadJob = scope.launch(Dispatchers.IO + SilentHandler) {
+            val deadline = System.currentTimeMillis() + SMART_PRELOAD_WAIT_MS
+
+            while (isActive) {
+                if (player.currentMediaItem?.mediaId != anchorId || !player.playWhenReady) return@launch
+                val stable =
+                    player.playbackState == Player.STATE_READY &&
+                        player.totalBufferedDuration >= SMART_PRELOAD_STABLE_BUFFER_MS
+                if (stable) break
+                if (System.currentTimeMillis() >= deadline) {
+                    Timber.tag(PRECACHE_TAG).d("[SMART_PRELOAD] Giving up: current track never reached stable reserve")
+                    smartPreloadAnchorMediaId = null
+                    return@launch
+                }
+                delay(250)
+            }
+
+            val timeline = player.currentTimeline
+            val currentIndex = player.currentMediaItemIndex
+            if (timeline.isEmpty || currentIndex == C.INDEX_UNSET) return@launch
+
+            val upcoming = mutableListOf<MediaItem>()
+            var cursor = currentIndex
+            repeat(SMART_PRELOAD_TRACKS) {
+                val next =
+                    timeline.getNextWindowIndex(
+                        cursor,
+                        Player.REPEAT_MODE_OFF,
+                        player.shuffleModeEnabled,
+                    )
+                if (next == C.INDEX_UNSET || next == currentIndex || next !in 0 until player.mediaItemCount) {
+                    return@repeat
+                }
+                upcoming += player.getMediaItemAt(next)
+                cursor = next
+            }
+
+            for (mediaItem in upcoming.distinctBy { it.mediaId }) {
+                if (!isActive || player.currentMediaItem?.mediaId != anchorId) return@launch
+
+                // Never compete with a current-song rebuffer.
+                while (
+                    isActive &&
+                    player.currentMediaItem?.mediaId == anchorId &&
+                    (
+                        player.playbackState != Player.STATE_READY ||
+                            player.totalBufferedDuration < SMART_PRELOAD_RESUME_BUFFER_MS
+                    )
+                ) {
+                    delay(250)
+                }
+                if (!isActive || player.currentMediaItem?.mediaId != anchorId) return@launch
+
+                runCatching {
+                    prewarmMediaItemPrefix(mediaItem, anchorId)
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    Timber.tag(PRECACHE_TAG).d(error, "[SMART_PRELOAD] Non-fatal prewarm miss for ${mediaItem.mediaId}")
+                }
+            }
+
+            // Full offline pre-cache is lower priority. Only start it after the two small
+            // prefixes are warm and the active song has a large reserve.
+            delay(750)
+            if (
+                isActive &&
+                player.currentMediaItem?.mediaId == anchorId &&
+                player.playbackState == Player.STATE_READY &&
+                player.totalBufferedDuration >= FULL_PRECACHE_SAFE_BUFFER_MS
+            ) {
+                withContext(Dispatchers.Main.immediate) {
+                    if (
+                        player.currentMediaItem?.mediaId == anchorId &&
+                        player.playbackState == Player.STATE_READY
+                    ) {
+                        triggerPreCache()
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun prewarmMediaItemPrefix(
+        mediaItem: MediaItem,
+        anchorId: String,
+    ) {
+        val mediaId =
+            mediaItem.mediaMetadata.extras?.getString("mediaId")
+                ?: mediaItem.mediaId
+        if (mediaId.isBlank() || mediaId.startsWith("local:")) return
+        if (player.currentMediaItem?.mediaId != anchorId) return
+
+        val existingFormat = database.format(mediaId).first()
+        val alreadyCachedLength =
+            (existingFormat?.contentLength ?: SMART_PRELOAD_PREFIX_BYTES)
+                .coerceAtMost(SMART_PRELOAD_PREFIX_BYTES)
+                .coerceAtLeast(1L)
+
+        if (playerCache.isCached(mediaId, 0, alreadyCachedLength) ||
+            downloadCache.isCached(mediaId, 0, alreadyCachedLength)
+        ) {
+            Timber.tag(PRECACHE_TAG).d("[SMART_PRELOAD] Prefix already cached: $mediaId")
+            return
+        }
+
+        var cachedStream = songUrlCache[mediaId]
+        var contentLength = existingFormat?.contentLength ?: C.LENGTH_UNSET.toLong()
+
+        if (cachedStream == null) {
+            if (
+                player.currentMediaItem?.mediaId != anchorId ||
+                player.playbackState != Player.STATE_READY ||
+                player.totalBufferedDuration < SMART_PRELOAD_RESUME_BUFFER_MS
+            ) {
+                return
+            }
+
+            val song = database.songEntity(mediaId)
+            val cacheGeneration = songUrlCache.generation(mediaId)
+            val playbackData =
+                withTimeout(8_000L) {
+                    InnerTubeXPlayer.playerResponseForPlayback(
+                        resolveYouTubePlaybackId(mediaId),
+                        audioQuality = audioQuality,
+                        connectivityManager = connectivityManager,
+                        contentHints = ContentHints(
+                            isExplicit = song?.explicit,
+                            isUploaded = song?.isUploaded,
+                        ),
+                    ).getOrNull()
+                } ?: return
+
+            songUrlCache.put(
+                mediaId = mediaId,
+                url = playbackData.streamUrl,
+                requestHeaders = playbackData.streamHeaders,
+                clientName = playbackData.streamClient,
+                expiresInSeconds = playbackData.streamExpiresInSeconds,
+                requireBoundedRange = playbackData.requireBoundedRange,
+                rangeChunkSizeBytes = playbackData.rangeChunkSizeBytes,
+                useRangeChunks = playbackData.useRangeChunks,
+                expectedGeneration = cacheGeneration,
+            )
+            contentLength = playbackData.format.contentLength ?: contentLength
+            cachedStream = songUrlCache[mediaId]
+            Timber.tag(PRECACHE_TAG).d("[SMART_PRELOAD] Stream resolved: $mediaId")
+        }
+
+        val stream = cachedStream ?: return
+        if (!dataStore.get(EnableSongCacheKey, true)) return
+
+        val prefixLength =
+            if (contentLength > 0L) {
+                minOf(contentLength, SMART_PRELOAD_PREFIX_BYTES)
+            } else {
+                SMART_PRELOAD_PREFIX_BYTES
+            }
+
+        if (playerCache.isCached(mediaId, 0, prefixLength) ||
+            downloadCache.isCached(mediaId, 0, prefixLength)
+        ) {
+            return
+        }
+
+        if (
+            player.currentMediaItem?.mediaId != anchorId ||
+            player.playbackState != Player.STATE_READY ||
+            player.totalBufferedDuration < SMART_PRELOAD_RESUME_BUFFER_MS
+        ) {
+            return
+        }
+
+        val httpFactory =
+            OkHttpDataSource.Factory(
+                OkHttpClient
+                    .Builder()
+                    .proxy(YouTube.proxy)
+                    .proxyAuthenticator { _, response ->
+                        YouTube.proxyAuth?.let { auth ->
+                            response.request
+                                .newBuilder()
+                                .header("Proxy-Authorization", auth)
+                                .build()
+                        } ?: response.request
+                    }.build(),
+            )
+        if (stream.requestHeaders.isNotEmpty()) {
+            httpFactory.setDefaultRequestProperties(stream.requestHeaders)
+        }
+
+        val cacheDataSource =
+            CacheDataSource(
+                playerCache,
+                DefaultDataSource.Factory(this@MusicService, httpFactory).createDataSource(),
+            )
+
+        val dataSpec =
+            DataSpec
+                .Builder()
+                .setUri(stream.url.toUri())
+                .setKey(mediaId)
+                .setLength(prefixLength)
+                .build()
+
+        val writer = CacheWriter(cacheDataSource, dataSpec, null, null)
+        coroutineContext[Job]?.invokeOnCompletion { writer.cancel() }
+        writer.cache()
+        Timber.tag(PRECACHE_TAG).d("[SMART_PRELOAD] Warmed ${prefixLength / 1024}KB: $mediaId")
     }
 
     /**
