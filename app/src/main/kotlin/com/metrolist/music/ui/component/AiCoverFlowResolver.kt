@@ -3,7 +3,6 @@ package com.metrolist.music.ui.component
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import java.text.Normalizer
 
 /**
  * Orchestrates Cover discovery lanes without making any external source a veto.
@@ -227,10 +226,116 @@ internal object AiCoverFlowResolver {
         return merged.values.toList()
     }
 
-    internal fun sameItalianTitle(originalTitle: String, candidateTitle: String): Boolean {
-        val original = canonicalTitle(originalTitle)
-        val candidate = canonicalTitle(candidateTitle)
-        return original.isNotBlank() && original == candidate
+    /**
+     * Applies the editorial admission policy without turning missing metadata into a veto.
+     *
+     * Same-language Cover/Live/Remix: canonical title must remain an autonomous phrase.
+     * Foreign adaptations: title may differ, but one strong same-work evidence is enough.
+     * Missing evidence becomes UNCERTAIN so the candidate can still be localized/reviewed.
+     */
+    internal fun applyEvidencePolicy(
+        originalTitle: String,
+        originalInfo: AiCoverOriginalInfo?,
+        candidates: List<AiCoverCandidate>,
+    ): List<AiCoverCandidate> = candidates.map { raw ->
+        val titleMatches = TitleMeaningResolver.matchesBaseTitle(originalTitle, raw.title)
+        val languageDiffers = languagesClearlyDiffer(originalInfo?.language, raw.language)
+        val candidate = if (
+            raw.category != AiCoverCategory.FOREIGN &&
+            !titleMatches &&
+            languageDiffers
+        ) {
+            raw.copy(category = AiCoverCategory.FOREIGN)
+        } else {
+            raw
+        }
+
+        if (candidate.brainStatus == AiBrainDecisionStatus.REJECTED) {
+            return@map candidate
+        }
+
+        val strongEvidence = hasStrongSameWorkEvidence(originalInfo, candidate)
+        val isForeign = candidate.category == AiCoverCategory.FOREIGN
+
+        when {
+            isForeign && strongEvidence ->
+                candidate.copy(
+                    brainStatus = candidate.brainStatus ?: AiBrainDecisionStatus.PROBABLE,
+                    brainAdmission = candidate.brainAdmission ?: "foreign_one_strong_evidence",
+                )
+
+            isForeign ->
+                candidate.copy(
+                    brainStatus = AiBrainDecisionStatus.UNCERTAIN,
+                    brainAdmission = candidate.brainAdmission ?: "foreign_waiting_same_work_evidence",
+                )
+
+            titleMatches && strongEvidence ->
+                candidate.copy(
+                    brainStatus = candidate.brainStatus ?: AiBrainDecisionStatus.PROBABLE,
+                    brainAdmission = candidate.brainAdmission ?: "title_plus_same_work_evidence",
+                )
+
+            titleMatches ->
+                candidate.copy(
+                    brainStatus = AiBrainDecisionStatus.UNCERTAIN,
+                    brainAdmission = candidate.brainAdmission ?: "title_ok_waiting_same_work_evidence",
+                )
+
+            else ->
+                candidate.copy(
+                    brainStatus = AiBrainDecisionStatus.REJECTED,
+                    brainAdmission = listOf("title_meaning_mismatch", candidate.brainAdmission)
+                        .filterNotNull()
+                        .joinToString("|"),
+                )
+        }
+    }
+
+    internal fun sameItalianTitle(originalTitle: String, candidateTitle: String): Boolean =
+        TitleMeaningResolver.matchesBaseTitle(originalTitle, candidateTitle)
+
+    private fun hasStrongSameWorkEvidence(
+        originalInfo: AiCoverOriginalInfo?,
+        candidate: AiCoverCandidate,
+    ): Boolean {
+        if ((candidate.sameWorkScore ?: 0) >= 60) return true
+        if (candidate.brainStatus == AiBrainDecisionStatus.APPROVED ||
+            candidate.brainStatus == AiBrainDecisionStatus.PROBABLE
+        ) return true
+        if (!candidate.brainAdmission.isNullOrBlank() &&
+            !candidate.brainAdmission.startsWith("title_ok_waiting") &&
+            !candidate.brainAdmission.startsWith("foreign_waiting")
+        ) return true
+        if (candidate.brainSignals.any { signal ->
+                signal.direction?.lowercase() != "negative" &&
+                    signal.strength.lowercase() in setOf("medium", "strong", "very_strong")
+            }
+        ) return true
+
+        val originalCredits = buildSet {
+            originalInfo?.songwriters?.forEach { add(canonicalTitle(it)) }
+            originalInfo?.composers?.forEach { add(canonicalTitle(it)) }
+            originalInfo?.lyricists?.forEach { add(canonicalTitle(it)) }
+        }.filter(String::isNotBlank).toSet()
+        if (originalCredits.isEmpty()) return false
+
+        val candidateCredits = buildSet {
+            candidate.songwriters.forEach { add(canonicalTitle(it)) }
+            candidate.composers.forEach { add(canonicalTitle(it)) }
+            candidate.lyricists.forEach { add(canonicalTitle(it)) }
+        }.filter(String::isNotBlank).toSet()
+
+        return candidateCredits.any { it in originalCredits }
+    }
+
+    private fun languagesClearlyDiffer(original: String?, candidate: String?): Boolean {
+        val a = original?.trim()?.lowercase().orEmpty()
+        val b = candidate?.trim()?.lowercase().orEmpty()
+        if (a.isBlank() || b.isBlank()) return false
+        if (a == b) return false
+        val italian = setOf("it", "ita", "italian", "italiano", "italiana")
+        return (a in italian) != (b in italian) || (a.length <= 3 && b.length <= 3 && a != b)
     }
 
     private fun sameArtist(left: String, right: String): Boolean {
@@ -240,10 +345,5 @@ internal object AiCoverFlowResolver {
     }
 
     private fun canonicalTitle(value: String): String =
-        Normalizer.normalize(value, Normalizer.Form.NFD)
-            .replace(Regex("\\p{M}+"), "")
-            .lowercase()
-            .replace(Regex("[^a-z0-9]+"), " ")
-            .trim()
-            .replace(Regex("\\s+"), " ")
+        TitleMeaningResolver.canonical(value)
 }
