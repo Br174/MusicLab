@@ -107,7 +107,7 @@ test('Cover session performs one MusicBrainz lookup and reuses its neutral evide
     'MusicBrainz must be looked up once per Cover session, never per batch/candidate',
   );
   assert.ok(
-    coverScreen.includes('sourceEvidence.attachToAiAccepted(discovery.versions)'),
+    coverScreen.includes('sourceEvidence.attachToAiAccepted(brainInitial.versions)'),
     'initial AI candidates must receive source evidence before playback resolution',
   );
   assert.ok(
@@ -122,7 +122,7 @@ test('Cover session performs one MusicBrainz lookup and reuses its neutral evide
     coverScreen.includes('sourceEvidence = null'),
     'invalidating a Cover session must clear stale source evidence',
   );
-  const enrichIndex = coverScreen.indexOf('sourceEvidence.attachToAiAccepted(discovery.versions)');
+  const enrichIndex = coverScreen.indexOf('sourceEvidence.attachToAiAccepted(brainInitial.versions)');
   const playbackIndex = coverScreen.indexOf('AiCoverSearchEngine.resolveCandidates(');
   assert.ok(enrichIndex >= 0 && playbackIndex > enrichIndex, 'source evidence must be attached before YouTube playback resolution');
 });
@@ -130,12 +130,12 @@ test('Cover session performs one MusicBrainz lookup and reuses its neutral evide
 test('Cover applies coverage to the complete tab before review split and pagination without joining discovery keys', () => {
   assert.ok(coverScreen.includes('var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }'));
   assert.ok(compactCoverScreen.includes('val coverageVisibleResults = AiCoverageFilter.visibleItems( selectedTabResults, selectedCoverageMode,'));
-  assert.ok(compactCoverScreen.includes('val confirmedResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }'));
-  assert.ok(compactCoverScreen.includes('val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));
-  assert.ok(compactCoverScreen.includes('val selectedResults = coverageVisibleResults.filter { it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN && it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED }'));
+  assert.ok(compactCoverScreen.includes('val confirmedResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }'));
+  assert.ok(compactCoverScreen.includes('val reviewResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));
+  assert.ok(compactCoverScreen.includes('val selectedResults = orderedCoverageResults.filter { it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN && it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED }'));
   assert.ok(coverScreen.includes('AiCoverageSelector(\n                                selected = selectedCoverageMode'));
   const projectionIndex = coverScreen.indexOf('val coverageVisibleResults = AiCoverageFilter.visibleItems(');
-  const reviewIndex = coverScreen.indexOf('val reviewResults = coverageVisibleResults.filter');
+  const reviewIndex = coverScreen.indexOf('val reviewResults = orderedCoverageResults.filter');
   const paginationIndex = coverScreen.indexOf('selectedResults.take(visibleResultCount)');
   assert.ok(projectionIndex >= 0 && reviewIndex > projectionIndex);
   assert.ok(paginationIndex > reviewIndex);
@@ -206,7 +206,7 @@ test('Cover and Originali keep independent resolver pipelines under the same eng
 });
 
 
-test('LAB22 Cover uses regular youtube.com WEB search and operational Tutto recovery', () => {
+test('LAB23 Cover keeps regular youtube.com recovery plus fast title-only first paint', () => {
   assert.ok(
     youtubeWeb.includes('https://www.youtube.com/youtubei/v1/search'),
     'Cover WEB lane must call regular youtube.com instead of relabeling music.youtube.com video search',
@@ -223,6 +223,24 @@ test('LAB22 Cover uses regular youtube.com WEB search and operational Tutto reco
   assert.ok(
     coverScreen.includes('CoverResultChip("Studio"') && coverScreen.includes('CoverResultChip("Tutto"'),
     'Cover category chips must expose Studio and Tutto',
+  );
+  assert.ok(
+    coverScreen.includes('mutableStateOf(AiCoverTab.ALL)'),
+    'LAB23 must open Cover with Tutto selected',
+  );
+  assert.ok(
+    coverScreen.includes('MusicLabTitleSearch.fast('),
+    'LAB23 must paint the first Cover rows from the lightweight title-only lane',
+  );
+  assert.ok(
+    coverScreen.includes('SpotifyMusicAssist.assistCover('),
+    'LAB23 must use Spotify as a positive-only Cover assist',
+  );
+  assert.ok(
+    coverScreen.includes('CoverSortChip("Qualità"') &&
+      coverScreen.includes('CoverSortChip("Anno ↑"') &&
+      coverScreen.includes('CoverSortChip("Anno ↓"'),
+    'LAB23 must expose quality and both year orderings without changing categories',
   );
 });
 
