@@ -127,23 +127,16 @@ test('Cover session performs one MusicBrainz lookup and reuses its neutral evide
   assert.ok(enrichIndex >= 0 && playbackIndex > enrichIndex, 'source evidence must be attached before YouTube playback resolution');
 });
 
-test('Cover applies coverage to the complete tab before review split and pagination without joining discovery keys', () => {
-  assert.ok(coverScreen.includes('var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }'));
-  assert.ok(compactCoverScreen.includes('val coverageVisibleResults = AiCoverageFilter.visibleItems( selectedTabResults, selectedCoverageMode,'));
+test('LAB25 Cover removes the second coverage filter and orders the complete selected category', () => {
+  assert.ok(!coverScreen.includes('selectedCoverageMode'), 'Cover must not keep the old Precisa/Selezionata/Ampia/Esplora/Tutto state');
+  assert.ok(!coverScreen.includes('AiCoverageSelector('), 'Cover must not render the old coverage selector');
+  assert.ok(!coverScreen.includes('AiCoverageFilter.visibleItems('), 'Cover results must not be hidden by a second coverage threshold');
+  assert.ok(compactCoverScreen.includes('val orderedCoverageResults = sortCoverResults( items = selectedTabResults,'));
   assert.ok(compactCoverScreen.includes('val confirmedResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }'));
   assert.ok(compactCoverScreen.includes('val reviewResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'));
   assert.ok(compactCoverScreen.includes('val selectedResults = orderedCoverageResults.filter { it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN && it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED }'));
-  assert.ok(coverScreen.includes('AiCoverageSelector(\n                                selected = selectedCoverageMode'));
-  const projectionIndex = coverScreen.indexOf('val coverageVisibleResults = AiCoverageFilter.visibleItems(');
-  const reviewIndex = coverScreen.indexOf('val reviewResults = orderedCoverageResults.filter');
-  const paginationIndex = coverScreen.indexOf('selectedResults.take(visibleResultCount)');
-  assert.ok(projectionIndex >= 0 && reviewIndex > projectionIndex);
-  assert.ok(paginationIndex > reviewIndex);
-  const discoveryEffectStart = coverScreen.indexOf('LaunchedEffect(\n        sessionKey,');
-  const discoveryEffectBody = coverScreen.indexOf('    ) {', discoveryEffectStart);
-  assert.ok(discoveryEffectStart >= 0 && discoveryEffectBody > discoveryEffectStart);
-  const discoveryKeys = coverScreen.slice(discoveryEffectStart, discoveryEffectBody);
-  assert.ok(!discoveryKeys.includes('selectedCoverageMode'));
+  assert.ok(coverScreen.includes('session.exhaustiveLocatorComplete'), 'deep locator must continue automatically in background');
+  assert.ok(coverScreen.includes('exhaustive = true'), 'automatic background recovery must retain the exhaustive locator');
 });
 
 test('Originali preserves Brain metadata, separates review and filters before pagination', () => {
@@ -206,15 +199,15 @@ test('Cover and Originali keep independent resolver pipelines under the same eng
 });
 
 
-test('LAB23 Cover keeps regular youtube.com recovery plus fast title-only first paint', () => {
+test('LAB25 Cover keeps regular youtube.com recovery plus native MusicLab title first paint', () => {
   assert.ok(
     youtubeWeb.includes('https://www.youtube.com/youtubei/v1/search'),
     'Cover WEB lane must call regular youtube.com instead of relabeling music.youtube.com video search',
   );
   assert.ok(youtubeWeb.includes('"clientName", "WEB"'), 'regular YouTube search must use the WEB client context');
   assert.ok(
-    coverScreen.includes('selectedCoverageMode != AiCoverageMode.ALL || backgroundLoading'),
-    'Tutto must own an explicit exhaustive-locator trigger',
+    coverScreen.includes('session.exhaustiveLocatorComplete'),
+    'LAB25 must own one automatic exhaustive-locator background pass',
   );
   assert.ok(
     coverScreen.includes('exhaustive = true'),
@@ -226,21 +219,21 @@ test('LAB23 Cover keeps regular youtube.com recovery plus fast title-only first 
   );
   assert.ok(
     coverScreen.includes('mutableStateOf(AiCoverTab.ALL)'),
-    'LAB23 must open Cover with Tutto selected',
+    'LAB25 must open Cover with Tutto selected',
   );
   assert.ok(
     coverScreen.includes('MusicLabTitleSearch.fast('),
-    'LAB23 must paint the first Cover rows from the lightweight title-only lane',
+    'LAB25 must paint the first Cover rows from the native MusicLab title-only lane',
   );
   assert.ok(
     coverScreen.includes('SpotifyMusicAssist.assistCover('),
-    'LAB23 must use Spotify as a positive-only Cover assist',
+    'LAB25 must keep Spotify as a positive-only Cover assist',
   );
   assert.ok(
     coverScreen.includes('CoverSortChip("Qualità"') &&
       coverScreen.includes('CoverSortChip("Anno ↑"') &&
       coverScreen.includes('CoverSortChip("Anno ↓"'),
-    'LAB23 must expose quality and both year orderings without changing categories',
+    'LAB25 must expose quality and both year orderings without changing categories',
   );
 });
 
