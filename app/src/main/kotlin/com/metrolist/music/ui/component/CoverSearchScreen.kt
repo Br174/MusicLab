@@ -940,7 +940,7 @@ internal fun CoverSearchScreen(
                             Row(modifier = Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(10.dp))
-                                Text("L'AI cerca le prime cover da studio…")
+                                Text("Cerco subito le prime versioni per titolo…")
                             }
                         }
                     } else if (geminiConfig == null) {
@@ -1001,7 +1001,7 @@ internal fun CoverSearchScreen(
                                 }
                             } else {
                                 Text(
-                                    text = "Studio = incisioni in studio · Live = dal vivo · Remix = remix/rework · Straniere = adattamenti in altra lingua · Tutto = tutte le categorie.",
+                                    text = "Tutto = tutte le versioni · Studio = incisioni in studio · Live = dal vivo · Mix = remix/rework · Straniere = adattamenti in altra lingua.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 7.dp, bottom = 6.dp),
