@@ -6,6 +6,8 @@
 package com.metrolist.music.ui.component
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -66,12 +68,19 @@ internal object GeminiOriginalDiscovery {
         val cacheKey = "v3|${config.model}|${currentTitle.trim().lowercase()}|${currentArtist.trim().lowercase()}"
         cache[cacheKey]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let { return@withContext it.identity }
 
-        val cloudIdentity = if (config.cloudEndpoint.isNotBlank()) {
-            CloudMusicDiscovery.identifyOriginal(currentTitle, currentArtist, config)
-        } else null
+        val identity = coroutineScope {
+            // LAB23: Cloudflare and direct Gemini identify in parallel.
+            val cloudDeferred = async(Dispatchers.IO) {
+                if (config.cloudEndpoint.isNotBlank()) {
+                    CloudMusicDiscovery.identifyOriginal(currentTitle, currentArtist, config)
+                } else {
+                    null
+                }
+            }
 
-        val directIdentity = if (config.isUsable()) {
-            val prompt = """Sei il motore Originali di MusicLab. Lavora per STEP.
+            val directDeferred = async(Dispatchers.IO) {
+                if (config.isUsable()) {
+                    val prompt = """Sei il motore Originali di MusicLab. Lavora per STEP.
 
 STEP 1 — IDENTITÀ CANONICA.
 La traccia corrente può essere cover, live, duetto, TV o avere un titolo descrittivo.
@@ -90,10 +99,19 @@ Rispondi SOLO JSON valido:
   "year":1965,
   "album":"album o singolo oppure null"
 }"""
-            executeWithFallbackModels(prompt, config, useGoogleSearch = true, maxOutputTokens = 900)?.let(::parseIdentity)
-        } else null
+                    executeWithFallbackModels(
+                        prompt,
+                        config,
+                        useGoogleSearch = true,
+                        maxOutputTokens = 900,
+                    )?.let(::parseIdentity)
+                } else {
+                    null
+                }
+            }
 
-        val identity = mergeIdentities(cloudIdentity, directIdentity) ?: return@withContext null
+            mergeIdentities(cloudDeferred.await(), directDeferred.await())
+        } ?: return@withContext null
         cache[cacheKey] = CachedIdentity(identity, System.currentTimeMillis() + CACHE_TTL_MS)
         identity
     }
