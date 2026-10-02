@@ -1463,6 +1463,22 @@ private fun mergePlayables(
     return merged.values.toList()
 }
 
+private fun syncPlayableCandidateMetadata(
+    playables: List<AiCoverPlayable>,
+    candidates: List<AiCoverCandidate>,
+): List<AiCoverPlayable> {
+    if (playables.isEmpty() || candidates.isEmpty()) return playables
+    val byKey = candidates.associateBy { it.stableKey }
+    return playables.map { playable ->
+        val enriched = byKey[playable.candidate.stableKey] ?: return@map playable
+        if (candidateRichness(enriched) >= candidateRichness(playable.candidate)) {
+            playable.copy(candidate = enriched)
+        } else {
+            playable
+        }
+    }
+}
+
 private fun candidateRichness(candidate: AiCoverCandidate): Int {
     var score = 0
     if (candidate.year != null) score += 2
@@ -1483,26 +1499,44 @@ private fun candidateRichness(candidate: AiCoverCandidate): Int {
     return score
 }
 
-private fun coverQualityScore(
+private fun coverEvidenceScore(playable: AiCoverPlayable): Int {
+    val candidate = playable.candidate
+    var score = 0
+
+    // Quality is evidence-first: independent corroboration raises position, never visibility.
+    score += when (candidate.brainStatus) {
+        AiBrainDecisionStatus.APPROVED -> 3
+        AiBrainDecisionStatus.PROBABLE -> 2
+        AiBrainDecisionStatus.UNCERTAIN -> 1
+        AiBrainDecisionStatus.REJECTED -> 0
+        null -> 0
+    }
+
+    val positiveSignals = candidate.brainSignals
+        .filter { it.direction.equals("positive", ignoreCase = true) }
+        .map { it.kind }
+        .distinct()
+        .size
+    score += positiveSignals.coerceAtMost(3)
+
+    if (!candidate.spotifyTrackId.isNullOrBlank() || !candidate.spotifyIsrc.isNullOrBlank()) score += 2
+    if ((candidate.sameWorkScore ?: 0) >= 70) score += 1
+    if ((candidate.versionTypeScore ?: 0) >= 70) score += 1
+    if (candidate.year != null) score += 1
+    if (!candidate.album.isNullOrBlank()) score += 1
+
+    return score.coerceIn(0, 10)
+}
+
+private fun coverTitleTieBreak(
     targetTitle: String,
     playable: AiCoverPlayable,
-): Int {
-    val titleScore = TitleMeaningResolver.qualityScore(
+): Int =
+    TitleMeaningResolver.qualityScore(
         targetTitle = targetTitle,
         value = playable.song.title,
         artistAliases = setOf(playable.candidate.artist),
     )
-    if (titleScore >= 9) return titleScore
-
-    val evidenceScore = when (playable.candidate.brainStatus) {
-        AiBrainDecisionStatus.APPROVED -> 9
-        AiBrainDecisionStatus.PROBABLE -> 8
-        AiBrainDecisionStatus.UNCERTAIN -> 6
-        AiBrainDecisionStatus.REJECTED -> 0
-        null -> 5
-    }
-    return maxOf(titleScore, evidenceScore).coerceIn(0, 10)
-}
 
 private fun sortCoverResults(
     items: List<AiCoverPlayable>,
@@ -1512,7 +1546,8 @@ private fun sortCoverResults(
     when (mode) {
         CoverSortMode.QUALITY ->
             items.sortedWith(
-                compareByDescending<AiCoverPlayable> { coverQualityScore(targetTitle, it) }
+                compareByDescending<AiCoverPlayable> { coverEvidenceScore(it) }
+                    .thenByDescending { coverTitleTieBreak(targetTitle, it) }
                     .thenBy { if (it.candidate.year == null) 1 else 0 }
                     .thenBy { it.candidate.year ?: Int.MAX_VALUE }
                     .thenBy { it.candidate.artist.lowercase() },
@@ -1522,7 +1557,7 @@ private fun sortCoverResults(
             items.sortedWith(
                 compareBy<AiCoverPlayable> { if (it.candidate.year == null) 1 else 0 }
                     .thenBy { it.candidate.year ?: Int.MAX_VALUE }
-                    .thenByDescending { coverQualityScore(targetTitle, it) }
+                    .thenByDescending { coverEvidenceScore(it) }
                     .thenBy { it.candidate.artist.lowercase() },
             )
 
@@ -1530,7 +1565,7 @@ private fun sortCoverResults(
             items.sortedWith(
                 compareBy<AiCoverPlayable> { if (it.candidate.year == null) 1 else 0 }
                     .thenByDescending { it.candidate.year ?: Int.MIN_VALUE }
-                    .thenByDescending { coverQualityScore(targetTitle, it) }
+                    .thenByDescending { coverEvidenceScore(it) }
                     .thenBy { it.candidate.artist.lowercase() },
             )
     }
