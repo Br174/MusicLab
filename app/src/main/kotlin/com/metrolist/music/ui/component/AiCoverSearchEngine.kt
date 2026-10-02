@@ -1,13 +1,12 @@
 /**
  * Resolves AI-decided cover/remix/live/foreign candidates to playable media.
- * YouTube and YouTube Music are playback locators only; editorial metadata stays AI-owned.
+ * The MusicLab Brain owns musical identity; playback providers only locate a playable video id.
  *
- * LAB21 Deep Locator:
- * - searches the easy first-page path first;
- * - expands queries with album/year/credits already known by the Brain;
- * - follows YouTube/YTM continuation pages only when the fast path fails;
- * - treats a YouTube uploader/channel mismatch as a recoverable locator condition for exact-title videos,
- *   instead of an automatic veto.
+ * LAB22 Cover Web Locator:
+ * - keeps YouTube Music for clean catalogue matches;
+ * - adds a genuinely separate www.youtube.com WEB search lane;
+ * - uses the real YouTube WEB continuation tokens for rare/user-uploaded versions;
+ * - supports an exhaustive mode used by the Cover "Tutto" control.
  */
 package com.metrolist.music.ui.component
 
@@ -43,6 +42,7 @@ internal object AiCoverSearchEngine {
         candidates: List<AiCoverCandidate>,
         currentYouTubeId: String?,
         pauseBetweenBatches: Boolean,
+        exhaustive: Boolean = false,
     ): AiCoverResolveResult = coroutineScope {
         if (candidates.isEmpty()) return@coroutineScope AiCoverResolveResult(emptyList(), AiCoverResolveStats())
 
@@ -51,45 +51,54 @@ internal object AiCoverSearchEngine {
         var videoHits = 0
 
         val uniqueCandidates = candidates.distinctBy { it.stableKey }
-        val batches = uniqueCandidates.chunked(5)
+        val batchSize = if (exhaustive) EXHAUSTIVE_BATCH_SIZE else NORMAL_BATCH_SIZE
+        val batches = uniqueCandidates.chunked(batchSize)
+
         for ((batchIndex, batch) in batches.withIndex()) {
-            val batchResolved = batch.map { candidate ->
-                async(Dispatchers.IO) { resolveOne(candidate, currentYouTubeId) }
-            }.awaitAll().filterNotNull()
+            val batchResolved =
+                batch.map { candidate ->
+                    async(Dispatchers.IO) { resolveOne(candidate, currentYouTubeId, exhaustive) }
+                }.awaitAll().filterNotNull()
 
             batchResolved.forEach { playable ->
                 if (playable.song.id !in resolved.map { it.song.id }) {
                     resolved += playable
-                    if (playable.playbackSource == "YouTube Music") musicHits++ else videoHits++
+                    if (playable.playbackSource.startsWith("YouTube Music")) {
+                        musicHits++
+                    } else {
+                        videoHits++
+                    }
                 }
             }
 
             if (pauseBetweenBatches && batchIndex < batches.lastIndex) {
-                delay(BACKGROUND_PAUSE_MS)
+                delay(if (exhaustive) EXHAUSTIVE_BACKGROUND_PAUSE_MS else BACKGROUND_PAUSE_MS)
             }
         }
 
         AiCoverResolveResult(
             playables = resolved.sortedWith(playableOrder),
-            stats = AiCoverResolveStats(
-                requested = candidates.size,
-                playable = resolved.size,
-                youtubeMusicHits = musicHits,
-                youtubeHits = videoHits,
-            ),
+            stats =
+                AiCoverResolveStats(
+                    requested = uniqueCandidates.size,
+                    playable = resolved.size,
+                    youtubeMusicHits = musicHits,
+                    youtubeHits = videoHits,
+                ),
         )
     }
 
     private suspend fun resolveOne(
         candidate: AiCoverCandidate,
         currentYouTubeId: String?,
+        exhaustive: Boolean,
     ): AiCoverPlayable? {
         val queries = locatorQueries(candidate)
         if (queries.isEmpty()) return null
-
-        // FAST PATH: preserve the cheap/common case. One canonical query against YTM and YouTube.
         val canonicalQuery = queries.first()
-        searchAndPick(
+
+        // 1) Clean catalogue hit from YouTube Music.
+        searchMusicAndPick(
             query = canonicalQuery,
             filter = YouTube.SearchFilter.FILTER_SONG,
             candidate = candidate,
@@ -98,19 +107,34 @@ internal object AiCoverSearchEngine {
             allowUploaderFallback = false,
         )?.let { return datedPlayable(candidate, it, "YouTube Music") }
 
-        searchAndPick(
+        // 2) Real youtube.com WEB lane. This is deliberately NOT music.youtube.com.
+        searchWebAndPick(
+            query = canonicalQuery,
+            candidate = candidate,
+            currentYouTubeId = currentYouTubeId,
+            maxPages = 1,
+        )?.let { return datedPlayable(candidate, it, "YouTube") }
+
+        // 3) Retain the historical YTM video shelf as an additional source, but name it honestly.
+        searchMusicAndPick(
             query = canonicalQuery,
             filter = YouTube.SearchFilter.FILTER_VIDEO,
             candidate = candidate,
             currentYouTubeId = currentYouTubeId,
             maxPages = 1,
             allowUploaderFallback = true,
-        )?.let { return datedPlayable(candidate, it, "YouTube") }
+        )?.let { return datedPlayable(candidate, it, "YouTube Music video") }
 
-        // METADATA PATH: title/artist alone is often insufficient for old, user-uploaded or obscure covers.
-        // Reuse the Brain metadata as search hints, never as a YouTube editorial verdict.
-        for (query in queries.drop(1).take(METADATA_QUERY_LIMIT)) {
-            searchAndPick(
+        val metadataLimit = if (exhaustive) EXHAUSTIVE_METADATA_QUERY_LIMIT else METADATA_QUERY_LIMIT
+        for (query in queries.drop(1).take(metadataLimit)) {
+            searchWebAndPick(
+                query = query,
+                candidate = candidate,
+                currentYouTubeId = currentYouTubeId,
+                maxPages = 1,
+            )?.let { return datedPlayable(candidate, it, "YouTube") }
+
+            searchMusicAndPick(
                 query = query,
                 filter = YouTube.SearchFilter.FILTER_SONG,
                 candidate = candidate,
@@ -118,36 +142,36 @@ internal object AiCoverSearchEngine {
                 maxPages = 1,
                 allowUploaderFallback = false,
             )?.let { return datedPlayable(candidate, it, "YouTube Music") }
+        }
 
-            searchAndPick(
+        // 4) Deep web recovery for rare Italian/archival/user-uploaded versions.
+        val webQueryLimit = if (exhaustive) EXHAUSTIVE_WEB_QUERY_LIMIT else WEB_QUERY_LIMIT
+        val webPages = if (exhaustive) EXHAUSTIVE_WEB_PAGES else WEB_PAGES
+        for (query in queries.take(webQueryLimit)) {
+            searchWebAndPick(
                 query = query,
-                filter = YouTube.SearchFilter.FILTER_VIDEO,
                 candidate = candidate,
                 currentYouTubeId = currentYouTubeId,
-                maxPages = 1,
-                allowUploaderFallback = true,
+                maxPages = webPages,
             )?.let { return datedPlayable(candidate, it, "YouTube") }
         }
 
-        // DEEP PATH: only after the normal path failed. Follow continuation tokens instead of
-        // pretending the first result page is the whole YouTube catalogue.
-        for (query in queries.take(DEEP_QUERY_LIMIT)) {
-            searchAndPick(
-                query = query,
-                filter = YouTube.SearchFilter.FILTER_VIDEO,
-                candidate = candidate,
-                currentYouTubeId = currentYouTubeId,
-                maxPages = DEEP_VIDEO_PAGES,
-                allowUploaderFallback = true,
-            )?.let { return datedPlayable(candidate, it, "YouTube") }
-        }
+        // 5) Final YTM continuation fallback.
+        searchMusicAndPick(
+            query = canonicalQuery,
+            filter = YouTube.SearchFilter.FILTER_VIDEO,
+            candidate = candidate,
+            currentYouTubeId = currentYouTubeId,
+            maxPages = if (exhaustive) EXHAUSTIVE_MUSIC_VIDEO_PAGES else DEEP_VIDEO_PAGES,
+            allowUploaderFallback = true,
+        )?.let { return datedPlayable(candidate, it, "YouTube Music video") }
 
-        searchAndPick(
+        searchMusicAndPick(
             query = canonicalQuery,
             filter = YouTube.SearchFilter.FILTER_SONG,
             candidate = candidate,
             currentYouTubeId = currentYouTubeId,
-            maxPages = DEEP_MUSIC_PAGES,
+            maxPages = if (exhaustive) EXHAUSTIVE_MUSIC_PAGES else DEEP_MUSIC_PAGES,
             allowUploaderFallback = false,
         )?.let { return datedPlayable(candidate, it, "YouTube Music") }
 
@@ -155,25 +179,26 @@ internal object AiCoverSearchEngine {
     }
 
     /**
-     * Query expansion is deterministic and testable. The AI/Brain already owns the musical identity;
-     * these fields are only retrieval hints for YouTube/YTM.
+     * Retrieval hints only. The Brain has already decided that the musical version exists.
      */
     internal fun locatorQueries(candidate: AiCoverCandidate): List<String> {
         val title = candidate.title.trim()
         val artist = candidate.artist.trim()
         if (title.isBlank() || artist.isBlank()) return emptyList()
 
-        val categoryTerm = when (candidate.category) {
-            AiCoverCategory.COVER -> "cover"
-            AiCoverCategory.FOREIGN -> candidate.language?.trim()?.takeIf { it.isNotBlank() } ?: "version"
-            AiCoverCategory.REMIX -> "remix"
-            AiCoverCategory.LIVE -> "live"
-        }
-        val creditHints = (candidate.songwriters + candidate.composers + candidate.lyricists)
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
-            .take(2)
+        val categoryTerm =
+            when (candidate.category) {
+                AiCoverCategory.COVER -> "cover"
+                AiCoverCategory.FOREIGN -> candidate.language?.trim()?.takeIf { it.isNotBlank() } ?: "version"
+                AiCoverCategory.REMIX -> "remix"
+                AiCoverCategory.LIVE -> "live"
+            }
+        val creditHints =
+            (candidate.songwriters + candidate.composers + candidate.lyricists)
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+                .take(2)
 
         return buildList {
             add("$title $artist")
@@ -192,15 +217,21 @@ internal object AiCoverSearchEngine {
                 add("$title $artist $credit")
             }
 
-            if (candidate.category == AiCoverCategory.COVER) {
-                add("$title $artist official audio")
-                add("$title $artist lyrics")
-            } else if (candidate.category == AiCoverCategory.LIVE) {
-                add("$title $artist performance")
-                add("$title $artist session")
-            } else if (candidate.category == AiCoverCategory.REMIX) {
-                add("$title $artist rework")
-                add("$title $artist mix")
+            when (candidate.category) {
+                AiCoverCategory.COVER -> {
+                    add("$title $artist official audio")
+                    add("$title $artist studio")
+                    add("$title $artist lyrics")
+                }
+                AiCoverCategory.LIVE -> {
+                    add("$title $artist performance")
+                    add("$title $artist session")
+                }
+                AiCoverCategory.REMIX -> {
+                    add("$title $artist rework")
+                    add("$title $artist mix")
+                }
+                AiCoverCategory.FOREIGN -> Unit
             }
         }
             .map { it.replace(Regex("\\s+"), " ").trim() }
@@ -209,20 +240,17 @@ internal object AiCoverSearchEngine {
             .take(MAX_QUERY_VARIANTS)
     }
 
-    /**
-     * Se Gemini non conosce l'anno, prova il metadato reale dell'album YouTube Music.
-     * Non inventa mai una data: se entrambe le fonti non la espongono resta null.
-     */
     private suspend fun datedPlayable(
         candidate: AiCoverCandidate,
         song: SongItem,
         playbackSource: String,
     ): AiCoverPlayable {
-        val datedCandidate = if (candidate.year != null) {
-            candidate
-        } else {
-            candidate.copy(year = CoverYearResolver.resolve(song))
-        }
+        val datedCandidate =
+            if (candidate.year != null || playbackSource == "YouTube") {
+                candidate
+            } else {
+                candidate.copy(year = CoverYearResolver.resolve(song))
+            }
         return AiCoverPlayable(datedCandidate, song, playbackSource)
     }
 
@@ -236,7 +264,7 @@ internal object AiCoverSearchEngine {
             artistAliases = setOf(candidate.artist),
         )
 
-    private suspend fun searchAndPick(
+    private suspend fun searchMusicAndPick(
         query: String,
         filter: YouTube.SearchFilter,
         candidate: AiCoverCandidate,
@@ -248,9 +276,10 @@ internal object AiCoverSearchEngine {
 
         var page = runCatching { YouTube.search(query, filter).getOrThrow() }.getOrNull() ?: return null
         repeat(maxPages) { pageIndex ->
-            val songs = page.items
-                .filterIsInstance<SongItem>()
-                .filter { it.id != currentYouTubeId }
+            val songs =
+                page.items
+                    .filterIsInstance<SongItem>()
+                    .filter { it.id != currentYouTubeId }
 
             bestMatch(
                 songs = songs,
@@ -261,6 +290,33 @@ internal object AiCoverSearchEngine {
             if (pageIndex >= maxPages - 1) return null
             val continuation = page.continuation ?: return null
             page = runCatching { YouTube.searchContinuation(continuation).getOrThrow() }.getOrNull() ?: return null
+        }
+        return null
+    }
+
+    private suspend fun searchWebAndPick(
+        query: String,
+        candidate: AiCoverCandidate,
+        currentYouTubeId: String?,
+        maxPages: Int,
+    ): SongItem? {
+        if (maxPages <= 0) return null
+
+        var continuation: String? = null
+        repeat(maxPages) { pageIndex ->
+            val page =
+                runCatching { YouTubeWebSearch.search(query, continuation) }
+                    .getOrNull()
+                    ?: return null
+            val songs = page.items.filter { it.id != currentYouTubeId }
+            bestMatch(
+                songs = songs,
+                candidate = candidate,
+                allowUploaderFallback = true,
+            )?.let { return it }
+
+            if (pageIndex >= maxPages - 1) return null
+            continuation = page.continuation ?: return null
         }
         return null
     }
@@ -316,9 +372,6 @@ internal object AiCoverSearchEngine {
         val albumMatch = targetAlbum.isNotBlank() && metadataSimilar(songAlbum, targetAlbum)
         val exactTitle = songTitle == targetTitle
 
-        // LAB20 used artist mismatch as a hard veto. That discards many real YouTube uploads where
-        // the "artist" field is actually the uploader/channel. LAB21 keeps strong identity checks,
-        // but permits an exact-title video among the top search results as a recovery path.
         val identitySupported =
             artistMatch ||
                 titleHasArtist ||
@@ -330,8 +383,6 @@ internal object AiCoverSearchEngine {
         val liveLike = LIVE_MARKER.containsMatchIn(raw)
         val remixLike = REMIX_MARKER.containsMatchIn(raw)
 
-        // La categoria è decisa dall'AI. I metadati YouTube possono soltanto scartare
-        // una contraddizione evidente, non stabilire la categoria editoriale.
         when (candidate.category) {
             AiCoverCategory.COVER,
             AiCoverCategory.FOREIGN,
@@ -340,19 +391,18 @@ internal object AiCoverSearchEngine {
             AiCoverCategory.REMIX -> if (liveLike && !remixLike) return 0
         }
 
-        var score = when {
-            exactTitle -> 52
-            tokenPhrase(songTitle, targetTitle) -> 42
-            tokenPhrase(targetTitle, songTitle) && songTitle.length >= 4 -> 30
-            else -> return 0
-        }
+        var score =
+            when {
+                exactTitle -> 52
+                tokenPhrase(songTitle, targetTitle) -> 42
+                tokenPhrase(targetTitle, songTitle) && songTitle.length >= 4 -> 30
+                else -> return 0
+            }
 
         if (artistMatch) score += 34
         if (titleHasArtist) score += 30
         if (albumMatch) score += 20
 
-        // A channel/uploader fallback is deliberately weaker than a real artist match and is
-        // accepted only for an exact title near the top of FILTER_VIDEO results.
         if (allowUploaderFallback && exactTitle && !artistMatch && !titleHasArtist && !albumMatch) {
             score += 18
         }
@@ -410,25 +460,38 @@ internal object AiCoverSearchEngine {
             .thenBy { it.candidate.year ?: Int.MAX_VALUE }
             .thenBy { it.candidate.artist.lowercase() }
 
-    private val VERSION_WORDS = Regex(
-        "\\b(official|music video|video|audio|lyrics?|visualizer|remaster(?:ed)?|version|versione|cover|live|dal vivo|concert|concerto|performance|session|festival|remix|mix|rework|radio edit|extended mix|club mix|edit|hd|hq)\\b",
-    )
-    private val LIVE_MARKER = Regex(
-        "\\b(live|dal vivo|concert|concerto|performance|session|festival|unplugged|tiny desk|kexp|bbc session|mtv unplugged)\\b",
-    )
-    private val REMIX_MARKER = Regex(
-        "\\b(remix|rework|club mix|extended mix|radio mix|dance mix|dub mix|edit mix)\\b",
-    )
-    private val DISALLOWED = Regex(
-        "\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b",
-    )
+    private val VERSION_WORDS =
+        Regex(
+            "\\b(official|music video|video|audio|lyrics?|visualizer|remaster(?:ed)?|version|versione|cover|live|dal vivo|concert|concerto|performance|session|festival|remix|mix|rework|radio edit|extended mix|club mix|edit|hd|hq)\\b",
+        )
+    private val LIVE_MARKER =
+        Regex(
+            "\\b(live|dal vivo|concert|concerto|performance|session|festival|unplugged|tiny desk|kexp|bbc session|mtv unplugged)\\b",
+        )
+    private val REMIX_MARKER =
+        Regex(
+            "\\b(remix|rework|club mix|extended mix|radio mix|dance mix|dub mix|edit mix)\\b",
+        )
+    private val DISALLOWED =
+        Regex(
+            "\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|mashup|medley)\\b",
+        )
 
     private const val MIN_SCORE = 68
+    private const val NORMAL_BATCH_SIZE = 5
+    private const val EXHAUSTIVE_BATCH_SIZE = 3
     private const val BACKGROUND_PAUSE_MS = 45L
-    private const val MAX_QUERY_VARIANTS = 8
-    private const val METADATA_QUERY_LIMIT = 5
-    private const val DEEP_QUERY_LIMIT = 3
-    private const val DEEP_VIDEO_PAGES = 3
+    private const val EXHAUSTIVE_BACKGROUND_PAUSE_MS = 80L
+    private const val MAX_QUERY_VARIANTS = 9
+    private const val METADATA_QUERY_LIMIT = 3
+    private const val EXHAUSTIVE_METADATA_QUERY_LIMIT = 5
+    private const val WEB_QUERY_LIMIT = 3
+    private const val EXHAUSTIVE_WEB_QUERY_LIMIT = 4
+    private const val WEB_PAGES = 2
+    private const val EXHAUSTIVE_WEB_PAGES = 3
+    private const val DEEP_VIDEO_PAGES = 2
+    private const val EXHAUSTIVE_MUSIC_VIDEO_PAGES = 3
     private const val DEEP_MUSIC_PAGES = 2
+    private const val EXHAUSTIVE_MUSIC_PAGES = 3
     private const val UPLOADER_FALLBACK_TOP_RESULTS = 5
 }
