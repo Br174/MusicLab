@@ -19,17 +19,26 @@ internal object AiCoverFlowResolver {
         originalArtist: String,
         config: GeminiCoverVerificationConfig,
         sourceEvidence: AiCoverSourceEvidence? = null,
-    ): AiCoverDiscoveryResult {
-        val primary = GeminiAiCoverDiscovery.discoverInitial(
-            originalTitle = originalTitle,
-            originalArtist = originalArtist,
-            config = config,
-        )
-        val evidence = sourceEvidence ?: AiCoverSourceEvidence.fromMusicBrainz(
-            MusicBrainzCoverSource.lookup(originalTitle, originalArtist),
-        )
+    ): AiCoverDiscoveryResult = coroutineScope {
+        // LAB23: AI identity/discovery and structured evidence no longer wait for each other.
+        val primaryDeferred = async(Dispatchers.IO) {
+            GeminiAiCoverDiscovery.discoverInitial(
+                originalTitle = originalTitle,
+                originalArtist = originalArtist,
+                config = config,
+            )
+        }
+        val evidenceDeferred = async(Dispatchers.IO) {
+            sourceEvidence ?: AiCoverSourceEvidence.fromMusicBrainz(
+                runCatching { MusicBrainzCoverSource.lookup(originalTitle, originalArtist) }
+                    .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) },
+            )
+        }
+
+        val primary = primaryDeferred.await()
+        val evidence = evidenceDeferred.await()
         val seeds = musicBrainzSeeds(originalTitle, originalArtist, evidence)
-        return primary.copy(
+        primary.copy(
             versions = mergeCandidates(primary.versions, seeds),
         )
     }
