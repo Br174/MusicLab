@@ -214,7 +214,10 @@ async function discover(input, env, phase) {
   if (phase === 'initial') {
     if (input?.useMemory !== false && env.DB) {
       const cached = await cachedDiscovery(env.DB, title, artist, mode === 'cover' ? 5 : 6);
-      if (cached && (cached.original || cached.versions.length)) {
+      const hasUsefulCachedDiscovery = cached && (
+        mode === 'cover' ? cached.versions.length > 0 : Boolean(cached.original || cached.versions.length)
+      );
+      if (hasUsefulCachedDiscovery) {
         return { stato: 'pronto', fase: 'initial', provenienza: 'memoria', seed: { title, artist }, ...cached };
       }
     }
