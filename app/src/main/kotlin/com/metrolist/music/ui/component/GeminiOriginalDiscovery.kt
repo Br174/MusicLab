@@ -79,6 +79,7 @@ Titolo/video: ${currentTitle.trim()}
 Interprete/canale: ${currentArtist.trim().ifBlank { "sconosciuto" }}
 
 Stabilisci la COMPOSIZIONE canonica e chi è il vero INTERPRETE ORIGINALE della prima incisione/pubblicazione. Non confondere autore o compositore con interprete, e non assumere che l'artista corrente sia l'originale. Usa la ricerca Google per verificare i casi ambigui.
+Per le successive ricerche Originali valgono due ancore obbligatorie: titolo canonico completo come frase autonoma + interprete originale. Maiuscole, accenti e punteggiatura non contano; live, remix, feat., luogo, anno o alias possono essere aggiunti senza invalidare il titolo.
 
 In questo step NON servono crediti completi. Restituisci solo titolo canonico, interprete originale, anno della prima pubblicazione e album/singolo se noto. I crediti saranno caricati soltanto quando l'utente apre Dettagli.
 
@@ -115,6 +116,7 @@ Interprete originale: ${identity.originalArtists.joinToString(", ")}
 Anno originale: ${identity.year ?: "sconosciuto"}
 
 Siamo al giro ${round + 1}. Dobbiamo localizzare almeno 10 registrazioni/performance REALI della stessa composizione in cui compare l'interprete originale. Non devi inventare risultati: devi produrre QUERY DI RICERCA utili per YouTube Music e YouTube.
+Ogni strategia deve mantenere le due ancore: titolo canonico completo come frase autonoma + interprete originale. Sono ammesse aggiunte descrittive, ma non titoli diversi che contengono solo una parte del titolo canonico.
 
 Cerca strategie diverse: incisioni studio/remaster, album e singoli, live, TV/radio, sessioni, duetti/collaborazioni, acoustic/unplugged, remix ufficiali, anni/eventi noti. Se i giri precedenti hanno fallito, cambia strategia.
 
