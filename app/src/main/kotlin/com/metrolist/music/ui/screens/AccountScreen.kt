@@ -54,6 +54,7 @@ import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.db.entities.PodcastEntity
 import com.metrolist.music.ui.component.ChipsRow
+import com.metrolist.music.ui.component.currentGridCellMinSize
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.YouTubeGridItem
@@ -90,7 +91,7 @@ fun AccountScreen(
     val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
+        columns = GridCells.Adaptive(minSize = currentGridCellMinSize()),
         contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
