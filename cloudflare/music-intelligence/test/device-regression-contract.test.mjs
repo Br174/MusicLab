@@ -49,31 +49,22 @@ test('playback starts below two seconds while preserving a strong rebuffer reser
   );
 });
 
-test('Tutto coverage really includes every non-rejected Brain score including UNCERTAIN', () => {
-  assert.ok(coverage.includes('ALL(0, "Tutto")'), 'Tutto must not impose a hidden score floor');
+test('LAB25 Cover has no second coverage filter and keeps every selected-category result', () => {
+  assert.ok(!coverScreen.includes('selectedCoverageMode'));
+  assert.ok(!coverScreen.includes('AiCoverageSelector('));
+  assert.ok(!coverScreen.includes('AiCoverageFilter.visibleItems('));
   assert.ok(
-    compactCoverScreen.includes('val coverageVisibleResults = AiCoverageFilter.visibleItems( selectedTabResults, selectedCoverageMode,'),
-    'coverage must project the complete selected tab before status splitting',
+    compactCoverScreen.includes('val orderedCoverageResults = sortCoverResults( items = selectedTabResults,'),
+    'the full selected category must go directly to ordering',
   );
   assert.ok(
     compactCoverScreen.includes('val reviewResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }'),
-    'UNCERTAIN results must respect the selected coverage mode instead of bypassing it',
+    'UNCERTAIN results remain visible in their review section',
   );
-  assert.ok(
-    compactCoverScreen.includes('val confirmedResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }'),
-    'confirmed results must be derived from the same coverage projection',
-  );
-  assert.ok(
-    compactCoverScreen.includes('val selectedResults = orderedCoverageResults.filter { it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN && it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED }'),
-    'unconfirmed main results must be derived from the same coverage projection',
-  );
-  assert.ok(
-    coverScreen.includes('exhaustive = true'),
-    'Tutto must actively exhaust the playback locator for unresolved candidates',
-  );
+  assert.ok(coverScreen.includes('exhaustive = true'), 'deep unresolved lookup must remain automatic in background');
 });
 
-test('LAB23 fast title lane is additive and semantic-title safe', () => {
+test('LAB25 native MusicLab title lane is additive and semantic-title safe', () => {
   assert.ok(
     coverScreen.includes('MusicLabTitleSearch.fast('),
     'Cover must run the native title-only lane before background enrichment',
