@@ -102,14 +102,15 @@ import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalNavController
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.ArtworkSize
+import com.metrolist.music.constants.ArtworkSizeKey
 import com.metrolist.music.constants.CropAlbumArtKey
-import com.metrolist.music.constants.GridItemSize
-import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
-import com.metrolist.music.constants.SmallGridThumbnailHeight
+import com.metrolist.music.constants.ProtectedArtworkHeight
 import com.metrolist.music.constants.SwipeToSongKey
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.db.entities.Album
 import com.metrolist.music.db.entities.Artist
@@ -142,9 +143,12 @@ const val ActiveBoxAlpha = 0.6f
 
 @Composable
 fun currentGridThumbnailHeight(): Dp {
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
-    return if (gridItemSize == GridItemSize.BIG) GridThumbnailHeight else SmallGridThumbnailHeight
+    val artworkSize by rememberEnumPreference(ArtworkSizeKey, ArtworkSize.MEDIUM)
+    return artworkSize.thumbnailHeight
 }
+
+@Composable
+fun currentGridCellMinSize(): Dp = currentGridThumbnailHeight() + 24.dp
 
 private data class ArtistLink(
     val id: String?,
@@ -413,8 +417,9 @@ fun GridItem(
     thumbnailContent: @Composable BoxWithConstraintsScope.() -> Unit,
     thumbnailRatio: Float = 1f,
     fillMaxWidth: Boolean = false,
+    thumbnailHeightOverride: Dp? = null,
 ) {
-    val gridHeight = currentGridThumbnailHeight()
+    val gridHeight = thumbnailHeightOverride ?: currentGridThumbnailHeight()
     Column(
         modifier = if (fillMaxWidth) {
             modifier
@@ -459,6 +464,7 @@ fun GridItem(
     thumbnailContent: @Composable BoxWithConstraintsScope.() -> Unit,
     thumbnailRatio: Float = 1f,
     fillMaxWidth: Boolean = false,
+    thumbnailHeightOverride: Dp? = null,
 ) = GridItem(
     modifier = modifier,
     title = {
@@ -483,7 +489,8 @@ fun GridItem(
     },
     thumbnailContent = thumbnailContent,
     thumbnailRatio = thumbnailRatio,
-    fillMaxWidth = fillMaxWidth
+    fillMaxWidth = fillMaxWidth,
+    thumbnailHeightOverride = thumbnailHeightOverride,
 )
 
 @Composable
@@ -520,6 +527,7 @@ fun SongListItem(
     val artistNameAliases = LocalArtistNameAliases.current
     val navController = LocalNavController.current
     val swipeEnabled by rememberPreference(SwipeToSongKey, defaultValue = false)
+    val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, defaultValue = true)
 
     val content: @Composable () -> Unit = {
          ListItem(
@@ -567,7 +575,12 @@ fun SongListItem(
              modifier = modifier,
              isSelected = isSelected,
              isActive = isActive,
-             onTitleClick = { navController.navigate(SearchRoutes.titleResultRoute(song.song.title)) },
+             onTitleClick =
+                 if (titleTapSearchEnabled) {
+                     { navController.navigate(SearchRoutes.titleResultRoute(song.song.title)) }
+                 } else {
+                     null
+                 },
          )
      }
 
@@ -608,6 +621,7 @@ fun SongGridItem(
 ) = GridItem(
     title = {
         val navController = LocalNavController.current
+        val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, defaultValue = true)
         Text(
             text = song.song.title,
             style = MaterialTheme.typography.bodyLarge,
@@ -617,7 +631,13 @@ fun SongGridItem(
             modifier = Modifier
                 .basicMarquee()
                 .fillMaxWidth()
-                .clickable { navController.navigate(SearchRoutes.titleResultRoute(song.song.title)) }
+                .let { base ->
+                    if (titleTapSearchEnabled) {
+                        base.clickable { navController.navigate(SearchRoutes.titleResultRoute(song.song.title)) }
+                    } else {
+                        base
+                    }
+                }
         )
     },
     subtitle = {
@@ -888,6 +908,7 @@ fun AlbumGridItem(
         )
     },
     fillMaxWidth = fillMaxWidth,
+    thumbnailHeightOverride = ProtectedArtworkHeight,
     modifier = modifier
 )
 
@@ -1097,6 +1118,7 @@ fun MediaMetadataListItem(
 ) {
     val artistNameAliases = LocalArtistNameAliases.current
     val navController = LocalNavController.current
+    val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, defaultValue = true)
     ListItem(
         title = mediaMetadata.title,
         subtitle = {
@@ -1136,7 +1158,12 @@ fun MediaMetadataListItem(
         trailingContent = trailingContent,
         modifier = modifier,
         isActive = isActive,
-        onTitleClick = { navController.navigate(SearchRoutes.titleResultRoute(mediaMetadata.title)) },
+        onTitleClick =
+            if (titleTapSearchEnabled) {
+                { navController.navigate(SearchRoutes.titleResultRoute(mediaMetadata.title)) }
+            } else {
+                null
+            },
     )
 }
 
@@ -1176,6 +1203,7 @@ fun YouTubeListItem(
     },
 ) {
     val swipeEnabled by rememberPreference(SwipeToSongKey, defaultValue = false)
+    val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, defaultValue = true)
     val navController = LocalNavController.current
     val artistNameAliases = LocalArtistNameAliases.current
     val artistSeparator = " ${stringResource(R.string.and)} "
@@ -1240,7 +1268,7 @@ fun YouTubeListItem(
             modifier = modifier,
             isActive = isActive,
             onTitleClick =
-                if (item is SongItem) {
+                if (item is SongItem && titleTapSearchEnabled) {
                     { navController.navigate(SearchRoutes.titleResultRoute(item.title)) }
                 } else {
                     null
@@ -1297,6 +1325,7 @@ fun YouTubeGridItem(
 ) = GridItem(
     title = {
         val navController = LocalNavController.current
+        val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, defaultValue = true)
         Text(
             text = if (item is ArtistItem) {
                 ArtistNameAliases.resolve(LocalArtistNameAliases.current, item.id, item.title)
@@ -1312,7 +1341,7 @@ fun YouTubeGridItem(
                 .basicMarquee()
                 .fillMaxWidth()
                 .let { base ->
-                    if (item is SongItem) {
+                    if (item is SongItem && titleTapSearchEnabled) {
                         base.clickable { navController.navigate(SearchRoutes.titleResultRoute(item.title)) }
                     } else {
                         base
@@ -1383,6 +1412,7 @@ fun YouTubeGridItem(
     },
     thumbnailRatio = thumbnailRatio,
     fillMaxWidth = fillMaxWidth,
+    thumbnailHeightOverride = if (item is AlbumItem) ProtectedArtworkHeight else null,
     modifier = modifier
 )
 
@@ -1399,13 +1429,19 @@ fun LocalSongsGrid(
 ) = GridItem(
     title = {
         val navController = LocalNavController.current
+        val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, defaultValue = true)
         Text(
             title,
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.clickable { navController.navigate(SearchRoutes.titleResultRoute(title)) },
+            modifier =
+                if (titleTapSearchEnabled) {
+                    Modifier.clickable { navController.navigate(SearchRoutes.titleResultRoute(title)) }
+                } else {
+                    Modifier
+                },
         )
     },
     subtitle = {
@@ -1519,6 +1555,7 @@ fun LocalAlbumsGrid(
         )
     },
     fillMaxWidth = fillMaxWidth,
+    thumbnailHeightOverride = ProtectedArtworkHeight,
     modifier = modifier
 )
 
