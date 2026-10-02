@@ -100,6 +100,9 @@ private class AiCoverSession {
     var initialPlayableCount: Int = 0
     var youtubeMusicHits: Int = 0
     var youtubeHits: Int = 0
+    var spotifyAvailable: Boolean = false
+    var spotifyDiscovered: Int = 0
+    var spotifyEnriched: Int = 0
 
     fun invalidate() {
         initialLoaded = false
@@ -113,6 +116,9 @@ private class AiCoverSession {
         initialPlayableCount = 0
         youtubeMusicHits = 0
         youtubeHits = 0
+        spotifyAvailable = false
+        spotifyDiscovered = 0
+        spotifyEnriched = 0
     }
 }
 
@@ -197,6 +203,9 @@ internal fun CoverSearchScreen(
     var initialPlayableCount by remember(sessionKey) { mutableStateOf(session.initialPlayableCount) }
     var youtubeMusicHits by remember(sessionKey) { mutableStateOf(session.youtubeMusicHits) }
     var youtubeHits by remember(sessionKey) { mutableStateOf(session.youtubeHits) }
+    var spotifyAvailable by remember(sessionKey) { mutableStateOf(session.spotifyAvailable) }
+    var spotifyDiscovered by remember(sessionKey) { mutableStateOf(session.spotifyDiscovered) }
+    var spotifyEnriched by remember(sessionKey) { mutableStateOf(session.spotifyEnriched) }
 
     var startingSong by remember(sessionKey) { mutableStateOf<SongItem?>(null) }
     var startingYear by remember(sessionKey) { mutableStateOf<Int?>(null) }
@@ -357,6 +366,9 @@ internal fun CoverSearchScreen(
             initialPlayableCount = session.initialPlayableCount
             youtubeMusicHits = session.youtubeMusicHits
             youtubeHits = session.youtubeHits
+            spotifyAvailable = session.spotifyAvailable
+            spotifyDiscovered = session.spotifyDiscovered
+            spotifyEnriched = session.spotifyEnriched
         }
 
         if (session.backgroundComplete) {
@@ -684,6 +696,14 @@ internal fun CoverSearchScreen(
                     Text("Candidati iniziali: $initialCandidateCount", style = MaterialTheme.typography.bodySmall)
                     Text("Riproducibili mostrati subito: $initialPlayableCount", style = MaterialTheme.typography.bodySmall)
                     Text("Candidati aggiuntivi: $expandedCandidateCount", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (spotifyAvailable) {
+                            "Spotify assist: +$spotifyDiscovered nuovi · $spotifyEnriched arricchiti"
+                        } else {
+                            "Spotify assist: non disponibile/non collegato"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     Text("Ammessi al locator: $locatorEligibleCount", style = MaterialTheme.typography.bodySmall)
                     Text("Respinti per titolo diverso: $titleMismatchCount", style = MaterialTheme.typography.bodySmall)
                     Text("Da verificare per evidenza: $waitingEvidenceCount", style = MaterialTheme.typography.bodySmall)
