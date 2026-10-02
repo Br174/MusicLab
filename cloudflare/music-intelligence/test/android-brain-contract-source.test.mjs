@@ -179,3 +179,23 @@ test('Originali preserves Brain metadata, separates review and filters before pa
   const discoveryKeys = originalScreen.slice(discoveryEffectStart, discoveryEffectBody);
   assert.ok(!discoveryKeys.includes('selectedOriginalCoverageMode'), 'changing Originali coverage must not relaunch AI discovery');
 });
+
+
+test('Cover and Originali keep independent resolver pipelines under the same engine', () => {
+  assert.ok(
+    coverScreen.includes('AiCoverFlowResolver.discoverInitial('),
+    'Cover must enter through AiCoverFlowResolver',
+  );
+  assert.ok(
+    originalScreen.includes('OriginalVersionSearchEngine.identifyOriginal('),
+    'Originali must enter through OriginalVersionSearchEngine',
+  );
+  assert.ok(
+    !originalScreen.includes('AiCoverFlowResolver.discoverInitial('),
+    'Originali must never reuse the Cover discovery pipeline',
+  );
+  assert.ok(
+    !coverScreen.includes('OriginalVersionSearchEngine.findExpandedVersions('),
+    'Cover must never reuse the Originali expansion pipeline',
+  );
+});
