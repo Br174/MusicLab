@@ -112,9 +112,8 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.AutoRadioQueueKey
-import com.metrolist.music.constants.GridItemSize
-import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
+import com.metrolist.music.constants.ProtectedArtworkHeight
 import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
@@ -178,7 +177,6 @@ import com.metrolist.music.utils.joinByBullet
 import com.metrolist.music.utils.joinToArtistString
 import com.metrolist.music.utils.ArtistNameAliases
 import com.metrolist.music.utils.makeTimeString
-import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.utils.stripSpotifyPrefix
 import com.metrolist.music.viewmodels.CommunityPlaylistItem
@@ -807,8 +805,8 @@ fun HomeScreen(
     val (showPlayRandomButton) = rememberPreference(ShowPlayRandomButtonKey, defaultValue = true)
 
     val lazylistState = rememberLazyListState()
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
-    val currentGridHeight = if (gridItemSize == GridItemSize.BIG) GridThumbnailHeight else SmallGridThumbnailHeight
+    // LAB26: Home is intentionally protected from the global artwork-size preference.
+    val currentGridHeight = ProtectedArtworkHeight
     val backStackEntry by navController.currentBackStackEntryAsState()
     val scrollToTop =
         backStackEntry?.savedStateHandle?.getStateFlow("scrollToTop", false)?.collectAsStateWithLifecycle()
@@ -869,6 +867,7 @@ fun HomeScreen(
             is Song -> {
                 SongGridItem(
                     song = it,
+                    thumbnailHeightOverride = ProtectedArtworkHeight,
                     modifier =
                         Modifier
                             .fillMaxWidth()
@@ -937,6 +936,7 @@ fun HomeScreen(
             is Artist -> {
                 ArtistGridItem(
                     artist = it,
+                    thumbnailHeightOverride = ProtectedArtworkHeight,
                     modifier =
                         Modifier
                             .fillMaxWidth()
@@ -967,6 +967,7 @@ fun HomeScreen(
     val ytGridItem: @Composable (YTItem) -> Unit = { item ->
         YouTubeGridItem(
             item = item,
+            thumbnailHeightOverride = ProtectedArtworkHeight,
             isActive = item.id in listOf(mediaMetadata?.album?.id, mediaMetadata?.id),
             isPlaying = isPlaying,
             coroutineScope = scope,
