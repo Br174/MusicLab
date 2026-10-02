@@ -81,11 +81,17 @@ private const val MIN_COVER_PLAYABLE_TARGET = 50
 private const val MAX_COVER_RECOVERY_ROUNDS = 6
 
 private enum class AiCoverTab {
+    ALL,
     COVER,
     LIVE,
     REMIX,
     FOREIGN,
-    ALL,
+}
+
+private enum class CoverSortMode {
+    QUALITY,
+    YEAR_ASC,
+    YEAR_DESC,
 }
 
 private class AiCoverSession {
@@ -186,9 +192,10 @@ internal fun CoverSearchScreen(
         null
     }
 
-    var selectedTab by remember(sessionKey) { mutableStateOf(AiCoverTab.COVER) }
+    var selectedTab by remember(sessionKey) { mutableStateOf(AiCoverTab.ALL) }
     var selectedCoverageMode by remember(sessionKey) { mutableStateOf(AiCoverageMode.DEFAULT) }
-    var visibleResultCount by remember(sessionKey, selectedTab, selectedCoverageMode) { mutableIntStateOf(COVER_PAGE_SIZE) }
+    var selectedSortMode by remember(sessionKey) { mutableStateOf(CoverSortMode.QUALITY) }
+    var visibleResultCount by remember(sessionKey, selectedTab, selectedCoverageMode, selectedSortMode) { mutableIntStateOf(COVER_PAGE_SIZE) }
     val listState = rememberLazyListState()
     var initialLoading by remember(sessionKey) { mutableStateOf(!session.initialLoaded) }
     var backgroundLoading by remember(sessionKey) { mutableStateOf(session.initialLoaded && !session.backgroundComplete) }
