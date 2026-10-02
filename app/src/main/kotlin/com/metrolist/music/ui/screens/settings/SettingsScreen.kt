@@ -48,6 +48,7 @@ import com.metrolist.music.constants.MusicAiForeignEnabledKey
 import com.metrolist.music.constants.MusicAiLiveEnabledKey
 import com.metrolist.music.constants.MusicAiOriginalsEnabledKey
 import com.metrolist.music.constants.MusicAiRemixEnabledKey
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
@@ -80,6 +81,7 @@ fun SettingsScreen(
     val (musicAiForeign, setMusicAiForeign) = rememberPreference(MusicAiForeignEnabledKey, true)
     val (musicAiMemory, setMusicAiMemory) = rememberPreference(MusicAiCloudMemoryEnabledKey, true)
     val (musicAiBackground, setMusicAiBackground) = rememberPreference(MusicAiBackgroundMetadataEnabledKey, true)
+    val (titleTapSearchEnabled, setTitleTapSearchEnabled) = rememberPreference(TitleTapSearchEnabledKey, true)
 
     val hasAndroidAuto = remember {
         try {
@@ -103,7 +105,7 @@ fun SettingsScreen(
                             ArtworkSize.SMALL -> "Piccola"
                             ArtworkSize.MEDIUM -> "Media"
                             ArtworkSize.LARGE -> "Grande"
-                            ArtworkSize.VERY_LARGE -> "Molto grande"
+                            ArtworkSize.VERY_LARGE -> "Grandissima"
                         }
                         TextButton(
                             onClick = {
@@ -133,7 +135,7 @@ fun SettingsScreen(
         ArtworkSize.SMALL -> "Piccola"
         ArtworkSize.MEDIUM -> "Media"
         ArtworkSize.LARGE -> "Grande"
-        ArtworkSize.VERY_LARGE -> "Molto grande"
+        ArtworkSize.VERY_LARGE -> "Grandissima"
     }
 
     Column(
@@ -169,6 +171,26 @@ fun SettingsScreen(
                         )
                     },
                     onClick = { showArtworkSizeDialog.value = true },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.search),
+                    title = { Text("Ricerca al tocco del titolo") },
+                    description = {
+                        Text(
+                            if (titleTapSearchEnabled) {
+                                "Toccando il titolo di un brano apre la ricerca MusicLab"
+                            } else {
+                                "Titoli non cliccabili: la ricerca automatica Cover resta attiva"
+                            },
+                        )
+                    },
+                    onClick = { setTitleTapSearchEnabled(!titleTapSearchEnabled) },
+                    trailingContent = {
+                        Switch(
+                            checked = titleTapSearchEnabled,
+                            onCheckedChange = setTitleTapSearchEnabled,
+                        )
+                    },
                 )
             )
         )
