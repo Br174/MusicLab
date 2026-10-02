@@ -1,4 +1,5 @@
 name: LAB20 UAB Delivery Gate
+# gate-revision: title-meaning-evidence-v2
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
