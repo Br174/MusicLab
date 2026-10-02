@@ -43,6 +43,31 @@ test('Two-Key rule does not promote title + album only', () => {
   assert.equal(result.admitted, false);
 });
 
+test('foreign adaptation admits one strong independent same-work evidence', () => {
+  const result = admitCoverCandidate({
+    originalArtist: 'Jimmy Fontana',
+    candidateArtist: 'Foreign Artist',
+    category: 'straniera',
+    signals: [
+      { kind: 'composer_match', strength: 'strong' },
+    ],
+  });
+  assert.equal(result.admitted, true);
+  assert.equal(result.reason, 'foreign_one_strong_evidence');
+});
+
+test('same-language cover still needs title plus another evidence', () => {
+  const result = admitCoverCandidate({
+    originalArtist: 'Jimmy Fontana',
+    candidateArtist: 'Other Artist',
+    category: 'cover',
+    signals: [
+      { kind: 'composer_match', strength: 'strong' },
+    ],
+  });
+  assert.equal(result.admitted, false);
+});
+
 test('cover rule rejects same main performer from cover lane', () => {
   const result = admitCoverCandidate({
     originalArtist: 'Jimmy Fontana',
