@@ -1,8 +1,8 @@
 package com.metrolist.music.ui.component
 
-import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class AiCoverFlowResolverTest {
     @Test
