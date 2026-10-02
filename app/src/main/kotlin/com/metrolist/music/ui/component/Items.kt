@@ -607,13 +607,17 @@ fun SongGridItem(
     fillMaxWidth: Boolean = false,
 ) = GridItem(
     title = {
+        val navController = LocalNavController.current
         Text(
             text = song.song.title,
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.basicMarquee().fillMaxWidth()
+            modifier = Modifier
+                .basicMarquee()
+                .fillMaxWidth()
+                .clickable { navController.navigate(SearchRoutes.titleResultRoute(song.song.title)) }
         )
     },
     subtitle = {
@@ -1292,6 +1296,7 @@ fun YouTubeGridItem(
     onPlayClick: (() -> Unit)? = null,
 ) = GridItem(
     title = {
+        val navController = LocalNavController.current
         Text(
             text = if (item is ArtistItem) {
                 ArtistNameAliases.resolve(LocalArtistNameAliases.current, item.id, item.title)
@@ -1303,7 +1308,16 @@ fun YouTubeGridItem(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = if (item is ArtistItem) TextAlign.Center else TextAlign.Start,
-            modifier = Modifier.basicMarquee().fillMaxWidth()
+            modifier = Modifier
+                .basicMarquee()
+                .fillMaxWidth()
+                .let { base ->
+                    if (item is SongItem) {
+                        base.clickable { navController.navigate(SearchRoutes.titleResultRoute(item.title)) }
+                    } else {
+                        base
+                    }
+                }
         )
     },
      subtitle = {
@@ -1383,7 +1397,17 @@ fun LocalSongsGrid(
     fillMaxWidth: Boolean = false,
     modifier: Modifier = Modifier
 ) = GridItem(
-    title = { Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+    title = {
+        val navController = LocalNavController.current
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable { navController.navigate(SearchRoutes.titleResultRoute(title)) },
+        )
+    },
     subtitle = {
         Text(
             text = subtitle,
