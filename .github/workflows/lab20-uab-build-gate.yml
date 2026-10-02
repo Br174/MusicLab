@@ -7,7 +7,7 @@ on:
     branches:
       - uab-build/musiclab-deep-locator-21
     paths:
-      - '.github/workflows/lab21-uab-build-gate.yml'
+      - '.github/workflows/lab20-uab-build-gate.yml'
 
 permissions:
   contents: read
@@ -62,13 +62,13 @@ jobs:
           print('D1 migration chain OK:', ', '.join(sorted(required)))
           PY
 
-      - name: Verify deployed LAB21 backend
+      - name: Verify deployed LAB20 backend dependency
         shell: bash
         run: |
           set -euo pipefail
           WORKER_URL="https://musiclab-music-intelligence.brunoverlezza.workers.dev"
           state="$(curl --fail-with-body --silent --show-error "$WORKER_URL/stato")"
-          jq -e '.stato == "ok" and .memoria == true and .ai == true and .versione == "1.3.1-lab21"' <<<"$state" >/dev/null
+          jq -e '.stato == "ok" and .memoria == true and .ai == true and .versione == "1.3.1-lab20"' <<<"$state" >/dev/null
           plan="$(curl --fail-with-body --silent --show-error \
             -H 'content-type: application/json' \
             -d '{"title":"Il mondo","artist":"Jimmy Fontana","mode":"cover"}' \
