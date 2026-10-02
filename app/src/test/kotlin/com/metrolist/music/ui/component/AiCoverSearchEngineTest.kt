@@ -36,6 +36,22 @@ class AiCoverSearchEngineTest {
     }
 
     @Test
+    fun `locator accepts a trailing translated alias in brackets but not a different Italian title`() {
+        assertTrue(
+            AiCoverSearchEngine.isPlaybackTitleCompatible(
+                candidate("Bravi ragazzi", artist = "Miguel Bosé"),
+                "Bravi Ragazzi (Bravo Muchachos)",
+            ),
+        )
+        assertFalse(
+            AiCoverSearchEngine.isPlaybackTitleCompatible(
+                candidate("Il mondo"),
+                "Il mondo che vorrei",
+            ),
+        )
+    }
+
+    @Test
     fun `foreign adaptation locates its own translated candidate title exactly`() {
         assertTrue(
             AiCoverSearchEngine.isPlaybackTitleCompatible(
