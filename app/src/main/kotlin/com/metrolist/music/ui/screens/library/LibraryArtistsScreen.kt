@@ -64,6 +64,7 @@ import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.constants.LibraryViewType
 import com.metrolist.music.constants.YtmSyncKey
 import com.metrolist.music.ui.component.ChipsRow
+import com.metrolist.music.ui.component.currentGridCellMinSize
 import com.metrolist.music.ui.component.LibraryArtistGridItem
 import com.metrolist.music.ui.component.LibraryArtistListItem
 import com.metrolist.music.ui.component.LibrarySearchEmptyPlaceholder
@@ -291,7 +292,7 @@ fun LibraryArtistsScreen(
                     state = lazyGridState,
                     columns =
                     GridCells.Adaptive(
-                        minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp,
+                        minSize = currentGridCellMinSize(),
                     ),
                     contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                 ) {
