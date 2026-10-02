@@ -3,9 +3,9 @@ package com.metrolist.music.ui.component
 /**
  * User-facing breadth of MusicLab Brain results.
  *
- * This never launches a new search: it only changes which already-discovered
- * candidates are visible. Thresholds mirror the cloud Brain contract except
- * ALL, which is intentionally a zero-floor user view of every non-rejected item.
+ * The filter itself only decides visibility. In Cover LAB22, selecting ALL also
+ * signals the screen to run the exhaustive playback locator for every still-unresolved
+ * non-rejected AI candidate. Thresholds mirror the cloud Brain contract; ALL has zero floor.
  */
 internal enum class AiCoverageMode(
     val minimumScore: Int,
