@@ -1,5 +1,5 @@
 name: LAB22 UAB Delivery Gate
-# gate-revision: cover-web-locator-v1
+# gate-revision: cover-web-locator-v2-final
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
