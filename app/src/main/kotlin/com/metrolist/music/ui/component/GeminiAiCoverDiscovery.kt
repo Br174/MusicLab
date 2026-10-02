@@ -147,7 +147,10 @@ Interprete/canale: ${originalArtist.trim().ifBlank { "sconosciuto" }}
 Prima stabilisci qual è la COMPOSIZIONE e chi l'ha INCISA/INTERPRETATA ORIGINARIAMENTE. Se la traccia di partenza è una cover, live, duetto o video TV, NON usare automaticamente quel cantante come originale. Distingui interprete originale da autore/compositore. Usa la ricerca Google quando serve a evitare un'identità sbagliata.
 
 STEP 2 — PRIMO GRUPPO.
-Dopo l'identità, restituisci fino a $INITIAL_LIMIT cover IN STUDIO reali della stessa composizione, eseguite da altri artisti. In questa fase servono solo titolo, artista, categoria, lingua, anno e album se noto. NON spendere spazio sui crediti completi: verranno richiesti solo quando l'utente apre i dettagli.
+Dopo l'identità, restituisci fino a $INITIAL_LIMIT cover IN STUDIO reali della stessa composizione, eseguite da altri artisti.
+Per una cover nella stessa lingua il titolo canonico completo deve restare una frase autonoma: maiuscole, accenti e punteggiatura non contano; testo descrittivo o alias separato può essere aggiunto, ma un titolo più lungo con significato diverso NON è la stessa canzone.
+Serve almeno una evidenza della stessa composizione (autore/compositore/work relation/fonte strutturata). Per una versione straniera il titolo può essere diverso e basta una evidenza forte della stessa composizione.
+In questa fase servono solo titolo, artista, categoria, lingua, anno e album se noto. NON spendere spazio sui crediti completi: verranno richiesti solo quando l'utente apre i dettagli.
 Escludi karaoke, reaction, tutorial, backing track, mashup e medley.
 
 Rispondi SOLO JSON:
@@ -334,7 +337,9 @@ Classificazione:
 - cover = incisione IN STUDIO da un interprete diverso dall'originale nella lingua originale;
 - live = concerto, TV, radio, sessione, festival o performance non da studio;
 - remix = remix/rework/mix attribuito;
-- straniera = incisione IN STUDIO in altra lingua, anche con titolo tradotto.
+- straniera = incisione IN STUDIO in altra lingua, anche con titolo tradotto o completamente diverso.
+Regola stessa lingua: il titolo canonico completo deve essere presente come frase autonoma e serve almeno una evidenza della stessa composizione. "Il mondo" NON equivale a "Il mondo che vorrei".
+Regola straniera: il titolo può cambiare completamente; una sola evidenza forte della stessa composizione è sufficiente.
 Precedenza: remix > live > straniera > cover.
 Escludi karaoke, reaction, tutorial, backing track, mashup, medley e tribute anonimi.
 Non inventare per raggiungere il numero.
