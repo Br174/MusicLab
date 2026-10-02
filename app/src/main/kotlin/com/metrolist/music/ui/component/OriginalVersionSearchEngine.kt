@@ -32,6 +32,7 @@ internal data class OriginalVersionDiagnostics(
     val liveFound: Int = 0,
     val withOthersFound: Int = 0,
     val remixFound: Int = 0,
+    val spotifyHintsFound: Int = 0,
 )
 
 internal data class OriginalVersionSearchResult(
@@ -122,7 +123,6 @@ internal object OriginalVersionSearchEngine {
         music.results.forEach { mergeInto(merged, it) }
         includeCurrentIfOriginal(currentYouTubeId, targetTitle, originalArtists, merged)
 
-        // YTM viene esaurito per primo; YouTube normale entra solo se il primo step è corto.
         val video = if (merged.size < INITIAL_RESULTS_LIMIT) {
             searchFirstPage(query, targetTitle, originalArtists, YouTube.SearchFilter.FILTER_VIDEO, "YouTube")
                 .also { outcome -> outcome.results.forEach { mergeInto(merged, it) } }
@@ -163,17 +163,91 @@ internal object OriginalVersionSearchEngine {
     ): OriginalVersionSearchResult = coroutineScope {
         val targetTitle = exactBaseTitle(identity.title)
         val originalArtists = canonicalOriginalArtists(identity)
+        val leadArtist = identity.originalArtists.firstOrNull().orEmpty()
         if (targetTitle.isBlank() || originalArtists.isEmpty()) return@coroutineScope seed
 
         val merged = linkedMapOf<String, CoverHubResult>()
         seed.original?.let { mergeInto(merged, it) }
         seed.versions.forEach { mergeInto(merged, it) }
 
-        val usedQueries = defaultVersionQueries(identity).toMutableList()
-        var musicOutcome = searchAiArtistVersions(
-            identity, targetTitle, originalArtists, YouTube.SearchFilter.FILTER_SONG, "YouTube Music", usedQueries,
-        )
-        musicOutcome.results.forEach { mergeInto(merged, it) }
+        val memoryCandidates = if (
+            geminiConfig != null &&
+            geminiConfig.cloudEndpoint.isNotBlank() &&
+            geminiConfig.useCloudMemory &&
+            leadArtist.isNotBlank()
+        ) {
+            runCatching {
+                CloudMusicDiscovery.discoverMemory(
+                    title = identity.title,
+                    artist = leadArtist,
+                    config = geminiConfig,
+                    mode = "originals",
+                    limit = ORIGINAL_MEMORY_QUERY_LIMIT,
+                )
+            }.getOrNull()?.versions.orEmpty().distinctBy { it.stableKey }
+        } else {
+            emptyList()
+        }
+
+        val memoryQueries = memoryCandidates
+            .map { candidate -> "${candidate.title} ${candidate.artist}".trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        // LAB23: Spotify may contribute additional known recordings/metadata, but it is
+        // never a veto. Failure or logout simply produces an empty hint list.
+        val spotifyHints = runCatching {
+            SpotifyMusicAssist.originalHints(
+                title = identity.title,
+                originalArtists = identity.originalArtists,
+            )
+        }.getOrDefault(emptyList())
+        val spotifyQueries = spotifyHints
+            .map { it.query }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val usedQueries = (memoryQueries + spotifyQueries).distinct().toMutableList()
+        var musicOutcome = OriginalArtistSearchOutcome(emptyList(), 0, OriginalSearchStageStatus.NOT_RUN)
+
+        if (spotifyQueries.isNotEmpty()) {
+            val spotifyMusic = searchAiArtistVersions(
+                identity,
+                targetTitle,
+                originalArtists,
+                YouTube.SearchFilter.FILTER_SONG,
+                "YouTube Music · Spotify assist",
+                spotifyQueries,
+            )
+            spotifyMusic.results.forEach { mergeInto(merged, it) }
+            musicOutcome = mergeOutcomes(musicOutcome, spotifyMusic)
+        }
+
+        if (memoryCandidates.isNotEmpty()) {
+            val memoryMusic = searchRememberedOriginalVersions(
+                candidates = memoryCandidates,
+                originalArtists = originalArtists,
+                filter = YouTube.SearchFilter.FILTER_SONG,
+                source = "YouTube Music · memoria MusicLab",
+            )
+            memoryMusic.results.forEach { mergeInto(merged, it) }
+            musicOutcome = mergeOutcomes(musicOutcome, memoryMusic)
+        }
+
+        if (merged.size < MIN_ORIGINAL_PLAYABLE_TARGET) {
+            val genericQueries = defaultVersionQueries(identity).filterNot { it in usedQueries }
+            usedQueries += genericQueries
+            val genericMusic = searchAiArtistVersions(
+                identity,
+                targetTitle,
+                originalArtists,
+                YouTube.SearchFilter.FILTER_SONG,
+                "YouTube Music",
+                genericQueries,
+            )
+            genericMusic.results.forEach { mergeInto(merged, it) }
+            musicOutcome = mergeOutcomes(musicOutcome, genericMusic)
+        }
 
         var videoOutcome = OriginalArtistSearchOutcome(emptyList(), 0, OriginalSearchStageStatus.NOT_RUN)
         if (merged.size < MIN_ORIGINAL_PLAYABLE_TARGET) {
@@ -183,8 +257,6 @@ internal object OriginalVersionSearchEngine {
             videoOutcome.results.forEach { mergeInto(merged, it) }
         }
 
-        // AI self-interrogation: if the real playable count is still short, ask Gemini for
-        // a different search plan and execute it step by step, always YTM before YouTube.
         var noProgressPasses = 0
         for (round in 0 until MAX_AI_SEARCH_ROUNDS) {
             if (merged.size >= MIN_ORIGINAL_PLAYABLE_TARGET || noProgressPasses >= 2) break
@@ -236,6 +308,7 @@ internal object OriginalVersionSearchEngine {
                 finalVersions = alternatives.size + if (original != null) 1 else 0,
                 initialVisible = seed.diagnostics.initialVisible,
                 backgroundComplete = true,
+                spotifyHintsFound = spotifyHints.size,
             ),
         )
     }
@@ -273,6 +346,51 @@ internal object OriginalVersionSearchEngine {
             "${identity.title} $leadArtist official",
             "${identity.title} $leadArtist performance",
         ).filter { leadArtist.isNotBlank() }.distinct()
+    }
+
+    private suspend fun searchRememberedOriginalVersions(
+        candidates: List<AiCoverCandidate>,
+        originalArtists: Set<String>,
+        filter: YouTube.SearchFilter,
+        source: String,
+    ): OriginalArtistSearchOutcome = coroutineScope {
+        if (candidates.isEmpty() || originalArtists.isEmpty()) {
+            return@coroutineScope OriginalArtistSearchOutcome(emptyList(), 0, OriginalSearchStageStatus.NOT_RUN)
+        }
+
+        val queryOutcomes = mutableListOf<QueryOutcome>()
+        val batches = candidates.distinctBy { it.stableKey }.chunked(2)
+        for ((batchIndex, batch) in batches.withIndex()) {
+            val outcomes = batch.map { candidate ->
+                async(Dispatchers.IO) {
+                    val outcome = searchQueryPages(
+                        query = "${candidate.title} ${candidate.artist}".trim(),
+                        targetTitle = exactBaseTitle(candidate.title),
+                        originalArtists = originalArtists,
+                        filter = filter,
+                        source = source,
+                    )
+                    outcome.copy(
+                        results = outcome.results.map { result -> result.copy(brainCandidate = candidate) },
+                    )
+                }
+            }.awaitAll()
+            queryOutcomes += outcomes
+            if (batchIndex < batches.lastIndex) delay(BACKGROUND_BATCH_PAUSE_MS)
+        }
+
+        val merged = linkedMapOf<String, CoverHubResult>()
+        queryOutcomes.flatMap { it.results }.forEach { mergeInto(merged, it) }
+        val pages = queryOutcomes.sumOf { it.pages }
+        val anyFailure = queryOutcomes.any { it.failed }
+        val anySuccess = queryOutcomes.any { it.succeeded }
+        val status = when {
+            merged.isNotEmpty() -> OriginalSearchStageStatus.OK
+            anyFailure -> OriginalSearchStageStatus.ERROR
+            anySuccess -> OriginalSearchStageStatus.NO_RESULTS
+            else -> OriginalSearchStageStatus.NOT_RUN
+        }
+        OriginalArtistSearchOutcome(merged.values.take(MAX_RESULTS_PER_SOURCE), pages, status)
     }
 
     private suspend fun searchAiArtistVersions(
@@ -481,16 +599,23 @@ internal object OriginalVersionSearchEngine {
         return hasAdditionalArtist || WITH_OTHERS_REGEX.containsMatchIn(song.title.lowercase())
     }
 
-    private fun matchesAiTitle(value: String, targetTitle: String, originalArtists: Set<String>): Boolean {
-        val candidate = exactBaseTitle(value)
-        if (candidate == targetTitle) return true
-        if (originalArtists.any { candidate == "$it $targetTitle" || candidate == "$targetTitle $it" }) return true
-        if (!containsTokenPhrase(candidate, targetTitle)) return false
-        if (originalArtists.any { containsTokenPhrase(candidate, it) }) return true
-        val residual = candidate.replace(targetTitle, " ").trim().replace(Regex("\\s+"), " ")
-        if (residual.isBlank()) return true
-        return VERSION_MARKER_REGEX.containsMatchIn(residual) || YEAR_IN_TEXT_REGEX.containsMatchIn(residual) || CONTEXT_MARKER_REGEX.containsMatchIn(residual)
-    }
+    internal fun isOriginalTitleCompatible(
+        value: String,
+        targetTitle: String,
+        originalArtists: Set<String> = emptySet(),
+    ): Boolean =
+        TitleMeaningResolver.matchesBaseTitle(
+            targetTitle = targetTitle,
+            value = value,
+            artistAliases = originalArtists,
+        )
+
+    private fun matchesAiTitle(value: String, targetTitle: String, originalArtists: Set<String>): Boolean =
+        isOriginalTitleCompatible(
+            value = value,
+            targetTitle = targetTitle,
+            originalArtists = originalArtists,
+        )
 
     private fun containsTokenPhrase(value: String, phrase: String): Boolean =
         value.isNotBlank() && phrase.isNotBlank() && (value == phrase || value.startsWith("$phrase ") || value.endsWith(" $phrase") || value.contains(" $phrase "))
@@ -505,6 +630,7 @@ internal object OriginalVersionSearchEngine {
             source = sources,
             confirmed = previous.confirmed || candidate.confirmed,
             score = maxOf(previous.score, candidate.score),
+            brainCandidate = previous.brainCandidate ?: candidate.brainCandidate,
         )
     }
 
@@ -564,6 +690,7 @@ internal object OriginalVersionSearchEngine {
 
     private const val INITIAL_RESULTS_LIMIT = 10
     private const val MIN_ORIGINAL_PLAYABLE_TARGET = 10
+    private const val ORIGINAL_MEMORY_QUERY_LIMIT = 80
     private const val MAX_AI_SEARCH_ROUNDS = 3
     private const val MAX_PAGES_PER_QUERY = 5
     private const val MAX_RESULTS_PER_QUERY = 80

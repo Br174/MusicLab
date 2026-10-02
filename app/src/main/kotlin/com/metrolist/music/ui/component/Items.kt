@@ -124,6 +124,7 @@ import com.metrolist.music.utils.joinByBullet
 import com.metrolist.music.utils.joinToArtistString
 import com.metrolist.music.utils.makeTimeString
 import com.metrolist.music.utils.ArtistNameAliases
+import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.utils.reportException
@@ -258,6 +259,7 @@ inline fun ListItem(
     isSelected: Boolean? = false,
     isActive: Boolean = false,
     isAvailable: Boolean = true,
+    noinline onTitleClick: (() -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -320,7 +322,8 @@ inline fun ListItem(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (onTitleClick != null) Modifier.clickable(onClick = onTitleClick) else Modifier,
             )
 
             if (subtitle != null) {
@@ -344,6 +347,7 @@ fun ListItem(
     trailingContent: @Composable RowScope.() -> Unit = {},
     isSelected: Boolean? = false,
     isActive: Boolean = false,
+    onTitleClick: (() -> Unit)? = null,
 ) = ListItem(
     title = title,
     subtitle = {
@@ -362,7 +366,8 @@ fun ListItem(
     trailingContent = trailingContent,
     modifier = modifier,
     isSelected = isSelected,
-    isActive = isActive
+    isActive = isActive,
+    onTitleClick = onTitleClick,
 )
 
 @Composable
@@ -375,6 +380,7 @@ fun ListItem(
     trailingContent: @Composable RowScope.() -> Unit = {},
     isSelected: Boolean? = false,
     isActive: Boolean = false,
+    onTitleClick: (() -> Unit)? = null,
 ) = ListItem(
     title = title,
     subtitle = {
@@ -394,7 +400,8 @@ fun ListItem(
     trailingContent = trailingContent,
     modifier = modifier,
     isSelected = isSelected,
-    isActive = isActive
+    isActive = isActive,
+    onTitleClick = onTitleClick,
 )
 
 @Composable
@@ -511,6 +518,7 @@ fun SongListItem(
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val artistNameAliases = LocalArtistNameAliases.current
+    val navController = LocalNavController.current
     val swipeEnabled by rememberPreference(SwipeToSongKey, defaultValue = false)
 
     val content: @Composable () -> Unit = {
@@ -558,7 +566,8 @@ fun SongListItem(
              trailingContent = trailingContent,
              modifier = modifier,
              isSelected = isSelected,
-             isActive = isActive
+             isActive = isActive,
+             onTitleClick = { navController.navigate(SearchRoutes.titleResultRoute(song.song.title)) },
          )
      }
 
@@ -598,13 +607,17 @@ fun SongGridItem(
     fillMaxWidth: Boolean = false,
 ) = GridItem(
     title = {
+        val navController = LocalNavController.current
         Text(
             text = song.song.title,
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.basicMarquee().fillMaxWidth()
+            modifier = Modifier
+                .basicMarquee()
+                .fillMaxWidth()
+                .clickable { navController.navigate(SearchRoutes.titleResultRoute(song.song.title)) }
         )
     },
     subtitle = {
@@ -1083,6 +1096,7 @@ fun MediaMetadataListItem(
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val artistNameAliases = LocalArtistNameAliases.current
+    val navController = LocalNavController.current
     ListItem(
         title = mediaMetadata.title,
         subtitle = {
@@ -1121,7 +1135,8 @@ fun MediaMetadataListItem(
         },
         trailingContent = trailingContent,
         modifier = modifier,
-        isActive = isActive
+        isActive = isActive,
+        onTitleClick = { navController.navigate(SearchRoutes.titleResultRoute(mediaMetadata.title)) },
     )
 }
 
@@ -1161,6 +1176,7 @@ fun YouTubeListItem(
     },
 ) {
     val swipeEnabled by rememberPreference(SwipeToSongKey, defaultValue = false)
+    val navController = LocalNavController.current
     val artistNameAliases = LocalArtistNameAliases.current
     val artistSeparator = " ${stringResource(R.string.and)} "
 
@@ -1222,7 +1238,13 @@ fun YouTubeListItem(
             },
             trailingContent = trailingContent,
             modifier = modifier,
-            isActive = isActive
+            isActive = isActive,
+            onTitleClick =
+                if (item is SongItem) {
+                    { navController.navigate(SearchRoutes.titleResultRoute(item.title)) }
+                } else {
+                    null
+                },
         )
     }
 
@@ -1274,6 +1296,7 @@ fun YouTubeGridItem(
     onPlayClick: (() -> Unit)? = null,
 ) = GridItem(
     title = {
+        val navController = LocalNavController.current
         Text(
             text = if (item is ArtistItem) {
                 ArtistNameAliases.resolve(LocalArtistNameAliases.current, item.id, item.title)
@@ -1285,7 +1308,16 @@ fun YouTubeGridItem(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = if (item is ArtistItem) TextAlign.Center else TextAlign.Start,
-            modifier = Modifier.basicMarquee().fillMaxWidth()
+            modifier = Modifier
+                .basicMarquee()
+                .fillMaxWidth()
+                .let { base ->
+                    if (item is SongItem) {
+                        base.clickable { navController.navigate(SearchRoutes.titleResultRoute(item.title)) }
+                    } else {
+                        base
+                    }
+                }
         )
     },
      subtitle = {
@@ -1365,7 +1397,17 @@ fun LocalSongsGrid(
     fillMaxWidth: Boolean = false,
     modifier: Modifier = Modifier
 ) = GridItem(
-    title = { Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+    title = {
+        val navController = LocalNavController.current
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable { navController.navigate(SearchRoutes.titleResultRoute(title)) },
+        )
+    },
     subtitle = {
         Text(
             text = subtitle,

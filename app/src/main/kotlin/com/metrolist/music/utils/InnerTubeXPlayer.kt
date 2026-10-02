@@ -51,6 +51,15 @@ object InnerTubeXPlayer {
         if (applicationContext == null) applicationContext = context.applicationContext
     }
 
+    /**
+     * Lightweight app-start preparation. Builds the extraction stack and initializes
+     * the QuickJS cipher runtime only; unlike prewarm(), this never fetches player
+     * configuration or mints a PO token through WebView.
+     */
+    suspend fun prepare() {
+        bundle().cipherService.initialize()
+    }
+
     suspend fun prewarm() = bundle().extractor.prewarm()
 
     suspend fun playerResponseForPlayback(

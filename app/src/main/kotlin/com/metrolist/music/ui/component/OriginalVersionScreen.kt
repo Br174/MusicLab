@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +59,7 @@ import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.YouTubeMatchOverride
+import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -129,7 +131,8 @@ internal fun OriginalVersionScreen(
     var failed by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var showDiagnosticsDialog by remember(request.currentYouTubeId) { mutableStateOf(false) }
     var selectedTab by remember(request.currentYouTubeId) { mutableStateOf(OriginalResultsTab.STUDIO) }
-    var visibleVersionCount by remember(request.currentYouTubeId, selectedTab) {
+    var selectedOriginalCoverageMode by remember(request.currentYouTubeId) { mutableStateOf(AiCoverageMode.PRECISE) }
+    var visibleVersionCount by remember(request.currentYouTubeId, selectedTab, selectedOriginalCoverageMode) {
         mutableIntStateOf(ORIGINAL_PAGE_SIZE)
     }
     val listState = rememberLazyListState()
@@ -144,6 +147,7 @@ internal fun OriginalVersionScreen(
     var startingVersion by remember(request.currentYouTubeId) { mutableStateOf<CoverHubResult?>(null) }
     var detailResult by remember(request.currentYouTubeId) { mutableStateOf<CoverHubResult?>(null) }
     var detailLoading by remember(request.currentYouTubeId) { mutableStateOf(false) }
+    val brainReviewScope = rememberCoroutineScope()
 
     // Load the starting version independently: it must never delay the AI or the first results.
     LaunchedEffect(request.currentYouTubeId) {
@@ -288,6 +292,54 @@ internal fun OriginalVersionScreen(
         PlayerBottomSheetBridge.collapseToMiniPlayerNow()
     }
 
+    fun updateBrainCandidate(updated: AiCoverCandidate) {
+        fun update(result: CoverHubResult): CoverHubResult =
+            if (result.brainCandidate?.stableKey == updated.stableKey) result.copy(brainCandidate = updated) else result
+
+        searchResult = searchResult.copy(
+            original = searchResult.original?.let(::update),
+            versions = searchResult.versions.map(::update),
+            liveVersions = searchResult.liveVersions.map(::update),
+            withOthersVersions = searchResult.withOthersVersions.map(::update),
+            remixVersions = searchResult.remixVersions.map(::update),
+        )
+    }
+
+    fun saveBrainDecision(result: CoverHubResult, status: AiBrainDecisionStatus) {
+        val candidate = result.brainCandidate ?: return
+        val identity = searchResult.aiIdentity ?: return
+        val sourceArtist = identity.originalArtists.firstOrNull().orEmpty()
+        val config = geminiConfig ?: return
+        if (sourceArtist.isBlank()) return
+        brainReviewScope.launch {
+            val saved = CloudMusicDiscovery.saveBrainDecision(
+                originalTitle = identity.title,
+                originalArtist = sourceArtist,
+                candidate = candidate,
+                status = status,
+                config = config,
+            )
+            if (saved) updateBrainCandidate(candidate.copy(brainStatus = status))
+        }
+    }
+
+    fun verifyCandidateBetter(result: CoverHubResult) {
+        val candidate = result.brainCandidate ?: return
+        val identity = searchResult.aiIdentity ?: return
+        val sourceArtist = identity.originalArtists.firstOrNull().orEmpty()
+        val config = geminiConfig ?: return
+        if (sourceArtist.isBlank()) return
+        brainReviewScope.launch {
+            CloudMusicDiscovery.verifyCandidate(
+                originalTitle = identity.title,
+                originalArtist = sourceArtist,
+                candidate = candidate,
+                mode = "originals",
+                config = config,
+            )?.let(::updateBrainCandidate)
+        }
+    }
+
     val nonStudioIds = (searchResult.liveVersions + searchResult.remixVersions).map { it.song.id }.toSet()
     val studioVersions = searchResult.versions.filter { it.song.id !in nonStudioIds }
     val selectedVersions = when (selectedTab) {
@@ -296,6 +348,11 @@ internal fun OriginalVersionScreen(
         OriginalResultsTab.WITH_OTHERS -> searchResult.withOthersVersions
         OriginalResultsTab.REMIX -> searchResult.remixVersions
     }
+    val reviewVersions = selectedVersions.filter { it.brainCandidate?.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
+    val filteredSelectedVersions = AiCoverageFilter.visibleItems(
+        selectedVersions.filterNot { it.brainCandidate?.brainStatus == AiBrainDecisionStatus.UNCERTAIN },
+        selectedOriginalCoverageMode,
+    ) { it.brainCandidate }
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -304,9 +361,9 @@ internal fun OriginalVersionScreen(
         }
     }
 
-    LaunchedEffect(shouldLoadNextPage, selectedTab, selectedVersions.size) {
-        if (shouldLoadNextPage && visibleVersionCount < selectedVersions.size) {
-            visibleVersionCount = minOf(visibleVersionCount + ORIGINAL_PAGE_SIZE, selectedVersions.size)
+    LaunchedEffect(shouldLoadNextPage, selectedTab, selectedOriginalCoverageMode, filteredSelectedVersions.size) {
+        if (shouldLoadNextPage && visibleVersionCount < filteredSelectedVersions.size) {
+            visibleVersionCount = minOf(visibleVersionCount + ORIGINAL_PAGE_SIZE, filteredSelectedVersions.size)
         }
     }
 
@@ -348,10 +405,12 @@ internal fun OriginalVersionScreen(
                     Text(
                         if (diagnostics.backgroundComplete) {
                             "Ricerca estesa: completata"
+                        } else if (backgroundLoading) {
+                            "Ricerca estesa: in background"
                         } else if (diagnostics.initialVisible > 0) {
                             "Ricerca estesa: in background"
                         } else {
-                            "Ricerca estesa: non ancora avviata"
+                            "Ricerca estesa: pronta"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
@@ -383,6 +442,10 @@ internal fun OriginalVersionScreen(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Versioni: ${diagnostics.finalVersions} · Live: ${diagnostics.liveFound} · Con altri: ${diagnostics.withOthersFound} · Remix: ${diagnostics.remixFound}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "Spotify assist: ${diagnostics.spotifyHintsFound} suggerimenti",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
@@ -476,6 +539,7 @@ internal fun OriginalVersionScreen(
                             onPreview = { preview(candidate) },
                             onReplace = { replaceWith(candidate) },
                             onDetails = { detailResult = CoverHubResult(song = candidate, year = manualYear, source = "Link manuale") },
+                            onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(candidate.title)) },
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
                     }
@@ -533,6 +597,7 @@ internal fun OriginalVersionScreen(
                                 onPreview = { preview(original.song) },
                                 onReplace = { replaceWith(original.song) },
                                 onDetails = { detailResult = original },
+                                onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(original.song.title)) },
                             )
                             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                         }
@@ -548,6 +613,11 @@ internal fun OriginalVersionScreen(
                                 withOthersCount = searchResult.withOthersVersions.size,
                                 remixCount = searchResult.remixVersions.size,
                                 onSelected = { selectedTab = it },
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            AiCoverageSelector(
+                                selected = selectedOriginalCoverageMode,
+                                onSelected = { selectedOriginalCoverageMode = it },
                             )
                             if (backgroundLoading) {
                                 Row(
@@ -572,20 +642,58 @@ internal fun OriginalVersionScreen(
                             }
                         }
 
-                        val page = selectedVersions.take(visibleVersionCount)
+                        val page = filteredSelectedVersions.take(visibleVersionCount)
                         items(
                             items = page,
                             key = { "${selectedTab.name}-${it.song.id}" },
-                        ) { version ->
+                        ) { result ->
                             OriginalVersionRow(
-                                result = version,
-                                credits = versionCredits[version.song.id],
+                                result = result,
+                                credits = versionCredits[result.song.id],
                                 creditsLoading = creditsLoading,
-                                onPreview = { preview(version.song) },
-                                onReplace = { replaceWith(version.song) },
-                                onDetails = { detailResult = version },
+                                onPreview = { preview(result.song) },
+                                onReplace = { replaceWith(result.song) },
+                                onDetails = { detailResult = result },
+                                onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(result.song.title)) },
                             )
                             Spacer(Modifier.height(8.dp))
+                        }
+
+                        if (reviewVersions.isNotEmpty()) {
+                            item {
+                                Spacer(Modifier.height(14.dp))
+                                VersionSectionTitle("Da verificare")
+                                Text(
+                                    "Versioni che il Brain conserva per una decisione esplicita.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 6.dp),
+                                )
+                            }
+                            items(
+                                items = reviewVersions,
+                                key = { "review-${selectedTab.name}-${it.song.id}" },
+                            ) { result ->
+                                OriginalVersionRow(
+                                    result = result,
+                                    credits = versionCredits[result.song.id],
+                                    creditsLoading = creditsLoading,
+                                    onPreview = { preview(result.song) },
+                                    onReplace = { replaceWith(result.song) },
+                                    onDetails = { detailResult = result },
+                                    onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(result.song.title)) },
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    TextButton(onClick = { preview(result.song) }) { Text("Ascolta") }
+                                    TextButton(onClick = { saveBrainDecision(result, AiBrainDecisionStatus.APPROVED) }) { Text("Conferma") }
+                                    TextButton(onClick = { saveBrainDecision(result, AiBrainDecisionStatus.REJECTED) }) { Text("Rifiuta") }
+                                    TextButton(onClick = { verifyCandidateBetter(result) }) { Text("Verifica meglio") }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                            }
                         }
                     } else if (backgroundLoading) {
                         item {
@@ -656,6 +764,7 @@ internal fun OriginalVersionScreen(
                             onPreview = { preview(starting.song) },
                             onReplace = { replaceWith(starting.song) },
                             onDetails = { detailResult = starting },
+                            onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(starting.song.title)) },
                         )
                     }
                 }
@@ -816,6 +925,7 @@ private fun OriginalVersionRow(
     onPreview: () -> Unit,
     onReplace: () -> Unit,
     onDetails: () -> Unit,
+    onTitleSearch: () -> Unit,
 ) {
     val displayYear = credits?.year ?: result.year
     Row(
@@ -830,7 +940,13 @@ private fun OriginalVersionRow(
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(result.song.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                result.song.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(onClick = onTitleSearch),
+            )
             Text(
                 result.song.artists.joinToString(", ") { it.name },
                 style = MaterialTheme.typography.bodyMedium,

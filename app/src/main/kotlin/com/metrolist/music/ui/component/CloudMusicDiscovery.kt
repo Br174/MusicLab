@@ -54,6 +54,120 @@ internal object CloudMusicDiscovery {
         parseCover(root)
     }
 
+    suspend fun discoverMemory(
+        title: String,
+        artist: String,
+        config: GeminiCoverVerificationConfig,
+        mode: String = "cover",
+        limit: Int = 150,
+    ): AiCoverDiscoveryResult? = withContext(Dispatchers.IO) {
+        val endpoint = config.cloudEndpoint.trim().trimEnd('/')
+        if (endpoint.isBlank() || title.isBlank() || !config.useCloudMemory) return@withContext null
+
+        val body = buildJsonObject {
+            put("title", title.trim())
+            put("artist", artist.trim())
+            put("mode", if (mode == "originals") "originals" else "cover")
+            put("limit", limit.coerceIn(1, 150))
+        }
+        val request =
+            Request.Builder()
+                .url("$endpoint/api/v1/memory/discover")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("x-musiclab-client", "android-lab20")
+                .post(body.toString().toRequestBody(mediaType))
+                .build()
+
+        val root = runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val text = response.body?.string() ?: return@use null
+                json.parseToJsonElement(text).jsonObject
+            }
+        }.getOrNull() ?: return@withContext null
+        parseCover(root)
+    }
+
+    suspend fun saveBrainDecision(
+        originalTitle: String,
+        originalArtist: String,
+        candidate: AiCoverCandidate,
+        status: AiBrainDecisionStatus,
+        config: GeminiCoverVerificationConfig,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val endpoint = config.cloudEndpoint.trim().trimEnd('/')
+        if (endpoint.isBlank() || originalTitle.isBlank() || originalArtist.isBlank()) return@withContext false
+
+        val body = buildJsonObject {
+            put("originalTitle", originalTitle.trim())
+            put("originalArtist", originalArtist.trim())
+            put("status", status.name)
+            candidate.sameWorkScore?.let { put("sameWorkScore", it) }
+            candidate.versionTypeScore?.let { put("versionTypeScore", it) }
+            put("reason", "manual_android_lab20")
+            put(
+                "candidate",
+                buildJsonObject {
+                    put("title", candidate.title)
+                    put("artist", candidate.artist)
+                    put("category", candidate.category.cloudName)
+                    candidate.language?.takeIf { it.isNotBlank() }?.let { put("language", it) }
+                },
+            )
+            put(
+                "evidence",
+                buildJsonArray {
+                    candidate.brainSignals.forEach { signal ->
+                        add(
+                            buildJsonObject {
+                                put("kind", signal.kind)
+                                put("strength", signal.strength)
+                                signal.direction?.takeIf { it.isNotBlank() }?.let { put("direction", it) }
+                            },
+                        )
+                    }
+                },
+            )
+        }
+        val request = Request.Builder()
+            .url("$endpoint/api/v1/brain/decision")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("x-musiclab-client", "android-lab20")
+            .post(body.toString().toRequestBody(mediaType))
+            .build()
+
+        runCatching {
+            client.newCall(request).execute().use { response -> response.isSuccessful }
+        }.getOrDefault(false)
+    }
+
+    suspend fun verifyCandidate(
+        originalTitle: String,
+        originalArtist: String,
+        candidate: AiCoverCandidate,
+        mode: String,
+        config: GeminiCoverVerificationConfig,
+    ): AiCoverCandidate? = withContext(Dispatchers.IO) {
+        val focus = "Verifica meglio esclusivamente il candidato «${candidate.title}» di ${candidate.artist}. " +
+            "Riesamina stessa opera e tipo di versione con tutte le evidenze disponibili; non sostituirlo con altri candidati."
+        val root = request(
+            title = originalTitle,
+            artist = originalArtist,
+            mode = if (mode == "originals") "originals" else "cover",
+            phase = "expand",
+            existing = emptyList(),
+            focus = focus,
+            config = config.copy(useCloudMemory = false),
+        ) ?: return@withContext null
+
+        val versions = parseCover(root)?.versions.orEmpty()
+        versions.firstOrNull { it.stableKey == candidate.stableKey }
+            ?: versions.firstOrNull {
+                it.title.equals(candidate.title, ignoreCase = true) &&
+                    it.artist.equals(candidate.artist, ignoreCase = true)
+            }
+    }
+
     suspend fun identifyOriginal(
         title: String,
         artist: String,
@@ -129,7 +243,7 @@ internal object CloudMusicDiscovery {
             Request.Builder()
                 .url("$endpoint/api/v1/discover/$route")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("x-musiclab-client", "android-lab11")
+                .addHeader("x-musiclab-client", "android-lab20")
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
         return runCatching {
@@ -188,6 +302,11 @@ internal object CloudMusicDiscovery {
                 lyricists = credits?.strings("lyricists").orEmpty(),
                 producers = credits?.strings("producers").orEmpty(),
                 label = credits?.nullableString("label"),
+                sameWorkScore = obj.scoreOrNull("sameWorkScore"),
+                versionTypeScore = obj.scoreOrNull("versionTypeScore"),
+                brainStatus = AiBrainDecisionStatus.fromWire(obj.nullableString("brainStatus")),
+                brainAdmission = obj.nullableString("brainAdmission"),
+                brainSignals = obj.brainSignals("brainSignals"),
             )
         }.orEmpty()
 
@@ -217,6 +336,31 @@ internal object CloudMusicDiscovery {
         val values = element.runCatching { jsonArray }.getOrNull() ?: return emptyList()
         return values.mapNotNull {
             it.runCatching { jsonPrimitive }.getOrNull()?.contentOrNull?.trim()?.takeIf(String::isNotBlank)
+        }.distinct()
+    }
+
+    private fun JsonObject.scoreOrNull(key: String): Int? {
+        val primitive = get(key)?.runCatching { jsonPrimitive }?.getOrNull() ?: return null
+        val value = primitive.intOrNull ?: primitive.contentOrNull?.toIntOrNull()
+        return value?.takeIf { it in 0..100 }
+    }
+
+    private fun JsonObject.brainSignals(key: String): List<AiBrainSignal> {
+        val element = get(key) ?: return emptyList()
+        val values = element.runCatching { jsonArray }.getOrNull() ?: return emptyList()
+        return values.mapNotNull { signalElement ->
+            val signal = signalElement.runCatching { jsonObject }.getOrNull() ?: return@mapNotNull null
+            val kind = signal.string("kind")
+            val strength = signal.string("strength")
+            if (kind.isBlank() || strength.isBlank()) {
+                null
+            } else {
+                AiBrainSignal(
+                    kind = kind,
+                    strength = strength,
+                    direction = signal.nullableString("direction"),
+                )
+            }
         }.distinct()
     }
 

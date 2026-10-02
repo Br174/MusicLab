@@ -1,0 +1,19 @@
+{
+  "description": "Mandatory MotorLab project bootstrap for MusicLab",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_boot.py\"",
+            "timeout": 3,
+            "statusMessage": "Loading MotorLab bootstrap",
+            "additionalContextLimit": 6000
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -214,7 +214,10 @@ async function discover(input, env, phase) {
   if (phase === 'initial') {
     if (input?.useMemory !== false && env.DB) {
       const cached = await cachedDiscovery(env.DB, title, artist, mode === 'cover' ? 5 : 6);
-      if (cached && (cached.original || cached.versions.length)) {
+      const hasUsefulCachedDiscovery = cached && (
+        mode === 'cover' ? cached.versions.length > 0 : Boolean(cached.original || cached.versions.length)
+      );
+      if (hasUsefulCachedDiscovery) {
         return { stato: 'pronto', fase: 'initial', provenienza: 'memoria', seed: { title, artist }, ...cached };
       }
     }
@@ -238,16 +241,21 @@ async function discover(input, env, phase) {
 }
 
 function initialCoverPrompt(title, artist) {
-  return `Sei il motore AI-first di MusicLab. L'AI è l'unica autorità editoriale. ` +
-    `Per ${title} — ${artist}, restituisci SUBITO fino a 5 cover in studio reali della stessa composizione, ` +
-    `eseguite da artisti diversi dall'originale. Niente live, niente remix, niente karaoke. ` +
-    `Preferisci versioni sicure e distribuite nel tempo. Per la prima risposta privilegia velocità. ` + discoveryJsonInstruction();
+  return `Sei il motore AI-first di MusicLab. L'AI è l'autorità editoriale finale. ` +
+    `Per ${title} — ${artist}, restituisci SUBITO fino a 5 cover in studio REALI della stessa composizione. ` +
+    `Per cover nella stessa lingua, il titolo canonico completo deve restare una frase autonoma: ignora maiuscole, accenti e punteggiatura, ` +
+    `accetta testo aggiuntivo descrittivo/alias separato, ma NON confondere un titolo più lungo con significato diverso (esempio: "Il mondo" non è "Il mondo che vorrei"). ` +
+    `Richiedi inoltre almeno una evidenza della stessa composizione (autore/compositore/work relation/fonte strutturata). ` +
+    `Per adattamenti in lingua straniera il titolo può essere completamente diverso: basta una evidenza forte della stessa composizione. ` +
+    `Niente karaoke, reaction, tutorial, backing track, mashup o medley. Per la prima risposta privilegia velocità. ` + discoveryJsonInstruction();
 }
 
 function initialOriginalsPrompt(title, artist) {
-  return `Sei il motore AI-first di MusicLab. Identifica con precisione l'originale canonico della composizione ` +
-    `${title} — ${artist} e fino a 6 versioni pertinenti dell'interprete originale. ` +
-    `L'AI decide tutti i metadati. Privilegia velocità. ` + discoveryJsonInstruction();
+  return `Sei il motore Originali AI-first di MusicLab. Identifica con precisione l'originale canonico della composizione ` +
+    `${title} — ${artist} e fino a 6 registrazioni pertinenti dell'interprete originale. ` +
+    `Per Originali sono obbligatorie due ancore: il titolo canonico completo come frase autonoma e il cantante/interprete originale. ` +
+    `Maiuscole, accenti e punteggiatura non contano; dopo/prima del titolo possono comparire live, remix, feat., luogo, anno, alias o altro testo descrittivo. ` +
+    `Non accettare invece un titolo più lungo che forma un'altra frase/canzone. L'AI decide tutti i metadati. Privilegia velocità. ` + discoveryJsonInstruction();
 }
 
 function expandedCoverPrompt(title, artist, existing, focus) {
@@ -255,18 +263,20 @@ function expandedCoverPrompt(title, artist, existing, focus) {
   const requested = focus || 'cerca nuove versioni mancanti';
   return `Sei il ricercatore discografico AI centrale di MusicLab. Devi trovare versioni REALI della stessa composizione ${title} — ${artist}.\n` +
     `FOCUS: ${requested}.\n` +
-    `Categorie esclusive: cover=incisione studio nella lingua originale; live=performance non studio; remix=remix/rework; ` +
-    `straniera=incisione studio in lingua diversa dall'originale, compresi adattamenti con titolo tradotto o completamente diverso. ` +
-    `Precedenza se una versione ha più caratteristiche: remix > live > straniera > cover. ` +
-    `Cerca per decenni, lingue e aree geografiche; includi versioni poco note ma documentate. Non inventare. ` +
+    `Regola titolo stessa lingua: il titolo canonico completo deve essere presente come frase autonoma; normalizza maiuscole/accents/punteggiatura e accetta aggiunte descrittive separate, ` +
+    `ma rifiuta continuazioni lessicali che cambiano il significato del titolo. Serve almeno una evidenza della stessa composizione. ` +
+    `Regola straniera: il titolo può essere tradotto o totalmente diverso; una sola evidenza forte della stessa composizione è sufficiente. ` +
+    `Categorie esclusive: cover=incisione studio nella lingua originale; live=performance non studio; remix=remix/rework; straniera=incisione studio in altra lingua. ` +
+    `Precedenza: remix > live > straniera > cover. Cerca largo per decenni, lingue e aree geografiche; includi versioni poco note ma documentate. Non inventare. ` +
     `Versioni già note da non ripetere:\n${known || '(nessuna)'}.\n` + discoveryJsonInstruction();
 }
 
 function expandedOriginalsPrompt(title, artist, existing, focus) {
   const known = existing.map(v => `${clean(v.artist)} — ${clean(v.title)} [${clean(v.category)}]`).filter(Boolean).join('\n');
   return `Sei il motore Originali AI-first di MusicLab. Per la composizione ${title} — ${artist}, ` +
-    `cerca altre registrazioni/versioni autentiche pertinenti dell'interprete originale. FOCUS: ${focus || 'versioni mancanti per epoca e tipo'}. ` +
-    `Non ripetere:\n${known || '(nessuna)'}. ` + discoveryJsonInstruction();
+    `cerca altre registrazioni/versioni autentiche dell'interprete originale. Le due ancore obbligatorie sono titolo canonico completo come frase autonoma + cantante originale. ` +
+    `Accetta qualsiasi aggiunta descrittiva (live, remix, feat., luogo, anno, alias o titolo secondario separato), ma non un'altra canzone che contiene soltanto le parole del titolo-base. ` +
+    `FOCUS: ${focus || 'versioni mancanti per epoca e tipo'}. Non ripetere:\n${known || '(nessuna)'}. ` + discoveryJsonInstruction();
 }
 
 function discoveryJsonInstruction() {

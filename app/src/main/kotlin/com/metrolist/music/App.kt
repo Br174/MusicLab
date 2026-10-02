@@ -148,15 +148,11 @@ class App :
             // Apply settings, including proxy configuration, before building extraction transport.
             initializeSettings()
 
-            // Warm player config, cipher, and optional PO-token state off the first-play path.
+            // Prepare only the lightweight cipher runtime while Home is starting. Full extractor
+            // prewarm may mint a PO token through WebView/Main and must stay off the app-start path.
             launch(Dispatchers.IO) {
-                delay(2500)
-                var waitedMs = 0
-                while (YouTube.visitorData == null && waitedMs < 12_000) {
-                    delay(500)
-                    waitedMs += 500
-                }
-                runCatching { InnerTubeXPlayer.prewarm() }
+                runCatching { InnerTubeXPlayer.prepare() }
+                    .onFailure { Timber.tag("InnerTubeXPlayer").d(it, "Lightweight playback preparation did not complete; first play will retry normally") }
             }
 
             observeSettingsChanges()

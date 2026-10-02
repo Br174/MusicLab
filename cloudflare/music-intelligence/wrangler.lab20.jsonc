@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "musiclab-music-intelligence-lab20",
+  "main": "src/worker-v20-runtime.js",
+  "compatibility_date": "2026-09-28",
+  "vars": {
+    "ENGINE_VERSION": "1.3.1-lab20",
+    "BRAIN_VERSION": "20.2",
+    "GEMINI_MODEL": "gemini-3.5-flash-lite",
+    "MAX_DISCOVERY_RESULTS": "150"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "musiclab-intelligence-db",
+      "database_id": "7f36c6a5-5361-47cf-8520-b2ba398ea731"
+    }
+  ]
+}

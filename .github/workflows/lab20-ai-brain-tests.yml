@@ -1,0 +1,49 @@
+name: LAB20 AI Brain Tests
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-ai-brain-20
+    paths:
+      - 'cloudflare/music-intelligence/**'
+      - 'tools/universal-apk-builder/build-apk.sh'
+      - '.github/workflows/lab20-ai-brain-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  brain-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run MusicLab Brain unit tests
+        run: node --test cloudflare/music-intelligence/test/*.test.mjs
+
+      - name: Verify additive D1 migrations
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          root = Path('cloudflare/music-intelligence/migrations')
+          db = sqlite3.connect(':memory:')
+          for name in ['0001_music_intelligence.sql', '0002_canonical_ai_repair.sql', '0003_music_brain.sql']:
+              db.executescript((root / name).read_text())
+          tables = {row[0] for row in db.execute("select name from sqlite_master where type='table'")}
+          required = {'works', 'versions', 'work_aliases', 'related_works', 'version_evidence', 'decision_history', 'search_missions', 'coverage_cells'}
+          missing = required - tables
+          if missing:
+              raise SystemExit(f'Missing D1 tables: {sorted(missing)}')
+          print('D1 migration chain OK:', ', '.join(sorted(required)))
+          PY

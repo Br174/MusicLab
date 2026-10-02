@@ -127,6 +127,7 @@ import androidx.media3.common.Player.STATE_ENDED
 import androidx.navigation.NavController
 import androidx.palette.graphics.Palette
 import com.metrolist.music.LocalNavController
+import com.metrolist.music.utils.SearchRoutes
 import coil3.compose.AsyncImage
 import coil3.imageLoader
 import coil3.request.ImageRequest
@@ -1017,10 +1018,8 @@ fun BottomSheetPlayer(
                                         indication = null,
                                         interactionSource = remember { MutableInteractionSource() },
                                         onClick = {
-                                            if (mediaMetadata.album != null) {
-                                                state.collapseSoft()
-                                                navController.navigate("album/${mediaMetadata.album.id}")
-                                            }
+                                            state.collapseSoft()
+                                            navController.navigate(SearchRoutes.titleResultRoute(title))
                                         },
                                         onLongClick = {
                                             val clip = ClipData.newPlainText(copiedTitleStr, title)

@@ -39,6 +39,7 @@ import com.metrolist.music.utils.toPlaylistItem
 import com.metrolist.music.utils.toSongItem
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.SpotifyYouTubeMapper
+import com.metrolist.music.ui.component.TitleMeaningResolver
 import com.metrolist.spotify.Spotify
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -61,7 +62,9 @@ constructor(
 ) : ViewModel() {
 
     val spotifyYouTubeMapper = SpotifyYouTubeMapper(database)
-    val query = SearchRoutes.decodeQuery(savedStateHandle.get<String>("query").orEmpty())
+    private val rawSearchQuery = savedStateHandle.get<String>("query").orEmpty()
+    val titleSearchMode = SearchRoutes.isTitleSearch(rawSearchQuery)
+    val query = SearchRoutes.decodeQuery(rawSearchQuery)
     val filter = MutableStateFlow<YouTube.SearchFilter?>(null)
     var summaryPage by mutableStateOf<SearchSummaryPage?>(null)
     val viewStateMap = mutableStateMapOf<String, ItemsPage?>()
@@ -77,6 +80,23 @@ constructor(
      * null = show all types (summary mode)
      */
     val spotifyFilter = MutableStateFlow<String?>(null)
+    private fun rankTitleSearch(items: List<YTItem>): List<YTItem> {
+        if (!titleSearchMode || items.size < 2) return items
+        return items
+            .withIndex()
+            .sortedWith(
+                compareByDescending<IndexedValue<YTItem>> { indexed ->
+                    val item = indexed.value
+                    if (item is SongItem) {
+                        TitleMeaningResolver.qualityScore(query, item.title)
+                    } else {
+                        -1
+                    }
+                }.thenBy { it.index },
+            )
+            .map { it.value }
+    }
+
     private suspend fun resolveSearchMetadata(items: List<YTItem>): List<YTItem> =
         coroutineScope {
             val knownDurations =
@@ -124,7 +144,9 @@ constructor(
                     val resolvedSummaries =
                         page.summaries.map { summary ->
                             val nextOffset = offset + summary.items.size
-                            val resolvedSummary = summary.copy(items = resolvedItems.subList(offset, nextOffset))
+                            val resolvedSummary = summary.copy(
+                                items = rankTitleSearch(resolvedItems.subList(offset, nextOffset)),
+                            )
                             offset = nextOffset
                             resolvedSummary
                         }
@@ -198,7 +220,7 @@ constructor(
                                 val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
                                 viewStateMap[filter.value] =
                                     ItemsPage(
-                                        resolvedItems
+                                        rankTitleSearch(resolvedItems)
                                             .distinctBy { it.id }
                                             .filterExplicit(hideExplicit)
                                             .filterVideoSongs(hideVideoSongs)
@@ -266,7 +288,9 @@ constructor(
                 val items: List<YTItem> = tracks
                     .filter { !hideExplicit || !it.explicit }
                     .map { it.toSongItem() }
-                if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Songs", items = items))
+                if (items.isNotEmpty()) {
+                    summaries.add(SearchSummary(title = "Songs", items = rankTitleSearch(items)))
+                }
             }
         result.albums?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { albums ->
@@ -320,7 +344,7 @@ constructor(
             }
 
             viewStateMap[filterType] = ItemsPage(
-                items = items.distinctBy { it.id },
+                items = rankTitleSearch(items).distinctBy { it.id },
                 // Encode offset in continuation string for Spotify pagination
                 continuation = if (hasMore) "spotify:$filterType:${offset + limit}" else null,
             )
@@ -354,7 +378,7 @@ constructor(
                 .filterVideoSongs(hideVideoSongs)
                 .filterYoutubeShorts(hideYoutubeShorts)
             viewStateMap[filterValue] = ItemsPage(
-                (viewState.items + newItems).distinctBy { it.id },
+                rankTitleSearch((viewState.items + newItems).distinctBy { it.id }),
                 searchResult.continuation
             )
         }
@@ -400,7 +424,7 @@ constructor(
                 }
 
                 viewStateMap[filterType] = ItemsPage(
-                    (viewState.items + newItems).distinctBy { it.id },
+                    rankTitleSearch((viewState.items + newItems).distinctBy { it.id }),
                     if (hasMore) "spotify:$filterType:${offset + limit}" else null,
                 )
             }.onFailure {

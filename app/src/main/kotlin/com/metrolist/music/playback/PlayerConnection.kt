@@ -284,6 +284,19 @@ class PlayerConnection(
         }
     }
 
+    fun playNow(item: MediaItem) {
+        if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
+            Timber.tag("PlayerConnection").d("playNow blocked - Listen Together guest")
+            return
+        }
+        try {
+            service.playNow(item)
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Error in playNow")
+            throw e
+        }
+    }
+
     fun playNext(item: MediaItem) = playNext(listOf(item))
 
     fun playNext(items: List<MediaItem>) {
