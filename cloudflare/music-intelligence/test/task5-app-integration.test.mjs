@@ -53,7 +53,7 @@ test('Cover exposes UNCERTAIN review actions and raw title search without AI', (
     'Conferma',
     'Rifiuta',
     'Verifica meglio',
-    'SearchRoutes.resultRoute(result.candidate.title)',
+    'SearchRoutes.titleResultRoute(result.candidate.title)',
     'CloudMusicDiscovery.saveBrainDecision(',
     'CloudMusicDiscovery.verifyCandidate(',
   ]) {
