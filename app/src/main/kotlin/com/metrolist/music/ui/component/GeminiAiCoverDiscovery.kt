@@ -129,18 +129,26 @@ internal object GeminiAiCoverDiscovery {
             return@withContext it.value
         }
 
-        val cloud = if (config.cloudEndpoint.isNotBlank()) {
-            CloudMusicDiscovery.discoverCover(
-                title = originalTitle,
-                artist = originalArtist,
-                config = config,
-                phase = "initial",
-                focus = "STEP 1: identifica con precisione la composizione canonica e il vero interprete originale; poi restituisci prime cover studio reali con soli titolo, artista, anno e album essenziali.",
-            )
-        } else null
+        val result = coroutineScope {
+            // LAB23: Cloudflare and direct Gemini are independent evidence lanes.
+            // Running them in parallel removes the old sum-of-latencies startup penalty.
+            val cloudDeferred = async(Dispatchers.IO) {
+                if (config.cloudEndpoint.isNotBlank()) {
+                    CloudMusicDiscovery.discoverCover(
+                        title = originalTitle,
+                        artist = originalArtist,
+                        config = config,
+                        phase = "initial",
+                        focus = "STEP 1: identifica con precisione la composizione canonica e il vero interprete originale; poi restituisci prime cover studio reali con soli titolo, artista, anno e album essenziali.",
+                    )
+                } else {
+                    null
+                }
+            }
 
-        val direct = if (config.apiKey.isNotBlank()) {
-            val prompt = """Sei il motore musicale AI-first di MusicLab. Lavora a STEP e non confondere l'interprete della traccia corrente con l'interprete originale.
+            val directDeferred = async(Dispatchers.IO) {
+                if (config.apiKey.isNotBlank()) {
+                    val prompt = """Sei il motore musicale AI-first di MusicLab. Lavora a STEP e non confondere l'interprete della traccia corrente con l'interprete originale.
 
 STEP 1 — IDENTITÀ CANONICA.
 Traccia di partenza:
@@ -161,10 +169,20 @@ Rispondi SOLO JSON:
  "original":{"title":"","artist":"","year":null,"album":null,"language":null},
  "versions":[{"title":"","artist":"","category":"cover","language":null,"year":null,"album":null}]
 }"""
-            executeWithFallbackModels(config, prompt, 2400, true)?.let { parse(it, originalArtist) }
-        } else null
+                    executeWithFallbackModels(config, prompt, 2400, true)?.let { parse(it, originalArtist) }
+                } else {
+                    null
+                }
+            }
 
-        val result = mergeDiscoveries(cloud, direct, originalArtist, AiCoverCategory.COVER, INITIAL_LIMIT)
+            mergeDiscoveries(
+                cloudDeferred.await(),
+                directDeferred.await(),
+                originalArtist,
+                AiCoverCategory.COVER,
+                INITIAL_LIMIT,
+            )
+        }
         initialCache[cacheKey] = CachedDiscovery(result, System.currentTimeMillis() + CACHE_TTL_MS)
         result
     }
