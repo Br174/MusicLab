@@ -87,6 +87,7 @@ import com.metrolist.music.extensions.reversed
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.ui.component.AlbumGridItem
+import com.metrolist.music.ui.component.currentGridCellMinSize
 import com.metrolist.music.ui.component.AlbumListItem
 import com.metrolist.music.ui.component.ArtistGridItem
 import com.metrolist.music.ui.component.ArtistListItem
@@ -908,7 +909,7 @@ fun LibraryMixScreen(
                     state = lazyGridState,
                     columns =
                         GridCells.Adaptive(
-                            minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp,
+                            minSize = currentGridCellMinSize(),
                         ),
                     contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                 ) {
