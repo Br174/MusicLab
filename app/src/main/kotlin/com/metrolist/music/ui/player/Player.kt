@@ -148,6 +148,7 @@ import com.metrolist.music.constants.PlayerBackgroundStyleKey
 import com.metrolist.music.constants.PlayerButtonsStyle
 import com.metrolist.music.constants.PlayerButtonsStyleKey
 import com.metrolist.music.constants.PlayerHorizontalPadding
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.constants.QueuePeekHeight
 import com.metrolist.music.constants.SimilarContent
 import com.metrolist.music.constants.SleepTimerDefaultKey
@@ -1003,6 +1004,7 @@ fun BottomSheetPlayer(
                         transitionSpec = { fadeIn() togetherWith fadeOut() },
                         label = "",
                     ) { title ->
+                        val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, true)
                         Text(
                             text = title,
                             style = MaterialTheme.typography.titleLarge,
@@ -1018,8 +1020,10 @@ fun BottomSheetPlayer(
                                         indication = null,
                                         interactionSource = remember { MutableInteractionSource() },
                                         onClick = {
-                                            state.collapseSoft()
-                                            navController.navigate(SearchRoutes.titleResultRoute(title))
+                                            if (titleTapSearchEnabled) {
+                                                state.collapseSoft()
+                                                navController.navigate(SearchRoutes.titleResultRoute(title))
+                                            }
                                         },
                                         onLongClick = {
                                             val clip = ClipData.newPlainText(copiedTitleStr, title)
