@@ -312,14 +312,20 @@ internal fun CoverSearchScreen(
             }.onFailure { failed = true }
                 .getOrDefault(AiCoverDiscoveryResult(null, emptyList()))
 
-            val initialWithEvidence = sourceEvidence.attachToAiAccepted(discovery.versions)
-            originalInfo = discovery.original ?: AiCoverOriginalInfo(title = title, artist = originalArtist)
+            val resolvedOriginalInfo =
+                discovery.original ?: AiCoverOriginalInfo(title = title, artist = originalArtist)
+            val initialWithEvidence = AiCoverFlowResolver.applyEvidencePolicy(
+                originalTitle = resolvedOriginalInfo.title.ifBlank { title },
+                originalInfo = resolvedOriginalInfo,
+                candidates = sourceEvidence.attachToAiAccepted(discovery.versions),
+            )
+            originalInfo = resolvedOriginalInfo
             knownCandidates = initialWithEvidence
             initialCandidateCount = initialWithEvidence.size
 
             val resolved = runCatching {
                 AiCoverSearchEngine.resolveCandidates(
-                    candidates = initialWithEvidence,
+                    candidates = initialWithEvidence.filter { it.brainStatus != AiBrainDecisionStatus.REJECTED },
                     currentYouTubeId = currentYouTubeId,
                     pauseBetweenBatches = false,
                 )
@@ -365,7 +371,11 @@ internal fun CoverSearchScreen(
                 config = config,
                 sourceEvidence = sourceEvidence,
             ) { discoveredBatch ->
-                val evidencedBatch = sourceEvidence.attachToAiAccepted(discoveredBatch)
+                val evidencedBatch = AiCoverFlowResolver.applyEvidencePolicy(
+                    originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
+                    originalInfo = originalInfo,
+                    candidates = sourceEvidence.attachToAiAccepted(discoveredBatch),
+                )
                 val enabledBatch = evidencedBatch.filter { candidate -> categoryEnabled(candidate.category) }
                 if (enabledBatch.isEmpty()) return@discoverExpandedBatches
 
@@ -382,7 +392,8 @@ internal fun CoverSearchScreen(
                 }
 
                 val toResolve = enabledBatch.filter { candidate ->
-                    playables.none { it.candidate.stableKey == candidate.stableKey }
+                    candidate.brainStatus != AiBrainDecisionStatus.REJECTED &&
+                        playables.none { it.candidate.stableKey == candidate.stableKey }
                 }
                 if (toResolve.isEmpty()) return@discoverExpandedBatches
 
@@ -422,7 +433,11 @@ internal fun CoverSearchScreen(
                     round = round,
                 )
             }.getOrDefault(emptyList())
-            val recoveredWithEvidence = sourceEvidence.attachToAiAccepted(recovered)
+            val recoveredWithEvidence = AiCoverFlowResolver.applyEvidencePolicy(
+                originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
+                originalInfo = originalInfo,
+                candidates = sourceEvidence.attachToAiAccepted(recovered),
+            )
                 .filter { categoryEnabled(it.category) }
                 .filter { candidate -> knownCandidates.none { it.stableKey == candidate.stableKey } }
 
@@ -434,7 +449,7 @@ internal fun CoverSearchScreen(
 
                 val resolved = runCatching {
                     AiCoverSearchEngine.resolveCandidates(
-                        candidates = recoveredWithEvidence,
+                        candidates = recoveredWithEvidence.filter { it.brainStatus != AiBrainDecisionStatus.REJECTED },
                         currentYouTubeId = currentYouTubeId,
                         pauseBetweenBatches = false,
                     )
