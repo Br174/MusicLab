@@ -32,6 +32,7 @@ internal data class OriginalVersionDiagnostics(
     val liveFound: Int = 0,
     val withOthersFound: Int = 0,
     val remixFound: Int = 0,
+    val spotifyHintsFound: Int = 0,
 )
 
 internal data class OriginalVersionSearchResult(
@@ -192,8 +193,36 @@ internal object OriginalVersionSearchEngine {
             .map { candidate -> "${candidate.title} ${candidate.artist}".trim() }
             .filter { it.isNotBlank() }
             .distinct()
-        val usedQueries = memoryQueries.toMutableList()
+
+        // LAB23: Spotify may contribute additional known recordings/metadata, but it is
+        // never a veto. Failure or logout simply produces an empty hint list.
+        val spotifyHints = runCatching {
+            SpotifyMusicAssist.originalHints(
+                title = identity.title,
+                originalArtists = identity.originalArtists,
+            )
+        }.getOrDefault(emptyList())
+        val spotifyQueries = spotifyHints
+            .map { it.query }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val usedQueries = (memoryQueries + spotifyQueries).distinct().toMutableList()
         var musicOutcome = OriginalArtistSearchOutcome(emptyList(), 0, OriginalSearchStageStatus.NOT_RUN)
+
+        if (spotifyQueries.isNotEmpty()) {
+            val spotifyMusic = searchAiArtistVersions(
+                identity,
+                targetTitle,
+                originalArtists,
+                YouTube.SearchFilter.FILTER_SONG,
+                "YouTube Music · Spotify assist",
+                spotifyQueries,
+            )
+            spotifyMusic.results.forEach { mergeInto(merged, it) }
+            musicOutcome = mergeOutcomes(musicOutcome, spotifyMusic)
+        }
+
         if (memoryCandidates.isNotEmpty()) {
             val memoryMusic = searchRememberedOriginalVersions(
                 candidates = memoryCandidates,
@@ -279,6 +308,7 @@ internal object OriginalVersionSearchEngine {
                 finalVersions = alternatives.size + if (original != null) 1 else 0,
                 initialVisible = seed.diagnostics.initialVisible,
                 backgroundComplete = true,
+                spotifyHintsFound = spotifyHints.size,
             ),
         )
     }
