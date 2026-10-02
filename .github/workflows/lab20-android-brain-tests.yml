@@ -1,9 +1,9 @@
-name: LAB21 Android Deep Locator Contract
+name: LAB22 Cover Web Locator Contract
 
 on:
   push:
     branches:
-      - uab-build/musiclab-deep-locator-21
+      - uab-build/musiclab-cover-web-locator-22
     paths:
       - 'app/src/main/kotlin/com/metrolist/music/ui/component/**'
       - 'app/src/main/kotlin/com/metrolist/music/App.kt'
@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 jobs:
-  android-deep-locator-contract:
+  android-cover-web-locator-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -52,5 +52,5 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Run Android Brain and deep playback-locator contract tests
-        run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --tests com.metrolist.music.ui.component.AiCoverSearchEngineTest --tests com.metrolist.music.ui.component.AiCoverFlowResolverTest --tests com.metrolist.music.ui.component.OriginalVersionSearchEngineTest --warning-mode summary
+      - name: Run Android Brain and cover web playback-locator contract tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --tests com.metrolist.music.ui.component.AiCoverSearchEngineTest --tests com.metrolist.music.ui.component.YouTubeWebSearchTest --tests com.metrolist.music.ui.component.AiCoverFlowResolverTest --tests com.metrolist.music.ui.component.OriginalVersionSearchEngineTest --warning-mode summary
