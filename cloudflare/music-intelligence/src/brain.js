@@ -46,7 +46,7 @@ export function evaluateEvidence({ positives = [], negatives = [] } = {}) {
   };
 }
 
-export function admitCoverCandidate({ originalArtist, candidateArtist, signals = [] } = {}) {
+export function admitCoverCandidate({ originalArtist, candidateArtist, category = 'cover', signals = [] } = {}) {
   if (!normalizeName(originalArtist) || !normalizeName(candidateArtist)) {
     return { admitted: false, reason: 'missing_performer' };
   }
@@ -55,17 +55,27 @@ export function admitCoverCandidate({ originalArtist, candidateArtist, signals =
   }
 
   const coherent = signals.filter(signal => ['very_strong', 'strong', 'medium', 'weak'].includes(signal?.strength));
-  const hasVeryStrongIdentity = coherent.some(signal =>
-    signal.strength === 'very_strong' && ['iswc_match', 'musicbrainz_work_match', 'related_work_confirmed'].includes(signal.kind));
   const mediumOrStrong = coherent.filter(signal => ['very_strong', 'strong', 'medium'].includes(signal.strength));
-  const meaningfulFamilies = new Set(coherent.map(signal => signalFamily(signal.kind)));
-  const weakOnlyCompanion = coherent.length >= 2 && mediumOrStrong.length === 1 &&
-    coherent.every(signal => signal.strength === 'weak' || ['title_match', 'album_match'].includes(signal.kind));
+  const normalizedCategory = normalizeName(category);
+  const isForeign = ['straniera', 'foreign', 'adaptation', 'adattamento'].includes(normalizedCategory);
 
-  const admitted = hasVeryStrongIdentity ||
-    (coherent.length >= 2 && mediumOrStrong.length >= 2 && meaningfulFamilies.size >= 2 && !weakOnlyCompanion);
+  if (isForeign) {
+    const independent = mediumOrStrong.filter(signal => signalFamily(signal.kind) !== 'title');
+    const admitted = independent.length >= 1;
+    return {
+      admitted,
+      reason: admitted ? 'foreign_one_strong_evidence' : 'foreign_insufficient_evidence',
+    };
+  }
 
-  return { admitted, reason: admitted ? 'two_key_match' : 'insufficient_evidence' };
+  const hasTitle = mediumOrStrong.some(signal => signalFamily(signal.kind) === 'title');
+  const hasIndependentEvidence = mediumOrStrong.some(signal => signalFamily(signal.kind) !== 'title');
+  const admitted = hasTitle && hasIndependentEvidence;
+
+  return {
+    admitted,
+    reason: admitted ? 'title_plus_same_work_evidence' : 'insufficient_evidence',
+  };
 }
 
 function signalFamily(kind = '') {
