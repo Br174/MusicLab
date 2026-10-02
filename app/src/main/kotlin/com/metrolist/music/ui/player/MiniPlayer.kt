@@ -84,6 +84,7 @@ import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalListenTogetherManager
+import com.metrolist.music.LocalNavController
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.CropAlbumArtKey
@@ -101,6 +102,7 @@ import com.metrolist.music.playback.CastConnectionHandler
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.ui.screens.settings.DarkMode
 import com.metrolist.music.ui.utils.resize
+import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.joinToArtistString
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
@@ -639,6 +641,7 @@ private fun NewMiniPlayerSongInfo(
     modifier: Modifier = Modifier,
 ) {
     val error by LocalPlayerConnection.current?.error?.collectAsState() ?: remember { mutableStateOf(null) }
+    val navController = LocalNavController.current
 
     Column(
         modifier = modifier,
@@ -652,7 +655,9 @@ private fun NewMiniPlayerSongInfo(
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Clip,
-                modifier = Modifier.basicMarquee(iterations = 1, initialDelayMillis = 3000, velocity = 30.dp),
+                modifier = Modifier
+                    .basicMarquee(iterations = 1, initialDelayMillis = 3000, velocity = 30.dp)
+                    .clickable { navController.navigate(SearchRoutes.titleResultRoute(metadata.title)) },
             )
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -952,6 +957,7 @@ private fun LegacyMiniMediaInfo(
 ) {
     val error by LocalPlayerConnection.current?.error?.collectAsState() ?: remember { mutableStateOf(null) }
     val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
+    val navController = LocalNavController.current
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1017,7 +1023,9 @@ private fun LegacyMiniMediaInfo(
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.basicMarquee(),
+                modifier = Modifier
+                    .basicMarquee()
+                    .clickable { navController.navigate(SearchRoutes.titleResultRoute(mediaMetadata.title)) },
             )
 
              if (mediaMetadata.artists.any { it.name.isNotBlank() }) {
