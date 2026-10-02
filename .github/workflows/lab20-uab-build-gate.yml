@@ -1,29 +1,29 @@
-name: LAB20 UAB Delivery Gate
-# gate-revision: title-meaning-evidence-v2
+name: LAB21 UAB Delivery Gate
+# gate-revision: deep-locator-v1
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
   push:
     branches:
-      - uab-build/musiclab-ai-brain-20
+      - uab-build/musiclab-deep-locator-21
     paths:
-      - '.github/workflows/lab20-uab-build-gate.yml'
+      - '.github/workflows/lab21-uab-build-gate.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: lab20-uab-delivery-gate
+  group: lab21-uab-delivery-gate
   cancel-in-progress: true
 
 jobs:
   build:
-    name: verify-and-build-lab20-apk-zip
+    name: verify-and-build-lab21-apk-zip
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
-      - name: Checkout exact LAB20 source
+      - name: Checkout exact LAB21 source
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -32,7 +32,7 @@ jobs:
       - name: Record exact source SHA
         shell: bash
         run: |
-          echo "LAB20 final source: $GITHUB_SHA"
+          echo "LAB21 final source: $GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Set up Node 22
@@ -62,13 +62,13 @@ jobs:
           print('D1 migration chain OK:', ', '.join(sorted(required)))
           PY
 
-      - name: Verify deployed LAB20 backend
+      - name: Verify deployed LAB21 backend
         shell: bash
         run: |
           set -euo pipefail
           WORKER_URL="https://musiclab-music-intelligence.brunoverlezza.workers.dev"
           state="$(curl --fail-with-body --silent --show-error "$WORKER_URL/stato")"
-          jq -e '.stato == "ok" and .memoria == true and .ai == true and .versione == "1.3.1-lab20"' <<<"$state" >/dev/null
+          jq -e '.stato == "ok" and .memoria == true and .ai == true and .versione == "1.3.1-lab21"' <<<"$state" >/dev/null
           plan="$(curl --fail-with-body --silent --show-error \
             -H 'content-type: application/json' \
             -d '{"title":"Il mondo","artist":"Jimmy Fontana","mode":"cover"}' \
@@ -100,7 +100,7 @@ jobs:
         shell: bash
         run: bash tools/universal-apk-builder/diagnose.sh .
 
-      - name: Build LAB20 APK and ZIP with UAB
+      - name: Build LAB21 APK and ZIP with UAB
         shell: bash
         run: bash tools/universal-apk-builder/build-apk.sh .
         env:
@@ -115,30 +115,30 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
           test "$(cat dist/uab/BUILD_SHA.txt)" = "$GITHUB_SHA"
 
-      - name: Verify LAB20 deliverables
+      - name: Verify LAB21 deliverables
         shell: bash
         run: |
-          test -s dist/uab/apk/MusicLab-LAB-20.apk
-          test -s dist/uab/MusicLab-LAB-20-APK.zip
+          test -s dist/uab/apk/MusicLab-LAB-21.apk
+          test -s dist/uab/MusicLab-LAB-21-APK.zip
           test -s dist/uab/apk/SHA256SUMS.txt
           test -s dist/uab/BUILD_SHA.txt
-          unzip -tq dist/uab/MusicLab-LAB-20-APK.zip
-          test "$(unzip -Z1 dist/uab/MusicLab-LAB-20-APK.zip | grep -c '\.apk$')" -eq 1
+          unzip -tq dist/uab/MusicLab-LAB-21-APK.zip
+          test "$(unzip -Z1 dist/uab/MusicLab-LAB-21-APK.zip | grep -c '\.apk$')" -eq 1
           echo '--- Source SHA ---'
           cat dist/uab/BUILD_SHA.txt
           echo '--- SHA256 ---'
           cat dist/uab/apk/SHA256SUMS.txt
           echo '--- Files ---'
-          ls -lh dist/uab/apk/MusicLab-LAB-20.apk dist/uab/MusicLab-LAB-20-APK.zip
+          ls -lh dist/uab/apk/MusicLab-LAB-21.apk dist/uab/MusicLab-LAB-21-APK.zip
 
-      - name: Upload LAB20 APK ZIP and verification evidence
+      - name: Upload LAB21 APK ZIP and verification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-20
+          name: MusicLab-LAB-21
           path: |
-            dist/uab/apk/MusicLab-LAB-20.apk
+            dist/uab/apk/MusicLab-LAB-21.apk
             dist/uab/apk/SHA256SUMS.txt
-            dist/uab/MusicLab-LAB-20-APK.zip
+            dist/uab/MusicLab-LAB-21-APK.zip
             dist/uab/BUILD_SHA.txt
             dist/uab/logs/*.log
           if-no-files-found: error
