@@ -445,6 +445,10 @@ internal fun OriginalVersionScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
+                        "Spotify assist: ${diagnostics.spotifyHintsFound} suggerimenti",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
                         "Dettagli AI caricati su richiesta: ${versionCredits.size}",
                         style = MaterialTheme.typography.bodySmall,
                     )
