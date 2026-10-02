@@ -1019,7 +1019,7 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(result.candidate.title)) },
+                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1047,7 +1047,7 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(result.candidate.title)) },
+                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1104,7 +1104,7 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.resultRoute(result.candidate.title)) },
+                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1409,15 +1409,111 @@ private fun AiCoverCreditsWithoutYearAlbum(
     label?.let { Text("Etichetta: $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis) }
 }
 
+private fun mergeCandidatesByEvidence(
+    current: List<AiCoverCandidate>,
+    incoming: List<AiCoverCandidate>,
+): List<AiCoverCandidate> {
+    val merged = linkedMapOf<String, AiCoverCandidate>()
+    current.forEach { merged[it.stableKey] = it }
+    incoming.forEach { candidate ->
+        val previous = merged[candidate.stableKey]
+        merged[candidate.stableKey] =
+            if (previous == null || candidateRichness(candidate) >= candidateRichness(previous)) {
+                candidate
+            } else {
+                previous
+            }
+    }
+    return merged.values.toList()
+}
+
 private fun mergePlayables(
     current: List<AiCoverPlayable>,
     incoming: List<AiCoverPlayable>,
 ): List<AiCoverPlayable> {
     val merged = linkedMapOf<String, AiCoverPlayable>()
-    (current + incoming).forEach { item -> merged.putIfAbsent(item.song.id, item) }
-    return merged.values.sortedWith(
-        compareBy<AiCoverPlayable> { if (it.candidate.year == null) 1 else 0 }
-            .thenBy { it.candidate.year ?: Int.MAX_VALUE }
-            .thenBy { it.candidate.artist.lowercase() },
-    )
+    current.forEach { merged[it.song.id] = it }
+    incoming.forEach { playable ->
+        val previous = merged[playable.song.id]
+        merged[playable.song.id] =
+            if (previous == null || candidateRichness(playable.candidate) >= candidateRichness(previous.candidate)) {
+                playable
+            } else {
+                previous
+            }
+    }
+    // Ordering belongs to the UI sort selector; the merge itself stays allocation-light.
+    return merged.values.toList()
 }
+
+private fun candidateRichness(candidate: AiCoverCandidate): Int {
+    var score = 0
+    if (candidate.year != null) score += 2
+    if (!candidate.album.isNullOrBlank()) score += 2
+    if (!candidate.spotifyTrackId.isNullOrBlank()) score += 2
+    if (!candidate.spotifyIsrc.isNullOrBlank()) score += 2
+    if (candidate.sameWorkScore != null) score += 2
+    if (candidate.versionTypeScore != null) score += 1
+    if (candidate.brainSignals.isNotEmpty()) score += 1
+    score += when (candidate.brainStatus) {
+        AiBrainDecisionStatus.APPROVED -> 6
+        AiBrainDecisionStatus.PROBABLE -> 4
+        AiBrainDecisionStatus.UNCERTAIN -> 2
+        AiBrainDecisionStatus.REJECTED -> -10
+        null -> 0
+    }
+    if (candidate.brainAdmission == "title_only_fast") score -= 1
+    return score
+}
+
+private fun coverQualityScore(
+    targetTitle: String,
+    playable: AiCoverPlayable,
+): Int {
+    val titleScore = TitleMeaningResolver.qualityScore(
+        targetTitle = targetTitle,
+        value = playable.song.title,
+        artistAliases = setOf(playable.candidate.artist),
+    )
+    if (titleScore >= 9) return titleScore
+
+    val evidenceScore = when (playable.candidate.brainStatus) {
+        AiBrainDecisionStatus.APPROVED -> 9
+        AiBrainDecisionStatus.PROBABLE -> 8
+        AiBrainDecisionStatus.UNCERTAIN -> 6
+        AiBrainDecisionStatus.REJECTED -> 0
+        null -> 5
+    }
+    return maxOf(titleScore, evidenceScore).coerceIn(0, 10)
+}
+
+private fun sortCoverResults(
+    items: List<AiCoverPlayable>,
+    targetTitle: String,
+    mode: CoverSortMode,
+): List<AiCoverPlayable> =
+    when (mode) {
+        CoverSortMode.QUALITY ->
+            items.sortedWith(
+                compareByDescending<AiCoverPlayable> { coverQualityScore(targetTitle, it) }
+                    .thenBy { if (it.candidate.year == null) 1 else 0 }
+                    .thenBy { it.candidate.year ?: Int.MAX_VALUE }
+                    .thenBy { it.candidate.artist.lowercase() },
+            )
+
+        CoverSortMode.YEAR_ASC ->
+            items.sortedWith(
+                compareBy<AiCoverPlayable> { if (it.candidate.year == null) 1 else 0 }
+                    .thenBy { it.candidate.year ?: Int.MAX_VALUE }
+                    .thenByDescending { coverQualityScore(targetTitle, it) }
+                    .thenBy { it.candidate.artist.lowercase() },
+            )
+
+        CoverSortMode.YEAR_DESC ->
+            items.sortedWith(
+                compareBy<AiCoverPlayable> { if (it.candidate.year == null) 1 else 0 }
+                    .thenByDescending { it.candidate.year ?: Int.MIN_VALUE }
+                    .thenByDescending { coverQualityScore(targetTitle, it) }
+                    .thenBy { it.candidate.artist.lowercase() },
+            )
+    }
