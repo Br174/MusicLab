@@ -25,7 +25,7 @@ export function buildBrainFocus({ title, artist, mode = 'cover', focus = '', lan
     `Titolo originale da preservare: ${title}. Non tradurre letteralmente il titolo come unica strategia.`,
     'Usa terminologia di ricerca italiana e inglese; per gli adattamenti cerca anche titoli reali diversi, opere collegate, autori, compositori e parolieri.',
     'Ogni fonte e una evidenza, non un verdetto: una fonte assente non e motivo sufficiente per rifiutare; l AI puo contraddire una fonte quando il quadro complessivo lo giustifica.',
-    'Per una Cover, performer differente + due segnali coerenti (almeno uno medio/forte) sono sufficienti per ammettere il candidato al pool; la decisione finale resta all AI.',
+    'Per Cover/Live/Remix nella stessa lingua: titolo canonico completo come frase autonoma + almeno una evidenza indipendente della stessa opera. Per una straniera il titolo puo essere diverso e basta una evidenza medio/forte della stessa opera.',
     `Lingue prioritarie: ${missions.join(', ')}.`,
     `Piste bilingui suggerite: ${queries.join(' | ')}.`,
   ].filter(Boolean).join('\n');
@@ -107,6 +107,7 @@ function decorateVersion(original, version, mode) {
     admission = admitCoverCandidate({
       originalArtist: original.artist,
       candidateArtist: version.artist,
+      category: version.category,
       signals,
     });
     if (numericScore(version?.versionTypeScore) == null) {
@@ -135,7 +136,7 @@ function decorateVersion(original, version, mode) {
 
 function collectSignals(original, version) {
   const signals = [];
-  if (normalize(original?.title) && normalize(original?.title) === normalize(version?.title)) {
+  if (titleAutonomousMatch(original?.title, version?.title)) {
     signals.push({ kind: 'title_match', strength: 'medium' });
   }
   if (hasCreditOverlap(original?.credits?.composers, version?.credits?.composers)) {
@@ -151,6 +152,43 @@ function collectSignals(original, version) {
     signals.push({ kind: 'adaptation_hint', strength: 'weak' });
   }
   return signals;
+}
+
+function titleAutonomousMatch(baseTitle, candidateTitle) {
+  const base = canonical(baseTitle);
+  const candidate = canonical(candidateTitle);
+  if (!base || !candidate) return false;
+  if (base === candidate) return true;
+
+  const segments = String(candidateTitle || '')
+    .split(/[()[\]{}]|\s*[-–—:|·]\s*/)
+    .map(canonical)
+    .filter(Boolean);
+  if (segments.includes(base)) {
+    const continuation = new Set([
+      'che', 'chi', 'cui', 'quando', 'dove', 'come', 'perche',
+      'that', 'which', 'who', 'when', 'where', 'because',
+      'que', 'quien', 'cuando', 'donde', 'como', 'porque',
+    ]);
+    const extras = segments.filter(segment => segment !== base);
+    if (!extras.some(segment => continuation.has(segment.split(' ')[0]))) return true;
+  }
+
+  const technical = new Set([
+    'official', 'music', 'video', 'audio', 'lyrics', 'lyric', 'visualizer',
+    'remaster', 'remastered', 'version', 'versione', 'cover', 'live', 'dal',
+    'vivo', 'concert', 'concerto', 'performance', 'session', 'festival',
+    'remix', 'mix', 'rework', 'radio', 'edit', 'extended', 'club', 'acoustic',
+    'unplugged', 'studio', 'mono', 'stereo', 'hd', 'hq', '4k', 'feat', 'ft',
+    'featuring', 'duet', 'duetto',
+  ]);
+  const residual = candidate.startsWith(base + ' ')
+    ? candidate.slice(base.length).trim()
+    : candidate.endsWith(' ' + base)
+      ? candidate.slice(0, candidate.length - base.length).trim()
+      : '';
+  if (!residual) return false;
+  return residual.split(' ').every(token => technical.has(token) || /^(?:18|19|20)\d{2}$/.test(token));
 }
 
 function hasCreditOverlap(a, b) {
