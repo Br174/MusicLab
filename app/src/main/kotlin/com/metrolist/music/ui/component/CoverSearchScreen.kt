@@ -693,19 +693,24 @@ internal fun CoverSearchScreen(
     val foreignResults = playables.filter { it.candidate.category == AiCoverCategory.FOREIGN && foreignAiEnabled }
     val allResults = playables.filter { categoryEnabled(it.candidate.category) }
     val selectedTabResults = when (selectedTab) {
+        AiCoverTab.ALL -> allResults
         AiCoverTab.COVER -> coverResults
         AiCoverTab.LIVE -> liveResults
         AiCoverTab.REMIX -> remixResults
         AiCoverTab.FOREIGN -> foreignResults
-        AiCoverTab.ALL -> allResults
     }
     val coverageVisibleResults = AiCoverageFilter.visibleItems(
         selectedTabResults,
         selectedCoverageMode,
     ) { it.candidate }
-    val confirmedResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }
-    val reviewResults = coverageVisibleResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
-    val selectedResults = coverageVisibleResults.filter {
+    val orderedCoverageResults = sortCoverResults(
+        items = coverageVisibleResults,
+        targetTitle = originalInfo?.title?.ifBlank { title } ?: title,
+        mode = selectedSortMode,
+    )
+    val confirmedResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.APPROVED }
+    val reviewResults = orderedCoverageResults.filter { it.candidate.brainStatus == AiBrainDecisionStatus.UNCERTAIN }
+    val selectedResults = orderedCoverageResults.filter {
         it.candidate.brainStatus != AiBrainDecisionStatus.UNCERTAIN &&
             it.candidate.brainStatus != AiBrainDecisionStatus.APPROVED
     }
@@ -844,7 +849,7 @@ internal fun CoverSearchScreen(
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.height(7.dp))
-                    Text("Studio: ${coverResults.size} · Live: ${liveResults.size} · Remix: ${remixResults.size} · Straniere: ${foreignResults.size}")
+                    Text("Studio: ${coverResults.size} · Live: ${liveResults.size} · Mix: ${remixResults.size} · Straniere: ${foreignResults.size}")
                     Text("Riproduzione YouTube Music: $youtubeMusicHits", style = MaterialTheme.typography.bodySmall)
                     Text("Riproduzione YouTube: $youtubeHits", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(7.dp))
@@ -953,6 +958,11 @@ internal fun CoverSearchScreen(
                                 remixEnabled = remixAiEnabled,
                                 foreignEnabled = foreignAiEnabled,
                                 onSelected = { selectedTab = it },
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            CoverSortSelector(
+                                selected = selectedSortMode,
+                                onSelected = { selectedSortMode = it },
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
@@ -1142,11 +1152,51 @@ private fun CoverResultsTabs(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        CoverResultChip("Tutto", allCount, selected == AiCoverTab.ALL) { onSelected(AiCoverTab.ALL) }
         CoverResultChip("Studio", coverCount, selected == AiCoverTab.COVER) { onSelected(AiCoverTab.COVER) }
         if (liveEnabled) CoverResultChip("Live", liveCount, selected == AiCoverTab.LIVE) { onSelected(AiCoverTab.LIVE) }
-        if (remixEnabled) CoverResultChip("Remix", remixCount, selected == AiCoverTab.REMIX) { onSelected(AiCoverTab.REMIX) }
+        if (remixEnabled) CoverResultChip("Mix", remixCount, selected == AiCoverTab.REMIX) { onSelected(AiCoverTab.REMIX) }
         if (foreignEnabled) CoverResultChip("Straniere", foreignCount, selected == AiCoverTab.FOREIGN) { onSelected(AiCoverTab.FOREIGN) }
-        CoverResultChip("Tutto", allCount, selected == AiCoverTab.ALL) { onSelected(AiCoverTab.ALL) }
+    }
+}
+
+@Composable
+private fun CoverSortSelector(
+    selected: CoverSortMode,
+    onSelected: (CoverSortMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Ordina:",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        CoverSortChip("Qualità", selected == CoverSortMode.QUALITY) { onSelected(CoverSortMode.QUALITY) }
+        CoverSortChip("Anno ↑", selected == CoverSortMode.YEAR_ASC) { onSelected(CoverSortMode.YEAR_ASC) }
+        CoverSortChip("Anno ↓", selected == CoverSortMode.YEAR_DESC) { onSelected(CoverSortMode.YEAR_DESC) }
+    }
+}
+
+@Composable
+private fun CoverSortChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
     }
 }
 
@@ -1319,7 +1369,7 @@ private fun CoverDetailDialog(
 private fun coverCategoryLabel(category: AiCoverCategory): String = when (category) {
     AiCoverCategory.COVER -> "Studio"
     AiCoverCategory.LIVE -> "Live"
-    AiCoverCategory.REMIX -> "Remix"
+    AiCoverCategory.REMIX -> "Mix"
     AiCoverCategory.FOREIGN -> "Studio · straniera"
 }
 
