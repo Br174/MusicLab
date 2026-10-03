@@ -442,12 +442,8 @@ fun AccountSettings(
                     }
                 ),
                 Material3SettingsItem(
-                    title = { Text(stringResource(R.string.lastfm_api_credentials)) },
-                    icon = painterResource(R.drawable.token),
-                    onClick = { showExternalApiEditor = true }
-                ),
-                Material3SettingsItem(
-                    title = { Text(stringResource(R.string.discogs_token)) },
+                    title = { Text("Last.fm + Discogs") },
+                    description = { Text("API Key, Shared Secret e Personal Access Token") },
                     icon = painterResource(R.drawable.token),
                     onClick = { showExternalApiEditor = true }
                 ),
