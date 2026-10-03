@@ -47,6 +47,7 @@ import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.models.SectionType
 import com.metrolist.music.models.SpotifyHomeSection
+import com.metrolist.music.utils.italianizeProviderUiText
 import com.metrolist.music.utils.toAlbumItem
 import com.metrolist.music.utils.toArtistItem
 import com.metrolist.music.utils.toPlaylistItem
@@ -77,7 +78,7 @@ fun resolveSpotifySectionTitle(section: SpotifyHomeSection): String {
         title == "spotify_discover" -> stringResource(R.string.spotify_discover)
         title == "spotify_your_playlists" -> stringResource(R.string.spotify_your_playlists)
         title == "spotify_new_releases" -> stringResource(R.string.spotify_new_releases)
-        else -> title
+        else -> italianizeProviderUiText(title)
     }
 }
 
