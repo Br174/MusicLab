@@ -26,47 +26,22 @@ val QueuePeekHeight = 64.dp
 val AppBarHeight = 64.dp
 
 val ListItemHeight: Dp
-    get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 56.dp
-        ArtworkSize.MEDIUM -> 64.dp
-        ArtworkSize.LARGE -> 76.dp
-        ArtworkSize.VERY_LARGE -> 88.dp
-    }
+    get() = ArtworkSizeRuntime.current.listItemHeight
 
 val SuggestionItemHeight = 56.dp
 val SearchFilterHeight = 48.dp
 
 val ListThumbnailSize: Dp
-    get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 40.dp
-        ArtworkSize.MEDIUM -> 48.dp
-        ArtworkSize.LARGE -> 60.dp
-        ArtworkSize.VERY_LARGE -> 72.dp
-    }
+    get() = ArtworkSizeRuntime.current.listThumbnailSize
 
 val SmallGridThumbnailHeight: Dp
-    get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 88.dp
-        ArtworkSize.MEDIUM -> 104.dp
-        ArtworkSize.LARGE -> 124.dp
-        ArtworkSize.VERY_LARGE -> 144.dp
-    }
+    get() = ArtworkSizeRuntime.current.smallGridThumbnailHeight
 
 val GridThumbnailHeight: Dp
-    get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 108.dp
-        ArtworkSize.MEDIUM -> 128.dp
-        ArtworkSize.LARGE -> 156.dp
-        ArtworkSize.VERY_LARGE -> 184.dp
-    }
+    get() = ArtworkSizeRuntime.current.gridThumbnailHeight
 
-val AlbumThumbnailSize: Dp
-    get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 116.dp
-        ArtworkSize.MEDIUM -> 144.dp
-        ArtworkSize.LARGE -> 176.dp
-        ArtworkSize.VERY_LARGE -> 208.dp
-    }
+// Album detail artwork is deliberately independent from the global poster scale.
+val AlbumThumbnailSize: Dp = 144.dp
 
 val ThumbnailCornerRadius = 3.dp
 
