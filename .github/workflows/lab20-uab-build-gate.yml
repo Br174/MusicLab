@@ -1,11 +1,11 @@
-name: CANDIDATA LAB25 UAB Delivery Gate
-# gate-revision: candidate-lab25-v1
+name: LAB26 UAB Delivery Gate
+# gate-revision: artwork-italian-years-v1
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
   push:
     branches:
-      - candidate/musiclab-lab25-playback-cover
+      - uab-build/musiclab-artwork-italian-years-26
     paths:
       - '.github/workflows/lab20-uab-build-gate.yml'
 
@@ -13,17 +13,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: candidate-lab25-uab-delivery-gate
+  group: lab26-uab-delivery-gate
   cancel-in-progress: true
 
 jobs:
   build:
-    name: verify-and-build-candidate-lab25-apk-zip
+    name: verify-and-build-lab26-apk-zip
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
-      - name: Checkout exact CANDIDATA LAB25 source
+      - name: Checkout exact LAB26 source
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -32,7 +32,7 @@ jobs:
       - name: Record exact source SHA
         shell: bash
         run: |
-          echo "CANDIDATA LAB25 source: $GITHUB_SHA"
+          echo "LAB26 source: $GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Set up Node 22
@@ -100,7 +100,7 @@ jobs:
         shell: bash
         run: bash tools/universal-apk-builder/diagnose.sh .
 
-      - name: Build CANDIDATA LAB25 APK and ZIP with UAB
+      - name: Build LAB26 APK and ZIP with UAB
         shell: bash
         run: bash tools/universal-apk-builder/build-apk.sh .
         env:
@@ -115,30 +115,30 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
           test "$(cat dist/uab/BUILD_SHA.txt)" = "$GITHUB_SHA"
 
-      - name: Verify CANDIDATA LAB25 deliverables
+      - name: Verify LAB26 deliverables
         shell: bash
         run: |
-          test -s dist/uab/apk/MusicLab-CANDIDATA-LAB25.apk
-          test -s dist/uab/MusicLab-CANDIDATA-LAB25-APK.zip
+          test -s dist/uab/apk/MusicLab-LAB-26.apk
+          test -s dist/uab/MusicLab-LAB-26-APK.zip
           test -s dist/uab/apk/SHA256SUMS.txt
           test -s dist/uab/BUILD_SHA.txt
-          unzip -tq dist/uab/MusicLab-CANDIDATA-LAB25-APK.zip
-          test "$(unzip -Z1 dist/uab/MusicLab-CANDIDATA-LAB25-APK.zip | grep -c '\.apk$')" -eq 1
+          unzip -tq dist/uab/MusicLab-LAB-26-APK.zip
+          test "$(unzip -Z1 dist/uab/MusicLab-LAB-26-APK.zip | grep -c '\.apk$')" -eq 1
           echo '--- Source SHA ---'
           cat dist/uab/BUILD_SHA.txt
           echo '--- SHA256 ---'
           cat dist/uab/apk/SHA256SUMS.txt
           echo '--- Files ---'
-          ls -lh dist/uab/apk/MusicLab-CANDIDATA-LAB25.apk dist/uab/MusicLab-CANDIDATA-LAB25-APK.zip
+          ls -lh dist/uab/apk/MusicLab-LAB-26.apk dist/uab/MusicLab-LAB-26-APK.zip
 
-      - name: Upload CANDIDATA LAB25 APK ZIP and verification evidence
+      - name: Upload LAB26 APK ZIP and verification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-CANDIDATA-LAB25
+          name: MusicLab-LAB-26
           path: |
-            dist/uab/apk/MusicLab-CANDIDATA-LAB25.apk
+            dist/uab/apk/MusicLab-LAB-26.apk
             dist/uab/apk/SHA256SUMS.txt
-            dist/uab/MusicLab-CANDIDATA-LAB25-APK.zip
+            dist/uab/MusicLab-LAB-26-APK.zip
             dist/uab/BUILD_SHA.txt
             dist/uab/logs/*.log
           if-no-files-found: error
