@@ -117,6 +117,7 @@ import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.constants.HomeGridThumbnailHeight
+import com.metrolist.music.constants.HomeListThumbnailSize
 import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
@@ -151,6 +152,7 @@ import com.metrolist.music.ui.component.ChipsRow
 import com.metrolist.music.ui.component.HideOnScrollFAB
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalGridThumbnailHeightOverride
+import com.metrolist.music.ui.component.LocalListThumbnailSizeOverride
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.menu.SpotifyPlaylistMenu
 import com.metrolist.music.ui.component.NavigationTitle
@@ -1198,7 +1200,10 @@ fun HomeScreen(
         forgottenFavoritesLazyGridState.scrollToItem(0)
     }
 
-    CompositionLocalProvider(LocalGridThumbnailHeightOverride provides HomeGridThumbnailHeight) {
+    CompositionLocalProvider(
+        LocalGridThumbnailHeightOverride provides HomeGridThumbnailHeight,
+        LocalListThumbnailSizeOverride provides HomeListThumbnailSize,
+    ) {
         PullToRefreshBox(
         state = pullRefreshState,
         isRefreshing = isRefreshing,
@@ -1382,7 +1387,7 @@ fun HomeScreen(
                                                     contentDescription = null,
                                                     modifier =
                                                         Modifier
-                                                            .size(ListThumbnailSize)
+                                                            .size(HomeListThumbnailSize)
                                                             .clip(shape),
                                                 )
                                             }
@@ -2092,14 +2097,14 @@ fun HomeScreen(
                                                     contentScale = ContentScale.Crop,
                                                     modifier =
                                                         Modifier
-                                                            .size(ListThumbnailSize)
+                                                            .size(HomeListThumbnailSize)
                                                             .clip(CircleShape),
                                                 )
                                             } else {
                                                 Icon(
                                                     painter = painterResource(id = R.drawable.person),
                                                     contentDescription = null,
-                                                    modifier = Modifier.size(ListThumbnailSize),
+                                                    modifier = Modifier.size(HomeListThumbnailSize),
                                                 )
                                             }
                                         },
@@ -2264,7 +2269,7 @@ fun HomeScreen(
                                                         contentDescription = null,
                                                         modifier =
                                                             Modifier
-                                                                .size(ListThumbnailSize)
+                                                                .size(HomeListThumbnailSize)
                                                                 .clip(shape),
                                                     )
                                                 }
@@ -2340,7 +2345,7 @@ fun HomeScreen(
                                                         contentDescription = null,
                                                         modifier =
                                                             Modifier
-                                                                .size(ListThumbnailSize)
+                                                                .size(HomeListThumbnailSize)
                                                                 .clip(shape),
                                                     )
                                                 }
