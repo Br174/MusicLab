@@ -67,6 +67,15 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.Year
 
+private data class CompilationSearchCriteria(
+    val query: String,
+    val year: Int?,
+    val genre: String?,
+    val style: String?,
+    val country: String?,
+    val language: String?,
+)
+
 @Composable
 internal fun CompilationScreen(
     navController: NavHostController,
@@ -87,7 +96,13 @@ internal fun CompilationScreen(
 
     var results by remember { mutableStateOf<List<DiscogsCompilationSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var paginationError by remember { mutableStateOf<String?>(null) }
+    var currentPage by remember { mutableStateOf(0) }
+    var totalPages by remember { mutableStateOf(0) }
+    var totalDiscogsResults by remember { mutableStateOf(0) }
+    var activeSearch by remember { mutableStateOf<CompilationSearchCriteria?>(null) }
 
     var detail by remember { mutableStateOf<DiscogsCompilationDetail?>(null) }
     var detailLoading by remember { mutableStateOf(false) }
@@ -96,41 +111,104 @@ internal fun CompilationScreen(
     var resolvingAll by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
 
+    suspend fun filterByLanguage(
+        items: List<DiscogsCompilationSummary>,
+        requestedLanguage: String?,
+    ): List<DiscogsCompilationSummary> {
+        if (requestedLanguage == null || items.isEmpty()) return items
+        return withContext(Dispatchers.IO) {
+            items.filter { summary ->
+                val candidate = DiscogsClient.getRelease(discogsToken, summary.id).getOrNull()
+                candidate == null ||
+                    CompilationLanguageHeuristics.matchesOrUnknown(requestedLanguage, candidate.tracks)
+            }
+        }
+    }
+
+    suspend fun loadPage(
+        criteria: CompilationSearchCriteria,
+        page: Int,
+        replaceResults: Boolean,
+    ): Boolean {
+        val response = DiscogsClient.searchCompilations(
+            token = discogsToken,
+            query = criteria.query,
+            year = criteria.year,
+            genre = criteria.genre,
+            style = criteria.style,
+            country = criteria.country,
+            page = page,
+            perPage = if (criteria.language == null) 100 else 25,
+        )
+
+        val pageResult = response.getOrElse {
+            if (replaceResults) {
+                error = it.message ?: "Errore durante la ricerca Discogs."
+            } else {
+                paginationError = it.message ?: "Errore nel caricamento della pagina successiva."
+            }
+            return false
+        }
+
+        val visibleItems = filterByLanguage(pageResult.items, criteria.language)
+        results = if (replaceResults) {
+            visibleItems
+        } else {
+            (results + visibleItems).distinctBy { it.id }
+        }
+        currentPage = pageResult.page
+        totalPages = pageResult.pages
+        totalDiscogsResults = pageResult.totalItems
+        paginationError = null
+        return true
+    }
+
     fun runSearch() {
         if (discogsToken.isBlank()) {
             error = "Inserisci prima il Personal Access Token Discogs in Token e API."
             return
         }
+
+        val criteria = CompilationSearchCriteria(
+            query = query.trim(),
+            year = year,
+            genre = genre,
+            style = style,
+            country = country,
+            language = language,
+        )
+
         loading = true
+        loadingMore = false
         error = null
+        paginationError = null
         detail = null
         resolvedTracks.clear()
+        results = emptyList()
+        currentPage = 0
+        totalPages = 0
+        totalDiscogsResults = 0
+        activeSearch = criteria
+
         scope.launch {
-            val response = DiscogsClient.searchCompilations(
-                token = discogsToken,
-                query = query,
-                year = year,
-                genre = genre,
-                style = style,
-                country = country,
-                perPage = if (language == null) 30 else 18,
-            )
-            var found = response.getOrElse {
-                error = it.message ?: "Errore durante la ricerca Discogs."
-                emptyList()
-            }
-
-            if (language != null && found.isNotEmpty()) {
-                found = withContext(Dispatchers.IO) {
-                    found.filter { summary ->
-                        val candidate = DiscogsClient.getRelease(discogsToken, summary.id).getOrNull()
-                        candidate == null || CompilationLanguageHeuristics.matchesOrUnknown(language, candidate.tracks)
-                    }
-                }
-            }
-
-            results = found
+            loadPage(criteria, page = 1, replaceResults = true)
             loading = false
+        }
+    }
+
+    fun loadNextPage() {
+        val criteria = activeSearch ?: return
+        if (loading || loadingMore || currentPage <= 0 || currentPage >= totalPages) return
+
+        loadingMore = true
+        paginationError = null
+        scope.launch {
+            loadPage(
+                criteria = criteria,
+                page = currentPage + 1,
+                replaceResults = false,
+            )
+            loadingMore = false
         }
     }
 
@@ -407,9 +485,37 @@ internal fun CompilationScreen(
                                 Text(it, color = MaterialTheme.colorScheme.error)
                             }
 
-                            if (!loading && results.isEmpty()) {
+                            if (activeSearch != null && (totalDiscogsResults > 0 || results.isNotEmpty())) {
+                                val counterText =
+                                    if (activeSearch?.language == null) {
+                                        "Compilation caricate: ${results.size} / Totale Discogs: $totalDiscogsResults"
+                                    } else {
+                                        "Compilation visibili: ${results.size} · Totale Discogs prima del filtro Lingua: $totalDiscogsResults"
+                                    }
+                                Text(
+                                    counterText,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                if (totalPages > 0) {
+                                    Text(
+                                        "Pagina $currentPage di $totalPages",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+
+                            if (!loading && activeSearch == null && results.isEmpty()) {
                                 Text(
                                     "Imposta i filtri o scrivi qualcosa e premi Cerca compilation.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else if (!loading && activeSearch != null && totalDiscogsResults == 0) {
+                                Text(
+                                    "Nessuna compilation trovata con questi criteri.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -425,6 +531,64 @@ internal fun CompilationScreen(
                             summary = item,
                             onClick = { openCompilation(item) },
                         )
+                    }
+
+                    if (activeSearch != null && currentPage > 0 && currentPage < totalPages) {
+                        item(key = "discogs_load_more_${currentPage + 1}") {
+                            LaunchedEffect(activeSearch, currentPage, totalPages) {
+                                loadNextPage()
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    "Carico altri risultati… ${results.size}/$totalDiscogsResults",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                            paginationError?.let {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        it,
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    TextButton(onClick = ::loadNextPage) {
+                                        Text("Riprova")
+                                    }
+                                }
+                            }
+                        }
+                    } else if (
+                        activeSearch != null &&
+                        currentPage > 0 &&
+                        currentPage >= totalPages &&
+                        !loading &&
+                        !loadingMore
+                    ) {
+                        item(key = "discogs_all_loaded") {
+                            Text(
+                                text =
+                                    if (activeSearch?.language == null) {
+                                        "Tutti i risultati Discogs disponibili sono stati caricati: ${results.size}."
+                                    } else {
+                                        "Fine risultati Discogs · ${results.size} compilation visibili con il filtro Lingua."
+                                    },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                            )
+                        }
                     }
 
                     item { Spacer(Modifier.height(24.dp)) }
