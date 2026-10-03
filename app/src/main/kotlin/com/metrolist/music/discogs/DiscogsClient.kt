@@ -229,12 +229,13 @@ internal object DiscogsClient {
     private fun String.toDurationSeconds(): Int? {
         val parts = split(":").mapNotNull { it.trim().toIntOrNull() }
         if (parts.isEmpty()) return null
-        return when (parts.size) {
+        val seconds = when (parts.size) {
             1 -> parts[0]
             2 -> parts[0] * 60 + parts[1]
             3 -> parts[0] * 3600 + parts[1] * 60 + parts[2]
             else -> null
-        }.takeIf { it > 0 }
+        }
+        return seconds?.takeIf { it > 0 }
     }
 
     private fun String.cleanDiscogsText(): String =
