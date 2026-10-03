@@ -42,7 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
 import com.metrolist.music.R
-import com.metrolist.music.constants.HomeHomeGridThumbnailHeight
+import com.metrolist.music.constants.HomeGridThumbnailHeight
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.models.SectionType
