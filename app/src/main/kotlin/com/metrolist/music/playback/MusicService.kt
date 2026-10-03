@@ -673,6 +673,14 @@ class MusicService :
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+
+        // Player Veloce 2: prepare the stream extraction runtime before the first tap.
+        // This is CPU/local-runtime preparation only; it does not fetch a song.
+        InnerTubeXPlayer.initialize(this)
+        scope.launch(Dispatchers.IO + SilentHandler) {
+            runCatching { InnerTubeXPlayer.prepare() }
+                .onFailure { Timber.tag(TAG).d(it, "Player Veloce 2 stream runtime prepare skipped") }
+        }
         shutdownDeferred = kotlinx.coroutines.CompletableDeferred<Unit>()
 
         setListener(
@@ -4870,12 +4878,44 @@ class MusicService :
 
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
 
+            // Player Veloce 2 fast stream lane. During an explicit playback burst,
+            // check already-ready YouTube/local cache state before any optional provider
+            // discovery. This keeps tap-to-audio independent from Qobuz lookup latency.
+            if (playbackPriorityBurstActive && !shouldBypassCache) {
+                val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
+                val contentLength = storedFormat?.contentLength
+                val requiredLength =
+                    when {
+                        dataSpec.length >= 0 -> dataSpec.length
+                        contentLength != null -> (contentLength - dataSpec.position).coerceAtLeast(1)
+                        else -> CHUNK_LENGTH
+                    }
+
+                if (downloadCache.isCached(mediaId, dataSpec.position, requiredLength)) {
+                    recoverSongDeduped(mediaId)
+                    return@Factory dataSpec
+                }
+                if (usePlayerCache && playerCache.isCached(mediaId, dataSpec.position, requiredLength)) {
+                    recoverSongDeduped(mediaId)
+                    return@Factory dataSpec
+                }
+                songUrlCache[mediaId]?.let { cachedStream ->
+                    recoverSongDeduped(mediaId)
+                    currentStreamClient.value = cachedStream.clientName
+                    return@Factory dataSpec.withResolvedStream(cachedStream)
+                }
+            }
+
             // Qobuz lossless attempt: when toggle is on, try Qobuz for every track.
             // Uses Spotify metadata (with ISRC) when available — registered by
             // SpotifyYouTubeMapper for Spotify-sourced tracks — otherwise falls back
             // to DB title/artist/album for YT-native tracks. Silently falls through
             // to the YouTube path on any failure.
-            val qobuzEnabled = dataStore.get(EnableQobuzKey, false)
+            val qobuzEnabled =
+                !playbackPriorityBurstActive && dataStore.get(EnableQobuzKey, false)
+            if (playbackPriorityBurstActive && dataStore.get(EnableQobuzKey, false)) {
+                Timber.tag("Qobuz").d("Player Veloce 2: skipping Qobuz during playback-priority burst for %s", mediaId)
+            }
             if (qobuzEnabled) {
                 val qobuzQualityEnum = dataStore.get(QobuzAudioQualityKey)
                     .toEnum(QobuzAudioQuality.CD_QUALITY)
@@ -5102,7 +5142,9 @@ class MusicService :
             }
 
             val cacheGeneration = songUrlCache.generation(mediaId)
-            Timber.tag(TAG).i("FETCHING STREAM: $mediaId | quality=$audioQuality")
+            Timber.tag(TAG).i(
+                "FETCHING STREAM: $mediaId | quality=$audioQuality | priorityBurst=$playbackPriorityBurstActive"
+            )
             val playbackData =
                 runBlocking(Dispatchers.IO) {
                     val song = database.songEntity(mediaId)
