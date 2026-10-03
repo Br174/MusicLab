@@ -1128,6 +1128,7 @@ fun MediaMetadataListItem(
 ) {
     val artistNameAliases = LocalArtistNameAliases.current
     val navController = LocalNavController.current
+    val titleSearchEnabled = titleTapSearchEnabled()
     ListItem(
         title = mediaMetadata.title,
         subtitle = {
@@ -1167,7 +1168,12 @@ fun MediaMetadataListItem(
         trailingContent = trailingContent,
         modifier = modifier,
         isActive = isActive,
-        onTitleClick = { navController.navigate(SearchRoutes.titleResultRoute(mediaMetadata.title)) },
+        onTitleClick =
+            if (titleSearchEnabled) {
+                { navController.navigate(SearchRoutes.titleResultRoute(mediaMetadata.title)) }
+            } else {
+                null
+            },
     )
 }
 
