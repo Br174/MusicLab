@@ -7,6 +7,7 @@ package com.metrolist.music
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.LocaleManager
 import android.app.ForegroundServiceStartNotAllowedException
 import android.app.PendingIntent
 import android.content.ComponentName
@@ -14,6 +15,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.LocaleList
 import android.os.Bundle
 import android.os.IBinder
 import android.view.View
@@ -406,13 +408,19 @@ class MainActivity : FragmentActivity() {
         // Initialize Listen Together manager
         listenTogetherManager.initialize()
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            val locale =
-                dataStore[AppLanguageKey]
-                    ?.takeUnless { it == SYSTEM_DEFAULT }
-                    ?.let { Locale.forLanguageTag(it) }
-                    ?: Locale.getDefault()
-            setAppLocale(this, locale)
+        val configuredLanguage =
+            dataStore[AppLanguageKey]
+                ?.takeUnless { it == SYSTEM_DEFAULT }
+                ?: "it"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val localeManager = getSystemService(LocaleManager::class.java)
+            val desiredLocales = LocaleList.forLanguageTags(configuredLanguage)
+            if (localeManager.applicationLocales.toLanguageTags() != desiredLocales.toLanguageTags()) {
+                localeManager.applicationLocales = desiredLocales
+            }
+        } else {
+            setAppLocale(this, Locale.forLanguageTag(configuredLanguage))
         }
 
         lifecycleScope.launch {
