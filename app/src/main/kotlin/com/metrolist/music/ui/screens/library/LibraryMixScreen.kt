@@ -691,7 +691,15 @@ fun LibraryMixScreen(
 
                     items(
                         items = filteredItems,
-                        key = { it.id },
+                        key = { item ->
+                                when (item) {
+                                    is Song -> "library_mix_song_${item.id}"
+                                    is Playlist -> "library_mix_playlist_${item.id}"
+                                    is Album -> "library_mix_album_${item.id}"
+                                    is Artist -> "library_mix_artist_${item.id}"
+                                    else -> "library_mix_other_${item.id}"
+                                }
+                            },
                         contentType = { CONTENT_TYPE_PLAYLIST },
                     ) { item ->
                         when (item) {
@@ -1157,7 +1165,15 @@ fun LibraryMixScreen(
 
                     items(
                         items = filteredItems,
-                        key = { it.id },
+                        key = { item ->
+                                when (item) {
+                                    is Song -> "library_mix_song_${item.id}"
+                                    is Playlist -> "library_mix_playlist_${item.id}"
+                                    is Album -> "library_mix_album_${item.id}"
+                                    is Artist -> "library_mix_artist_${item.id}"
+                                    else -> "library_mix_other_${item.id}"
+                                }
+                            },
                         contentType = { CONTENT_TYPE_PLAYLIST },
                     ) { item ->
                         when (item) {
