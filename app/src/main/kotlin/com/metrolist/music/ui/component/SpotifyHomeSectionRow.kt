@@ -43,6 +43,9 @@ import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
 import com.metrolist.music.R
 import com.metrolist.music.constants.GridThumbnailHeight
+import com.metrolist.music.constants.ProtectedArtworkHeight
+import com.metrolist.music.constants.ProtectedListThumbnailSize
+import com.metrolist.music.constants.ProtectedListItemHeight
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.models.SectionType
@@ -113,6 +116,8 @@ fun SpotifyTrackSectionRow(
             val songItem = remember(track.id) { track.toSongItem() }
             YouTubeListItem(
                 item = songItem,
+                thumbnailSizeOverride = ProtectedListThumbnailSize,
+                itemHeightOverride = ProtectedListItemHeight,
                 isActive = false,
                 isPlaying = isPlaying,
                 isSwipeable = false,
@@ -153,7 +158,7 @@ fun SpotifyArtistSectionRow(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .width(GridThumbnailHeight + 24.dp)
+                    .width(ProtectedArtworkHeight + 24.dp)
                     .padding(horizontal = 6.dp)
                     .combinedClickable(
                         onClick = { onArtistClick(artist) },
@@ -164,7 +169,7 @@ fun SpotifyArtistSectionRow(
                     contentDescription = artist.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(GridThumbnailHeight)
+                        .size(ProtectedArtworkHeight)
                         .clip(CircleShape),
                 )
                 Text(
@@ -206,7 +211,7 @@ fun SpotifyAlbumSectionRow(
                 isPlaying = false,
                 onPlayClick = onAlbumPlay?.let { cb -> { cb(album) } },
                 modifier = Modifier
-                    .width(GridThumbnailHeight + 24.dp)
+                    .width(ProtectedArtworkHeight + 24.dp)
                     .padding(horizontal = 6.dp)
                     .combinedClickable(
                         onClick = { onAlbumClick(album) },
