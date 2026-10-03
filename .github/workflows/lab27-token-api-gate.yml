@@ -1,0 +1,127 @@
+name: LAB27 Tokens and APIs Gate
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-token-api-center-27
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab27-token-api-gate
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: verify-and-build-lab27
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact LAB27 source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Record exact source SHA
+        shell: bash
+        run: |
+          echo "LAB27 source: $GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK path
+        shell: bash
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Verify LAB27 source contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          keys = Path("app/src/main/kotlin/com/metrolist/music/constants/PreferenceKeys.kt").read_text()
+          app = Path("app/src/main/kotlin/com/metrolist/music/App.kt").read_text()
+          account = Path("app/src/main/kotlin/com/metrolist/music/ui/screens/settings/AccountSettings.kt").read_text()
+          lastfm = Path("app/src/main/kotlin/com/metrolist/music/ui/screens/settings/integrations/LastFMSettings.kt").read_text()
+          it = Path("app/src/main/res/values-it/metrolist_strings.xml").read_text()
+
+          required = {
+              "LastFMApiKeyKey": keys,
+              "LastFMSecretKey": keys,
+              "DiscogsTokenKey": keys,
+              "tokens_and_api": account,
+              "showExternalApiEditor": account,
+              "PasswordVisualTransformation": account,
+              "DiscogsTokenKey": account,
+              "LastFM.initialize": account,
+              "settings[com.metrolist.music.constants.LastFMApiKeyKey]": app,
+              "if (!LastFM.isInitialized())": lastfm,
+              'name="tokens_and_api"': it,
+              'name="discogs_personal_token"': it,
+          }
+          missing = [needle for needle, haystack in required.items() if needle not in haystack]
+          if missing:
+              raise SystemExit("LAB27 source contract missing: " + ", ".join(missing))
+
+          if "BuildConfig.LASTFM_API_KEY.isBlank() || BuildConfig.LASTFM_SECRET.isBlank()" in lastfm:
+              raise SystemExit("Old build-only Last.fm login gate is still present")
+
+          print("LAB27 source contract OK")
+          PY
+
+      - name: Run Android unit tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+
+      - name: UAB preflight diagnostics
+        shell: bash
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build LAB27 APK and ZIP
+        shell: bash
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Stamp exact build SHA
+        shell: bash
+        run: printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Verify deliverables
+        shell: bash
+        run: |
+          test -s dist/uab/apk/MusicLab-LAB27.apk
+          test -s dist/uab/MusicLab-LAB27-APK.zip
+          test -s dist/uab/apk/SHA256SUMS.txt
+          unzip -tq dist/uab/MusicLab-LAB27-APK.zip
+          cat dist/uab/apk/SHA256SUMS.txt
+
+      - name: Upload LAB27 APK ZIP and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB27
+          path: |
+            dist/uab/apk/MusicLab-LAB27.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB27-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
