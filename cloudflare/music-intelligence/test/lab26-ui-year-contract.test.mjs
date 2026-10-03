@@ -52,6 +52,7 @@ test('LAB26 title-tap search switch disables only manual title search', () => {
   assert.match(settings, /Ricerca toccando il titolo/);
   assert.match(settings, /rememberPreference\(TitleTapSearchEnabledKey, true\)/);
   assert.match(items, /titleTapSearchEnabled\(\)/);
+  assert.match(items, /val titleSearchEnabled = titleTapSearchEnabled\(\)[\s\S]*onTitleClick =\s*if \(titleSearchEnabled\)/);
   assert.match(player, /rememberPreference\(TitleTapSearchEnabledKey, true\)/);
   assert.doesNotMatch(mini, /SearchRoutes\.titleResultRoute/);
   assert.match(titleSearch, /YouTube\.searchSummary\(cleanTitle\)/);
