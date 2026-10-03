@@ -63,6 +63,7 @@ import com.metrolist.music.constants.MusicAiEngineEnabledKey
 import com.metrolist.music.constants.MusicAiForeignEnabledKey
 import com.metrolist.music.constants.MusicAiLiveEnabledKey
 import com.metrolist.music.constants.MusicAiRemixEnabledKey
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.extensions.toMediaItem
@@ -112,6 +113,7 @@ private class AiCoverSession {
     var spotifyDiscovered: Int = 0
     var spotifyEnriched: Int = 0
     var exhaustiveLocatorComplete: Boolean = false
+    val yearBackfillAttemptedSongIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     fun invalidate() {
         initialLoaded = false
@@ -129,6 +131,7 @@ private class AiCoverSession {
         spotifyDiscovered = 0
         spotifyEnriched = 0
         exhaustiveLocatorComplete = false
+        yearBackfillAttemptedSongIds.clear()
     }
 }
 
@@ -166,6 +169,7 @@ internal fun CoverSearchScreen(
     val remixAiEnabled by rememberPreference(MusicAiRemixEnabledKey, true)
     val foreignAiEnabled by rememberPreference(MusicAiForeignEnabledKey, true)
     val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
+    val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, true)
     val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
     val effectiveCloudEndpoint = cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
 
@@ -766,6 +770,71 @@ internal fun CoverSearchScreen(
         allModeResolving = false
     }
 
+    LaunchedEffect(
+        sessionKey,
+        initialLoading,
+        backgroundLoading,
+        playables.map { "${it.song.id}:${it.candidate.year ?: 0}" },
+    ) {
+        if (initialLoading || playables.isEmpty()) return@LaunchedEffect
+
+        val missing = playables.filter {
+            it.candidate.year == null &&
+                it.song.id !in session.yearBackfillAttemptedSongIds
+        }
+        if (missing.isEmpty()) return@LaunchedEffect
+
+        session.yearBackfillAttemptedSongIds.addAll(missing.map { it.song.id })
+
+        val info = originalInfo
+        val years = runCatching {
+            withContext(Dispatchers.IO) {
+                CoverYearBackfill.resolve(
+                    originalTitle = info?.title?.ifBlank { title } ?: title,
+                    originalArtist = info?.artist?.ifBlank { originalArtist } ?: originalArtist,
+                    playables = missing,
+                    config = geminiConfig,
+                )
+            }
+        }.getOrDefault(emptyMap())
+
+        if (years.isNotEmpty()) {
+            playables = playables.map { playable ->
+                val year = years[playable.song.id]
+                if (playable.candidate.year == null && year != null) {
+                    playable.copy(
+                        candidate = playable.candidate.copy(
+                            year = year,
+                            brainSignals = (
+                                playable.candidate.brainSignals +
+                                    AiBrainSignal(
+                                        kind = "year_backfill",
+                                        strength = "medium",
+                                        direction = "positive",
+                                    )
+                                ).distinctBy { signal -> "${signal.kind}|${signal.direction}" },
+                        ),
+                    )
+                } else {
+                    playable
+                }
+            }
+
+            val enrichedByKey = playables.associate { it.candidate.stableKey to it.candidate }
+            knownCandidates = knownCandidates.map { candidate ->
+                enrichedByKey[candidate.stableKey] ?: candidate
+            }
+            session.playables = playables
+            session.knownCandidates = knownCandidates
+        }
+
+        // Failed rows may retry when the background discovery state changes or new
+        // candidates arrive; successful rows are naturally excluded by their year.
+        missing
+            .filter { it.song.id !in years }
+            .forEach { session.yearBackfillAttemptedSongIds.remove(it.song.id) }
+    }
+
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -885,9 +954,12 @@ internal fun CoverSearchScreen(
                 replaceWith(selected)
                 detailResult = null
             },
-            onTitleSearch = {
-                navController.navigate(SearchRoutes.titleResultRoute(selected.candidate.title))
-            },
+            onTitleSearch =
+                if (titleTapSearchEnabled) {
+                    { navController.navigate(SearchRoutes.titleResultRoute(selected.candidate.title)) }
+                } else {
+                    null
+                },
         )
     }
 
@@ -932,13 +1004,18 @@ internal fun CoverSearchScreen(
                                 fallbackYear = startingYear,
                                 song = originalSong,
                                 onPlay = { play(originalSong) },
-                                onTitleSearch = {
-                                    navController.navigate(
-                                        SearchRoutes.titleResultRoute(
-                                            originalInfo?.title?.ifBlank { originalSong.title } ?: originalSong.title,
-                                        ),
-                                    )
-                                },
+                                onTitleSearch =
+                                    if (titleTapSearchEnabled) {
+                                        {
+                                            navController.navigate(
+                                                SearchRoutes.titleResultRoute(
+                                                    originalInfo?.title?.ifBlank { originalSong.title } ?: originalSong.title,
+                                                ),
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
                             )
                             Spacer(Modifier.height(16.dp))
                         }
@@ -1026,7 +1103,12 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch =
+                                        if (titleTapSearchEnabled) {
+                                            { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) }
+                                        } else {
+                                            null
+                                        },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1054,7 +1136,12 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch =
+                                        if (titleTapSearchEnabled) {
+                                            { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) }
+                                        } else {
+                                            null
+                                        },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1111,7 +1198,12 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch =
+                                        if (titleTapSearchEnabled) {
+                                            { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) }
+                                        } else {
+                                            null
+                                        },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1245,7 +1337,7 @@ private fun CoverStartRow(
     fallbackYear: Int?,
     song: SongItem,
     onPlay: () -> Unit,
-    onTitleSearch: () -> Unit,
+    onTitleSearch: (() -> Unit)?,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1264,7 +1356,12 @@ private fun CoverStartRow(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(onClick = onTitleSearch),
+                modifier =
+                    if (onTitleSearch != null) {
+                        Modifier.clickable(onClick = onTitleSearch)
+                    } else {
+                        Modifier
+                    },
             )
             Text(
                 info?.artist?.ifBlank { song.artists.joinToString(", ") { it.name } }
@@ -1291,7 +1388,7 @@ private fun AiCoverResultRow(
     onPlay: () -> Unit,
     onReplace: () -> Unit,
     onDetails: () -> Unit,
-    onTitleSearch: () -> Unit,
+    onTitleSearch: (() -> Unit)?,
     onLongClick: () -> Unit,
 ) {
     Row(
@@ -1311,7 +1408,12 @@ private fun AiCoverResultRow(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(onClick = onTitleSearch),
+                modifier =
+                    if (onTitleSearch != null) {
+                        Modifier.clickable(onClick = onTitleSearch)
+                    } else {
+                        Modifier
+                    },
             )
             Text(result.candidate.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
@@ -1343,7 +1445,7 @@ private fun CoverDetailDialog(
     loading: Boolean,
     onDismiss: () -> Unit,
     onReplace: () -> Unit,
-    onTitleSearch: () -> Unit,
+    onTitleSearch: (() -> Unit)?,
 ) {
     val candidate = result.candidate
     AlertDialog(
@@ -1351,7 +1453,12 @@ private fun CoverDetailDialog(
         title = {
             Text(
                 candidate.title,
-                modifier = Modifier.clickable(onClick = onTitleSearch),
+                modifier =
+                    if (onTitleSearch != null) {
+                        Modifier.clickable(onClick = onTitleSearch)
+                    } else {
+                        Modifier
+                    },
             )
         },
         text = {
@@ -1404,7 +1511,7 @@ private fun AiCoverCredits(
     label: String?,
 ) {
     Text(
-        text = year?.let { "Data: $it" } ?: "Data non disponibile",
+        text = "Anno: ${year?.toString() ?: "—"}",
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.primary,
     )
