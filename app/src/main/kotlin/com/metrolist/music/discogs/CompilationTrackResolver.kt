@@ -147,7 +147,7 @@ internal object CompilationTrackResolver {
         }
 
         val result = withTimeoutOrNull(3_050L) { winner.await() }
-        jobs.forEach(Job::cancel)
+        jobs.forEach { it.cancel() }
         result
     }
 
