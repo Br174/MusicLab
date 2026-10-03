@@ -291,19 +291,21 @@ import com.metrolist.music.extensions.tryOrNull
 
 private const val INSTANT_SILENCE_SKIP_STEP_MS = 15_000L
 private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
-// LAB30 anti-stutter guard: mobile streams must build a real reserve before
-// starting/resuming audio. The old 1.25s/4s thresholds made short network dips audible.
-private const val PLAYBACK_START_BUFFER_MS = 3_000
-private const val PLAYBACK_REBUFFER_MS = 8_000
+// Player Veloce 1: restore the device-approved LAB25 fast-start reserve.
+// The priority burst below suppresses competing background work while this
+// deliberately small start buffer is being filled.
+private const val PLAYBACK_START_BUFFER_MS = 1_250
+private const val PLAYBACK_REBUFFER_MS = 4_000
 
-// Keep LAB25's single-next-track preload, but make it strictly subordinate to
-// current playback. It begins only with a healthy reserve and warms a smaller
-// prefix, reducing network contention while the current song is playing.
 private const val SMART_PRELOAD_TRACKS = 1
-private const val SMART_PRELOAD_PREFIX_BYTES = 256L * 1024L
-private const val SMART_PRELOAD_STABLE_BUFFER_MS = 25_000L
-private const val SMART_PRELOAD_RESUME_BUFFER_MS = 20_000L
-private const val SMART_PRELOAD_WAIT_MS = 30_000L
+private const val SMART_PRELOAD_PREFIX_BYTES = 384L * 1024L
+private const val SMART_PRELOAD_STABLE_BUFFER_MS = 12_000L
+private const val SMART_PRELOAD_RESUME_BUFFER_MS = 8_000L
+private const val SMART_PRELOAD_WAIT_MS = 18_000L
+
+private const val PLAYBACK_PRIORITY_BURST_MIN_MS = 2_000L
+private const val PLAYBACK_PRIORITY_BURST_MAX_MS = 8_000L
+private const val PLAYBACK_PRIORITY_RELEASE_BUFFER_MS = 8_000L
 
 /** When the queue has this many or fewer items (or items ahead of current), load more from paginated queues (e.g. Spotify). */
 private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
@@ -542,6 +544,8 @@ class MusicService :
     private var preCacheJob: Job? = null
     private var smartPreloadJob: Job? = null
     private var smartPreloadAnchorMediaId: String? = null
+    private var playbackPriorityBurstJob: Job? = null
+    @Volatile private var playbackPriorityBurstActive: Boolean = false
 
     // Cached preferences to avoid runBlocking DataStore reads in hot paths
     @Volatile
@@ -2224,12 +2228,61 @@ class MusicService :
      * the current index and sought by exact index. An already prepared player is not
      * re-prepared; Media3 starts resolving the new item immediately.
      */
-    fun playNow(item: MediaItem) {
+    fun beginPlaybackPriorityBurst(reason: String = "user-action") {
+        playbackPriorityBurstActive = true
+
         smartPreloadJob?.cancel()
         smartPreloadJob = null
         smartPreloadAnchorMediaId = null
         preCacheJob?.cancel()
         preCacheJob = null
+        sponsorBlockJob?.cancel()
+        sponsorBlockJob = null
+        crossfadeTriggerJob?.cancel()
+        crossfadeTriggerJob = null
+        crossfadeMessage?.cancel()
+        crossfadeMessage = null
+
+        playbackPriorityBurstJob?.cancel()
+        playbackPriorityBurstJob =
+            scope.launch {
+                val startedAt = android.os.SystemClock.elapsedRealtime()
+                Timber.tag(TAG).d("Player Veloce 1 burst start: %s", reason)
+
+                while (isActive) {
+                    val elapsed = android.os.SystemClock.elapsedRealtime() - startedAt
+                    val stable =
+                        ::player.isInitialized &&
+                            player.playbackState == Player.STATE_READY &&
+                            player.playWhenReady &&
+                            player.totalBufferedDuration >= PLAYBACK_PRIORITY_RELEASE_BUFFER_MS
+
+                    if (elapsed >= PLAYBACK_PRIORITY_BURST_MIN_MS && stable) break
+                    if (elapsed >= PLAYBACK_PRIORITY_BURST_MAX_MS) break
+                    delay(120)
+                }
+
+                playbackPriorityBurstActive = false
+                Timber.tag(TAG).d(
+                    "Player Veloce 1 burst release: buffer=%d state=%d",
+                    if (::player.isInitialized) player.totalBufferedDuration else -1L,
+                    if (::player.isInitialized) player.playbackState else -1,
+                )
+
+                if (::player.isInitialized && player.playWhenReady) {
+                    if (player.playbackState == Player.STATE_READY) {
+                        scheduleSmartPlaybackPreload()
+                        startSponsorBlockForCurrentTrack()
+                        scheduleCrossfade()
+                    }
+                }
+            }
+    }
+
+    fun isPlaybackPriorityBurstActive(): Boolean = playbackPriorityBurstActive
+
+    fun playNow(item: MediaItem) {
+        beginPlaybackPriorityBurst("play-now")
 
         if (player.currentMediaItem?.mediaId == item.mediaId) {
             player.seekTo(0)
@@ -2873,8 +2926,11 @@ class MusicService :
         preCacheJob?.cancel()
         preCacheJob = null
 
-        // Restart SponsorBlock for the new track (no-op when disabled).
-        startSponsorBlockForCurrentTrack()
+        // During Player Veloce 1 burst, even SponsorBlock network lookup waits.
+        // It is restarted automatically when the burst releases.
+        if (!playbackPriorityBurstActive) {
+            startSponsorBlockForCurrentTrack()
+        }
 
         scrobbleManager?.onSongStop(finalize = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
         if (player.playWhenReady && player.playbackState == Player.STATE_READY) {
@@ -2942,7 +2998,11 @@ class MusicService :
                 preCacheJob = null
             }
 
-            Player.STATE_READY -> scheduleSmartPlaybackPreload()
+            Player.STATE_READY -> {
+                if (!playbackPriorityBurstActive) {
+                    scheduleSmartPlaybackPreload()
+                }
+            }
 
             Player.STATE_IDLE, Player.STATE_ENDED -> {
                 smartPreloadJob?.cancel()
@@ -4034,6 +4094,7 @@ class MusicService :
      * This path never chains a full-song background download.
      */
     private fun scheduleSmartPlaybackPreload() {
+        if (playbackPriorityBurstActive) return
         if (!::player.isInitialized || !player.playWhenReady) return
         val anchorId = player.currentMediaItem?.mediaId ?: return
         if (smartPreloadAnchorMediaId == anchorId) return
@@ -4238,6 +4299,7 @@ class MusicService :
      * Respects user preferences for track count and WiFi-only restriction.
      */
     private fun triggerPreCache() {
+        if (playbackPriorityBurstActive) return
         preCacheJob?.cancel()
 
         val preCacheCount = dataStore.get(PreCacheTracksKey, 0)
@@ -6195,6 +6257,7 @@ class MusicService :
     }
 
     private fun scheduleCrossfade() {
+        if (playbackPriorityBurstActive) return
         crossfadeMessage?.cancel()
         crossfadeMessage = null
         
