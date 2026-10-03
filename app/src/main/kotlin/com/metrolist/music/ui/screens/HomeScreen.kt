@@ -114,14 +114,14 @@ import com.metrolist.music.R
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
-import com.metrolist.music.constants.GridThumbnailHeight
+import com.metrolist.music.constants.HomeGridThumbnailHeight
 import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
 import com.metrolist.music.constants.RandomizeHomeOrderKey
 import com.metrolist.music.constants.ShowPlayRandomButtonKey
 import com.metrolist.music.constants.ShowRecognizeButtonKey
-import com.metrolist.music.constants.SmallGridThumbnailHeight
+import com.metrolist.music.constants.HomeSmallGridThumbnailHeight
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.db.entities.Album
 import com.metrolist.music.db.entities.Artist
@@ -808,7 +808,9 @@ fun HomeScreen(
 
     val lazylistState = rememberLazyListState()
     val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
-    val currentGridHeight = if (gridItemSize == GridItemSize.BIG) GridThumbnailHeight else SmallGridThumbnailHeight
+    // LAB26: Home is intentionally insulated from the global artwork-size selector.
+    val currentGridHeight =
+        if (gridItemSize == GridItemSize.BIG) HomeGridThumbnailHeight else HomeSmallGridThumbnailHeight
     val backStackEntry by navController.currentBackStackEntryAsState()
     val scrollToTop =
         backStackEntry?.savedStateHandle?.getStateFlow("scrollToTop", false)?.collectAsStateWithLifecycle()
@@ -905,6 +907,7 @@ fun HomeScreen(
                             ),
                     isActive = it.id == mediaMetadata?.id,
                     isPlaying = isPlaying,
+                    gridHeightOverride = currentGridHeight,
                 )
             }
 
@@ -937,6 +940,7 @@ fun HomeScreen(
             is Artist -> {
                 ArtistGridItem(
                     artist = it,
+                    gridHeightOverride = currentGridHeight,
                     modifier =
                         Modifier
                             .fillMaxWidth()
@@ -971,6 +975,7 @@ fun HomeScreen(
             isPlaying = isPlaying,
             coroutineScope = scope,
             thumbnailRatio = 1f,
+            gridHeightOverride = currentGridHeight,
             modifier =
                 Modifier
                     .combinedClickable(
