@@ -252,10 +252,14 @@ internal object AiCoverSearchEngine {
         playbackSource: String,
     ): AiCoverPlayable {
         val datedCandidate =
-            if (candidate.year != null || playbackSource == "YouTube") {
+            if (candidate.year != null) {
                 candidate
             } else {
-                candidate.copy(year = CoverYearResolver.resolve(song))
+                val resolvedYear = CoverYearResolver.resolve(song)
+                candidate.copy(
+                    year = resolvedYear,
+                    yearSource = resolvedYear?.let { "youtube_music" },
+                )
             }
         return AiCoverPlayable(datedCandidate, song, playbackSource)
     }
