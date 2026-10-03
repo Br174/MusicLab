@@ -36,8 +36,10 @@ test('LAB26 four-step artwork scale is larger and globally synchronized', () => 
 
 test('LAB26 protects Home and Album artwork from the global selector', () => {
   assert.match(dimensions, /val HomeGridThumbnailHeight = 128\.dp/);
+  assert.match(dimensions, /val HomeListThumbnailSize = 48\.dp/);
   assert.match(dimensions, /val AlbumGridThumbnailHeight = 128\.dp/);
   assert.match(home, /LocalGridThumbnailHeightOverride provides HomeGridThumbnailHeight/);
+  assert.match(home, /LocalListThumbnailSizeOverride provides HomeListThumbnailSize/);
   assert.match(home, /val currentGridHeight = HomeGridThumbnailHeight/);
   assert.match(spotifyHome, /HomeGridThumbnailHeight/);
   assert.match(items, /thumbnailHeight = AlbumGridThumbnailHeight/);
@@ -103,6 +105,7 @@ test('LAB26 completes missing Cover years after first paint with provider then A
   assert.match(yearEnrichment, /GeminiOriginalVersionCredits\.enrich\(/);
   assert.match(yearEnrichment, /requireYear = true/);
   assert.match(geminiCredits, /requireYear: Boolean = false/);
+  assert.match(geminiCredits, /if \(requireYear\) "year-required" else "credits"/);
   assert.match(geminiCredits, /non lasciare year nullo/);
   assert.match(cover, /CoverYearEnrichment\.enrichMissing\(/);
   assert.match(cover, /yearSource = hit\.source/);
