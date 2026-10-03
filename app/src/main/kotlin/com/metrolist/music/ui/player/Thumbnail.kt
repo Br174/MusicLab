@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -482,13 +481,15 @@ fun Thumbnail(
                             Modifier.fillMaxSize()
                         }).then(userSwipePointerModifier)
                     ) {
-                        itemsIndexed(
-                            items = mediaItems,
-                            key = { index, item ->
+                        items(
+                            count = mediaItems.size,
+                            key = { index ->
+                                val item = mediaItems[index]
                                 val id = item.mediaId.ifEmpty { "unknown_${item.hashCode()}" }
                                 "player_thumbnail_${index}_${id}"
                             },
-                        ) { _, item ->
+                        ) { index ->
+                            val item = mediaItems[index]
                             ThumbnailItem(
                                 item = item,
                                 dimensions = dimensions,
