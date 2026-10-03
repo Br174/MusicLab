@@ -58,8 +58,6 @@ import com.metrolist.music.constants.ArtistSortTypeKey
 import com.metrolist.music.constants.ArtistViewTypeKey
 import com.metrolist.music.constants.CONTENT_TYPE_ARTIST
 import com.metrolist.music.constants.CONTENT_TYPE_HEADER
-import com.metrolist.music.constants.GridItemSize
-import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.constants.LibraryViewType
 import com.metrolist.music.constants.YtmSyncKey
@@ -96,7 +94,6 @@ fun LibraryArtistsScreen(
         ArtistSortType.CREATE_DATE
     )
     val (sortDescending, onSortDescendingChange) = rememberPreference(ArtistSortDescendingKey, true)
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
     val (ytmSync) = rememberPreference(YtmSyncKey, true)
 
     val filterContent = @Composable {
