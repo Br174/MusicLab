@@ -157,6 +157,7 @@ import com.metrolist.music.ui.component.SpotifyArtistSectionRow
 import com.metrolist.music.ui.component.SpotifyPlaylistSectionRow
 import com.metrolist.music.ui.component.SpotifyTrackSectionRow
 import com.metrolist.music.ui.component.resolveSpotifySectionTitle
+import com.metrolist.music.ui.component.italianizeUiLabel
 import com.metrolist.music.ui.component.shimmer.GridItemPlaceHolder
 import com.metrolist.music.ui.component.shimmer.ShimmerHost
 import com.metrolist.music.ui.component.shimmer.TextPlaceholder
@@ -1365,8 +1366,8 @@ fun HomeScreen(
                         sectionData?.let {
                             item(key = "1_chip_section_title_${section.index}") {
                                 NavigationTitle(
-                                    title = sectionData.title,
-                                    label = sectionData.label,
+                                    title = italianizeUiLabel(sectionData.title),
+                                    label = sectionData.label?.let(::italianizeUiLabel),
                                     thumbnail =
                                         sectionData.thumbnail?.let { thumbnailUrl ->
                                             {
@@ -2323,8 +2324,8 @@ fun HomeScreen(
 
                                 item(key = "home_section_title_${section.index}") {
                                     NavigationTitle(
-                                        title = sectionData.title,
-                                        label = sectionData.label,
+                                        title = italianizeUiLabel(sectionData.title),
+                                        label = sectionData.label?.let(::italianizeUiLabel),
                                         thumbnail =
                                             sectionData.thumbnail?.let { thumbnailUrl ->
                                                 {
@@ -2377,7 +2378,7 @@ fun HomeScreen(
                                                 {
                                                     playerConnection.playQueue(
                                                         ListQueue(
-                                                            title = sectionData.title,
+                                                            title = italianizeUiLabel(sectionData.title),
                                                             items = sectionSongs.map { it.toMediaMetadata().toMediaItem() },
                                                         ),
                                                     )
