@@ -96,6 +96,8 @@ import com.metrolist.music.ui.component.DraggableLyricsProviderItem
 import com.metrolist.music.ui.component.DraggableLyricsProviderList
 import com.metrolist.music.lyrics.LyricsProviderRegistry
 import com.metrolist.music.ui.utils.backToMain
+import com.metrolist.music.utils.italianCountryDisplayName
+import com.metrolist.music.utils.italianLanguageDisplayName
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import java.net.Proxy
@@ -318,7 +320,7 @@ fun ContentSettings(
             current = contentLanguage,
             values = (listOf(SYSTEM_DEFAULT) + LanguageCodeToName.keys.toList()),
             valueText = {
-                LanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
+                if (it == SYSTEM_DEFAULT) stringResource(R.string.system_default) else italianLanguageDisplayName(it)
             }
         )
     }
@@ -338,7 +340,7 @@ fun ContentSettings(
             current = contentCountry,
             values = (listOf(SYSTEM_DEFAULT) + CountryCodeToName.keys.toList()),
             valueText = {
-                CountryCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
+                if (it == SYSTEM_DEFAULT) stringResource(R.string.system_default) else italianCountryDisplayName(it)
             }
         )
     }
@@ -358,7 +360,7 @@ fun ContentSettings(
             current = appLanguage,
             values = (listOf(SYSTEM_DEFAULT) + LanguageCodeToName.keys.toList()),
             valueText = {
-                LanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
+                if (it == SYSTEM_DEFAULT) stringResource(R.string.system_default) else italianLanguageDisplayName(it)
             }
         )
     }
@@ -751,7 +753,7 @@ fun ContentSettings(
                     title = { Text(stringResource(R.string.content_language)) },
                     description = {
                         Text(
-                            LanguageCodeToName.getOrElse(contentLanguage) { stringResource(R.string.system_default) }
+                            if (contentLanguage == SYSTEM_DEFAULT) stringResource(R.string.system_default) else italianLanguageDisplayName(contentLanguage)
                         )
                     },
                     onClick = { showContentLanguageDialog = true }
@@ -761,7 +763,7 @@ fun ContentSettings(
                     title = { Text(stringResource(R.string.content_country)) },
                     description = {
                         Text(
-                            CountryCodeToName.getOrElse(contentCountry) { stringResource(R.string.system_default) }
+                            if (contentCountry == SYSTEM_DEFAULT) stringResource(R.string.system_default) else italianCountryDisplayName(contentCountry)
                         )
                     },
                     onClick = { showContentCountryDialog = true }
@@ -942,7 +944,7 @@ fun ContentSettings(
                         title = { Text(stringResource(R.string.app_language)) },
                         description = {
                             Text(
-                                LanguageCodeToName.getOrElse(appLanguage) { stringResource(R.string.system_default) }
+                                if (appLanguage == SYSTEM_DEFAULT) stringResource(R.string.system_default) else italianLanguageDisplayName(appLanguage)
                             )
                         },
                         onClick = { showAppLanguageDialog = true }
