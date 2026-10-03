@@ -31,7 +31,6 @@ import com.metrolist.music.intelligence.CanonicalMusicMetadata
 import com.metrolist.music.intelligence.MusicIntelligenceClient
 import com.metrolist.music.intelligence.MusicIntelligenceSettings
 import com.metrolist.music.models.MediaMetadata
-import com.metrolist.music.ui.component.CompilationNavigationBridge
 import com.metrolist.music.ui.component.CoverNavigationBridge
 import com.metrolist.music.ui.component.CoverSearchRequest
 import com.metrolist.music.ui.component.BottomSheetState
@@ -206,7 +205,7 @@ internal fun MusicLabIntelligenceActions(
                     NewAction(
                         icon = {
                             Icon(
-                                painter = painterResource(R.drawable.link),
+                                painter = painterResource(R.drawable.cover_microphone),
                                 contentDescription = null,
                                 modifier = Modifier.size(30.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -235,34 +234,7 @@ internal fun MusicLabIntelligenceActions(
                     ),
                 )
             }
-            add(
-                NewAction(
-                    icon = {
-                        Icon(
-                            painter = painterResource(R.drawable.album),
-                            contentDescription = null,
-                            modifier = Modifier.size(30.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                    text = "Compilation",
-                    onClick = {
-                        collapsePlayerToMiniNow()
-                        val opened = CompilationNavigationBridge.open()
-                        if (opened) {
-                            collapsePlayerToMiniNow()
-                            onDismiss()
-                        } else {
-                            Toast.makeText(
-                                context,
-                                "Compilation non disponibile in questa schermata",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                    },
-                ),
-            )
-        }
+}
 
         if (quickActions.isNotEmpty()) {
             NewActionGrid(
