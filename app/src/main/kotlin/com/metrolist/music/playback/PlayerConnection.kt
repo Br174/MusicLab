@@ -284,6 +284,12 @@ class PlayerConnection(
         }
     }
 
+    fun beginPlaybackPriorityBurst(reason: String = "ui") {
+        service.beginPlaybackPriorityBurst(reason)
+    }
+
+    fun isPlaybackPriorityBurstActive(): Boolean = service.isPlaybackPriorityBurstActive()
+
     fun playNow(item: MediaItem) {
         if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
             Timber.tag("PlayerConnection").d("playNow blocked - Listen Together guest")
@@ -380,6 +386,9 @@ class PlayerConnection(
     fun play() {
         try {
             val castHandler = service.castConnectionHandler
+            if (castHandler?.isCasting?.value != true) {
+                service.beginPlaybackPriorityBurst("play")
+            }
             if (castHandler?.isCasting?.value == true) {
                 castHandler.play()
             } else {
@@ -433,6 +442,7 @@ class PlayerConnection(
                 castHandler.skipToNext()
                 return
             }
+            service.beginPlaybackPriorityBurst("skip-next")
             player.seekToNext()
             if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
                 player.prepare()
@@ -458,6 +468,7 @@ class PlayerConnection(
             // Logic to mimic standard seekToPrevious behavior but with explicit callbacks
             // If we are more than 3 seconds in, just restart the song
             if (player.currentPosition > 3000 || !player.hasPreviousMediaItem()) {
+                service.beginPlaybackPriorityBurst("restart")
                 player.seekTo(0)
                 if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
                     player.prepare()
@@ -466,6 +477,7 @@ class PlayerConnection(
                 onRestartSong?.invoke()
             } else {
                 // Otherwise go to previous media item
+                service.beginPlaybackPriorityBurst("skip-previous")
                 player.seekToPreviousMediaItem()
                 if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
                     player.prepare()
