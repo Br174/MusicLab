@@ -58,7 +58,7 @@ internal object GeminiOriginalVersionCredits {
 
         val ready = linkedMapOf<String, GeminiVersionCredits>()
         val pending = unique.filter { song ->
-            val key = cacheKey(identity, song)
+            val key = cacheKey(identity, song, requireYear)
             val cached = cache[key]
             if (cached != null) {
                 ready[song.id] = cached
@@ -116,7 +116,7 @@ Rispondi SOLO con JSON valido:
 
         parse(text, pending.map { it.id }.toSet()).forEach { (id, credits) ->
             val song = pending.firstOrNull { it.id == id } ?: return@forEach
-            cache[cacheKey(identity, song)] = credits
+            cache[cacheKey(identity, song, requireYear)] = credits
             ready[id] = credits
         }
         ready
@@ -242,8 +242,13 @@ Rispondi SOLO con JSON valido:
         return value?.takeIf { it in 1800..2100 }
     }
 
-    private fun cacheKey(identity: GeminiOriginalIdentity, song: SongItem): String =
+    private fun cacheKey(
+        identity: GeminiOriginalIdentity,
+        song: SongItem,
+        requireYear: Boolean,
+    ): String =
         listOf(
+            if (requireYear) "year-required" else "credits",
             identity.title.lowercase(),
             identity.originalArtists.joinToString("|").lowercase(),
             song.title.lowercase(),
