@@ -143,6 +143,18 @@ class App :
         // populated as early as possible.
         installPreferencesSnapshotCollector(applicationScope, dataStore)
 
+        // LAB26: keep the global artwork runtime mirror truly synchronized.
+        applicationScope.launch {
+            dataStore.data
+                .map { prefs ->
+                    prefs[ArtworkSizeKey]
+                        ?.let { value -> runCatching { ArtworkSize.valueOf(value) }.getOrNull() }
+                        ?: ArtworkSize.MEDIUM
+                }
+                .distinctUntilChanged()
+                .collect { ArtworkSizeRuntime.current = it }
+        }
+
         // تهيئة إعدادات التطبيق عند الإقلاع
         applicationScope.launch {
             // Apply settings, including proxy configuration, before building extraction transport.
@@ -161,8 +173,9 @@ class App :
 
     private suspend fun initializeSettings() {
         val settings = dataStore.data.first()
-        val locale = Locale.getDefault()
-        val languageTag = locale.language
+        // LAB26 user contract: MusicLab interface and provider section labels are Italian.
+        val locale = Locale.ITALIAN
+        val languageTag = "it"
 
         ArtistConjunctions.conjunctions = listOf(
             R.string.and,
@@ -176,11 +189,7 @@ class App :
                     settings[ContentCountryKey]?.takeIf { it != SYSTEM_DEFAULT }
                         ?: locale.country.takeIf { it in CountryCodeToName }
                         ?: "US",
-                hl =
-                    settings[ContentLanguageKey]?.takeIf { it != SYSTEM_DEFAULT }
-                        ?: locale.language.takeIf { it in LanguageCodeToName }
-                        ?: languageTag.takeIf { it in LanguageCodeToName }
-                        ?: "en",
+                hl = "it",
             )
 
         if (languageTag == "zh-TW") {
@@ -347,24 +356,13 @@ class App :
                 .distinctUntilChanged()
                 .collect { (contentCountry, contentLanguage, appLanguage) ->
                     val systemLocale = Locale.getDefault()
-                    val effectiveAppLocale =
-                        appLanguage
-                            ?.takeUnless { it == SYSTEM_DEFAULT }
-                            ?.let { Locale.forLanguageTag(it) }
-                            ?: systemLocale
-
                     YouTube.locale =
                         YouTubeLocale(
                             gl =
                                 contentCountry?.takeIf { it != SYSTEM_DEFAULT }
-                                    ?: effectiveAppLocale.country.takeIf { it in CountryCodeToName }
                                     ?: systemLocale.country.takeIf { it in CountryCodeToName }
                                     ?: "US",
-                            hl =
-                                contentLanguage?.takeIf { it != SYSTEM_DEFAULT }
-                                    ?: effectiveAppLocale.toLanguageTag().takeIf { it in LanguageCodeToName }
-                                    ?: effectiveAppLocale.language.takeIf { it in LanguageCodeToName }
-                                    ?: "en",
+                            hl = "it",
                         )
                 }
         }
