@@ -288,4 +288,47 @@
     <string name="enable_discord_rpc">Abilita Rich Presence</string>
     <string name="dismiss">Ignora</string>
     <string name="action_login">Accedi</string>
+
+<!-- LAB26: complete Italian coverage for resources previously falling back to English -->
+    <string name="pause">Pausa</string>
+    <string name="theme_desc">Personalizza il tema dell’app</string>
+    <string name="theme_colors">Tema e colori</string>
+    <string name="theme_mode">Modalità tema</string>
+    <string name="color_palette">Tavolozza colori</string>
+    <string name="use_system_colors">Usa i colori di sistema</string>
+    <string name="filter_spotify">Spotify</string>
+    <string name="show_recognize_music_button">Mostra il pulsante di riconoscimento musicale</string>
+    <string name="show_recognize_music_button_desc">Mostra il pulsante di riconoscimento musicale nella Home</string>
+    <string name="show_play_random_button">Mostra il pulsante di riproduzione casuale</string>
+    <string name="show_play_random_button_desc">Mostra il pulsante di riproduzione casuale nella Home</string>
+    <string name="play_over_other_audio">Riproduci sopra altri audio</string>
+    <string name="play_over_other_audio_desc">Continua la riproduzione senza metterla in pausa quando un’altra app riproduce audio (non richiede il focus audio)</string>
+    <string name="sponsorblock">SponsorBlock</string>
+    <string name="sponsorblock_desc">Salta i segmenti non musicali usando i timestamp inviati dalla community</string>
+    <string name="sponsorblock_enable">Attiva SponsorBlock</string>
+    <string name="sponsorblock_enable_desc">Salta automaticamente i segmenti segnalati durante la riproduzione</string>
+    <string name="sponsorblock_categories">Categorie da saltare</string>
+    <string name="sponsorblock_show_toast">Avvisa quando viene saltato un segmento</string>
+    <string name="sponsorblock_show_toast_desc">Mostra un breve avviso ogni volta che viene saltato un segmento</string>
+    <string name="sponsorblock_segment_skipped">Saltato: %1$s</string>
+    <string name="sponsorblock_category_sponsor">Sponsor</string>
+    <string name="sponsorblock_category_selfpromo">Autopromozione non pagata</string>
+    <string name="sponsorblock_category_interaction">Invito all’interazione</string>
+    <string name="sponsorblock_category_intro">Intro / animazione</string>
+    <string name="sponsorblock_category_outro">Finale / crediti</string>
+    <string name="sponsorblock_category_preview">Anteprima / riepilogo</string>
+    <string name="sponsorblock_category_music_offtopic">Sezione non musicale</string>
+    <string name="sponsorblock_category_filler">Digressione / riempitivo</string>
+    <string name="sponsorblock_attribution">Segmenti forniti da sponsor.ajay.app</string>
+    <string name="pre_cache">Precaricamento</string>
+    <string name="pre_cache_tracks">Precarica i brani successivi</string>
+    <string name="pre_cache_tracks_desc">Memorizza automaticamente in cache i prossimi brani in coda per una riproduzione più continua</string>
+    <string name="pre_cache_track_count">Brani da precaricare</string>
+    <string name="pre_cache_only_wifi">Precarica solo con Wi-Fi</string>
+    <string name="pre_cache_only_wifi_desc">Precarica i brani soltanto quando la rete non è a consumo</string>
+    <string name="pre_cache_off">Disattivato</string>
+    <string name="pre_cache_count">%d brani</string>
+    <string name="spotify_folder_empty">Questa cartella è vuota.</string>
+    <string name="crash_reporting">Invia segnalazioni di arresto anomalo</string>
+    <string name="crash_reporting_desc">Invia automaticamente dettagli anonimi su arresti ed eccezioni (modello del dispositivo, versione Android, versione dell’app e traccia dello stack) per facilitare la diagnosi. Non vengono inclusi account, playlist o dati personali.</string>
 </resources>
