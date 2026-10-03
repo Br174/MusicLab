@@ -3001,6 +3001,9 @@ class MusicService :
             Player.STATE_READY -> {
                 if (!playbackPriorityBurstActive) {
                     scheduleSmartPlaybackPreload()
+                    if (sponsorBlockJob == null) {
+                        startSponsorBlockForCurrentTrack()
+                    }
                 }
             }
 
@@ -3087,6 +3090,9 @@ class MusicService :
         if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
             if (playWhenReady) {
                 isPausedByVolumeMute = false
+                if (!playbackPriorityBurstActive) {
+                    beginPlaybackPriorityBurst("play-request")
+                }
             }
 
             if (!playWhenReady && !isPausedByVolumeMute) {
