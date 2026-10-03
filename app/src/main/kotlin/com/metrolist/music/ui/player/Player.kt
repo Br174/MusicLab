@@ -157,6 +157,7 @@ import com.metrolist.music.constants.SliderStyle
 import com.metrolist.music.constants.SliderStyleKey
 import com.metrolist.music.constants.SquigglySliderKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.constants.UseNewPlayerDesignKey
 import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.extensions.metadata
@@ -404,6 +405,7 @@ fun BottomSheetPlayer(
     // file even after the user disables "similar content". Gate the auto-append on
     // the live setting so toggling it off actually stops the queue from growing.
     val similarContentEnabled by rememberPreference(SimilarContent, defaultValue = true)
+    val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, defaultValue = true)
     if (similarContentEnabled && !canSkipNext && automix.isNotEmpty()) {
         playerConnection.service.addToQueueAutomix(automix[0], 0)
     } else if (!similarContentEnabled && automix.isNotEmpty()) {
@@ -1018,8 +1020,10 @@ fun BottomSheetPlayer(
                                         indication = null,
                                         interactionSource = remember { MutableInteractionSource() },
                                         onClick = {
-                                            state.collapseSoft()
-                                            navController.navigate(SearchRoutes.titleResultRoute(title))
+                                            if (titleTapSearchEnabled) {
+                                                state.collapseSoft()
+                                                navController.navigate(SearchRoutes.titleResultRoute(title))
+                                            }
                                         },
                                         onLongClick = {
                                             val clip = ClipData.newPlainText(copiedTitleStr, title)
