@@ -110,6 +110,7 @@ import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
 import com.metrolist.music.constants.ProtectedArtworkHeight
 import com.metrolist.music.constants.ProtectedListThumbnailSize
+import com.metrolist.music.constants.ProtectedListItemHeight
 import com.metrolist.music.constants.SwipeToSongKey
 import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
@@ -265,12 +266,16 @@ inline fun ListItem(
     isActive: Boolean = false,
     isAvailable: Boolean = true,
     noinline onTitleClick: (() -> Unit)? = null,
+    itemHeightOverride: Dp? = null,
+    thumbnailSizeOverride: Dp? = null,
 ) {
+    val resolvedItemHeight = itemHeightOverride ?: ListItemHeight
+    val resolvedThumbnailSize = thumbnailSizeOverride ?: ListThumbnailSize
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = if (isActive) {
             modifier // playing highlight
-                .height(ListItemHeight)
+                .height(resolvedItemHeight)
                 .padding(horizontal = 8.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(
@@ -280,13 +285,13 @@ inline fun ListItem(
                 )
         } else if (isSelected == true) {
             modifier // inactive selected
-                .height(ListItemHeight)
+                .height(resolvedItemHeight)
                 .padding(horizontal = 8.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(color = MaterialTheme.colorScheme.inversePrimary.copy(alpha = 0.4f))
         } else {
             modifier // default
-                .height(ListItemHeight)
+                .height(resolvedItemHeight)
                 .padding(horizontal = 8.dp)
         }
     ) {
@@ -298,7 +303,7 @@ inline fun ListItem(
             if (!isAvailable) {
                 Box(
                     modifier = Modifier
-                        .size(ListThumbnailSize)
+                        .size(resolvedThumbnailSize)
                         .align(Alignment.Center)
                         .background(
                             Color.Black.copy(alpha = 0.25f),
@@ -310,7 +315,7 @@ inline fun ListItem(
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier
-                            .size(ListThumbnailSize / 2)
+                            .size(resolvedThumbnailSize / 2)
                             .align(Alignment.Center)
                             .graphicsLayer { alpha = 1f }
                     )
@@ -524,6 +529,8 @@ fun SongListItem(
     isPlaying: Boolean = false,
     isSwipeable: Boolean = true,
     trailingContent: @Composable RowScope.() -> Unit = {},
+    thumbnailSizeOverride: Dp? = null,
+    itemHeightOverride: Dp? = null,
 ) {
     val artistNameAliases = LocalArtistNameAliases.current
     val navController = LocalNavController.current
@@ -569,13 +576,15 @@ fun SongListItem(
                      isActive = isActive,
                      isPlaying = isPlaying,
                      shape = RoundedCornerShape(ThumbnailCornerRadius),
-                     modifier = Modifier.size(ListThumbnailSize)
+                     modifier = Modifier.size(thumbnailSizeOverride ?: ListThumbnailSize)
                  )
              },
              trailingContent = trailingContent,
              modifier = modifier,
              isSelected = isSelected,
              isActive = isActive,
+             itemHeightOverride = itemHeightOverride,
+             thumbnailSizeOverride = thumbnailSizeOverride,
              onTitleClick =
                  if (titleTapSearchEnabled) {
                      { navController.navigate(SearchRoutes.titleResultRoute(song.song.title)) }
@@ -1183,6 +1192,8 @@ fun YouTubeListItem(
     isPlaying: Boolean = false,
     isSwipeable: Boolean = true,
     trailingContent: @Composable RowScope.() -> Unit = {},
+    thumbnailSizeOverride: Dp? = null,
+    itemHeightOverride: Dp? = null,
     badges: @Composable RowScope.() -> Unit = {
         val database = LocalDatabase.current
         val song by produceState<Song?>(initialValue = null, item.id) {
@@ -1266,12 +1277,14 @@ fun YouTubeListItem(
                     isActive = isActive,
                     isPlaying = isPlaying,
                     shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
-                    modifier = Modifier.size(if (item is AlbumItem) ProtectedListThumbnailSize else ListThumbnailSize)
+                    modifier = Modifier.size(if (item is AlbumItem) ProtectedListThumbnailSize else (thumbnailSizeOverride ?: ListThumbnailSize))
                 )
             },
             trailingContent = trailingContent,
             modifier = modifier,
             isActive = isActive,
+            itemHeightOverride = itemHeightOverride,
+            thumbnailSizeOverride = if (item is AlbumItem) ProtectedListThumbnailSize else thumbnailSizeOverride,
             onTitleClick =
                 if (item is SongItem && titleTapSearchEnabled) {
                     { navController.navigate(SearchRoutes.titleResultRoute(item.title)) }
