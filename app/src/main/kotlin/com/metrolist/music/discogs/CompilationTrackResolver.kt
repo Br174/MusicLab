@@ -3,7 +3,11 @@ package com.metrolist.music.discogs
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.ui.component.YouTubeWebSearch
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.text.Normalizer
@@ -26,12 +30,15 @@ internal object CompilationTrackResolver {
     suspend fun resolveTrack(
         track: DiscogsTrack,
         discogsVideos: List<DiscogsVideo>,
+        fastFirst: Boolean = true,
     ): CompilationResolvedTrack? = withContext(Dispatchers.IO) {
+        // Fast lane: direct Discogs video first, then a bounded race between the
+        // two MusicLab sources that most often resolve a playable track quickly.
         val directVideo = bestDiscogsTrackVideo(track, discogsVideos)
         if (directVideo != null) {
             val directId = extractYouTubeId(directVideo.uri)
             val directSong = directId?.let { id ->
-                withTimeoutOrNull(5_000L) {
+                withTimeoutOrNull(if (fastFirst) 2_200L else 5_000L) {
                     YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
                 }
             }
@@ -48,7 +55,11 @@ internal object CompilationTrackResolver {
         val artist = track.artists.firstOrNull().orEmpty()
         val query = listOf(artist, track.title).filter(String::isNotBlank).joinToString(" ")
 
-        val summarySongs = withTimeoutOrNull(5_500L) {
+        if (fastFirst) {
+            fastMusicLabRace(track, query)?.let { return@withContext it }
+        }
+
+        val summarySongs = withTimeoutOrNull(if (fastFirst) 2_500L else 5_500L) {
             YouTube.searchSummary(query).getOrNull()
                 ?.summaries
                 ?.flatMap { it.items }
@@ -60,7 +71,7 @@ internal object CompilationTrackResolver {
             return@withContext CompilationResolvedTrack(track, it, "YouTube Music", false)
         }
 
-        val ytmSongs = withTimeoutOrNull(7_000L) {
+        val ytmSongs = withTimeoutOrNull(if (fastFirst) 3_000L else 7_000L) {
             YouTube.search(query, YouTube.SearchFilter.FILTER_SONG)
                 .getOrNull()
                 ?.items
@@ -72,7 +83,7 @@ internal object CompilationTrackResolver {
             return@withContext CompilationResolvedTrack(track, it, "YouTube Music", false)
         }
 
-        val webSongs = withTimeoutOrNull(8_500L) {
+        val webSongs = withTimeoutOrNull(if (fastFirst) 3_500L else 8_500L) {
             YouTubeWebSearch.search(query)?.items.orEmpty()
         }.orEmpty()
 
@@ -80,7 +91,7 @@ internal object CompilationTrackResolver {
             return@withContext CompilationResolvedTrack(track, it, "YouTube", false)
         }
 
-        val videoSongs = withTimeoutOrNull(7_000L) {
+        val videoSongs = withTimeoutOrNull(if (fastFirst) 3_000L else 7_000L) {
             YouTube.search(query, YouTube.SearchFilter.FILTER_VIDEO)
                 .getOrNull()
                 ?.items
@@ -93,6 +104,51 @@ internal object CompilationTrackResolver {
         }
 
         null
+    }
+
+    private suspend fun fastMusicLabRace(
+        track: DiscogsTrack,
+        query: String,
+    ): CompilationResolvedTrack? = coroutineScope {
+        val winner = CompletableDeferred<CompilationResolvedTrack?>()
+        val jobs = mutableListOf<Job>()
+
+        fun launchCandidate(block: suspend () -> CompilationResolvedTrack?) {
+            jobs += launch(Dispatchers.IO) {
+                val candidate = runCatching { block() }.getOrNull()
+                if (candidate != null) winner.complete(candidate)
+            }
+        }
+
+        launchCandidate {
+            val items = withTimeoutOrNull(2_600L) {
+                YouTube.searchSummary(query).getOrNull()
+                    ?.summaries
+                    ?.flatMap { it.items }
+                    ?.filterIsInstance<SongItem>()
+                    .orEmpty()
+            }.orEmpty()
+            bestSong(track, items)?.let {
+                CompilationResolvedTrack(track, it, "YouTube Music · rapido", false)
+            }
+        }
+
+        launchCandidate {
+            val items = withTimeoutOrNull(2_900L) {
+                YouTube.search(query, YouTube.SearchFilter.FILTER_SONG)
+                    .getOrNull()
+                    ?.items
+                    ?.filterIsInstance<SongItem>()
+                    .orEmpty()
+            }.orEmpty()
+            bestSong(track, items)?.let {
+                CompilationResolvedTrack(track, it, "YouTube Music · rapido", false)
+            }
+        }
+
+        val result = withTimeoutOrNull(3_050L) { winner.await() }
+        jobs.forEach(Job::cancel)
+        result
     }
 
     suspend fun findFullAudio(
