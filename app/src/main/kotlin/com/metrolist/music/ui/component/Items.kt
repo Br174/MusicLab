@@ -109,6 +109,7 @@ import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
 import com.metrolist.music.constants.ProtectedArtworkHeight
+import com.metrolist.music.constants.ProtectedListThumbnailSize
 import com.metrolist.music.constants.SwipeToSongKey
 import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
@@ -144,7 +145,7 @@ const val ActiveBoxAlpha = 0.6f
 @Composable
 fun currentGridThumbnailHeight(): Dp {
     val artworkSize by rememberEnumPreference(ArtworkSizeKey, ArtworkSize.MEDIUM)
-    return artworkSize.thumbnailHeight
+    return artworkSize.gridThumbnailHeight
 }
 
 @Composable
@@ -815,7 +816,7 @@ fun AlbumListItem(
             isActive = isActive,
             isPlaying = isPlaying,
             shape = RoundedCornerShape(ThumbnailCornerRadius),
-            modifier = Modifier.size(ListThumbnailSize)
+            modifier = Modifier.size(ProtectedListThumbnailSize)
         )
     },
     trailingContent = trailingContent,
@@ -1265,7 +1266,7 @@ fun YouTubeListItem(
                     isActive = isActive,
                     isPlaying = isPlaying,
                     shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
-                    modifier = Modifier.size(ListThumbnailSize)
+                    modifier = Modifier.size(if (item is AlbumItem) ProtectedListThumbnailSize else ListThumbnailSize)
                 )
             },
             trailingContent = trailingContent,
