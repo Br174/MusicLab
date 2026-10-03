@@ -68,6 +68,19 @@ fun italianizeProviderUiText(raw: String): String {
     return translated
 }
 
+fun italianLanguageDisplayName(tag: String): String {
+    val locale = Locale.forLanguageTag(tag)
+    val language = locale.getDisplayLanguage(Locale.ITALIAN)
+        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ITALIAN) else it.toString() }
+    val country = locale.getDisplayCountry(Locale.ITALIAN)
+    return if (country.isNotBlank()) "$language ($country)" else language
+}
+
+fun italianCountryDisplayName(code: String): String =
+    Locale("", code)
+        .getDisplayCountry(Locale.ITALIAN)
+        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ITALIAN) else it.toString() }
+
 private val exactProviderItalian = mapOf(
     "your top tracks" to "I tuoi brani più ascoltati",
     "your top songs" to "I tuoi brani più ascoltati",
