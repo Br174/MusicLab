@@ -161,8 +161,13 @@ class App :
 
     private suspend fun initializeSettings() {
         val settings = dataStore.data.first()
-        val locale = Locale.getDefault()
-        val languageTag = locale.language
+        val systemLocale = Locale.getDefault()
+        val appLocale =
+            settings[AppLanguageKey]
+                ?.takeUnless { it == SYSTEM_DEFAULT }
+                ?.let(Locale::forLanguageTag)
+                ?: Locale.ITALIAN
+        val languageTag = appLocale.language
 
         ArtistConjunctions.conjunctions = listOf(
             R.string.and,
@@ -174,13 +179,13 @@ class App :
             YouTubeLocale(
                 gl =
                     settings[ContentCountryKey]?.takeIf { it != SYSTEM_DEFAULT }
-                        ?: locale.country.takeIf { it in CountryCodeToName }
-                        ?: "US",
+                        ?: systemLocale.country.takeIf { it in CountryCodeToName }
+                        ?: "IT",
                 hl =
                     settings[ContentLanguageKey]?.takeIf { it != SYSTEM_DEFAULT }
-                        ?: locale.language.takeIf { it in LanguageCodeToName }
+                        ?: appLocale.toLanguageTag().takeIf { it in LanguageCodeToName }
                         ?: languageTag.takeIf { it in LanguageCodeToName }
-                        ?: "en",
+                        ?: "it",
             )
 
         if (languageTag == "zh-TW") {
@@ -351,7 +356,7 @@ class App :
                         appLanguage
                             ?.takeUnless { it == SYSTEM_DEFAULT }
                             ?.let { Locale.forLanguageTag(it) }
-                            ?: systemLocale
+                            ?: Locale.ITALIAN
 
                     YouTube.locale =
                         YouTubeLocale(
@@ -364,7 +369,7 @@ class App :
                                 contentLanguage?.takeIf { it != SYSTEM_DEFAULT }
                                     ?: effectiveAppLocale.toLanguageTag().takeIf { it in LanguageCodeToName }
                                     ?: effectiveAppLocale.language.takeIf { it in LanguageCodeToName }
-                                    ?: "en",
+                                    ?: "it",
                         )
                 }
         }
