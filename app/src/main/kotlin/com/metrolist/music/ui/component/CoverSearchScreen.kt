@@ -238,17 +238,38 @@ internal fun CoverSearchScreen(
         AiCoverCategory.FOREIGN -> foreignAiEnabled
     }
 
-    LaunchedEffect(currentYouTubeId, initialLoading) {
+    LaunchedEffect(currentYouTubeId, initialLoading, originalInfo?.year, geminiConfig) {
         // First-paint priority: do not spend a parallel network request on the source
         // row until the native MusicLab title results are already visible.
         if (initialLoading) return@LaunchedEffect
         val id = currentYouTubeId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        startingSong = withContext(Dispatchers.IO) {
+        val sourceSong = withContext(Dispatchers.IO) {
             YouTube.queue(listOf(id)).getOrNull()?.firstOrNull()
-        }
-        startingYear = startingSong?.let { song ->
-            withContext(Dispatchers.IO) { CoverYearResolver.resolve(song) }
-        }
+        } ?: return@LaunchedEffect
+        startingSong = sourceSong
+
+        val streamingYear = withContext(Dispatchers.IO) { CoverYearResolver.resolve(sourceSong) }
+        val knownYear = originalInfo?.year ?: streamingYear
+        startingYear =
+            knownYear ?: runCatching {
+                val sourceCandidate = AiCoverCandidate(
+                    title = originalInfo?.title?.ifBlank { title } ?: title,
+                    artist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist,
+                    category = AiCoverCategory.COVER,
+                )
+                CoverYearBackfill.resolve(
+                    originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
+                    originalArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist,
+                    playables = listOf(
+                        AiCoverPlayable(
+                            candidate = sourceCandidate,
+                            song = sourceSong,
+                            playbackSource = "Originale",
+                        ),
+                    ),
+                    config = geminiConfig,
+                )[sourceSong.id]
+            }.getOrNull()
     }
 
     if (showKeyDialog) {
