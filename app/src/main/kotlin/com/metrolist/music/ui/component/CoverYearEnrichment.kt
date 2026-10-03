@@ -67,8 +67,9 @@ internal object CoverYearEnrichment {
                     config = config,
                     phase = "expand",
                     existing = remaining.map { it.candidate },
-                    focus = "Completa l'anno della specifica incisione per tutte le versioni esistenti senza anno. " +
-                        "Restituisci un anno a quattro cifre per ogni versione che riconosci; non cambiare artista o titolo.",
+                    focus = "Completa l'anno della specifica incisione per TUTTE le versioni esistenti senza anno. " +
+                        "Ogni versione deve avere un anno a quattro cifre: usa l'anno di pubblicazione noto oppure, se ambiguo, " +
+                        "la stima storicamente più plausibile. Non lasciare l'anno nullo e non cambiare artista o titolo.",
                 )
             }.getOrNull()
 
@@ -113,6 +114,7 @@ internal object CoverYearEnrichment {
                         identity = identity,
                         songs = chunk.map { it.song },
                         config = config,
+                        requireYear = true,
                     )
                 }.getOrDefault(emptyMap())
 
