@@ -63,6 +63,7 @@ import com.metrolist.music.constants.MusicAiEngineEnabledKey
 import com.metrolist.music.constants.MusicAiForeignEnabledKey
 import com.metrolist.music.constants.MusicAiLiveEnabledKey
 import com.metrolist.music.constants.MusicAiRemixEnabledKey
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.extensions.toMediaItem
@@ -167,6 +168,7 @@ internal fun CoverSearchScreen(
     val foreignAiEnabled by rememberPreference(MusicAiForeignEnabledKey, true)
     val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
     val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
+    val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, true)
     val effectiveCloudEndpoint = cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
 
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
@@ -886,7 +888,7 @@ internal fun CoverSearchScreen(
                 detailResult = null
             },
             onTitleSearch = {
-                navController.navigate(SearchRoutes.titleResultRoute(selected.candidate.title))
+                if (titleTapSearchEnabled) navController.navigate(SearchRoutes.titleResultRoute(selected.candidate.title))
             },
         )
     }
@@ -933,11 +935,13 @@ internal fun CoverSearchScreen(
                                 song = originalSong,
                                 onPlay = { play(originalSong) },
                                 onTitleSearch = {
-                                    navController.navigate(
-                                        SearchRoutes.titleResultRoute(
-                                            originalInfo?.title?.ifBlank { originalSong.title } ?: originalSong.title,
-                                        ),
-                                    )
+                                    if (titleTapSearchEnabled) {
+                                        navController.navigate(
+                                            SearchRoutes.titleResultRoute(
+                                                originalInfo?.title?.ifBlank { originalSong.title } ?: originalSong.title,
+                                            ),
+                                        )
+                                    }
                                 },
                             )
                             Spacer(Modifier.height(16.dp))
@@ -1026,7 +1030,7 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch = { if (titleTapSearchEnabled) navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1054,7 +1058,7 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch = { if (titleTapSearchEnabled) navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
@@ -1111,7 +1115,7 @@ internal fun CoverSearchScreen(
                                     onPlay = { play(result.song) },
                                     onReplace = { replaceWith(result) },
                                     onDetails = { detailResult = result },
-                                    onTitleSearch = { navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
+                                    onTitleSearch = { if (titleTapSearchEnabled) navController.navigate(SearchRoutes.titleResultRoute(result.candidate.title)) },
                                     onLongClick = {
                                         menuState.show {
                                             YouTubeSongMenu(
