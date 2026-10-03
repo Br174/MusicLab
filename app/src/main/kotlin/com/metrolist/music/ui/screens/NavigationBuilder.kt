@@ -28,6 +28,7 @@ import com.metrolist.music.constants.PureBlackKey
 import com.metrolist.music.ui.component.CompilationNavigationBridge
 import com.metrolist.music.ui.component.CompilationScreen
 import com.metrolist.music.ui.component.CoverNavigationBridge
+import com.metrolist.music.ui.component.CoverSearchRequest
 import com.metrolist.music.ui.component.CoverSearchScreen
 import com.metrolist.music.ui.screens.artist.ArtistAlbumsScreen
 import com.metrolist.music.ui.screens.artist.ArtistItemsScreen
