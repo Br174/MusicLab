@@ -172,6 +172,7 @@ import com.metrolist.music.ui.menu.YouTubePlaylistMenu
 import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.ui.utils.SnapLayoutInfoProvider
 import com.metrolist.music.utils.isSpotifyId
+import com.metrolist.music.utils.italianizeProviderUiText
 import com.metrolist.music.ui.utils.resize
 import com.metrolist.music.utils.joinByBullet
 import com.metrolist.music.utils.joinToArtistString
@@ -1242,7 +1243,7 @@ fun HomeScreen(
             ) {
                 item {
                     ChipsRow(
-                        chips = homePage?.chips?.map { it to it.title } ?: emptyList(),
+                        chips = homePage?.chips?.map { it to italianizeProviderUiText(it.title) } ?: emptyList(),
                         currentValue = selectedChip,
                         onValueUpdate = {
                             viewModel.toggleChip(it)
@@ -1361,8 +1362,8 @@ fun HomeScreen(
                         sectionData?.let {
                             item(key = "1_chip_section_title_${section.index}") {
                                 NavigationTitle(
-                                    title = sectionData.title,
-                                    label = sectionData.label,
+                                    title = italianizeProviderUiText(sectionData.title),
+                                    label = sectionData.label?.let(::italianizeProviderUiText),
                                     thumbnail =
                                         sectionData.thumbnail?.let { thumbnailUrl ->
                                             {
@@ -2319,8 +2320,8 @@ fun HomeScreen(
 
                                 item(key = "home_section_title_${section.index}") {
                                     NavigationTitle(
-                                        title = sectionData.title,
-                                        label = sectionData.label,
+                                        title = italianizeProviderUiText(sectionData.title),
+                                        label = sectionData.label?.let(::italianizeProviderUiText),
                                         thumbnail =
                                             sectionData.thumbnail?.let { thumbnailUrl ->
                                                 {
@@ -2373,7 +2374,7 @@ fun HomeScreen(
                                                 {
                                                     playerConnection.playQueue(
                                                         ListQueue(
-                                                            title = sectionData.title,
+                                                            title = italianizeProviderUiText(sectionData.title),
                                                             items = sectionSongs.map { it.toMediaMetadata().toMediaItem() },
                                                         ),
                                                     )
