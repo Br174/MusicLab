@@ -15,13 +15,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -45,12 +48,15 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.metrolist.innertube.YouTube
+import com.metrolist.lastfm.LastFM
 import com.metrolist.innertube.utils.parseCookieString
 import com.metrolist.music.BuildConfig
 import com.metrolist.music.R
@@ -58,8 +64,11 @@ import com.metrolist.music.constants.AccountChannelHandleKey
 import com.metrolist.music.constants.AccountEmailKey
 import com.metrolist.music.constants.AccountNameKey
 import com.metrolist.music.constants.DataSyncIdKey
+import com.metrolist.music.constants.DiscogsTokenKey
 import com.metrolist.music.constants.InnerTubeAuthUserKey
 import com.metrolist.music.constants.InnerTubeCookieKey
+import com.metrolist.music.constants.LastFMApiKeyKey
+import com.metrolist.music.constants.LastFMSecretKey
 import com.metrolist.music.constants.UseLoginForBrowse
 import com.metrolist.music.constants.VisitorDataKey
 import com.metrolist.music.constants.YtmSyncKey
@@ -89,6 +98,9 @@ fun AccountSettings(
     val (visitorData, onVisitorDataChange) = rememberPreference(VisitorDataKey, "")
     val (dataSyncId, onDataSyncIdChange) = rememberPreference(DataSyncIdKey, "")
     val (authUser, onAuthUserChange) = rememberPreference(InnerTubeAuthUserKey, "0")
+    val (lastFmApiKey, onLastFmApiKeyChange) = rememberPreference(LastFMApiKeyKey, "")
+    val (lastFmSecret, onLastFmSecretChange) = rememberPreference(LastFMSecretKey, "")
+    val (discogsToken, onDiscogsTokenChange) = rememberPreference(DiscogsTokenKey, "")
 
     val isLoggedIn = remember(innerTubeCookie) {
         "SAPISID" in parseCookieString(innerTubeCookie)
@@ -103,6 +115,7 @@ fun AccountSettings(
 
     var showToken by remember { mutableStateOf(false) }
     var showTokenEditor by remember { mutableStateOf(false) }
+    var showExternalApiEditor by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -252,6 +265,96 @@ fun AccountSettings(
             )
         }
 
+        if (showExternalApiEditor) {
+            var tempLastFmApiKey by remember(lastFmApiKey, showExternalApiEditor) {
+                mutableStateOf(lastFmApiKey)
+            }
+            var tempLastFmSecret by remember(lastFmSecret, showExternalApiEditor) {
+                mutableStateOf(lastFmSecret)
+            }
+            var tempDiscogsToken by remember(discogsToken, showExternalApiEditor) {
+                mutableStateOf(discogsToken)
+            }
+
+            AlertDialog(
+                onDismissRequest = { showExternalApiEditor = false },
+                title = { Text(stringResource(R.string.external_api_credentials_title)) },
+                text = {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = "Last.fm",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        OutlinedTextField(
+                            value = tempLastFmApiKey,
+                            onValueChange = { tempLastFmApiKey = it },
+                            label = { Text(stringResource(R.string.lastfm_api_key)) },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = tempLastFmSecret,
+                            onValueChange = { tempLastFmSecret = it },
+                            label = { Text(stringResource(R.string.lastfm_shared_secret)) },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        Spacer(Modifier.height(20.dp))
+                        Text(
+                            text = "Discogs",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        OutlinedTextField(
+                            value = tempDiscogsToken,
+                            onValueChange = { tempDiscogsToken = it },
+                            label = { Text(stringResource(R.string.discogs_personal_token)) },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        InfoLabel(text = stringResource(R.string.credentials_saved_locally))
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val apiKey = tempLastFmApiKey.trim()
+                            val secret = tempLastFmSecret.trim()
+                            onLastFmApiKeyChange(apiKey)
+                            onLastFmSecretChange(secret)
+                            onDiscogsTokenChange(tempDiscogsToken.trim())
+
+                            // Apply Last.fm immediately; blank manual values fall back to build credentials.
+                            LastFM.initialize(
+                                apiKey = apiKey.ifBlank { BuildConfig.LASTFM_API_KEY },
+                                secret = secret.ifBlank { BuildConfig.LASTFM_SECRET },
+                            )
+                            showExternalApiEditor = false
+                        }
+                    ) {
+                        Text(stringResource(android.R.string.ok))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showExternalApiEditor = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            )
+        }
+
         Material3SettingsGroup(
             items = listOfNotNull(
                 Material3SettingsItem(
@@ -318,11 +421,12 @@ fun AccountSettings(
         Spacer(Modifier.height(8.dp))
 
         Material3SettingsGroup(
+            title = stringResource(R.string.tokens_and_api),
             items = listOf(
                 Material3SettingsItem(
                     title = {
                         Text(
-                            when {
+                            "YouTube Music — " + when {
                                 !isLoggedIn -> stringResource(R.string.advanced_login)
                                 showToken -> stringResource(R.string.token_shown)
                                 else -> stringResource(R.string.token_hidden)
@@ -335,6 +439,16 @@ fun AccountSettings(
                         else if (!showToken) showToken = true
                         else showTokenEditor = true
                     }
+                ),
+                Material3SettingsItem(
+                    title = { Text(stringResource(R.string.lastfm_api_credentials)) },
+                    icon = painterResource(R.drawable.token),
+                    onClick = { showExternalApiEditor = true }
+                ),
+                Material3SettingsItem(
+                    title = { Text(stringResource(R.string.discogs_token)) },
+                    icon = painterResource(R.drawable.token),
+                    onClick = { showExternalApiEditor = true }
                 ),
                 Material3SettingsItem(
                     title = { Text(stringResource(R.string.more_content)) },
