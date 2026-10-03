@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -63,6 +65,7 @@ import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.Year
@@ -76,6 +79,40 @@ private data class CompilationSearchCriteria(
     val language: String?,
 )
 
+private object CompilationSessionStore {
+    var query: String = ""
+    var year: Int? = null
+    var genre: String? = null
+    var style: String? = null
+    var country: String? = null
+    var language: String? = null
+
+    var results: List<DiscogsCompilationSummary> = emptyList()
+    var currentPage: Int = 0
+    var totalPages: Int = 0
+    var totalDiscogsResults: Int = 0
+    var activeSearch: CompilationSearchCriteria? = null
+
+    var detail: DiscogsCompilationDetail? = null
+    var fullAudio: CompilationFullAudio? = null
+    val resolvedTracks: MutableMap<Int, CompilationResolvedTrack> = linkedMapOf()
+
+    var listIndex: Int = 0
+    var listOffset: Int = 0
+
+    fun resetForNewSearch() {
+        results = emptyList()
+        currentPage = 0
+        totalPages = 0
+        totalDiscogsResults = 0
+        detail = null
+        fullAudio = null
+        resolvedTracks.clear()
+        listIndex = 0
+        listOffset = 0
+    }
+}
+
 @Composable
 internal fun CompilationScreen(
     navController: NavHostController,
@@ -87,29 +124,55 @@ internal fun CompilationScreen(
     val scope = rememberCoroutineScope()
     val discogsToken by rememberPreference(DiscogsTokenKey, "")
 
-    var query by remember { mutableStateOf("") }
-    var year by remember { mutableStateOf<Int?>(null) }
-    var genre by remember { mutableStateOf<String?>(null) }
-    var style by remember { mutableStateOf<String?>(null) }
-    var country by remember { mutableStateOf<String?>(null) }
-    var language by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf(CompilationSessionStore.query) }
+    var year by remember { mutableStateOf(CompilationSessionStore.year) }
+    var genre by remember { mutableStateOf(CompilationSessionStore.genre) }
+    var style by remember { mutableStateOf(CompilationSessionStore.style) }
+    var country by remember { mutableStateOf(CompilationSessionStore.country) }
+    var language by remember { mutableStateOf(CompilationSessionStore.language) }
 
-    var results by remember { mutableStateOf<List<DiscogsCompilationSummary>>(emptyList()) }
+    var results by remember { mutableStateOf(CompilationSessionStore.results) }
     var loading by remember { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var paginationError by remember { mutableStateOf<String?>(null) }
-    var currentPage by remember { mutableStateOf(0) }
-    var totalPages by remember { mutableStateOf(0) }
-    var totalDiscogsResults by remember { mutableStateOf(0) }
-    var activeSearch by remember { mutableStateOf<CompilationSearchCriteria?>(null) }
+    var currentPage by remember { mutableStateOf(CompilationSessionStore.currentPage) }
+    var totalPages by remember { mutableStateOf(CompilationSessionStore.totalPages) }
+    var totalDiscogsResults by remember { mutableStateOf(CompilationSessionStore.totalDiscogsResults) }
+    var activeSearch by remember { mutableStateOf(CompilationSessionStore.activeSearch) }
 
-    var detail by remember { mutableStateOf<DiscogsCompilationDetail?>(null) }
+    var detail by remember { mutableStateOf(CompilationSessionStore.detail) }
     var detailLoading by remember { mutableStateOf(false) }
-    var fullAudio by remember { mutableStateOf<CompilationFullAudio?>(null) }
-    val resolvedTracks = remember { mutableStateMapOf<Int, CompilationResolvedTrack>() }
+    var fullAudio by remember { mutableStateOf(CompilationSessionStore.fullAudio) }
+    val resolvedTracks = remember {
+        mutableStateMapOf<Int, CompilationResolvedTrack>().apply {
+            putAll(CompilationSessionStore.resolvedTracks)
+        }
+    }
+    val resultListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = CompilationSessionStore.listIndex,
+        initialFirstVisibleItemScrollOffset = CompilationSessionStore.listOffset,
+    )
     var resolvingAll by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+
+    LaunchedEffect(query, year, genre, style, country, language) {
+        CompilationSessionStore.query = query
+        CompilationSessionStore.year = year
+        CompilationSessionStore.genre = genre
+        CompilationSessionStore.style = style
+        CompilationSessionStore.country = country
+        CompilationSessionStore.language = language
+    }
+
+    LaunchedEffect(resultListState) {
+        snapshotFlow {
+            resultListState.firstVisibleItemIndex to resultListState.firstVisibleItemScrollOffset
+        }.collectLatest { (index, offset) ->
+            CompilationSessionStore.listIndex = index
+            CompilationSessionStore.listOffset = offset
+        }
+    }
 
     suspend fun filterByLanguage(
         items: List<DiscogsCompilationSummary>,
@@ -159,6 +222,13 @@ internal fun CompilationScreen(
         currentPage = pageResult.page
         totalPages = pageResult.pages
         totalDiscogsResults = pageResult.totalItems
+
+        CompilationSessionStore.results = results
+        CompilationSessionStore.currentPage = currentPage
+        CompilationSessionStore.totalPages = totalPages
+        CompilationSessionStore.totalDiscogsResults = totalDiscogsResults
+        CompilationSessionStore.activeSearch = criteria
+
         paginationError = null
         return true
     }
@@ -184,13 +254,16 @@ internal fun CompilationScreen(
         paginationError = null
         detail = null
         resolvedTracks.clear()
+        CompilationSessionStore.resetForNewSearch()
         results = emptyList()
         currentPage = 0
         totalPages = 0
         totalDiscogsResults = 0
         activeSearch = criteria
+        CompilationSessionStore.activeSearch = criteria
 
         scope.launch {
+            resultListState.scrollToItem(0)
             loadPage(criteria, page = 1, replaceResults = true)
             loading = false
         }
@@ -221,6 +294,7 @@ internal fun CompilationScreen(
             DiscogsClient.getRelease(discogsToken, summary.id)
                 .onSuccess { loaded ->
                     detail = loaded
+                    CompilationSessionStore.detail = loaded
                     detailLoading = false
                 }
                 .onFailure {
@@ -233,13 +307,17 @@ internal fun CompilationScreen(
     LaunchedEffect(detail?.id) {
         val current = detail ?: return@LaunchedEffect
         fullAudio = CompilationTrackResolver.findFullAudio(current)
+        CompilationSessionStore.fullAudio = fullAudio
     }
 
     suspend fun resolveTrack(index: Int, current: DiscogsCompilationDetail): CompilationResolvedTrack? {
         resolvedTracks[index]?.let { return it }
         val track = current.tracks.getOrNull(index) ?: return null
         val found = CompilationTrackResolver.resolveTrack(track, current.videos)
-        if (found != null) resolvedTracks[index] = found
+        if (found != null) {
+            resolvedTracks[index] = found
+            CompilationSessionStore.resolvedTracks[index] = found
+        }
         return found
     }
 
@@ -340,6 +418,9 @@ internal fun CompilationScreen(
                         detail = null
                         fullAudio = null
                         resolvedTracks.clear()
+                        CompilationSessionStore.detail = null
+                        CompilationSessionStore.fullAudio = null
+                        CompilationSessionStore.resolvedTracks.clear()
                     } else {
                         navController.popBackStack()
                     }
@@ -396,6 +477,7 @@ internal fun CompilationScreen(
 
             else -> {
                 LazyColumn(
+                    state = resultListState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
