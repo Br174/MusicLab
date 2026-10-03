@@ -926,4 +926,6 @@
     <string name="android_auto_target_playlist_desc">Seleziona la playlist dove sono salvati i brani quando utilizzi il pulsante di aggiunta rapida in Android Auto</string>
     <string name="ai_system_prompt_placeholder">Utilizza {lineCount} come segnaposto per il numero di righe da tradurre</string>
     <string name="ai_system_prompt_desc">Istruzioni personalizzate inviate al modello IA. Lascia vuoto per utilizzare il prompt predefinito</string>
+    <string name="nav_cover">Cover</string>
+    <string name="nav_compilation">Compilation</string>
 </resources>
