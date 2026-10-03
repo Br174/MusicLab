@@ -202,7 +202,7 @@ fun LastFMSettings(
                             loginError = "Please enter both username and password"
                             return@TextButton
                         }
-                        if (BuildConfig.LASTFM_API_KEY.isBlank() || BuildConfig.LASTFM_SECRET.isBlank()) {
+                        if (!LastFM.isInitialized()) {
                             loginError = lastFmApiCredentialsMissingError
                             return@TextButton
                         }
