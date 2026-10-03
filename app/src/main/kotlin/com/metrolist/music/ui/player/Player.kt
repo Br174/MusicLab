@@ -157,6 +157,7 @@ import com.metrolist.music.constants.SliderStyle
 import com.metrolist.music.constants.SliderStyleKey
 import com.metrolist.music.constants.SquigglySliderKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.constants.UseNewPlayerDesignKey
 import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.extensions.metadata
@@ -223,6 +224,7 @@ fun BottomSheetPlayer(
     val (hidePlayerThumbnail, onHidePlayerThumbnailChange) = rememberPreference(HidePlayerThumbnailKey, false)
     val (hideStatusBarOnFullscreen) = rememberPreference(HideStatusBarOnFullscreenKey, false)
     val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
+    val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, true)
 
     var showInlineLyrics by rememberSaveable {
         mutableStateOf(false)
@@ -1018,8 +1020,10 @@ fun BottomSheetPlayer(
                                         indication = null,
                                         interactionSource = remember { MutableInteractionSource() },
                                         onClick = {
-                                            state.collapseSoft()
-                                            navController.navigate(SearchRoutes.titleResultRoute(title))
+                                            if (titleTapSearchEnabled) {
+                                                state.collapseSoft()
+                                                navController.navigate(SearchRoutes.titleResultRoute(title))
+                                            }
                                         },
                                         onLongClick = {
                                             val clip = ClipData.newPlainText(copiedTitleStr, title)
