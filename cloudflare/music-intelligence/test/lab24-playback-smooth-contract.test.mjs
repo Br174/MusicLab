@@ -85,6 +85,6 @@ test('LAB25 Cover native title lane uses the same MusicLab summary search and no
   assert.doesNotMatch(cover, /selectedCoverageMode/);
   assert.doesNotMatch(cover, /AiCoverageSelector\(/);
   assert.doesNotMatch(cover, /AiCoverageFilter\.visibleItems\(/);
-  assert.match(cover, /text = "Anno: \\$\\{result\\.candidate\\.year\\?\\.toString\\(\\) \\?: "ricerca…"\\}"/);
+  assert.match(cover, /text = "Anno: \$\{result\.candidate\.year\?\.toString\(\) \?: "ricerca…"\}"/);
   assert.match(cover, /private fun coverEvidenceScore\(/);
 });
