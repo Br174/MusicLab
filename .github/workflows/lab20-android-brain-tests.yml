@@ -1,9 +1,9 @@
-name: CANDIDATA LAB25 Android Contract
+name: LAB26 Artwork Italian Year Contract
 
 on:
   push:
     branches:
-      - candidate/musiclab-lab25-playback-cover
+      - uab-build/musiclab-artwork-italian-year-26
     paths:
       - 'app/src/main/kotlin/com/metrolist/music/ui/component/**'
       - 'app/src/main/kotlin/com/metrolist/music/ui/player/**'
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  candidate-lab25-android-contract:
+  lab26-artwork-italian-year-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -37,7 +37,7 @@ jobs:
           node-version: '22'
 
       - name: Run fast Android source contracts
-        run: node --test cloudflare/music-intelligence/test/android-brain-contract-source.test.mjs cloudflare/music-intelligence/test/device-regression-contract.test.mjs cloudflare/music-intelligence/test/lab24-playback-smooth-contract.test.mjs
+        run: node --test cloudflare/music-intelligence/test/android-brain-contract-source.test.mjs cloudflare/music-intelligence/test/device-regression-contract.test.mjs cloudflare/music-intelligence/test/lab24-playback-smooth-contract.test.mjs cloudflare/music-intelligence/test/lab26-artwork-italian-year-contract.test.mjs
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -55,5 +55,5 @@ jobs:
         shell: bash
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Run CANDIDATA LAB25 Android contract tests
+      - name: Run LAB26 Android contract tests
         run: ./gradlew --console=plain :app:testFossDebugUnitTest --tests com.metrolist.music.ui.component.AiBrainMetadataTest --tests com.metrolist.music.ui.component.AiCoverageModeTest --tests com.metrolist.music.ui.component.AiCoverSearchEngineTest --tests com.metrolist.music.ui.component.YouTubeWebSearchTest --tests com.metrolist.music.ui.component.AiCoverFlowResolverTest --tests com.metrolist.music.ui.component.OriginalVersionSearchEngineTest --tests com.metrolist.music.ui.component.Lab23TitleSearchTest --warning-mode summary
