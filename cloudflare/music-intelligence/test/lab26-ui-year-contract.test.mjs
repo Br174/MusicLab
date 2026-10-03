@@ -89,14 +89,16 @@ test('LAB26 Cover years are completed in background streaming-first then AI', ()
   assert.match(cover, /text = "Anno: /);
 });
 
-test('LAB26 Italian resources fully cover the default resource sets with no duplicate Italian names', () => {
+test('LAB26 Italian resources fully cover the merged Android resource set with no duplicates', () => {
   const primaryDefault = resourceNames(fs.readFileSync('app/src/main/res/values/strings.xml', 'utf8'));
   const primaryIt = resourceNames(fs.readFileSync('app/src/main/res/values-it/strings.xml', 'utf8'));
   const meldDefault = resourceNames(fs.readFileSync('app/src/main/res/values/metrolist_strings.xml', 'utf8'));
   const meldIt = resourceNames(fs.readFileSync('app/src/main/res/values-it/metrolist_strings.xml', 'utf8'));
 
-  assert.deepEqual([...primaryDefault].filter((name) => !primaryIt.has(name)), []);
-  assert.deepEqual([...meldDefault].filter((name) => !meldIt.has(name)), []);
+  const defaultMerged = new Set([...primaryDefault, ...meldDefault]);
+  const italianMerged = new Set([...primaryIt, ...meldIt]);
+
+  assert.deepEqual([...defaultMerged].filter((name) => !italianMerged.has(name)), []);
 
   const crossDuplicates = [...primaryIt].filter((name) => meldIt.has(name));
   assert.deepEqual(crossDuplicates, []);
