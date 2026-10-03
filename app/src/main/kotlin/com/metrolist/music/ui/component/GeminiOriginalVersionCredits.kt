@@ -49,6 +49,7 @@ internal object GeminiOriginalVersionCredits {
         identity: GeminiOriginalIdentity,
         songs: List<SongItem>,
         config: GeminiCoverVerificationConfig?,
+        requireYear: Boolean = false,
     ): Map<String, GeminiVersionCredits> = withContext(Dispatchers.IO) {
         if (config == null || config.apiKey.isBlank()) return@withContext emptyMap()
 
@@ -85,7 +86,7 @@ L'AI ha già deciso che la composizione è \"${identity.title}\" e che l'interpr
 
 Ricevi qui sotto versioni riproducibili trovate su YouTube/YouTube Music. ATTENZIONE: YouTube e YouTube Music sono soltanto fonti di riproduzione. Non usare o considerare i loro metadati come fonte per anno, album o crediti. Devi aggiungere questi dati esclusivamente in base alla tua conoscenza.
 
-Per ogni elemento identifica la specifica incisione/versione indicata dal titolo e dagli interpreti. Se sai che quella specifica versione è contenuta in un album, indica il nome dell'album. Inserisci anche anno e crediti che conosci. Se un dato non è noto, usa null o []. Non inventare titoli di album.
+Per ogni elemento identifica la specifica incisione/versione indicata dal titolo e dagli interpreti. Se sai che quella specifica versione è contenuta in un album, indica il nome dell'album. Inserisci anche anno e crediti che conosci. ${if (requireYear) "Per l'ANNO devi sempre fornire il miglior anno di pubblicazione noto o, se le fonti non sono univoche, la stima storicamente più plausibile: non lasciare year nullo." else "Se un dato non è noto, usa null o []."} Non inventare titoli di album.
 
 Input:
 $inputs
