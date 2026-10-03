@@ -31,8 +31,8 @@ internal object DiscogsClient {
         style: String?,
         country: String?,
         page: Int = 1,
-        perPage: Int = 30,
-    ): Result<List<DiscogsCompilationSummary>> = withContext(Dispatchers.IO) {
+        perPage: Int = 100,
+    ): Result<DiscogsCompilationPage> = withContext(Dispatchers.IO) {
         runCatching {
             require(token.isNotBlank()) { "Token Discogs mancante" }
 
@@ -40,7 +40,7 @@ internal object DiscogsClient {
                 .addQueryParameter("type", "release")
                 .addQueryParameter("format", "Compilation")
                 .addQueryParameter("page", page.coerceAtLeast(1).toString())
-                .addQueryParameter("per_page", perPage.coerceIn(1, 50).toString())
+                .addQueryParameter("per_page", perPage.coerceIn(1, 100).toString())
                 .apply {
                     query.trim().takeIf(String::isNotBlank)?.let { addQueryParameter("q", it) }
                     year?.let { addQueryParameter("year", it.toString()) }
@@ -52,12 +52,10 @@ internal object DiscogsClient {
 
             val root = requestJson(url.toString(), token)
             val results = root.optJSONArray("results") ?: JSONArray()
-            buildList {
+            val pagination = root.optJSONObject("pagination")
+            val summaries = buildList {
                 for (index in 0 until results.length()) {
                     val item = results.optJSONObject(index) ?: continue
-                    val formats = item.stringList("format")
-                    if (formats.none { it.equals("Compilation", ignoreCase = true) }) continue
-
                     add(
                         DiscogsCompilationSummary(
                             id = item.optInt("id").takeIf { it > 0 } ?: continue,
@@ -65,7 +63,7 @@ internal object DiscogsClient {
                             title = item.optString("title").cleanDiscogsText(),
                             year = item.optInt("year").takeIf { it in 1900..3000 },
                             country = item.optString("country").takeIf(String::isNotBlank),
-                            formats = formats,
+                            formats = item.stringList("format"),
                             genres = item.stringList("genre"),
                             styles = item.stringList("style"),
                             labels = item.stringList("label"),
@@ -74,9 +72,15 @@ internal object DiscogsClient {
                         ),
                     )
                 }
-            }.distinctBy { summary ->
-                summary.masterId?.let { master -> "m:$master" } ?: "r:" + summary.id
-            }
+            }.distinctBy { it.id }
+
+            DiscogsCompilationPage(
+                items = summaries,
+                page = pagination?.optInt("page")?.takeIf { it > 0 } ?: page.coerceAtLeast(1),
+                pages = pagination?.optInt("pages")?.takeIf { it > 0 } ?: page.coerceAtLeast(1),
+                perPage = pagination?.optInt("per_page")?.takeIf { it > 0 } ?: perPage.coerceIn(1, 100),
+                totalItems = pagination?.optInt("items")?.takeIf { it >= 0 } ?: summaries.size,
+            )
         }
     }
 
