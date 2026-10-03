@@ -61,8 +61,6 @@ import com.metrolist.music.R
 import com.metrolist.music.constants.AlbumViewTypeKey
 import com.metrolist.music.constants.CONTENT_TYPE_HEADER
 import com.metrolist.music.constants.CONTENT_TYPE_PLAYLIST
-import com.metrolist.music.constants.GridItemSize
-import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.constants.LibraryViewType
 import com.metrolist.music.constants.MixSortDescendingKey
@@ -150,7 +148,6 @@ fun LibraryMixScreen(
             MixSortType.CREATE_DATE,
         )
     val (sortDescending, onSortDescendingChange) = rememberPreference(MixSortDescendingKey, true)
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val (ytmSync) = rememberPreference(YtmSyncKey, true)
 
