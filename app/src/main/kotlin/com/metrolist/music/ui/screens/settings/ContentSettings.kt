@@ -176,7 +176,7 @@ fun ContentSettings(
             "KuGou" to "KuGou",
             "LyricsPlus" to "LyricsPlus",
             "Zemer" to "Zemer",
-            "YouTubeSubtitle" to "YouTube Subtitles",
+            "YouTubeSubtitle" to "Sottotitoli YouTube",
             "YouTube" to "YouTube",
         )
 
