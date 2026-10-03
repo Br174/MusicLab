@@ -768,6 +768,58 @@ internal fun CoverSearchScreen(
         allModeResolving = false
     }
 
+    // LAB26: years never block first paint. Once discovery/locator work is quiet,
+    // complete only the visible playable rows that still have no date, using
+    // provider metadata first and AI only as the final fallback.
+    LaunchedEffect(
+        sessionKey,
+        backgroundLoading,
+        allModeResolving,
+        playables.map { "${it.song.id}:${it.candidate.year ?: 0}" },
+    ) {
+        if (backgroundLoading || allModeResolving || !session.backgroundComplete) {
+            return@LaunchedEffect
+        }
+        if (playables.none { it.candidate.year == null }) {
+            return@LaunchedEffect
+        }
+
+        val yearHits = CoverYearEnrichment.enrichMissing(
+            originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
+            originalArtist = originalInfo?.artist?.ifBlank { originalArtist } ?: originalArtist,
+            originalInfo = originalInfo,
+            playables = playables,
+            config = geminiConfig,
+        )
+        if (yearHits.isEmpty()) return@LaunchedEffect
+
+        knownCandidates = knownCandidates.map { candidate ->
+            if (candidate.year != null) {
+                candidate
+            } else {
+                yearHits[candidate.stableKey]?.let { hit ->
+                    candidate.copy(year = hit.year, yearSource = hit.source)
+                } ?: candidate
+            }
+        }
+        playables = playables.map { playable ->
+            if (playable.candidate.year != null) {
+                playable
+            } else {
+                yearHits[playable.candidate.stableKey]?.let { hit ->
+                    playable.copy(
+                        candidate = playable.candidate.copy(
+                            year = hit.year,
+                            yearSource = hit.source,
+                        ),
+                    )
+                } ?: playable
+            }
+        }
+        session.knownCandidates = knownCandidates
+        session.playables = playables
+    }
+
     val shouldLoadNextPage by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -1279,7 +1331,7 @@ private fun CoverStartRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "Anno: ${(info?.year ?: fallbackYear)?.toString() ?: "—"}",
+                text = "Anno: ${(info?.year ?: fallbackYear)?.toString() ?: "ricerca…"}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -1319,7 +1371,7 @@ private fun AiCoverResultRow(
             )
             Text(result.candidate.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                text = "Anno: ${result.candidate.year?.toString() ?: "—"}",
+                text = "Anno: ${result.candidate.year?.toString() ?: "ricerca…"}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -1362,7 +1414,7 @@ private fun CoverDetailDialog(
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(candidate.artist, style = MaterialTheme.typography.titleSmall)
                 Text("Tipo: ${coverCategoryLabel(candidate.category)}")
-                Text("Anno: ${(credits?.year ?: candidate.year)?.toString() ?: "—"}")
+                Text("Anno: ${(credits?.year ?: candidate.year)?.toString() ?: "ricerca…"}")
                 (credits?.album ?: candidate.album)?.let { Text("Album: $it") }
                 candidate.language?.let { Text("Lingua: $it") }
                 Text("Riproduzione: ${result.playbackSource}", style = MaterialTheme.typography.bodySmall)
