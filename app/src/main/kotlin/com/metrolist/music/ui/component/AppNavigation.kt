@@ -203,7 +203,11 @@ fun AppNavigationBar(
                         contentDescription = stringResource(screen.titleId)
                     )
                 },
-                label = if (!slimNav) {
+                label = if (
+                    !slimNav &&
+                    screen != Screens.Cover &&
+                    screen != Screens.Compilation
+                ) {
                     {
                         Text(
                             text = stringResource(screen.titleId),
