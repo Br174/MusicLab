@@ -35,8 +35,6 @@ import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
-import com.metrolist.music.constants.GridItemSize
-import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.YouTubeQueue
@@ -69,7 +67,6 @@ fun YouTubeBrowseScreen(
     val browseResult by viewModel.result.collectAsStateWithLifecycle()
 
     val coroutineScope = rememberCoroutineScope()
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val allItems = browseResult?.items?.flatMap { it.items } ?: emptyList()
 
