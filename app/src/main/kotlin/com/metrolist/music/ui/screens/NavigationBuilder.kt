@@ -92,12 +92,15 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(CoverNavigationBridge.ROUTE) {
-        CoverNavigationBridge.currentRequest?.let { request ->
-            CoverSearchScreen(
-                request = request,
-                navController = navController,
-            )
-        }
+        CoverSearchScreen(
+            request = CoverNavigationBridge.currentRequest ?: CoverSearchRequest(
+                title = "",
+                originalArtist = "",
+                durationSec = 0,
+                currentYouTubeId = null,
+            ),
+            navController = navController,
+        )
     }
 
     composable(CompilationNavigationBridge.ROUTE) {
