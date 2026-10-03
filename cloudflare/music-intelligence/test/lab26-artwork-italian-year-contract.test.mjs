@@ -71,16 +71,24 @@ test('LAB26 Cover completes missing years in background using structured then AI
   assert.match(cloud, /Completa ESCLUSIVAMENTE l'anno/);
 });
 
-test('LAB26 Italian resource sets are complete against defaults', () => {
-  for (const [basePath, itPath] of [
-    ['app/src/main/res/values/strings.xml', 'app/src/main/res/values-it/strings.xml'],
-    ['app/src/main/res/values/metrolist_strings.xml', 'app/src/main/res/values-it/metrolist_strings.xml'],
-  ]) {
-    const base = resourceNames(read(basePath));
-    const it = resourceNames(read(itPath));
-    const missing = [...base].filter((name) => !it.has(name));
-    assert.deepEqual(missing, [], `Italian resources missing from ${itPath}: ${missing.join(', ')}`);
-  }
+test('LAB26 Italian resource namespace is complete and duplicate-free', () => {
+  const basePaths = [
+    'app/src/main/res/values/strings.xml',
+    'app/src/main/res/values/metrolist_strings.xml',
+  ];
+  const italianPaths = [
+    'app/src/main/res/values-it/strings.xml',
+    'app/src/main/res/values-it/metrolist_strings.xml',
+  ];
+
+  const base = new Set(basePaths.flatMap((path) => [...resourceNames(read(path))]));
+  const italianNames = italianPaths.flatMap((path) => [...resourceNames(read(path))]);
+  const italian = new Set(italianNames);
+  const missing = [...base].filter((name) => !italian.has(name));
+  const duplicates = italianNames.filter((name, index) => italianNames.indexOf(name) !== index);
+
+  assert.deepEqual(missing, [], `Italian resources missing: ${missing.join(', ')}`);
+  assert.deepEqual([...new Set(duplicates)], [], `Duplicate Italian resources: ${[...new Set(duplicates)].join(', ')}`);
 });
 
 test('LAB26 Italian is default and provider-owned Home headings are normalized', () => {
