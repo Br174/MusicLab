@@ -481,12 +481,13 @@ fun Thumbnail(
                             Modifier.fillMaxSize()
                         }).then(userSwipePointerModifier)
                     ) {
-                        items(
+                        itemsIndexed(
                             items = mediaItems,
-                            key = { item -> 
-                                item.mediaId.ifEmpty { "unknown_${item.hashCode()}" }
-                            }
-                        ) { item ->
+                            key = { index, item ->
+                                val id = item.mediaId.ifEmpty { "unknown_${item.hashCode()}" }
+                                "player_thumbnail_${index}_${id}"
+                            },
+                        ) { _, item ->
                             ThumbnailItem(
                                 item = item,
                                 dimensions = dimensions,
