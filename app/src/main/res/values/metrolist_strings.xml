@@ -171,6 +171,14 @@
     <string name="skip_silence_instant_desc">Jump ahead during silent moments instead of speeding up playback</string>
 
     <string name="advanced_login">Log in with token</string>
+    <string name="tokens_and_api">Tokens and APIs</string>
+    <string name="lastfm_api_credentials">Last.fm API key and secret</string>
+    <string name="discogs_token">Discogs personal access token</string>
+    <string name="external_api_credentials_title">Last.fm and Discogs</string>
+    <string name="lastfm_api_key">Last.fm API Key</string>
+    <string name="lastfm_shared_secret">Last.fm Shared Secret</string>
+    <string name="discogs_personal_token">Discogs Personal Access Token</string>
+    <string name="credentials_saved_locally">These values are stored locally on this device. They remain hidden on screen.</string>
     <string name="token_hidden">Tap to show token</string>
     <string name="token_shown">Tap again to copy or edit</string>
     <string name="token_adv_login_description">This is an ADVANCED login method. Instead of using the web portal, you can enter or update your login token directly. This can be useful for signing in across multiple devices quickly. Tokens in an unrecognized format will be rejected</string>
