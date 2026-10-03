@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -64,6 +65,8 @@ import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
@@ -99,6 +102,8 @@ private object CompilationSessionStore {
 
     var listIndex: Int = 0
     var listOffset: Int = 0
+    var filtersExpanded: Boolean = false
+    var selectedTrackIndex: Int? = null
 
     fun resetForNewSearch() {
         results = emptyList()
@@ -110,6 +115,7 @@ private object CompilationSessionStore {
         resolvedTracks.clear()
         listIndex = 0
         listOffset = 0
+        selectedTrackIndex = null
     }
 }
 
@@ -155,6 +161,11 @@ internal fun CompilationScreen(
     )
     var resolvingAll by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var filtersExpanded by remember { mutableStateOf(CompilationSessionStore.filtersExpanded) }
+    var selectedTrackIndex by remember { mutableStateOf(CompilationSessionStore.selectedTrackIndex) }
+    var paginationJob by remember { mutableStateOf<Job?>(null) }
+    var fullAudioLookupJob by remember { mutableStateOf<Job?>(null) }
+    var nextTrackWarmJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(query, year, genre, style, country, language) {
         CompilationSessionStore.query = query
@@ -163,6 +174,7 @@ internal fun CompilationScreen(
         CompilationSessionStore.style = style
         CompilationSessionStore.country = country
         CompilationSessionStore.language = language
+        CompilationSessionStore.filtersExpanded = filtersExpanded
     }
 
     LaunchedEffect(resultListState) {
@@ -248,6 +260,9 @@ internal fun CompilationScreen(
             language = language,
         )
 
+        paginationJob?.cancel()
+        fullAudioLookupJob?.cancel()
+        nextTrackWarmJob?.cancel()
         loading = true
         loadingMore = false
         error = null
@@ -275,17 +290,42 @@ internal fun CompilationScreen(
 
         loadingMore = true
         paginationError = null
-        scope.launch {
-            loadPage(
-                criteria = criteria,
-                page = currentPage + 1,
-                replaceResults = false,
-            )
-            loadingMore = false
+        paginationJob?.cancel()
+        paginationJob = scope.launch {
+            try {
+                loadPage(
+                    criteria = criteria,
+                    page = currentPage + 1,
+                    replaceResults = false,
+                )
+            } finally {
+                loadingMore = false
+            }
+        }
+    }
+
+    LaunchedEffect(resultListState, activeSearch, currentPage, totalPages, results.size) {
+        snapshotFlow {
+            resultListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        }.collectLatest { lastVisible ->
+            if (
+                activeSearch != null &&
+                currentPage > 0 &&
+                currentPage < totalPages &&
+                results.isNotEmpty() &&
+                lastVisible >= 0 &&
+                results.size - lastVisible <= 12
+            ) {
+                loadNextPage()
+            }
         }
     }
 
     fun openCompilation(summary: DiscogsCompilationSummary) {
+        paginationJob?.cancel()
+        loadingMore = false
+        selectedTrackIndex = null
+        CompilationSessionStore.selectedTrackIndex = null
         detailLoading = true
         error = null
         fullAudio = null
@@ -304,10 +344,28 @@ internal fun CompilationScreen(
         }
     }
 
+    fun scheduleFullAudioLookup(
+        current: DiscogsCompilationDetail,
+        delayMs: Long = 1_500L,
+    ) {
+        if (fullAudio != null) return
+        fullAudioLookupJob?.cancel()
+        fullAudioLookupJob = scope.launch {
+            delay(delayMs)
+            while (playerConnection?.isPlaybackPriorityBurstActive() == true) {
+                delay(180)
+            }
+            val found = CompilationTrackResolver.findFullAudio(current)
+            if (detail?.id == current.id) {
+                fullAudio = found
+                CompilationSessionStore.fullAudio = found
+            }
+        }
+    }
+
     LaunchedEffect(detail?.id) {
         val current = detail ?: return@LaunchedEffect
-        fullAudio = CompilationTrackResolver.findFullAudio(current)
-        CompilationSessionStore.fullAudio = fullAudio
+        if (fullAudio == null) scheduleFullAudioLookup(current)
     }
 
     suspend fun resolveTrack(index: Int, current: DiscogsCompilationDetail): CompilationResolvedTrack? {
@@ -322,12 +380,38 @@ internal fun CompilationScreen(
     }
 
     fun playTrack(index: Int, current: DiscogsCompilationDetail) {
+        selectedTrackIndex = index
+        CompilationSessionStore.selectedTrackIndex = index
+
+        paginationJob?.cancel()
+        loadingMore = false
+        fullAudioLookupJob?.cancel()
+        nextTrackWarmJob?.cancel()
+        playerConnection?.beginPlaybackPriorityBurst("compilation-track-tap")
+
         scope.launch {
             val found = resolveTrack(index, current)
             if (found != null) {
                 playerConnection?.playNow(found.song.toMediaItem())
+
+                nextTrackWarmJob = scope.launch {
+                    while (playerConnection?.isPlaybackPriorityBurstActive() == true) {
+                        delay(180)
+                    }
+                    delay(350)
+                    if (selectedTrackIndex != index || detail?.id != current.id) return@launch
+                    val nextIndex = index + 1
+                    val next = resolveTrack(nextIndex, current)
+                    if (next != null && selectedTrackIndex == index) {
+                        playerConnection?.playNext(next.song.toMediaItem())
+                    }
+                    if (fullAudio == null && detail?.id == current.id) {
+                        scheduleFullAudioLookup(current, delayMs = 2_000L)
+                    }
+                }
             } else {
                 Toast.makeText(context, "Brano non trovato per ora.", Toast.LENGTH_SHORT).show()
+                if (fullAudio == null) scheduleFullAudioLookup(current, delayMs = 1_000L)
             }
         }
     }
@@ -460,7 +544,9 @@ internal fun CompilationScreen(
                 fullAudio = fullAudio,
                 resolvingAll = resolvingAll,
                 saving = saving,
+                selectedTrackIndex = selectedTrackIndex,
                 onPlayFull = {
+                    playerConnection?.beginPlaybackPriorityBurst("compilation-full-audio")
                     fullAudio?.song?.let { playerConnection?.playNow(it.toMediaItem()) }
                 },
                 onPlayAll = { resolveAllAndPlay(detail!!) },
@@ -476,205 +562,215 @@ internal fun CompilationScreen(
             }
 
             else -> {
-                LazyColumn(
-                    state = resultListState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    item {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        tonalElevation = 2.dp,
+                    ) {
                         Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            OutlinedTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                label = { Text("Cerca compilation, titolo, artista, brano o etichetta") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                CompilationFilterDropdown(
-                                    label = "Anno",
-                                    selected = year?.toString() ?: "Tutto",
-                                    options = listOf("Tutto") + (Year.now().value downTo 1900).map(Int::toString),
+                                OutlinedTextField(
+                                    value = query,
+                                    onValueChange = { query = it },
+                                    label = { Text("Cerca compilation") },
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        TextButton(
+                                            onClick = ::runSearch,
+                                            enabled = !loading,
+                                        ) {
+                                            Text(if (loading) "…" else "Cerca")
+                                        }
+                                    },
                                     modifier = Modifier.weight(1f),
-                                    onSelect = { year = it.takeUnless { value -> value == "Tutto" }?.toIntOrNull() },
                                 )
-                                CompilationFilterDropdown(
-                                    label = "Genere",
-                                    selected = genre ?: "Tutto",
-                                    options = compilationGenres,
-                                    modifier = Modifier.weight(1f),
-                                    onSelect = { genre = it.takeUnless { value -> value == "Tutto" } },
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                CompilationFilterDropdown(
-                                    label = "Stile",
-                                    selected = style ?: "Tutto",
-                                    options = compilationStyles,
-                                    modifier = Modifier.weight(1f),
-                                    onSelect = { style = it.takeUnless { value -> value == "Tutto" } },
-                                )
-                                CompilationFilterDropdown(
-                                    label = "Nazione",
-                                    selected = country ?: "Tutto",
-                                    options = compilationCountries,
-                                    modifier = Modifier.weight(1f),
-                                    onSelect = { country = it.takeUnless { value -> value == "Tutto" } },
-                                )
-                            }
-
-                            CompilationFilterDropdown(
-                                label = "Lingua",
-                                selected = language ?: "Tutte",
-                                options = compilationLanguages,
-                                modifier = Modifier.fillMaxWidth(),
-                                onSelect = { language = it.takeUnless { value -> value == "Tutte" } },
-                            )
-
-                            Text(
-                                text = "La lingua è stimata da MusicLab; Anno, Genere, Stile e Nazione usano i dati Discogs.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-
-                            Button(
-                                onClick = ::runSearch,
-                                enabled = !loading,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                if (loading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                    )
-                                    Spacer(Modifier.width(8.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        filtersExpanded = !filtersExpanded
+                                        CompilationSessionStore.filtersExpanded = filtersExpanded
+                                    },
+                                ) {
+                                    Text(if (filtersExpanded) "⌃" else "⌄")
                                 }
-                                Text(if (loading) "Ricerca…" else "Cerca compilation")
                             }
 
-                            error?.let {
-                                Text(it, color = MaterialTheme.colorScheme.error)
+                            if (filtersExpanded) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompilationFilterDropdown(
+                                        label = "Anno",
+                                        selected = year?.toString() ?: "Tutto",
+                                        options = listOf("Tutto") + (Year.now().value downTo 1900).map(Int::toString),
+                                        modifier = Modifier.weight(1f),
+                                        onSelect = { year = it.takeUnless { value -> value == "Tutto" }?.toIntOrNull() },
+                                    )
+                                    CompilationFilterDropdown(
+                                        label = "Genere",
+                                        selected = genre ?: "Tutto",
+                                        options = compilationGenres,
+                                        modifier = Modifier.weight(1f),
+                                        onSelect = { genre = it.takeUnless { value -> value == "Tutto" } },
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompilationFilterDropdown(
+                                        label = "Stile",
+                                        selected = style ?: "Tutto",
+                                        options = compilationStyles,
+                                        modifier = Modifier.weight(1f),
+                                        onSelect = { style = it.takeUnless { value -> value == "Tutto" } },
+                                    )
+                                    CompilationFilterDropdown(
+                                        label = "Nazione",
+                                        selected = country ?: "Tutto",
+                                        options = compilationCountries,
+                                        modifier = Modifier.weight(1f),
+                                        onSelect = { country = it.takeUnless { value -> value == "Tutto" } },
+                                    )
+                                }
+
+                                CompilationFilterDropdown(
+                                    label = "Lingua",
+                                    selected = language ?: "Tutte",
+                                    options = compilationLanguages,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onSelect = { language = it.takeUnless { value -> value == "Tutte" } },
+                                )
+
+                                Button(
+                                    onClick = ::runSearch,
+                                    enabled = !loading,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(if (loading) "Ricerca…" else "Cerca compilation")
+                                }
                             }
+
+                            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
                             if (activeSearch != null && (totalDiscogsResults > 0 || results.isNotEmpty())) {
                                 val counterText =
                                     if (activeSearch?.language == null) {
-                                        "Compilation caricate: ${results.size} / Totale Discogs: $totalDiscogsResults"
+                                        "Caricate ${results.size} / $totalDiscogsResults · pagina $currentPage/$totalPages"
                                     } else {
-                                        "Compilation visibili: ${results.size} · Totale Discogs prima del filtro Lingua: $totalDiscogsResults"
+                                        "Visibili ${results.size} · Discogs $totalDiscogsResults · pagina $currentPage/$totalPages"
                                     }
                                 Text(
                                     counterText,
-                                    style = MaterialTheme.typography.titleSmall,
+                                    style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
-                                if (totalPages > 0) {
-                                    Text(
-                                        "Pagina $currentPage di $totalPages",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
                             }
+                        }
+                    }
 
-                            if (!loading && activeSearch == null && results.isEmpty()) {
+                    LazyColumn(
+                        state = resultListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 176.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (!loading && activeSearch == null && results.isEmpty()) {
+                            item {
                                 Text(
-                                    "Imposta i filtri o scrivi qualcosa e premi Cerca compilation.",
+                                    "Scrivi nella barra sopra oppure apri i filtri con ⌄.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                                 )
-                            } else if (!loading && activeSearch != null && totalDiscogsResults == 0) {
+                            }
+                        } else if (!loading && activeSearch != null && totalDiscogsResults == 0) {
+                            item {
                                 Text(
                                     "Nessuna compilation trovata con questi criteri.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                                 )
                             }
                         }
-                    }
 
-                    items(
-                        items = results,
-                        key = { "discogs_release_${it.id}" },
-                    ) { item ->
-                        CompilationResultCard(
-                            summary = item,
-                            onClick = { openCompilation(item) },
-                        )
-                    }
+                        items(
+                            items = results,
+                            key = { "discogs_release_${it.id}" },
+                        ) { item ->
+                            CompilationResultCard(
+                                summary = item,
+                                onClick = { openCompilation(item) },
+                            )
+                        }
 
-                    if (activeSearch != null && currentPage > 0 && currentPage < totalPages) {
-                        item(key = "discogs_load_more_${currentPage + 1}") {
-                            LaunchedEffect(activeSearch, currentPage, totalPages) {
-                                loadNextPage()
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    "Carico altri risultati… ${results.size}/$totalDiscogsResults",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-                            paginationError?.let {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
+                        if (activeSearch != null && currentPage > 0 && currentPage < totalPages) {
+                            item(key = "discogs_load_more_${currentPage + 1}") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text(
-                                        it,
-                                        color = MaterialTheme.colorScheme.error,
-                                        style = MaterialTheme.typography.bodySmall,
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
                                     )
-                                    TextButton(onClick = ::loadNextPage) {
-                                        Text("Riprova")
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        "Carico altri risultati… ${results.size}/$totalDiscogsResults",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
+                                paginationError?.let {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        Text(
+                                            it,
+                                            color = MaterialTheme.colorScheme.error,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                        TextButton(onClick = ::loadNextPage) {
+                                            Text("Riprova")
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } else if (
-                        activeSearch != null &&
-                        currentPage > 0 &&
-                        currentPage >= totalPages &&
-                        !loading &&
-                        !loadingMore
-                    ) {
-                        item(key = "discogs_all_loaded") {
-                            Text(
-                                text =
-                                    if (activeSearch?.language == null) {
-                                        "Tutti i risultati Discogs disponibili sono stati caricati: ${results.size}."
-                                    } else {
-                                        "Fine risultati Discogs · ${results.size} compilation visibili con il filtro Lingua."
-                                    },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                            )
+                        } else if (
+                            activeSearch != null &&
+                            currentPage > 0 &&
+                            currentPage >= totalPages &&
+                            !loading &&
+                            !loadingMore
+                        ) {
+                            item(key = "discogs_all_loaded") {
+                                Text(
+                                    text =
+                                        if (activeSearch?.language == null) {
+                                            "Tutti i risultati Discogs disponibili sono stati caricati: ${results.size}."
+                                        } else {
+                                            "Fine risultati Discogs · ${results.size} compilation visibili con il filtro Lingua."
+                                        },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                )
+                            }
                         }
                     }
-
-                    item { Spacer(Modifier.height(24.dp)) }
                 }
+            }
             }
         }
     }
@@ -743,6 +839,7 @@ private fun CompilationDetailContent(
     fullAudio: CompilationFullAudio?,
     resolvingAll: Boolean,
     saving: Boolean,
+    selectedTrackIndex: Int?,
     onPlayFull: () -> Unit,
     onPlayAll: () -> Unit,
     onSave: () -> Unit,
@@ -751,6 +848,7 @@ private fun CompilationDetailContent(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 176.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -854,13 +952,26 @@ private fun CompilationDetailContent(
             key = { index, track -> "${detail.id}_${index}_${track.position}_${track.title}" },
         ) { index, track ->
             val resolved = resolvedTracks[index]
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { onTrackClick(index) }.padding(
-                    horizontal = 16.dp,
-                    vertical = 10.dp,
-                ),
-                verticalAlignment = Alignment.CenterVertically,
+            val selected = index == selectedTrackIndex
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .clickable { onTrackClick(index) },
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.11f)
+                } else {
+                    MaterialTheme.colorScheme.surface
+                },
+                shape = RoundedCornerShape(12.dp),
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(
+                        horizontal = 8.dp,
+                        vertical = 10.dp,
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                 Text(
                     track.position.ifBlank { (index + 1).toString() },
                     style = MaterialTheme.typography.labelMedium,
@@ -891,6 +1002,7 @@ private fun CompilationDetailContent(
                 track.durationText?.let {
                     Spacer(Modifier.width(8.dp))
                     Text(it, style = MaterialTheme.typography.bodySmall)
+                }
                 }
             }
         }
