@@ -61,6 +61,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -115,6 +116,8 @@ import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
+import com.metrolist.music.constants.HomeGridThumbnailHeight
+import com.metrolist.music.constants.HomeListThumbnailSize
 import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
@@ -148,6 +151,8 @@ import com.metrolist.music.ui.component.ArtistGridItem
 import com.metrolist.music.ui.component.ChipsRow
 import com.metrolist.music.ui.component.HideOnScrollFAB
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
+import com.metrolist.music.ui.component.LocalGridThumbnailHeightOverride
+import com.metrolist.music.ui.component.LocalListThumbnailSizeOverride
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.menu.SpotifyPlaylistMenu
 import com.metrolist.music.ui.component.NavigationTitle
@@ -157,6 +162,7 @@ import com.metrolist.music.ui.component.SpotifyArtistSectionRow
 import com.metrolist.music.ui.component.SpotifyPlaylistSectionRow
 import com.metrolist.music.ui.component.SpotifyTrackSectionRow
 import com.metrolist.music.ui.component.resolveSpotifySectionTitle
+import com.metrolist.music.ui.component.italianizeDynamicUiText
 import com.metrolist.music.ui.component.shimmer.GridItemPlaceHolder
 import com.metrolist.music.ui.component.shimmer.ShimmerHost
 import com.metrolist.music.ui.component.shimmer.TextPlaceholder
@@ -807,8 +813,7 @@ fun HomeScreen(
     val (showPlayRandomButton) = rememberPreference(ShowPlayRandomButtonKey, defaultValue = true)
 
     val lazylistState = rememberLazyListState()
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
-    val currentGridHeight = if (gridItemSize == GridItemSize.BIG) GridThumbnailHeight else SmallGridThumbnailHeight
+    val currentGridHeight = HomeGridThumbnailHeight
     val backStackEntry by navController.currentBackStackEntryAsState()
     val scrollToTop =
         backStackEntry?.savedStateHandle?.getStateFlow("scrollToTop", false)?.collectAsStateWithLifecycle()
@@ -1195,7 +1200,11 @@ fun HomeScreen(
         forgottenFavoritesLazyGridState.scrollToItem(0)
     }
 
-    PullToRefreshBox(
+    CompositionLocalProvider(
+        LocalGridThumbnailHeightOverride provides HomeGridThumbnailHeight,
+        LocalListThumbnailSizeOverride provides HomeListThumbnailSize,
+    ) {
+        PullToRefreshBox(
         state = pullRefreshState,
         isRefreshing = isRefreshing,
         onRefresh = viewModel::refresh,
@@ -1241,7 +1250,7 @@ fun HomeScreen(
             ) {
                 item {
                     ChipsRow(
-                        chips = homePage?.chips?.map { it to it.title } ?: emptyList(),
+                        chips = homePage?.chips?.map { it to italianizeDynamicUiText(it.title) } ?: emptyList(),
                         currentValue = selectedChip,
                         onValueUpdate = {
                             viewModel.toggleChip(it)
@@ -1360,8 +1369,8 @@ fun HomeScreen(
                         sectionData?.let {
                             item(key = "1_chip_section_title_${section.index}") {
                                 NavigationTitle(
-                                    title = sectionData.title,
-                                    label = sectionData.label,
+                                    title = italianizeDynamicUiText(sectionData.title),
+                                    label = sectionData.label?.let(::italianizeDynamicUiText),
                                     thumbnail =
                                         sectionData.thumbnail?.let { thumbnailUrl ->
                                             {
@@ -1378,7 +1387,7 @@ fun HomeScreen(
                                                     contentDescription = null,
                                                     modifier =
                                                         Modifier
-                                                            .size(ListThumbnailSize)
+                                                            .size(HomeListThumbnailSize)
                                                             .clip(shape),
                                                 )
                                             }
@@ -2088,14 +2097,14 @@ fun HomeScreen(
                                                     contentScale = ContentScale.Crop,
                                                     modifier =
                                                         Modifier
-                                                            .size(ListThumbnailSize)
+                                                            .size(HomeListThumbnailSize)
                                                             .clip(CircleShape),
                                                 )
                                             } else {
                                                 Icon(
                                                     painter = painterResource(id = R.drawable.person),
                                                     contentDescription = null,
-                                                    modifier = Modifier.size(ListThumbnailSize),
+                                                    modifier = Modifier.size(HomeListThumbnailSize),
                                                 )
                                             }
                                         },
@@ -2260,7 +2269,7 @@ fun HomeScreen(
                                                         contentDescription = null,
                                                         modifier =
                                                             Modifier
-                                                                .size(ListThumbnailSize)
+                                                                .size(HomeListThumbnailSize)
                                                                 .clip(shape),
                                                     )
                                                 }
@@ -2318,8 +2327,8 @@ fun HomeScreen(
 
                                 item(key = "home_section_title_${section.index}") {
                                     NavigationTitle(
-                                        title = sectionData.title,
-                                        label = sectionData.label,
+                                        title = italianizeDynamicUiText(sectionData.title),
+                                        label = sectionData.label?.let(::italianizeDynamicUiText),
                                         thumbnail =
                                             sectionData.thumbnail?.let { thumbnailUrl ->
                                                 {
@@ -2336,7 +2345,7 @@ fun HomeScreen(
                                                         contentDescription = null,
                                                         modifier =
                                                             Modifier
-                                                                .size(ListThumbnailSize)
+                                                                .size(HomeListThumbnailSize)
                                                                 .clip(shape),
                                                     )
                                                 }
@@ -2372,7 +2381,7 @@ fun HomeScreen(
                                                 {
                                                     playerConnection.playQueue(
                                                         ListQueue(
-                                                            title = sectionData.title,
+                                                            title = italianizeDynamicUiText(sectionData.title),
                                                             items = sectionSongs.map { it.toMediaMetadata().toMediaItem() },
                                                         ),
                                                     )
@@ -2863,6 +2872,7 @@ fun HomeScreen(
                 showMainAction = showPlayRandomButton,
             )
         }
+    }
     }
 }
 

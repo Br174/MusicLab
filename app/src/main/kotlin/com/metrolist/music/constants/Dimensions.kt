@@ -27,10 +27,10 @@ val AppBarHeight = 64.dp
 
 val ListItemHeight: Dp
     get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 56.dp
-        ArtworkSize.MEDIUM -> 64.dp
-        ArtworkSize.LARGE -> 76.dp
-        ArtworkSize.VERY_LARGE -> 88.dp
+        ArtworkSize.SMALL -> 60.dp
+        ArtworkSize.MEDIUM -> 68.dp
+        ArtworkSize.LARGE -> 80.dp
+        ArtworkSize.VERY_LARGE -> 92.dp
     }
 
 val SuggestionItemHeight = 56.dp
@@ -38,35 +38,33 @@ val SearchFilterHeight = 48.dp
 
 val ListThumbnailSize: Dp
     get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 40.dp
-        ArtworkSize.MEDIUM -> 48.dp
-        ArtworkSize.LARGE -> 60.dp
-        ArtworkSize.VERY_LARGE -> 72.dp
+        ArtworkSize.SMALL -> 44.dp
+        ArtworkSize.MEDIUM -> 52.dp
+        ArtworkSize.LARGE -> 64.dp
+        ArtworkSize.VERY_LARGE -> 76.dp
     }
 
 val SmallGridThumbnailHeight: Dp
     get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 88.dp
-        ArtworkSize.MEDIUM -> 104.dp
-        ArtworkSize.LARGE -> 124.dp
-        ArtworkSize.VERY_LARGE -> 144.dp
+        ArtworkSize.SMALL -> 108.dp
+        ArtworkSize.MEDIUM -> 128.dp
+        ArtworkSize.LARGE -> 152.dp
+        ArtworkSize.VERY_LARGE -> 184.dp
     }
 
 val GridThumbnailHeight: Dp
     get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 108.dp
-        ArtworkSize.MEDIUM -> 128.dp
-        ArtworkSize.LARGE -> 156.dp
-        ArtworkSize.VERY_LARGE -> 184.dp
+        ArtworkSize.SMALL -> 124.dp
+        ArtworkSize.MEDIUM -> 152.dp
+        ArtworkSize.LARGE -> 184.dp
+        ArtworkSize.VERY_LARGE -> 224.dp
     }
 
-val AlbumThumbnailSize: Dp
-    get() = when (ArtworkSizeRuntime.current) {
-        ArtworkSize.SMALL -> 116.dp
-        ArtworkSize.MEDIUM -> 144.dp
-        ArtworkSize.LARGE -> 176.dp
-        ArtworkSize.VERY_LARGE -> 208.dp
-    }
+val HomeGridThumbnailHeight = 128.dp
+val HomeListThumbnailSize = 48.dp
+val AlbumGridThumbnailHeight = 128.dp
+
+val AlbumThumbnailSize = 144.dp
 
 val ThumbnailCornerRadius = 3.dp
 

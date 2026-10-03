@@ -52,7 +52,7 @@ import com.metrolist.music.constants.CONTENT_TYPE_ALBUM
 import com.metrolist.music.constants.CONTENT_TYPE_HEADER
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
-import com.metrolist.music.constants.GridThumbnailHeight
+import com.metrolist.music.constants.AlbumGridThumbnailHeight
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.LibraryAlbumGridItem
 import com.metrolist.music.ui.component.LocalMenuState
@@ -103,7 +103,7 @@ fun ArtistAlbumsScreen(
     ) {
         LazyVerticalGrid(
             state = lazyGridState,
-            columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
+            columns = GridCells.Adaptive(minSize = AlbumGridThumbnailHeight + 24.dp),
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         ) {
             item(

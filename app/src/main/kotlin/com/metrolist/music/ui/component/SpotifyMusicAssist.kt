@@ -140,6 +140,7 @@ internal object SpotifyMusicAssist {
                     artist = artist,
                     category = category,
                     year = parseYear(track.album?.releaseDate),
+                    yearSource = parseYear(track.album?.releaseDate)?.let { "spotify" },
                     album = track.album?.name?.takeIf(String::isNotBlank),
                     sameWorkScore = SPOTIFY_DISCOVERY_SAME_WORK_SCORE,
                     versionTypeScore = SPOTIFY_DISCOVERY_VERSION_SCORE,
@@ -185,8 +186,10 @@ internal object SpotifyMusicAssist {
                 ?.first
                 ?: return@map candidate
 
+            val spotifyYear = parseYear(best.album?.releaseDate)
             candidate.copy(
-                year = candidate.year ?: parseYear(best.album?.releaseDate),
+                year = candidate.year ?: spotifyYear,
+                yearSource = candidate.yearSource ?: spotifyYear?.let { "spotify" },
                 album = candidate.album ?: best.album?.name?.takeIf(String::isNotBlank),
                 spotifyTrackId = best.id.takeIf(String::isNotBlank),
                 spotifyIsrc = best.isrc?.takeIf(String::isNotBlank),

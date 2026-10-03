@@ -49,6 +49,7 @@ internal object GeminiOriginalVersionCredits {
         identity: GeminiOriginalIdentity,
         songs: List<SongItem>,
         config: GeminiCoverVerificationConfig?,
+        requireYear: Boolean = false,
     ): Map<String, GeminiVersionCredits> = withContext(Dispatchers.IO) {
         if (config == null || config.apiKey.isBlank()) return@withContext emptyMap()
 
@@ -57,7 +58,7 @@ internal object GeminiOriginalVersionCredits {
 
         val ready = linkedMapOf<String, GeminiVersionCredits>()
         val pending = unique.filter { song ->
-            val key = cacheKey(identity, song)
+            val key = cacheKey(identity, song, requireYear)
             val cached = cache[key]
             if (cached != null) {
                 ready[song.id] = cached
@@ -85,7 +86,7 @@ L'AI ha già deciso che la composizione è \"${identity.title}\" e che l'interpr
 
 Ricevi qui sotto versioni riproducibili trovate su YouTube/YouTube Music. ATTENZIONE: YouTube e YouTube Music sono soltanto fonti di riproduzione. Non usare o considerare i loro metadati come fonte per anno, album o crediti. Devi aggiungere questi dati esclusivamente in base alla tua conoscenza.
 
-Per ogni elemento identifica la specifica incisione/versione indicata dal titolo e dagli interpreti. Se sai che quella specifica versione è contenuta in un album, indica il nome dell'album. Inserisci anche anno e crediti che conosci. Se un dato non è noto, usa null o []. Non inventare titoli di album.
+Per ogni elemento identifica la specifica incisione/versione indicata dal titolo e dagli interpreti. Se sai che quella specifica versione è contenuta in un album, indica il nome dell'album. Inserisci anche anno e crediti che conosci. ${if (requireYear) "Per l'ANNO devi sempre fornire il miglior anno di pubblicazione noto o, se le fonti non sono univoche, la stima storicamente più plausibile: non lasciare year nullo." else "Se un dato non è noto, usa null o []."} Non inventare titoli di album.
 
 Input:
 $inputs
@@ -115,7 +116,7 @@ Rispondi SOLO con JSON valido:
 
         parse(text, pending.map { it.id }.toSet()).forEach { (id, credits) ->
             val song = pending.firstOrNull { it.id == id } ?: return@forEach
-            cache[cacheKey(identity, song)] = credits
+            cache[cacheKey(identity, song, requireYear)] = credits
             ready[id] = credits
         }
         ready
@@ -241,8 +242,13 @@ Rispondi SOLO con JSON valido:
         return value?.takeIf { it in 1800..2100 }
     }
 
-    private fun cacheKey(identity: GeminiOriginalIdentity, song: SongItem): String =
+    private fun cacheKey(
+        identity: GeminiOriginalIdentity,
+        song: SongItem,
+        requireYear: Boolean,
+    ): String =
         listOf(
+            if (requireYear) "year-required" else "credits",
             identity.title.lowercase(),
             identity.originalArtists.joinToString("|").lowercase(),
             song.title.lowercase(),

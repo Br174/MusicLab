@@ -99,6 +99,7 @@ import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import java.net.Proxy
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,7 +109,7 @@ fun ContentSettings(
     val context = LocalContext.current
     val database = LocalDatabase.current
     // Used only before Android 13
-    val (appLanguage, onAppLanguageChange) = rememberPreference(key = AppLanguageKey, defaultValue = SYSTEM_DEFAULT)
+    val (appLanguage, onAppLanguageChange) = rememberPreference(key = AppLanguageKey, defaultValue = "it")
 
     val (contentLanguage, onContentLanguageChange) = rememberPreference(key = ContentLanguageKey, defaultValue = "system")
     val (contentCountry, onContentCountryChange) = rememberPreference(key = ContentCountryKey, defaultValue = "system")
@@ -318,7 +319,13 @@ fun ContentSettings(
             current = contentLanguage,
             values = (listOf(SYSTEM_DEFAULT) + LanguageCodeToName.keys.toList()),
             valueText = {
-                LanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
+                if (it == SYSTEM_DEFAULT) {
+                    stringResource(R.string.system_default)
+                } else {
+                    Locale.forLanguageTag(it)
+                        .getDisplayLanguage(Locale.ITALIAN)
+                        .replaceFirstChar { ch -> ch.uppercase() }
+                }
             }
         )
     }
@@ -338,7 +345,11 @@ fun ContentSettings(
             current = contentCountry,
             values = (listOf(SYSTEM_DEFAULT) + CountryCodeToName.keys.toList()),
             valueText = {
-                CountryCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
+                if (it == SYSTEM_DEFAULT) {
+                    stringResource(R.string.system_default)
+                } else {
+                    Locale("", it).getDisplayCountry(Locale.ITALIAN).ifBlank { it }
+                }
             }
         )
     }
@@ -355,11 +366,9 @@ fun ContentSettings(
                 showAppLanguageDialog = false
             },
             title = stringResource(R.string.app_language),
-            current = appLanguage,
-            values = (listOf(SYSTEM_DEFAULT) + LanguageCodeToName.keys.toList()),
-            valueText = {
-                LanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
-            }
+            current = "it",
+            values = listOf("it"),
+            valueText = { "Italiano" }
         )
     }
 
@@ -751,7 +760,13 @@ fun ContentSettings(
                     title = { Text(stringResource(R.string.content_language)) },
                     description = {
                         Text(
-                            LanguageCodeToName.getOrElse(contentLanguage) { stringResource(R.string.system_default) }
+                            if (contentLanguage == SYSTEM_DEFAULT) {
+                                stringResource(R.string.system_default)
+                            } else {
+                                Locale.forLanguageTag(contentLanguage)
+                                    .getDisplayLanguage(Locale.ITALIAN)
+                                    .replaceFirstChar { ch -> ch.uppercase() }
+                            }
                         )
                     },
                     onClick = { showContentLanguageDialog = true }
@@ -761,7 +776,11 @@ fun ContentSettings(
                     title = { Text(stringResource(R.string.content_country)) },
                     description = {
                         Text(
-                            CountryCodeToName.getOrElse(contentCountry) { stringResource(R.string.system_default) }
+                            if (contentCountry == SYSTEM_DEFAULT) {
+                                stringResource(R.string.system_default)
+                            } else {
+                                Locale("", contentCountry).getDisplayCountry(Locale.ITALIAN).ifBlank { contentCountry }
+                            }
                         )
                     },
                     onClick = { showContentCountryDialog = true }
@@ -923,31 +942,12 @@ fun ContentSettings(
         Material3SettingsGroup(
             title = stringResource(R.string.app_language),
             items = listOf(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.language),
-                        title = { Text(stringResource(R.string.app_language)) },
-                        onClick = {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_APP_LOCALE_SETTINGS,
-                                    "package:${context.packageName}".toUri()
-                                )
-                            )
-                        }
-                    )
-                } else {
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.language),
-                        title = { Text(stringResource(R.string.app_language)) },
-                        description = {
-                            Text(
-                                LanguageCodeToName.getOrElse(appLanguage) { stringResource(R.string.system_default) }
-                            )
-                        },
-                        onClick = { showAppLanguageDialog = true }
-                    )
-                }
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.language),
+                    title = { Text(stringResource(R.string.app_language)) },
+                    description = { Text("Italiano") },
+                    onClick = { showAppLanguageDialog = true },
+                )
             )
         )
 

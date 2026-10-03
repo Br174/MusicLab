@@ -135,6 +135,9 @@ import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.constants.AppBarHeight
 import com.metrolist.music.constants.AppLanguageKey
+import com.metrolist.music.constants.ArtworkSize
+import com.metrolist.music.constants.ArtworkSizeKey
+import com.metrolist.music.constants.ArtworkSizeRuntime
 import com.metrolist.music.constants.CheckForUpdatesKey
 import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.DefaultOpenTabKey
@@ -406,14 +409,9 @@ class MainActivity : FragmentActivity() {
         // Initialize Listen Together manager
         listenTogetherManager.initialize()
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            val locale =
-                dataStore[AppLanguageKey]
-                    ?.takeUnless { it == SYSTEM_DEFAULT }
-                    ?.let { Locale.forLanguageTag(it) }
-                    ?: Locale.getDefault()
-            setAppLocale(this, locale)
-        }
+        // LAB26: MusicLab's interface is intentionally Italian-only.
+        // Content language/country remain independently configurable.
+        setAppLocale(this, Locale.ITALIAN)
 
         lifecycleScope.launch {
             dataStore.data
@@ -573,6 +571,11 @@ class MainActivity : FragmentActivity() {
 
         val enableDynamicTheme by rememberPreference(DynamicThemeKey, defaultValue = true)
         val enableHighRefreshRate by rememberPreference(EnableHighRefreshRateKey, defaultValue = true)
+        val artworkSize by rememberEnumPreference(ArtworkSizeKey, defaultValue = ArtworkSize.MEDIUM)
+
+        LaunchedEffect(artworkSize) {
+            ArtworkSizeRuntime.current = artworkSize
+        }
 
         LaunchedEffect(enableHighRefreshRate) {
             val window = this@MainActivity.window

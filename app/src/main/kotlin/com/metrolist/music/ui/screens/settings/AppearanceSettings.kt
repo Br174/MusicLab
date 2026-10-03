@@ -63,8 +63,6 @@ import com.metrolist.music.constants.EnableDynamicIconKey
 import com.metrolist.music.constants.EnableHighRefreshRateKey
 import com.metrolist.music.constants.EnableLandscapeScalingKey
 import com.metrolist.music.constants.ExperimentalLyricsKey
-import com.metrolist.music.constants.GridItemSize
-import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.HidePlayerThumbnailKey
 import com.metrolist.music.constants.HideStatusBarOnFullscreenKey
 import com.metrolist.music.constants.LibraryFilter
@@ -262,12 +260,6 @@ fun AppearanceSettings(
             SwipeSensitivityKey,
             defaultValue = 0.73f,
         )
-    val (gridItemSize, onGridItemSizeChange) =
-        rememberEnumPreference(
-            GridItemsSizeKey,
-            defaultValue = GridItemSize.SMALL,
-        )
-
     val (slimNav, onSlimNavChange) =
         rememberPreference(
             SlimNavBarKey,
@@ -626,29 +618,6 @@ fun AppearanceSettings(
                     LibraryFilter.PODCASTS -> stringResource(R.string.filter_podcasts)
                     LibraryFilter.LOCAL_FILES -> stringResource(R.string.filter_local_files)
                     LibraryFilter.LIBRARY -> stringResource(R.string.filter_library)
-                }
-            },
-        )
-    }
-
-    var showGridSizeDialog by rememberSaveable {
-        mutableStateOf(false)
-    }
-
-    if (showGridSizeDialog) {
-        EnumDialog(
-            onDismiss = { showGridSizeDialog = false },
-            onSelect = {
-                onGridItemSizeChange(it)
-                showGridSizeDialog = false
-            },
-            title = stringResource(R.string.grid_cell_size),
-            current = gridItemSize,
-            values = GridItemSize.values().toList(),
-            valueText = {
-                when (it) {
-                    GridItemSize.BIG -> stringResource(R.string.big)
-                    GridItemSize.SMALL -> stringResource(R.string.small)
                 }
             },
         )
@@ -1675,19 +1644,6 @@ fun AppearanceSettings(
                             )
                         },
                         onClick = { onListenTogetherInTopBarChange(!listenTogetherInTopBar) },
-                    ),
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.grid_view),
-                        title = { Text(stringResource(R.string.grid_cell_size)) },
-                        description = {
-                            Text(
-                                when (gridItemSize) {
-                                    GridItemSize.BIG -> stringResource(R.string.big)
-                                    GridItemSize.SMALL -> stringResource(R.string.small)
-                                },
-                            )
-                        },
-                        onClick = { showGridSizeDialog = true },
                     ),
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.grid_view),

@@ -48,6 +48,7 @@ import com.metrolist.music.constants.MusicAiForeignEnabledKey
 import com.metrolist.music.constants.MusicAiLiveEnabledKey
 import com.metrolist.music.constants.MusicAiOriginalsEnabledKey
 import com.metrolist.music.constants.MusicAiRemixEnabledKey
+import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
@@ -68,6 +69,7 @@ fun SettingsScreen(
     val isAndroid12OrLater = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val showArtworkSizeDialog = remember { mutableStateOf(false) }
     val (artworkSize, onArtworkSizeChange) = rememberEnumPreference(ArtworkSizeKey, ArtworkSize.MEDIUM)
+    val (titleTapSearchEnabled, setTitleTapSearchEnabled) = rememberPreference(TitleTapSearchEnabledKey, true)
 
     val (musicAiEnabled, setMusicAiEnabled) = rememberPreference(MusicAiEngineEnabledKey, true)
     val (musicAiCredits, setMusicAiCredits) = rememberPreference(MusicAiCreditsEnabledKey, true)
@@ -103,7 +105,7 @@ fun SettingsScreen(
                             ArtworkSize.SMALL -> "Piccola"
                             ArtworkSize.MEDIUM -> "Media"
                             ArtworkSize.LARGE -> "Grande"
-                            ArtworkSize.VERY_LARGE -> "Molto grande"
+                            ArtworkSize.VERY_LARGE -> "Grandissima"
                         }
                         TextButton(
                             onClick = {
@@ -133,7 +135,7 @@ fun SettingsScreen(
         ArtworkSize.SMALL -> "Piccola"
         ArtworkSize.MEDIUM -> "Media"
         ArtworkSize.LARGE -> "Grande"
-        ArtworkSize.VERY_LARGE -> "Molto grande"
+        ArtworkSize.VERY_LARGE -> "Grandissima"
     }
 
     Column(
@@ -169,6 +171,26 @@ fun SettingsScreen(
                         )
                     },
                     onClick = { showArtworkSizeDialog.value = true },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.search),
+                    title = { Text("Ricerca toccando il titolo") },
+                    description = {
+                        Text(
+                            if (titleTapSearchEnabled) {
+                                "Attiva: tocca il titolo di un brano per cercarlo in MusicLab"
+                            } else {
+                                "Disattiva: il titolo resta testo normale"
+                            },
+                        )
+                    },
+                    onClick = { setTitleTapSearchEnabled(!titleTapSearchEnabled) },
+                    trailingContent = {
+                        Switch(
+                            checked = titleTapSearchEnabled,
+                            onCheckedChange = setTitleTapSearchEnabled,
+                        )
+                    },
                 )
             )
         )
