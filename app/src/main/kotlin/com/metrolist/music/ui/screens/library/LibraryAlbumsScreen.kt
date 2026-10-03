@@ -60,8 +60,6 @@ import com.metrolist.music.constants.AlbumSortTypeKey
 import com.metrolist.music.constants.AlbumViewTypeKey
 import com.metrolist.music.constants.CONTENT_TYPE_ALBUM
 import com.metrolist.music.constants.CONTENT_TYPE_HEADER
-import com.metrolist.music.constants.GridItemSize
-import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.constants.HideExplicitKey
 import com.metrolist.music.constants.LibraryViewType
@@ -105,7 +103,6 @@ fun LibraryAlbumsScreen(
             AlbumSortType.CREATE_DATE,
         )
     val (sortDescending, onSortDescendingChange) = rememberPreference(AlbumSortDescendingKey, true)
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val (ytmSync) = rememberPreference(YtmSyncKey, true)
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
