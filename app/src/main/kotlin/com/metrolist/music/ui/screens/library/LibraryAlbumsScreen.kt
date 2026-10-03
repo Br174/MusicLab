@@ -62,7 +62,7 @@ import com.metrolist.music.constants.CONTENT_TYPE_ALBUM
 import com.metrolist.music.constants.CONTENT_TYPE_HEADER
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
-import com.metrolist.music.constants.GridThumbnailHeight
+import com.metrolist.music.constants.AlbumGridThumbnailHeight
 import com.metrolist.music.constants.HideExplicitKey
 import com.metrolist.music.constants.LibraryViewType
 import com.metrolist.music.constants.YtmSyncKey
@@ -105,7 +105,6 @@ fun LibraryAlbumsScreen(
             AlbumSortType.CREATE_DATE,
         )
     val (sortDescending, onSortDescendingChange) = rememberPreference(AlbumSortDescendingKey, true)
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val (ytmSync) = rememberPreference(YtmSyncKey, true)
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
@@ -310,7 +309,7 @@ fun LibraryAlbumsScreen(
                     state = lazyGridState,
                     columns =
                         GridCells.Adaptive(
-                            minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp,
+                            minSize = AlbumGridThumbnailHeight + 24.dp,
                         ),
                     contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                 ) {
