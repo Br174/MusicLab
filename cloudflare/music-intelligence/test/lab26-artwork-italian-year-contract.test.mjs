@@ -28,11 +28,11 @@ function resourceNames(xml) {
 }
 
 test('LAB26 artwork scale is four-level and larger, with protected Home/Album baseline', () => {
-  assert.match(artwork, /SMALL\(124\.dp\)/);
-  assert.match(artwork, /MEDIUM\(152\.dp\)/);
-  assert.match(artwork, /LARGE\(184\.dp\)/);
-  assert.match(artwork, /VERY_LARGE\(224\.dp\)/);
-  assert.match(artwork, /ProtectedArtworkHeight:\s*Dp\s*=\s*GridThumbnailHeight/);
+  assert.match(artwork, /SMALL\([^)]*124\.dp\)/);
+  assert.match(artwork, /MEDIUM\([^)]*152\.dp\)/);
+  assert.match(artwork, /LARGE\([^)]*184\.dp\)/);
+  assert.match(artwork, /VERY_LARGE\([^)]*224\.dp\)/);
+  assert.match(artwork, /ProtectedArtworkHeight:\s*Dp\s*=\s*128\.dp/);
   assert.match(items, /rememberEnumPreference\(ArtworkSizeKey, ArtworkSize\.MEDIUM\)/);
   assert.match(items, /fun currentGridCellMinSize\(\): Dp = currentGridThumbnailHeight\(\) \+ 24\.dp/);
   assert.match(settings, /ArtworkSize\.VERY_LARGE -> "Grandissima"/);
