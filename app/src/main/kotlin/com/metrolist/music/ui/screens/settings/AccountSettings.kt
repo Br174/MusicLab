@@ -404,16 +404,17 @@ fun AccountSettings(
                         }
                     }
                 ),
-                if (isLoggedIn) {
-                    Material3SettingsItem(
-                        title = { Text(stringResource(R.string.switch_youtube_channel)) },
-                        icon = painterResource(R.drawable.account),
-                        onClick = {
+                Material3SettingsItem(
+                    title = { Text(stringResource(R.string.switch_youtube_channel)) },
+                    icon = painterResource(R.drawable.account),
+                    enabled = isLoggedIn,
+                    onClick = {
+                        if (isLoggedIn) {
                             onClose()
                             navController.navigate("switch_channel")
-                        },
-                    )
-                } else null,
+                        }
+                    },
+                ),
             ),
             useLowContrast = true
         )
