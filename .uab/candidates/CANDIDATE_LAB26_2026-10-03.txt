@@ -1,0 +1,13 @@
+MUSICLAB CANDIDATE TRACE V1
+DATE=2026-10-03
+CANDIDATE_REF=candidate/musiclab-lab26-ui-italian-years
+BASE_MOTHER_REF=mother/musiclab-lab25-final
+BASE_MOTHER_SHA=01a4793f99628473854884753d783ba8ca6bd51b
+APPROVED_LAB_REF=uab-build/musiclab-ui-italian-years-26
+APPROVED_LAB_SHA=2003db167ed3f994a8323ce54cbd86db9395847f
+REPLAY_CONTENT_COMMIT=b9a7da38e6670b57caebb5f44a0713ed813c9647
+REPLAY_METHOD=new commit using LAB26 verified tree with current MADRE LAB25 as direct parent
+RUNTIME_INTENT=Preserve verified LAB26 application behavior while entering Candidate lifecycle.
+LAB26_FEATURES=Four artwork sizes; protected Home/Album sizing; complete Italian UI; Cover year enrichment; title-tap search switch.
+RULE=Candidate must receive its own exact-SHA APK+ZIP and Bruno device test before any MADRE promotion.
+MADRE_MODIFIED=no
