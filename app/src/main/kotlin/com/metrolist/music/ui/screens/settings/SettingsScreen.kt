@@ -37,6 +37,7 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.ArtworkSize
 import com.metrolist.music.constants.ArtworkSizeKey
+import com.metrolist.music.constants.ArtworkSizeRuntime
 import com.metrolist.music.constants.MusicAiAlbumResolverEnabledKey
 import com.metrolist.music.constants.MusicAiArtistResolverEnabledKey
 import com.metrolist.music.constants.MusicAiBackgroundMetadataEnabledKey
@@ -109,6 +110,7 @@ fun SettingsScreen(
                         }
                         TextButton(
                             onClick = {
+                                ArtworkSizeRuntime.current = size
                                 onArtworkSizeChange(size)
                                 showArtworkSizeDialog.value = false
                             },
