@@ -30,8 +30,9 @@ test('LAB32 skips Qobuz discovery during explicit playback priority burst', () =
 });
 
 test('LAB32 fixes player carousel duplicate-key crash structurally', () => {
-  assert.match(thumbnail, /itemsIndexed\(/);
-  assert.match(thumbnail, /key = \{ index, item ->/);
+  assert.match(thumbnail, /items\(\s*count = mediaItems\.size/);
+  assert.match(thumbnail, /key = \{ index ->/);
+  assert.match(thumbnail, /val item = mediaItems\[index\]/);
   assert.match(thumbnail, /"player_thumbnail_\$\{index\}_\$\{id\}"/);
   assert.doesNotMatch(thumbnail, /key = \{ item ->\s*item\.mediaId/);
 });
