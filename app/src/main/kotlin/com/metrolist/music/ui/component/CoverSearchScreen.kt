@@ -150,9 +150,14 @@ internal fun CoverSearchScreen(
     request: CoverSearchRequest,
     navController: NavHostController,
 ) {
-    val title = request.title
-    val originalArtist = request.originalArtist
-    val currentYouTubeId = request.currentYouTubeId
+    var effectiveRequest by remember(request) { mutableStateOf(request) }
+    var manualCoverQuery by remember(effectiveRequest.title) {
+        mutableStateOf(effectiveRequest.title)
+    }
+
+    val title = effectiveRequest.title
+    val originalArtist = effectiveRequest.originalArtist
+    val currentYouTubeId = effectiveRequest.currentYouTubeId
     val sessionKey = currentYouTubeId?.takeIf { it.isNotBlank() }
         ?: "${title.trim()}|${originalArtist.trim()}"
     val session = remember(sessionKey) { AiCoverSessionStore.get(sessionKey) }
@@ -304,6 +309,12 @@ internal fun CoverSearchScreen(
         cloudMemoryEnabled,
         cloudEndpoint,
     ) {
+        if (title.isBlank()) {
+            initialLoading = false
+            backgroundLoading = false
+            return@LaunchedEffect
+        }
+
         if (!aiMasterEnabled || !coverAiEnabled) {
             initialLoading = false
             backgroundLoading = false
@@ -964,11 +975,53 @@ internal fun CoverSearchScreen(
                 TextButton(onClick = { navController.popBackStack() }) { Text("Chiudi") }
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = manualCoverQuery,
+                    onValueChange = { manualCoverQuery = it },
+                    label = { Text("Cerca cover per titolo") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    enabled = manualCoverQuery.isNotBlank(),
+                    onClick = {
+                        val searchedTitle = manualCoverQuery.trim()
+                        if (searchedTitle.isNotBlank()) {
+                            effectiveRequest = CoverSearchRequest(
+                                title = searchedTitle,
+                                originalArtist = "",
+                                durationSec = 0,
+                                currentYouTubeId = null,
+                            )
+                            brainReviewScope.launch {
+                                listState.scrollToItem(0)
+                            }
+                        }
+                    },
+                ) {
+                    Text("Cerca")
+                }
+            }
+
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f),
             ) {
-                if (!aiMasterEnabled || !coverAiEnabled) {
+                if (title.isBlank()) {
+                    item {
+                        Text(
+                            "Scrivi il nome della canzone nella barra sopra per cercarne le cover.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 16.dp),
+                        )
+                    }
+                } else if (!aiMasterEnabled || !coverAiEnabled) {
                     item {
                         Text(
                             if (!aiMasterEnabled) {
