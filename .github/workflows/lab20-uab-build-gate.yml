@@ -1,5 +1,5 @@
 name: LAB26 UAB Delivery Gate
-# gate-revision: ui-italian-year-v2-recovered-final
+# gate-revision: ui-italian-year-v3-resume-stalled-run
 
 # gate-revision: 7 — startup responsiveness + Brain + device regressions + Android + APK/ZIP final gate
 on:
