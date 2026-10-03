@@ -25,6 +25,8 @@ import androidx.navigation.compose.dialog
 import androidx.navigation.navArgument
 import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.PureBlackKey
+import com.metrolist.music.ui.component.CompilationNavigationBridge
+import com.metrolist.music.ui.component.CompilationScreen
 import com.metrolist.music.ui.component.CoverNavigationBridge
 import com.metrolist.music.ui.component.CoverSearchScreen
 import com.metrolist.music.ui.screens.artist.ArtistAlbumsScreen
@@ -82,6 +84,7 @@ fun NavGraphBuilder.navigationBuilder(
     snackbarHostState: SnackbarHostState,
 ) {
     CoverNavigationBridge.bind(navController)
+    CompilationNavigationBridge.bind(navController)
     com.metrolist.music.ui.component.OriginalVersionNavigationBridge.bind(navController)
 
     composable(Screens.Home.route) {
@@ -96,6 +99,11 @@ fun NavGraphBuilder.navigationBuilder(
             )
         }
     }
+
+    composable(CompilationNavigationBridge.ROUTE) {
+        CompilationScreen(navController = navController)
+    }
+
 
     composable(com.metrolist.music.ui.component.OriginalVersionNavigationBridge.ROUTE) {
         com.metrolist.music.ui.component.OriginalVersionNavigationBridge.currentRequest?.let { request ->
