@@ -60,6 +60,7 @@ internal data class AiCoverOriginalInfo(
     val title: String,
     val artist: String,
     val year: Int? = null,
+    val yearSource: String? = null,
     val album: String? = null,
     val language: String? = null,
     val songwriters: List<String> = emptyList(),
