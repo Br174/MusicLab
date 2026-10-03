@@ -66,7 +66,6 @@ fun NewReleaseScreen(
     val discoverCount by viewModel.discoverCount.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val forYouLabel = stringResource(R.string.new_releases_for_you)
     val followingLabel = stringResource(R.string.new_releases_following)
@@ -79,7 +78,7 @@ fun NewReleaseScreen(
     )
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
+        columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
         contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
     ) {
         item(
