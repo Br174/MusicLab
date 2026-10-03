@@ -771,7 +771,6 @@ internal fun CompilationScreen(
                     }
                 }
             }
-            }
         }
     }
 }
