@@ -31,8 +31,6 @@ import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
-import com.metrolist.music.constants.GridItemSize
-import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.models.ReleaseSource
 import com.metrolist.music.ui.component.ChipsRow
@@ -67,7 +65,6 @@ fun NewReleaseScreen(
     val discoverCount by viewModel.discoverCount.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val forYouLabel = stringResource(R.string.new_releases_for_you)
     val followingLabel = stringResource(R.string.new_releases_following)
