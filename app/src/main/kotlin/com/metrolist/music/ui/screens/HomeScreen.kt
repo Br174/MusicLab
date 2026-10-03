@@ -114,6 +114,8 @@ import com.metrolist.music.R
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.constants.ProtectedArtworkHeight
+import com.metrolist.music.constants.ProtectedListThumbnailSize
+import com.metrolist.music.constants.ProtectedListItemHeight
 import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
@@ -1380,7 +1382,7 @@ fun HomeScreen(
                                                     contentDescription = null,
                                                     modifier =
                                                         Modifier
-                                                            .size(ListThumbnailSize)
+                                                            .size(ProtectedListThumbnailSize)
                                                             .clip(shape),
                                                 )
                                             }
@@ -1853,6 +1855,8 @@ fun HomeScreen(
                                                 .collectAsStateWithLifecycle(initialValue = originalSong)
 
                                             SongListItem(
+                                                thumbnailSizeOverride = ProtectedListThumbnailSize,
+                                                itemHeightOverride = ProtectedListItemHeight,
                                                 song = song!!,
                                                 showInLibraryIcon = true,
                                                 isActive = song!!.id == mediaMetadata?.id,
@@ -2090,14 +2094,14 @@ fun HomeScreen(
                                                     contentScale = ContentScale.Crop,
                                                     modifier =
                                                         Modifier
-                                                            .size(ListThumbnailSize)
+                                                            .size(ProtectedListThumbnailSize)
                                                             .clip(CircleShape),
                                                 )
                                             } else {
                                                 Icon(
                                                     painter = painterResource(id = R.drawable.person),
                                                     contentDescription = null,
-                                                    modifier = Modifier.size(ListThumbnailSize),
+                                                    modifier = Modifier.size(ProtectedListThumbnailSize),
                                                 )
                                             }
                                         },
@@ -2175,6 +2179,8 @@ fun HomeScreen(
                                                 .collectAsStateWithLifecycle(initialValue = originalSong)
 
                                             SongListItem(
+                                                thumbnailSizeOverride = ProtectedListThumbnailSize,
+                                                itemHeightOverride = ProtectedListItemHeight,
                                                 song = song!!,
                                                 showInLibraryIcon = true,
                                                 isActive = song!!.id == mediaMetadata?.id,
@@ -2262,7 +2268,7 @@ fun HomeScreen(
                                                         contentDescription = null,
                                                         modifier =
                                                             Modifier
-                                                                .size(ListThumbnailSize)
+                                                                .size(ProtectedListThumbnailSize)
                                                                 .clip(shape),
                                                     )
                                                 }
@@ -2338,7 +2344,7 @@ fun HomeScreen(
                                                         contentDescription = null,
                                                         modifier =
                                                             Modifier
-                                                                .size(ListThumbnailSize)
+                                                                .size(ProtectedListThumbnailSize)
                                                                 .clip(shape),
                                                     )
                                                 }
@@ -2405,6 +2411,8 @@ fun HomeScreen(
                                                 key = { "home_section_${section.index}_song_${it.id}" },
                                             ) { song ->
                                                 YouTubeListItem(
+                                                    thumbnailSizeOverride = ProtectedListThumbnailSize,
+                                                    itemHeightOverride = ProtectedListItemHeight,
                                                     item = song,
                                                     isActive = song.id == mediaMetadata?.id,
                                                     isPlaying = isPlaying,
