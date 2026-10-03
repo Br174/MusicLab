@@ -144,10 +144,15 @@ import androidx.compose.ui.unit.dp
 const val ActiveBoxAlpha = 0.6f
 
 val LocalGridThumbnailHeightOverride = staticCompositionLocalOf<Dp?> { null }
+val LocalListThumbnailSizeOverride = staticCompositionLocalOf<Dp?> { null }
 
 @Composable
 fun currentGridThumbnailHeight(): Dp =
     LocalGridThumbnailHeightOverride.current ?: GridThumbnailHeight
+
+@Composable
+fun currentListThumbnailSize(): Dp =
+    LocalListThumbnailSizeOverride.current ?: ListThumbnailSize
 
 @Composable
 private fun titleTapSearchEnabled(): Boolean {
@@ -314,7 +319,7 @@ inline fun ListItem(
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier
-                            .size(ListThumbnailSize / 2)
+                            .size(currentListThumbnailSize() / 2)
                             .align(Alignment.Center)
                             .graphicsLayer { alpha = 1f }
                     )
@@ -573,7 +578,7 @@ fun SongListItem(
                      isActive = isActive,
                      isPlaying = isPlaying,
                      shape = RoundedCornerShape(ThumbnailCornerRadius),
-                     modifier = Modifier.size(ListThumbnailSize)
+                     modifier = Modifier.size(currentListThumbnailSize())
                  )
              },
              trailingContent = trailingContent,
@@ -816,7 +821,7 @@ fun AlbumListItem(
             isActive = isActive,
             isPlaying = isPlaying,
             shape = RoundedCornerShape(ThumbnailCornerRadius),
-            modifier = Modifier.size(ListThumbnailSize)
+            modifier = Modifier.size(currentListThumbnailSize())
         )
     },
     trailingContent = trailingContent,
@@ -974,7 +979,7 @@ fun PlaylistListItem(
     thumbnailContent = {
         PlaylistThumbnail(
             thumbnails = playlist.thumbnails,
-            size = ListThumbnailSize,
+            size = currentListThumbnailSize(),
             placeHolder = {
                 val painter = when (playlist.playlist.name) {
                     stringResource(R.string.liked) -> R.drawable.favorite_border
@@ -993,7 +998,7 @@ fun PlaylistListItem(
                     } else {
                         LocalContentColor.current.copy(alpha = 0.8f)
                     },
-                    modifier = Modifier.size(ListThumbnailSize / 2)
+                    modifier = Modifier.size(currentListThumbnailSize() / 2)
                 )
             },
             shape = RoundedCornerShape(ThumbnailCornerRadius)
@@ -1156,7 +1161,7 @@ fun MediaMetadataListItem(
                 isActive = isActive,
                 isPlaying = isPlaying,
                 shape = RoundedCornerShape(ThumbnailCornerRadius),
-                modifier = Modifier.size(ListThumbnailSize)
+                modifier = Modifier.size(currentListThumbnailSize())
             )
         },
         trailingContent = trailingContent,
@@ -1260,7 +1265,7 @@ fun YouTubeListItem(
                     isActive = isActive,
                     isPlaying = isPlaying,
                     shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
-                    modifier = Modifier.size(ListThumbnailSize)
+                    modifier = Modifier.size(currentListThumbnailSize())
                 )
             },
             trailingContent = trailingContent,
