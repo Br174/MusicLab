@@ -42,7 +42,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
 import com.metrolist.music.R
-import com.metrolist.music.constants.GridThumbnailHeight
+import com.metrolist.music.constants.HomeGridThumbnailHeight
+import com.metrolist.music.constants.AlbumGridThumbnailHeight
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.models.SectionType
@@ -152,7 +153,7 @@ fun SpotifyArtistSectionRow(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .width(GridThumbnailHeight + 24.dp)
+                    .width(HomeGridThumbnailHeight + 24.dp)
                     .padding(horizontal = 6.dp)
                     .combinedClickable(
                         onClick = { onArtistClick(artist) },
@@ -163,7 +164,7 @@ fun SpotifyArtistSectionRow(
                     contentDescription = artist.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(GridThumbnailHeight)
+                        .size(HomeGridThumbnailHeight)
                         .clip(CircleShape),
                 )
                 Text(
@@ -204,8 +205,9 @@ fun SpotifyAlbumSectionRow(
                 isActive = false,
                 isPlaying = false,
                 onPlayClick = onAlbumPlay?.let { cb -> { cb(album) } },
+                gridHeightOverride = AlbumGridThumbnailHeight,
                 modifier = Modifier
-                    .width(GridThumbnailHeight + 24.dp)
+                    .width(AlbumGridThumbnailHeight + 24.dp)
                     .padding(horizontal = 6.dp)
                     .combinedClickable(
                         onClick = { onAlbumClick(album) },
@@ -240,6 +242,7 @@ fun SpotifyPlaylistSectionRow(
                 item = playlistItem,
                 isActive = false,
                 isPlaying = false,
+                gridHeightOverride = HomeGridThumbnailHeight,
                 modifier = Modifier
                     .pointerInput(playlist.id) {
                         detectTapGestures(
