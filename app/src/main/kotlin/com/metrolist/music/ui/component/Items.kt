@@ -1475,6 +1475,7 @@ fun LocalSongsGrid(
         )
     },
     fillMaxWidth = fillMaxWidth,
+    gridHeightOverride = gridHeightOverride,
     modifier = modifier
 )
 
@@ -1559,7 +1560,7 @@ fun LocalAlbumsGrid(
         )
     },
     fillMaxWidth = fillMaxWidth,
-    gridHeightOverride = gridHeightOverride,
+    gridHeightOverride = AlbumGridThumbnailHeight,
     modifier = modifier
 )
 
