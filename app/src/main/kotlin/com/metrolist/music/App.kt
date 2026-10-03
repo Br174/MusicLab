@@ -169,6 +169,11 @@ class App :
                 ?: Locale.ITALIAN
         val languageTag = appLocale.language
 
+        ArtworkSizeRuntime.current =
+            settings[ArtworkSizeKey]
+                ?.let { runCatching { ArtworkSize.valueOf(it) }.getOrNull() }
+                ?: ArtworkSize.MEDIUM
+
         ArtistConjunctions.conjunctions = listOf(
             R.string.and,
         ).mapNotNull { id ->
@@ -277,6 +282,16 @@ class App :
     }
 
     private fun observeSettingsChanges() {
+        applicationScope.launch {
+            dataStore.data
+                .map { it[ArtworkSizeKey] ?: ArtworkSize.MEDIUM.name }
+                .distinctUntilChanged()
+                .collect { value ->
+                    ArtworkSizeRuntime.current =
+                        runCatching { ArtworkSize.valueOf(value) }.getOrDefault(ArtworkSize.MEDIUM)
+                }
+        }
+
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
                 .map { it[VisitorDataKey] }
