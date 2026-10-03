@@ -24,11 +24,25 @@ sealed class Screens(
         route = "home"
     )
 
+    object Cover : Screens(
+        titleId = R.string.nav_cover,
+        iconIdInactive = R.drawable.cover_microphone,
+        iconIdActive = R.drawable.cover_microphone,
+        route = "cover_search_hub"
+    )
+
     object Search : Screens(
         titleId = R.string.search,
         iconIdInactive = R.drawable.search,
         iconIdActive = R.drawable.search,
         route = "search_input"
+    )
+
+    object Compilation : Screens(
+        titleId = R.string.nav_compilation,
+        iconIdInactive = R.drawable.compilation_disc_search,
+        iconIdActive = R.drawable.compilation_disc_search,
+        route = "compilation_hub"
     )
 
     object ListenTogether : Screens(
@@ -46,6 +60,6 @@ sealed class Screens(
     )
 
     companion object {
-        val MainScreens = listOf(Home, Search, ListenTogether, Library)
+        val MainScreens = listOf(Home, Cover, Search, Compilation, ListenTogether, Library)
     }
 }
