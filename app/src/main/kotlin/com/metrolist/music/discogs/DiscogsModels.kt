@@ -14,6 +14,17 @@ internal data class DiscogsCompilationSummary(
     val coverUrl: String?,
 )
 
+internal data class DiscogsCompilationPage(
+    val items: List<DiscogsCompilationSummary>,
+    val page: Int,
+    val pages: Int,
+    val perPage: Int,
+    val totalItems: Int,
+) {
+    val hasNextPage: Boolean
+        get() = page < pages
+}
+
 internal data class DiscogsTrack(
     val position: String,
     val title: String,
