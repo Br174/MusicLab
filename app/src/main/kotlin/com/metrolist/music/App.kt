@@ -187,10 +187,16 @@ class App :
             KuGou.useTraditionalChinese = true
         }
 
-        // Initialize LastFM with API keys from BuildConfig (GitHub Secrets)
+        // Prefer credentials entered in-app; keep build-time secrets as a fallback.
+        val lastFmApiKey =
+            settings[com.metrolist.music.constants.LastFMApiKeyKey].orEmpty()
+                .ifBlank { BuildConfig.LASTFM_API_KEY }
+        val lastFmSecret =
+            settings[com.metrolist.music.constants.LastFMSecretKey].orEmpty()
+                .ifBlank { BuildConfig.LASTFM_SECRET }
         LastFM.initialize(
-            apiKey = BuildConfig.LASTFM_API_KEY.takeIf { it.isNotEmpty() } ?: "",
-            secret = BuildConfig.LASTFM_SECRET.takeIf { it.isNotEmpty() } ?: "",
+            apiKey = lastFmApiKey,
+            secret = lastFmSecret,
         )
 
         // Wire up Spotify API logging to Timber
