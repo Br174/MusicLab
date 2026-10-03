@@ -315,11 +315,9 @@ fun ContentSettings(
                 showContentLanguageDialog = false
             },
             title = stringResource(R.string.content_language),
-            current = contentLanguage,
-            values = (listOf(SYSTEM_DEFAULT) + LanguageCodeToName.keys.toList()),
-            valueText = {
-                LanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
-            }
+            current = "it",
+            values = listOf("it"),
+            valueText = { "Italiano" }
         )
     }
 
@@ -338,7 +336,13 @@ fun ContentSettings(
             current = contentCountry,
             values = (listOf(SYSTEM_DEFAULT) + CountryCodeToName.keys.toList()),
             valueText = {
-                CountryCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
+                if (it == SYSTEM_DEFAULT) {
+                    stringResource(R.string.system_default)
+                } else {
+                    java.util.Locale("", it).getDisplayCountry(java.util.Locale.ITALIAN)
+                        .takeIf { name -> name.isNotBlank() }
+                        ?: it
+                }
             }
         )
     }
@@ -355,11 +359,9 @@ fun ContentSettings(
                 showAppLanguageDialog = false
             },
             title = stringResource(R.string.app_language),
-            current = appLanguage,
-            values = (listOf(SYSTEM_DEFAULT) + LanguageCodeToName.keys.toList()),
-            valueText = {
-                LanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
-            }
+            current = "it",
+            values = listOf("it"),
+            valueText = { "Italiano" }
         )
     }
 
@@ -749,11 +751,7 @@ fun ContentSettings(
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.language),
                     title = { Text(stringResource(R.string.content_language)) },
-                    description = {
-                        Text(
-                            LanguageCodeToName.getOrElse(contentLanguage) { stringResource(R.string.system_default) }
-                        )
-                    },
+                    description = { Text("Italiano") },
                     onClick = { showContentLanguageDialog = true }
                 ),
                 Material3SettingsItem(
@@ -923,31 +921,12 @@ fun ContentSettings(
         Material3SettingsGroup(
             title = stringResource(R.string.app_language),
             items = listOf(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.language),
-                        title = { Text(stringResource(R.string.app_language)) },
-                        onClick = {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_APP_LOCALE_SETTINGS,
-                                    "package:${context.packageName}".toUri()
-                                )
-                            )
-                        }
-                    )
-                } else {
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.language),
-                        title = { Text(stringResource(R.string.app_language)) },
-                        description = {
-                            Text(
-                                LanguageCodeToName.getOrElse(appLanguage) { stringResource(R.string.system_default) }
-                            )
-                        },
-                        onClick = { showAppLanguageDialog = true }
-                    )
-                }
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.language),
+                    title = { Text(stringResource(R.string.app_language)) },
+                    description = { Text("Italiano") },
+                    onClick = { showAppLanguageDialog = true },
+                )
             )
         )
 
