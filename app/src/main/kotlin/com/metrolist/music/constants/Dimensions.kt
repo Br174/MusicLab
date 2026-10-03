@@ -61,6 +61,7 @@ val GridThumbnailHeight: Dp
     }
 
 val HomeGridThumbnailHeight = 128.dp
+val HomeListThumbnailSize = 48.dp
 val AlbumGridThumbnailHeight = 128.dp
 
 val AlbumThumbnailSize = 144.dp
