@@ -13,7 +13,7 @@ on:
       - 'app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt'
       - 'app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt'
       - 'app/src/test/kotlin/com/metrolist/music/ui/component/**'
-      - 'cloudflare/music-intelligence/test/device-regression-contract.test.mjs'
+      - 'cloudflare/music-intelligence/test/**'
       - 'app/build.gradle.kts'
       - 'gradle/**'
       - '.github/workflows/lab20-android-brain-tests.yml'
