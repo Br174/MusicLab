@@ -291,17 +291,19 @@ import com.metrolist.music.extensions.tryOrNull
 
 private const val INSTANT_SILENCE_SKIP_STEP_MS = 15_000L
 private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
-private const val PLAYBACK_START_BUFFER_MS = 1_250
-private const val PLAYBACK_REBUFFER_MS = 4_000
+// LAB30 anti-stutter guard: mobile streams must build a real reserve before
+// starting/resuming audio. The old 1.25s/4s thresholds made short network dips audible.
+private const val PLAYBACK_START_BUFFER_MS = 3_000
+private const val PLAYBACK_REBUFFER_MS = 8_000
 
-// LAB25 playback-priority prewarm: warm only the single next track and only
-// after the current song has a safe reserve. No full-track background cache is
-// chained from this path, so current playback keeps network priority.
+// Keep LAB25's single-next-track preload, but make it strictly subordinate to
+// current playback. It begins only with a healthy reserve and warms a smaller
+// prefix, reducing network contention while the current song is playing.
 private const val SMART_PRELOAD_TRACKS = 1
-private const val SMART_PRELOAD_PREFIX_BYTES = 384L * 1024L
-private const val SMART_PRELOAD_STABLE_BUFFER_MS = 12_000L
-private const val SMART_PRELOAD_RESUME_BUFFER_MS = 8_000L
-private const val SMART_PRELOAD_WAIT_MS = 18_000L
+private const val SMART_PRELOAD_PREFIX_BYTES = 256L * 1024L
+private const val SMART_PRELOAD_STABLE_BUFFER_MS = 25_000L
+private const val SMART_PRELOAD_RESUME_BUFFER_MS = 20_000L
+private const val SMART_PRELOAD_WAIT_MS = 30_000L
 
 /** When the queue has this many or fewer items (or items ahead of current), load more from paginated queues (e.g. Spotify). */
 private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
