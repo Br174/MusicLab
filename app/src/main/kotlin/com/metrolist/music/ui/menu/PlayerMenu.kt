@@ -458,24 +458,25 @@ fun PlayerMenu(
                                 onDismiss()
                             },
                         ),
-                    ) + if (com.metrolist.spotify.Spotify.isAuthenticated()) {
-                        listOf(
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.spotify),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(32.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.spotify_add_to_playlist),
-                                onClick = { showAddToSpotifyPlaylist = true },
-                            ),
-                        )
-                    } else {
-                        emptyList()
-                    },
+                    ) + listOf(
+                        NewAction(
+                                                        icon = {
+                                                            Icon(
+                                                                painter = painterResource(R.drawable.spotify),
+                                                                contentDescription = null,
+                                                                modifier = Modifier.size(32.dp),
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            )
+                                                        },
+                                                        text = stringResource(R.string.spotify_add_to_playlist),
+                                                        onClick = {
+                                                            if (com.metrolist.spotify.Spotify.isAuthenticated()) {
+                                                                showAddToSpotifyPlaylist = true
+                                                            }
+                                                        },
+                                                        enabled = com.metrolist.spotify.Spotify.isAuthenticated(),
+                                                    ),
+                    ),
                 columns = if (isListenTogetherGuest) 2 else 3,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
             )
