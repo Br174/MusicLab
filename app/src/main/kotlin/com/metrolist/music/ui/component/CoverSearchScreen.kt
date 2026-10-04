@@ -1740,6 +1740,18 @@ private fun coverTitleTieBreak(
         artistAliases = setOf(playable.candidate.artist),
     )
 
+private fun publicationSortKey(candidate: AiCoverCandidate): String =
+    candidate.releaseDate
+        ?.takeIf(String::isNotBlank)
+        ?: candidate.year?.let { "%04d-99-99".format(it) }
+        ?: "9999-99-99"
+
+private fun publicationSortKeyDescending(candidate: AiCoverCandidate): String =
+    candidate.releaseDate
+        ?.takeIf(String::isNotBlank)
+        ?: candidate.year?.let { "%04d-00-00".format(it) }
+        ?: "0000-00-00"
+
 private fun sortCoverResults(
     items: List<AiCoverPlayable>,
     targetTitle: String,
@@ -1750,24 +1762,22 @@ private fun sortCoverResults(
             items.sortedWith(
                 compareByDescending<AiCoverPlayable> { coverEvidenceScore(it) }
                     .thenByDescending { coverTitleTieBreak(targetTitle, it) }
-                    .thenBy { if (it.candidate.year == null) 1 else 0 }
-                    .thenBy { it.candidate.year ?: Int.MAX_VALUE }
+                    .thenBy { publicationSortKey(it.candidate) }
                     .thenBy { it.candidate.artist.lowercase() },
             )
 
         CoverSortMode.YEAR_ASC ->
             items.sortedWith(
-                compareBy<AiCoverPlayable> { if (it.candidate.year == null) 1 else 0 }
-                    .thenBy { it.candidate.year ?: Int.MAX_VALUE }
+                compareBy<AiCoverPlayable> { publicationSortKey(it.candidate) }
                     .thenByDescending { coverEvidenceScore(it) }
                     .thenBy { it.candidate.artist.lowercase() },
             )
 
         CoverSortMode.YEAR_DESC ->
             items.sortedWith(
-                compareBy<AiCoverPlayable> { if (it.candidate.year == null) 1 else 0 }
-                    .thenByDescending { it.candidate.year ?: Int.MIN_VALUE }
-                    .thenByDescending { coverEvidenceScore(it) }
+                compareByDescending<AiCoverPlayable> {
+                    publicationSortKeyDescending(it.candidate)
+                }.thenByDescending { coverEvidenceScore(it) }
                     .thenBy { it.candidate.artist.lowercase() },
             )
     }
