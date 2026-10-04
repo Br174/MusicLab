@@ -23,6 +23,24 @@ import java.util.concurrent.TimeUnit
  * Il Worker/D1 conserva esclusivamente decisioni editoriali AI; YouTube non entra
  * mai in questa risposta. Se il cloud non risponde, i chiamanti usano Gemini locale.
  */
+internal data class CloudMemoryState(
+    val discovery: AiCoverDiscoveryResult?,
+    val rejectedKeys: Set<String>,
+)
+
+internal data class CloudArchiveItem(
+    val title: String,
+    val artist: String,
+    val category: String,
+    val language: String?,
+    val year: Int?,
+    val album: String?,
+    val workTitle: String,
+    val originalArtist: String,
+    val sameWorkScore: Int?,
+    val versionTypeScore: Int?,
+)
+
 internal object CloudMusicDiscovery {
     private val client =
         OkHttpClient.Builder()
@@ -60,9 +78,26 @@ internal object CloudMusicDiscovery {
         config: GeminiCoverVerificationConfig,
         mode: String = "cover",
         limit: Int = 150,
-    ): AiCoverDiscoveryResult? = withContext(Dispatchers.IO) {
+    ): AiCoverDiscoveryResult? =
+        discoverMemoryState(
+            title = title,
+            artist = artist,
+            config = config,
+            mode = mode,
+            limit = limit,
+        )?.discovery
+
+    suspend fun discoverMemoryState(
+        title: String,
+        artist: String,
+        config: GeminiCoverVerificationConfig,
+        mode: String = "cover",
+        limit: Int = 150,
+    ): CloudMemoryState? = withContext(Dispatchers.IO) {
         val endpoint = config.cloudEndpoint.trim().trimEnd('/')
-        if (endpoint.isBlank() || title.isBlank() || !config.useCloudMemory) return@withContext null
+        if (endpoint.isBlank() || title.isBlank() || artist.isBlank() || !config.useCloudMemory) {
+            return@withContext null
+        }
 
         val body = buildJsonObject {
             put("title", title.trim())
@@ -74,7 +109,7 @@ internal object CloudMusicDiscovery {
             Request.Builder()
                 .url("$endpoint/api/v1/memory/discover")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("x-musiclab-client", "android-lab20")
+                .addHeader("x-musiclab-client", "android-lab38b")
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
 
@@ -85,8 +120,31 @@ internal object CloudMusicDiscovery {
                 json.parseToJsonElement(text).jsonObject
             }
         }.getOrNull() ?: return@withContext null
-        parseCover(root)
+
+        val rejectedKeys =
+            root["rejectedVersions"]
+                ?.runCatching { jsonArray }
+                ?.getOrNull()
+                ?.mapNotNull { element ->
+                    val obj = element.runCatching { jsonObject }.getOrNull() ?: return@mapNotNull null
+                    val candidateTitle = obj.string("title")
+                    val candidateArtist = obj.string("artist")
+                    val category = obj.string("category")
+                    if (candidateTitle.isBlank() || candidateArtist.isBlank()) {
+                        null
+                    } else {
+                        memoryKey(candidateTitle, candidateArtist, category)
+                    }
+                }
+                ?.toSet()
+                .orEmpty()
+
+        CloudMemoryState(
+            discovery = parseCover(root),
+            rejectedKeys = rejectedKeys,
+        )
     }
+
 
     suspend fun saveBrainDecision(
         originalTitle: String,
@@ -104,7 +162,7 @@ internal object CloudMusicDiscovery {
             put("status", status.name)
             candidate.sameWorkScore?.let { put("sameWorkScore", it) }
             candidate.versionTypeScore?.let { put("versionTypeScore", it) }
-            put("reason", "manual_android_lab20")
+            put("reason", "manual_android_lab38b")
             put(
                 "candidate",
                 buildJsonObject {
@@ -112,6 +170,18 @@ internal object CloudMusicDiscovery {
                     put("artist", candidate.artist)
                     put("category", candidate.category.cloudName)
                     candidate.language?.takeIf { it.isNotBlank() }?.let { put("language", it) }
+                    candidate.year?.let { put("year", it) }
+                    candidate.album?.takeIf { it.isNotBlank() }?.let { put("album", it) }
+                    put(
+                        "credits",
+                        buildJsonObject {
+                            put("songwriters", buildJsonArray { candidate.songwriters.forEach { add(it) } })
+                            put("composers", buildJsonArray { candidate.composers.forEach { add(it) } })
+                            put("lyricists", buildJsonArray { candidate.lyricists.forEach { add(it) } })
+                            put("producers", buildJsonArray { candidate.producers.forEach { add(it) } })
+                            candidate.label?.takeIf { it.isNotBlank() }?.let { put("label", it) }
+                        },
+                    )
                 },
             )
             put(
@@ -132,7 +202,7 @@ internal object CloudMusicDiscovery {
         val request = Request.Builder()
             .url("$endpoint/api/v1/brain/decision")
             .addHeader("Content-Type", "application/json")
-            .addHeader("x-musiclab-client", "android-lab20")
+            .addHeader("x-musiclab-client", "android-lab38b")
             .post(body.toString().toRequestBody(mediaType))
             .build()
 
@@ -140,6 +210,77 @@ internal object CloudMusicDiscovery {
             client.newCall(request).execute().use { response -> response.isSuccessful }
         }.getOrDefault(false)
     }
+
+    suspend fun searchArchive(
+        query: String,
+        config: GeminiCoverVerificationConfig,
+        limit: Int = 60,
+    ): List<CloudArchiveItem> = withContext(Dispatchers.IO) {
+        val endpoint = config.cloudEndpoint.trim().trimEnd('/')
+        if (endpoint.isBlank()) return@withContext emptyList()
+
+        val body = buildJsonObject {
+            put("query", query.trim())
+            put("limit", limit.coerceIn(1, 100))
+        }
+        val request =
+            Request.Builder()
+                .url("$endpoint/api/v1/archive/search")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("x-musiclab-client", "android-lab38b")
+                .post(body.toString().toRequestBody(mediaType))
+                .build()
+
+        val root = runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val text = response.body?.string() ?: return@use null
+                json.parseToJsonElement(text).jsonObject
+            }
+        }.getOrNull() ?: return@withContext emptyList()
+
+        root["items"]
+            ?.runCatching { jsonArray }
+            ?.getOrNull()
+            ?.mapNotNull { element ->
+                val obj = element.runCatching { jsonObject }.getOrNull() ?: return@mapNotNull null
+                val title = obj.string("title")
+                val artist = obj.string("artist")
+                if (title.isBlank() || artist.isBlank()) return@mapNotNull null
+                CloudArchiveItem(
+                    title = title,
+                    artist = artist,
+                    category = obj.string("category").ifBlank { "cover" },
+                    language = obj.nullableString("language"),
+                    year = obj.year("year"),
+                    album = obj.nullableString("album"),
+                    workTitle = obj.string("workTitle"),
+                    originalArtist = obj.string("originalArtist"),
+                    sameWorkScore = obj.scoreOrNull("sameWorkScore"),
+                    versionTypeScore = obj.scoreOrNull("versionTypeScore"),
+                )
+            }
+            .orEmpty()
+    }
+
+    internal fun memoryKey(
+        title: String,
+        artist: String,
+        category: String,
+    ): String =
+        listOf(
+            canonicalMemory(title),
+            canonicalMemory(artist),
+            canonicalMemory(category),
+        ).joinToString("|")
+
+    private fun canonicalMemory(value: String): String =
+        java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+            .lowercase()
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
 
     suspend fun verifyCandidate(
         originalTitle: String,
@@ -243,7 +384,7 @@ internal object CloudMusicDiscovery {
             Request.Builder()
                 .url("$endpoint/api/v1/discover/$route")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("x-musiclab-client", "android-lab20")
+                .addHeader("x-musiclab-client", "android-lab38b")
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
         return runCatching {
