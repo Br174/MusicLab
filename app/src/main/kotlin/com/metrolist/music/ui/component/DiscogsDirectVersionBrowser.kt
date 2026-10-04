@@ -2,6 +2,8 @@ package com.metrolist.music.ui.component
 
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -48,13 +50,27 @@ import com.metrolist.music.discogs.CompilationTrackResolver
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 private const val DIRECT_VERSION_PAGE_SIZE = 20
 private const val DIRECT_VERSION_PREFETCH_DISTANCE = 8
-private const val DIRECT_VERSION_BOTTOM_SAFE_DP = 176
+private const val DIRECT_VERSION_BOTTOM_SAFE_DP = 260
+
+private enum class DirectVersionCategory {
+    ALL,
+    STUDIO,
+    LIVE,
+    REMIX,
+}
+
+private enum class DirectVersionSort {
+    RELEVANCE,
+    OLDEST,
+    NEWEST,
+}
 
 private data class DirectVersionSession(
     var title: String,
@@ -68,6 +84,8 @@ private data class DirectVersionSession(
     var style: String = "",
     var catalogNumber: String = "",
     var filtersExpanded: Boolean = false,
+    var category: DirectVersionCategory = DirectVersionCategory.ALL,
+    var sortMode: DirectVersionSort = DirectVersionSort.RELEVANCE,
     var results: List<DiscogsVersionSeed> = emptyList(),
     var currentPage: Int = 0,
     var totalPages: Int = 0,
@@ -129,6 +147,8 @@ internal fun DiscogsDirectVersionBrowser(
     var style by remember(sessionKey) { mutableStateOf(session.style) }
     var catalogNumber by remember(sessionKey) { mutableStateOf(session.catalogNumber) }
     var filtersExpanded by remember(sessionKey) { mutableStateOf(session.filtersExpanded) }
+    var category by remember(sessionKey) { mutableStateOf(session.category) }
+    var sortMode by remember(sessionKey) { mutableStateOf(session.sortMode) }
 
     var results by remember(sessionKey) { mutableStateOf(session.results) }
     var currentPage by remember(sessionKey) { mutableStateOf(session.currentPage) }
@@ -143,6 +163,7 @@ internal fun DiscogsDirectVersionBrowser(
     var paginationError by remember(sessionKey) { mutableStateOf<String?>(null) }
     var resolvingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    val enrichedReleaseIds = remember(sessionKey) { mutableSetOf<Int>() }
 
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = session.listIndex,
@@ -161,20 +182,22 @@ internal fun DiscogsDirectVersionBrowser(
         session.style = style
         session.catalogNumber = catalogNumber
         session.filtersExpanded = filtersExpanded
+        session.category = category
+        session.sortMode = sortMode
     }
 
     fun buildCriteria(): DiscogsVersionSearchCriteria =
         DiscogsVersionSearchCriteria(
             title = title.trim(),
-            artist = artistFilter.trim().takeIf { it.isNotBlank() },
-            releaseTitle = releaseTitle.trim().takeIf { it.isNotBlank() },
-            year = year.trim().toIntOrNull(),
-            format = format.trim().takeIf { it.isNotBlank() },
-            country = country.trim().takeIf { it.isNotBlank() },
-            label = label.trim().takeIf { it.isNotBlank() },
-            genre = genre.trim().takeIf { it.isNotBlank() },
-            style = style.trim().takeIf { it.isNotBlank() },
-            catalogNumber = catalogNumber.trim().takeIf { it.isNotBlank() },
+            artist = null,
+            releaseTitle = null,
+            year = null,
+            format = null,
+            country = null,
+            label = null,
+            genre = null,
+            style = null,
+            catalogNumber = null,
         )
 
     fun mergePage(
@@ -205,7 +228,15 @@ internal fun DiscogsDirectVersionBrowser(
         criteria: DiscogsVersionSearchCriteria,
         page: Int,
         replace: Boolean,
+        requestedSort: DirectVersionSort = sortMode,
     ): Boolean {
+        val (discogsSort, discogsOrder) =
+            when (requestedSort) {
+                DirectVersionSort.RELEVANCE -> null to null
+                DirectVersionSort.OLDEST -> "year" to "asc"
+                DirectVersionSort.NEWEST -> "year" to "desc"
+            }
+
         val pageResult = DiscogsVersionSource.loadVersionPage(
             token = discogsToken,
             mode = mode,
@@ -213,6 +244,8 @@ internal fun DiscogsDirectVersionBrowser(
             originalArtist = lockedArtist,
             page = page,
             perPage = DIRECT_VERSION_PAGE_SIZE,
+            sort = discogsSort,
+            sortOrder = discogsOrder,
         ).getOrElse { failure ->
             val message = failure.message ?: "Errore Discogs"
             if (replace) error = message else paginationError = message
@@ -236,7 +269,9 @@ internal fun DiscogsDirectVersionBrowser(
         return true
     }
 
-    fun runSearch() {
+    fun runSearch(requestedSort: DirectVersionSort = sortMode) {
+        sortMode = requestedSort
+        session.sortMode = requestedSort
         persistInputs()
         val criteria = buildCriteria()
         if (criteria.title.isBlank()) {
@@ -275,14 +310,12 @@ internal fun DiscogsDirectVersionBrowser(
 
         scope.launch {
             listState.scrollToItem(0)
-            var page = 1
-            var attempts = 0
-            do {
-                val ok = loadPage(criteria, page, replace = page == 1)
-                if (!ok) break
-                attempts += 1
-                page = currentPage + 1
-            } while (results.size < 5 && currentPage < totalPages && attempts < 4)
+            loadPage(
+                criteria = criteria,
+                page = 1,
+                replace = true,
+                requestedSort = requestedSort,
+            )
             loading = false
         }
     }
@@ -305,19 +338,43 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun play(seed: DiscogsVersionSeed) {
-        val track = seed.track
-        if (track == null) {
-            Toast.makeText(context, "Traccia Discogs non disponibile.", Toast.LENGTH_SHORT).show()
-            return
-        }
         selectedFingerprint = seed.fingerprint
         session.selectedFingerprint = seed.fingerprint
         resolvingFingerprint = seed.fingerprint
         playerConnection?.beginPlaybackPriorityBurst("discogs-direct-version")
+
         scope.launch {
+            val playableSeed =
+                if (seed.track != null) {
+                    seed
+                } else {
+                    DiscogsVersionSource.resolveSeedForPlayback(
+                        token = discogsToken,
+                        seed = seed,
+                        targetTitle = title,
+                        mode = mode,
+                        originalArtist = lockedArtist,
+                    )
+                }
+
+            if (playableSeed != null && playableSeed != seed) {
+                results = results.map { current ->
+                    if (current.releaseId == seed.releaseId) playableSeed else current
+                }
+                session.results = results
+                enrichedReleaseIds += seed.releaseId
+            }
+
+            val track = playableSeed?.track
+            if (track == null) {
+                resolvingFingerprint = null
+                Toast.makeText(context, "Traccia Discogs non disponibile.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
             val resolved = CompilationTrackResolver.resolveTrack(
                 track = track,
-                discogsVideos = seed.videos,
+                discogsVideos = playableSeed.videos,
                 fastFirst = true,
             )
             resolvingFingerprint = null
@@ -341,9 +398,22 @@ internal fun DiscogsDirectVersionBrowser(
         style,
         catalogNumber,
         filtersExpanded,
+        category,
+        sortMode,
     ) {
         persistInputs()
     }
+
+    val visibleResults =
+        results.filter { seed ->
+            when (category) {
+                DirectVersionCategory.ALL -> true
+                DirectVersionCategory.STUDIO ->
+                    seed.kind == DiscogsVersionKind.STUDIO || seed.kind == DiscogsVersionKind.ACOUSTIC
+                DirectVersionCategory.LIVE -> seed.kind == DiscogsVersionKind.LIVE
+                DirectVersionCategory.REMIX -> seed.kind == DiscogsVersionKind.REMIX
+            }
+        }
 
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -354,7 +424,7 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
-    LaunchedEffect(listState, activeCriteria, currentPage, totalPages, results.size) {
+    LaunchedEffect(listState, activeCriteria, currentPage, totalPages, visibleResults.size) {
         snapshotFlow {
             listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
         }.collectLatest { lastVisible ->
@@ -362,9 +432,9 @@ internal fun DiscogsDirectVersionBrowser(
                 activeCriteria != null &&
                 currentPage > 0 &&
                 currentPage < totalPages &&
-                results.isNotEmpty() &&
+                visibleResults.isNotEmpty() &&
                 lastVisible >= 0 &&
-                results.size - lastVisible <= DIRECT_VERSION_PREFETCH_DISTANCE
+                visibleResults.size - lastVisible <= DIRECT_VERSION_PREFETCH_DISTANCE
             ) {
                 loadNextPage()
             }
@@ -383,11 +453,38 @@ internal fun DiscogsDirectVersionBrowser(
             activeCriteria != null &&
             currentPage > 0 &&
             currentPage < totalPages &&
-            results.isEmpty() &&
+            visibleResults.isEmpty() &&
             !loading &&
             !loadingMore
         ) {
+            delay(350)
             loadNextPage()
+        }
+    }
+
+    LaunchedEffect(listState, visibleResults.map { it.releaseId }) {
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
+                visibleResults.getOrNull(info.index)?.releaseId
+            }.distinct()
+        }.collectLatest { visibleIds ->
+            visibleIds.forEach { releaseId ->
+                if (releaseId in enrichedReleaseIds || discogsToken.isBlank()) return@forEach
+                val seed = results.firstOrNull { it.releaseId == releaseId } ?: return@forEach
+                enrichedReleaseIds += releaseId
+                val enriched = DiscogsVersionSource.enrichSeedMetadata(
+                    token = discogsToken,
+                    seed = seed,
+                    targetTitle = title,
+                    mode = mode,
+                    originalArtist = lockedArtist,
+                )
+                results = results.map { current ->
+                    if (current.releaseId == releaseId) enriched else current
+                }
+                session.results = results
+                delay(1_100)
+            }
         }
     }
 
@@ -459,80 +556,24 @@ internal fun DiscogsDirectVersionBrowser(
                 }
 
                 if (filtersExpanded) {
-                    if (mode == DiscogsDirectMode.COVER) {
-                        DirectFilterField(
-                            value = artistFilter,
-                            onValueChange = { artistFilter = it },
-                            label = "Artista cover (opzionale)",
-                        )
-                    }
-
-                    DirectFilterField(
-                        value = releaseTitle,
-                        onValueChange = { releaseTitle = it },
-                        label = "Pubblicazione / album",
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        DirectFilterField(
-                            value = year,
-                            onValueChange = { year = it.filter(Char::isDigit).take(4) },
-                            label = "Anno",
-                            modifier = Modifier.weight(1f),
-                        )
-                        DirectFilterField(
-                            value = format,
-                            onValueChange = { format = it },
-                            label = "Formato",
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        DirectFilterField(
-                            value = country,
-                            onValueChange = { country = it },
-                            label = "Paese",
-                            modifier = Modifier.weight(1f),
-                        )
-                        DirectFilterField(
-                            value = label,
-                            onValueChange = { label = it },
-                            label = "Etichetta",
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        DirectFilterField(
-                            value = genre,
-                            onValueChange = { genre = it },
-                            label = "Genere",
-                            modifier = Modifier.weight(1f),
-                        )
-                        DirectFilterField(
-                            value = style,
-                            onValueChange = { style = it },
-                            label = "Stile",
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    DirectFilterField(
-                        value = catalogNumber,
-                        onValueChange = { catalogNumber = it },
-                        label = "Numero di catalogo",
+                    DirectCategorySelector(
+                        selected = category,
+                        results = results,
+                        onSelected = { selected ->
+                            category = selected
+                            session.category = selected
+                        },
                     )
                 }
+
+                DirectSortSelector(
+                    selected = sortMode,
+                    onSelected = { selected ->
+                        if (selected != sortMode) {
+                            runSearch(selected)
+                        }
+                    },
+                )
 
                 Button(
                     onClick = ::runSearch,
@@ -548,7 +589,7 @@ internal fun DiscogsDirectVersionBrowser(
 
                 if (activeCriteria != null && currentPage > 0) {
                     Text(
-                        text = "Schede caricate: ${results.size} · Risultati Discogs: $totalDiscogsResults · Pagina $currentPage/$totalPages",
+                        text = "Versioni uniche caricate: ${results.size} · Release Discogs: $totalDiscogsResults · Pagina $currentPage/$totalPages",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
@@ -577,7 +618,7 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
 
-            if (!loading && activeCriteria != null && results.isEmpty() && currentPage >= totalPages && currentPage > 0) {
+            if (!loading && activeCriteria != null && visibleResults.isEmpty() && currentPage >= totalPages && currentPage > 0) {
                 item(key = "discogs_direct_no_results_${mode.name}") {
                     Text(
                         "Nessuna versione Discogs trovata con questi filtri.",
@@ -589,13 +630,13 @@ internal fun DiscogsDirectVersionBrowser(
             }
 
             items(
-                count = results.size,
+                count = visibleResults.size,
                 key = { index ->
-                    val seed = results[index]
+                    val seed = visibleResults[index]
                     "discogs_direct_${mode.name}_${index}_${seed.releaseId}_${seed.fingerprint.hashCode()}"
                 },
             ) { index ->
-                val seed = results[index]
+                val seed = visibleResults[index]
                 DiscogsVersionCard(
                     seed = seed,
                     selected = seed.fingerprint == selectedFingerprint,
@@ -648,6 +689,82 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DirectCategorySelector(
+    selected: DirectVersionCategory,
+    results: List<DiscogsVersionSeed>,
+    onSelected: (DirectVersionCategory) -> Unit,
+) {
+    val studio = results.count { it.kind == DiscogsVersionKind.STUDIO || it.kind == DiscogsVersionKind.ACOUSTIC }
+    val live = results.count { it.kind == DiscogsVersionKind.LIVE }
+    val remix = results.count { it.kind == DiscogsVersionKind.REMIX }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        DirectChip("Tutto · ${results.size}", selected == DirectVersionCategory.ALL) {
+            onSelected(DirectVersionCategory.ALL)
+        }
+        DirectChip("Studio · $studio", selected == DirectVersionCategory.STUDIO) {
+            onSelected(DirectVersionCategory.STUDIO)
+        }
+        DirectChip("Live · $live", selected == DirectVersionCategory.LIVE) {
+            onSelected(DirectVersionCategory.LIVE)
+        }
+        DirectChip("Mix · $remix", selected == DirectVersionCategory.REMIX) {
+            onSelected(DirectVersionCategory.REMIX)
+        }
+    }
+}
+
+@Composable
+private fun DirectSortSelector(
+    selected: DirectVersionSort,
+    onSelected: (DirectVersionSort) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Ordina:",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        DirectChip("Rilevanti", selected == DirectVersionSort.RELEVANCE) {
+            onSelected(DirectVersionSort.RELEVANCE)
+        }
+        DirectChip("Più vecchi", selected == DirectVersionSort.OLDEST) {
+            onSelected(DirectVersionSort.OLDEST)
+        }
+        DirectChip("Più nuovi", selected == DirectVersionSort.NEWEST) {
+            onSelected(DirectVersionSort.NEWEST)
+        }
+    }
+}
+
+@Composable
+private fun DirectChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+        )
     }
 }
 
