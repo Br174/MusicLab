@@ -1,0 +1,138 @@
+name: LAB40 Exact Video Playback Gate
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-exact-video-playback-40
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab40-exact-video-playback-gate
+  cancel-in-progress: true
+
+jobs:
+  verify-build-lab40:
+    name: verify-build-lab40
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact LAB40 source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Record exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "LAB40 source: $GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run reusable cloud core and LAB40 contract
+        run: |
+          node --test             cloudflare/music-intelligence/test/brain.test.mjs             cloudflare/music-intelligence/test/brain-persistence.test.mjs             cloudflare/music-intelligence/test/brain-benchmark.test.mjs             cloudflare/music-intelligence/test/coverage-planner.test.mjs             cloudflare/music-intelligence/test/coverage-expansion-integration.test.mjs             cloudflare/music-intelligence/test/memory-discovery.test.mjs             cloudflare/music-intelligence/test/parallel-coverage-expansion.test.mjs             cloudflare/music-intelligence/test/source-router.test.mjs             cloudflare/music-intelligence/test/worker-v20.test.mjs             cloudflare/music-intelligence/test/lab40-exact-video-playback-contract.test.mjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK and Last.fm build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+            echo "Last.fm API key: present (value hidden)"
+          else
+            echo "Last.fm API key: unavailable to runner; public fallback remains active"
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+            echo "Last.fm secret: present (value hidden)"
+          else
+            echo "Last.fm secret: unavailable to runner; playback and discovery remain unblocked"
+          fi
+
+      - name: Run Android unit tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+
+      - name: UAB preflight diagnostics
+        shell: bash
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build LAB40 APK and ZIP
+        shell: bash
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verify Last.fm BuildConfig injection when credentials are available
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          root = Path("app/build/generated/source/buildConfig")
+          expected = [v for v in (os.environ.get("LASTFM_API_KEY", ""), os.environ.get("LASTFM_SECRET", "")) if v]
+          if not expected:
+              print("Last.fm credentials unavailable to runner; public fallback verified by contract")
+              raise SystemExit(0)
+          files = [p for p in root.rglob("BuildConfig.*") if p.is_file()]
+          if not files:
+              raise SystemExit("Generated BuildConfig files were not found")
+          texts = [p.read_text(errors="ignore") for p in files]
+          if not all(any(value in text for text in texts) for value in expected):
+              raise SystemExit("Available Last.fm credentials were not embedded in BuildConfig")
+          print("Available Last.fm credentials embedded: verified (values hidden)")
+          PY
+
+      - name: Stamp exact build SHA
+        shell: bash
+        run: printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Verify LAB40 deliverables
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/uab/apk/MusicLab-LAB40.apk
+          test -s dist/uab/MusicLab-LAB40-APK.zip
+          test -s dist/uab/apk/SHA256SUMS.txt
+          unzip -tq dist/uab/MusicLab-LAB40-APK.zip
+          cat dist/uab/apk/SHA256SUMS.txt
+
+      - name: Upload LAB40 APK ZIP and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB40
+          path: |
+            dist/uab/apk/MusicLab-LAB40.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB40-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
