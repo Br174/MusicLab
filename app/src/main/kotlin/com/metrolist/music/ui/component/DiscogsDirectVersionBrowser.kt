@@ -294,18 +294,31 @@ internal fun DiscogsDirectVersionBrowser(
                 AiBrainDecisionStatus.REJECTED -> 1
                 null -> 4
             }
-        return DiscogsVersionSource.externalSeed(
-            CoverSourceCandidate(
-                title = candidate.title,
-                artist = candidate.artist,
-                sources = listOf("Archivio Cloud"),
-                year = candidate.year,
-                album = candidate.album,
-                language = candidate.language,
-                category = candidate.category,
-                evidenceScore = score,
-            ),
-        )
+        val seed =
+            DiscogsVersionSource.externalSeed(
+                CoverSourceCandidate(
+                    title = candidate.title,
+                    artist = candidate.artist,
+                    sources = listOf("Archivio Cloud"),
+                    year = candidate.year,
+                    album = candidate.album,
+                    coverUrl = candidate.coverUrl,
+                    language = candidate.language,
+                    category = candidate.category,
+                    evidenceScore = score,
+                ),
+            )
+        val playbackId = candidate.playbackVideoId?.trim().orEmpty()
+        return if (playbackId.isNotBlank()) {
+            DiscogsVersionSource.markVideoResolved(
+                seed = seed,
+                videoId = playbackId,
+                videoTitle = candidate.playbackVideoTitle?.takeIf(String::isNotBlank) ?: candidate.title,
+                source = candidate.playbackVideoSource?.takeIf(String::isNotBlank) ?: "Archivio Cloud",
+            )
+        } else {
+            seed
+        }
     }
 
     fun seedToBrainCandidate(seed: DiscogsVersionSeed): AiCoverCandidate {
@@ -353,6 +366,10 @@ internal fun DiscogsDirectVersionBrowser(
                         direction = "positive",
                     )
                 },
+            coverUrl = seed.coverUrl,
+            playbackVideoId = seed.resolvedVideoId,
+            playbackVideoTitle = seed.resolvedVideoTitle,
+            playbackVideoSource = seed.resolvedVideoSource,
             releaseDate = seed.releaseDate,
             discogsReleaseId = seed.releaseId.takeIf { it > 0 },
             discogsMasterId = seed.masterId,
@@ -881,6 +898,8 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                 session.results = results
                 rebuildStableOrder()
+                // Cloud-first playback must not wait for Discogs pagination.
+                scheduleVideoPreload()
             }
             val memoryDiagnostic =
                 CoverSourceDiagnostic(
@@ -925,6 +944,7 @@ internal fun DiscogsDirectVersionBrowser(
                 val externalSeeds = external.candidates.map(DiscogsVersionSource::externalSeed)
                 results = mergePage(results, externalSeeds, replace = false)
                 session.results = results
+                scheduleVideoPreload()
             }
             sourceDiagnostics =
                 sourceDiagnostics.filter { diagnostic ->
@@ -939,8 +959,9 @@ internal fun DiscogsDirectVersionBrowser(
 
             if (firstPageLoaded) {
                 scheduleDiscogsVerification()
-                scheduleVideoPreload()
             }
+            // Provider/cloud video resolution is independent from Discogs page success.
+            scheduleVideoPreload()
         }
     }
 
