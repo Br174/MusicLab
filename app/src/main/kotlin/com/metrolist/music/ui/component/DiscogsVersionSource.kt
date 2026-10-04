@@ -429,9 +429,9 @@ internal object DiscogsVersionSource {
 
     private const val DETAIL_BATCH_SIZE = 4
     private const val MIN_UNGROUPED_DETAIL_COUNT = 12
-    private const val COVER_DETAIL_LIMIT = 36
-    private const val ORIGINAL_DETAIL_LIMIT = 32
-    private const val IDENTITY_DETAIL_LIMIT = 16
+    private const val COVER_DETAIL_LIMIT = 30
+    private const val ORIGINAL_DETAIL_LIMIT = 24
+    private const val IDENTITY_DETAIL_LIMIT = 10
     private const val CACHE_TTL_MS = 6L * 60L * 60L * 1000L
 }
 
