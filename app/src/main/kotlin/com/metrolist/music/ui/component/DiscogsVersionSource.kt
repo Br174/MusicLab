@@ -123,7 +123,7 @@ internal object DiscogsVersionSource {
                 .flatMap { batch ->
                     batch.map { summary ->
                         async(Dispatchers.IO) {
-                            DiscogsClient.getRelease(token, summary.id).getOrNull()
+                            DiscogsClient.getRelease(token, summary.id, includeMasterVideos = false).getOrNull()
                         }
                     }.awaitAll().filterNotNull()
                 }
