@@ -3,6 +3,8 @@ package com.metrolist.music.ui.component
 import com.metrolist.music.discogs.DiscogsClient
 import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsReleaseSummary
+import com.metrolist.music.discogs.DiscogsTrack
+import com.metrolist.music.discogs.DiscogsVideo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -15,6 +17,34 @@ internal enum class DiscogsVersionKind {
     LIVE,
     REMIX,
     ACOUSTIC,
+}
+
+internal enum class DiscogsDirectMode {
+    COVER,
+    ORIGINAL,
+}
+
+internal data class DiscogsVersionSearchCriteria(
+    val title: String,
+    val artist: String?,
+    val year: Int?,
+    val format: String?,
+    val country: String?,
+    val label: String?,
+    val genre: String?,
+    val style: String?,
+    val catalogNumber: String?,
+)
+
+internal data class DiscogsVersionPage(
+    val items: List<DiscogsVersionSeed>,
+    val page: Int,
+    val pages: Int,
+    val perPage: Int,
+    val totalDiscogsResults: Int,
+) {
+    val hasNextPage: Boolean
+        get() = page < pages
 }
 
 internal data class DiscogsVersionSeed(
@@ -33,6 +63,8 @@ internal data class DiscogsVersionSeed(
     val coverUrl: String?,
     val durationSeconds: Int?,
     val fingerprint: String,
+    val track: DiscogsTrack? = null,
+    val videos: List<DiscogsVideo> = emptyList(),
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
@@ -48,6 +80,80 @@ internal object DiscogsVersionSource {
     )
 
     private val cache = ConcurrentHashMap<String, CacheEntry>()
+
+    suspend fun loadVersionPage(
+        token: String,
+        mode: DiscogsDirectMode,
+        criteria: DiscogsVersionSearchCriteria,
+        originalArtist: String,
+        page: Int,
+        perPage: Int = DIRECT_PAGE_SIZE,
+    ): Result<DiscogsVersionPage> = coroutineScope {
+        runCatching {
+            require(token.isNotBlank()) { "Token Discogs mancante" }
+            require(criteria.title.isNotBlank()) { "Titolo mancante" }
+
+            val lockedArtist =
+                when (mode) {
+                    DiscogsDirectMode.ORIGINAL -> originalArtist.trim().ifBlank { criteria.artist.orEmpty().trim() }
+                    DiscogsDirectMode.COVER -> criteria.artist.orEmpty().trim()
+                }.takeIf(String::isNotBlank)
+
+            val releasePage = DiscogsClient.searchReleases(
+                token = token,
+                track = criteria.title,
+                artist = lockedArtist,
+                year = criteria.year,
+                format = criteria.format,
+                country = criteria.country,
+                label = criteria.label,
+                genre = criteria.genre,
+                style = criteria.style,
+                catalogNumber = criteria.catalogNumber,
+                page = page.coerceAtLeast(1),
+                perPage = perPage.coerceIn(1, 100),
+                sort = "year",
+                sortOrder = "asc",
+            ).getOrThrow()
+
+            val details = releasePage.items
+                .chunked(DETAIL_BATCH_SIZE)
+                .flatMap { batch ->
+                    batch.map { summary ->
+                        async(Dispatchers.IO) {
+                            DiscogsClient.getRelease(token, summary.id).getOrNull()
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+
+            val seeds = details.flatMap { detail ->
+                seedsFromRelease(
+                    detail = detail,
+                    targetTitle = criteria.title,
+                    artistFilter =
+                        when (mode) {
+                            DiscogsDirectMode.ORIGINAL -> originalArtist
+                            DiscogsDirectMode.COVER -> lockedArtist
+                        },
+                )
+            }.filter { seed ->
+                when (mode) {
+                    DiscogsDirectMode.ORIGINAL ->
+                        originalArtist.isNotBlank() && sameArtist(seed.artist, originalArtist)
+                    DiscogsDirectMode.COVER ->
+                        originalArtist.isBlank() || !sameArtist(seed.artist, originalArtist)
+                }
+            }
+
+            DiscogsVersionPage(
+                items = dedupeVersions(seeds),
+                page = releasePage.page,
+                pages = releasePage.pages,
+                perPage = releasePage.perPage,
+                totalDiscogsResults = releasePage.totalItems,
+            )
+        }
+    }
 
     suspend fun discoverCoverVersions(
         token: String,
@@ -272,6 +378,8 @@ internal object DiscogsVersionSource {
                 coverUrl = detail.coverUrl,
                 durationSeconds = track.durationSeconds,
                 fingerprint = fingerprint,
+                track = track,
+                videos = detail.videos,
             )
         }
     }
@@ -427,6 +535,7 @@ internal object DiscogsVersionSource {
         Regex("\\b(reissue|repress|remaster(?:ed)?|anniversary|deluxe|edition|edizione|promo|stereo|mono|vinyl|cd|cassette|digital)\\b")
     private val ARTIST_SUFFIX_REGEX = Regex("\\s+\\(\\d+\\)$")
 
+    private const val DIRECT_PAGE_SIZE = 25
     private const val DETAIL_BATCH_SIZE = 4
     private const val MIN_UNGROUPED_DETAIL_COUNT = 12
     private const val COVER_DETAIL_LIMIT = 30
