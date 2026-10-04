@@ -294,7 +294,9 @@ private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
 // Player Veloce 1: restore the device-approved LAB25 fast-start reserve.
 // The priority burst below suppresses competing background work while this
 // deliberately small start buffer is being filled.
-private const val PLAYBACK_START_BUFFER_MS = 1_250
+// Player Veloce 3: shave the remaining tap-to-audio delay without weakening
+// rebuffer protection. 900ms is the new startup target; recovery remains 4s.
+private const val PLAYBACK_START_BUFFER_MS = 900
 private const val PLAYBACK_REBUFFER_MS = 4_000
 
 private const val SMART_PRELOAD_TRACKS = 1
