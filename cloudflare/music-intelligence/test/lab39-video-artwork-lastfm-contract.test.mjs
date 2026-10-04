@@ -44,8 +44,8 @@ test('LAB39 build fails if Last.fm secrets are absent and verifies generated Bui
   assert.match(workflow, /LASTFM_SECRET:[^\n]*secrets\.LASTFM_SECRET/);
   assert.match(workflow, /vars\.LASTFM_API_KEY/);
   assert.match(workflow, /vars\.LASTFM_SECRET/);
-  assert.match(workflow, /test -n "\$LASTFM_API_KEY"/);
-  assert.match(workflow, /test -n "\$LASTFM_SECRET"/);
+  assert.match(workflow, /-z "\$LASTFM_API_KEY"/);
+  assert.match(workflow, /-z "\$LASTFM_SECRET"/);
   assert.match(workflow, /LASTFM_API_KEY=%s/);
   assert.match(workflow, /Verify Last\.fm BuildConfig injection/);
 });
