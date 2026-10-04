@@ -59,10 +59,52 @@ class CompilationTrackResolverTest {
     }
 
     @Test
-    fun `deep search keeps artist title and title-only fallback queries`() {
+    fun `deep search always keeps target performer and never uses title-only fallback`() {
         val queries = CompilationTrackResolver.searchQueries(track())
 
         assertEquals("Fiorello Cosa resterà degli anni '80", queries.first())
-        assertTrue("Cosa resterà degli anni '80" in queries)
+        assertTrue(queries.all { it.contains("Fiorello", ignoreCase = true) })
+        assertTrue("Cosa resterà degli anni '80" !in queries)
+    }
+
+    @Test
+    fun `different performer is hard incompatible even with exact title and duration`() {
+        val compatible =
+            CompilationTrackResolver.isHardCompatible(
+                track = track(artist = "Fiorello"),
+                song = song(artist = "Raf"),
+            )
+
+        assertTrue(!compatible)
+    }
+
+    @Test
+    fun `target performer in title allows archive uploader`() {
+        val compatible =
+            CompilationTrackResolver.isHardCompatible(
+                track = track(artist = "Fiorello"),
+                song =
+                    song(
+                        artist = "Archivio TV",
+                        title = "Fiorello - Cosa resterà degli anni '80",
+                    ),
+            )
+
+        assertTrue(compatible)
+    }
+
+    @Test
+    fun `live candidate cannot replace studio recording`() {
+        val compatible =
+            CompilationTrackResolver.isHardCompatible(
+                track = track(artist = "Fiorello"),
+                song =
+                    song(
+                        artist = "Fiorello",
+                        title = "Fiorello - Cosa resterà degli anni '80 Live",
+                    ),
+            )
+
+        assertTrue(!compatible)
     }
 }
