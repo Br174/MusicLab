@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
-      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
 
     steps:
       - name: Checkout exact LAB39 source
@@ -70,8 +70,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$LASTFM_API_KEY"
-          test -n "$LASTFM_SECRET"
+          if [[ -z "$LASTFM_API_KEY" ]]; then
+            echo "Last.fm API key: MISSING in LASTFM_API_KEY/LASTFM_KEY secrets or variables" >&2
+            exit 91
+          fi
+          if [[ -z "$LASTFM_SECRET" ]]; then
+            echo "Last.fm secret: MISSING in LASTFM_SECRET/LASTFM_SHARED_SECRET secrets or variables" >&2
+            exit 92
+          fi
+          echo "Last.fm API key: present (value hidden)"
+          echo "Last.fm secret: present (value hidden)"
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
           printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
           printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
