@@ -781,6 +781,9 @@ internal object CoverDiscoverySources {
     private val VERSION_NOISE =
         Regex("\\b(official|music video|video|audio|lyrics?|lyric|visualizer|remaster(?:ed)?|version|versione|cover|live|dal vivo|concert|concerto|performance|session|festival|remix|mix|rework|radio edit|extended mix|club mix|edit|acoustic|unplugged|mono|stereo|hd|hq)\\b")
 
+    private val LASTFM_PUBLIC_TRACK_URL =
+        Regex("""(?:https?://(?:www\.)?last\.fm)?/music/([^/?#]+)/_/([^/?#]+)""")
+
     private val COVER_INFO_SONG_URL =
         Regex("""https?://cover\.info/en/song/(\d+)/([^/?#]+)(?:/([^/?#]+))?""")
     private val COVER_INFO_YEAR = Regex("""\b(?:18|19|20)\d{2}\b""")
