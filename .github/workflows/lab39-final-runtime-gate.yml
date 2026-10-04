@@ -1,0 +1,190 @@
+name: LAB39 Final Runtime Gate
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-video-artwork-lastfm-39
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab39-final-runtime-gate
+  cancel-in-progress: true
+
+jobs:
+  verify-build-deploy-lab39:
+    name: verify-build-deploy-lab39-final
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 5781b597517f6f7fe25751170a99b9ab
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      WORKER_URL: https://musiclab-music-intelligence.brunoverlezza.workers.dev
+      WRANGLER_SEND_METRICS: "false"
+
+    steps:
+      - name: Checkout exact LAB39 source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Record exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "LAB39 source: $GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run current core and LAB39 contracts
+        run: |
+          node --test \
+            cloudflare/music-intelligence/test/brain.test.mjs \
+            cloudflare/music-intelligence/test/brain-persistence.test.mjs \
+            cloudflare/music-intelligence/test/brain-benchmark.test.mjs \
+            cloudflare/music-intelligence/test/coverage-planner.test.mjs \
+            cloudflare/music-intelligence/test/coverage-expansion-integration.test.mjs \
+            cloudflare/music-intelligence/test/memory-discovery.test.mjs \
+            cloudflare/music-intelligence/test/parallel-coverage-expansion.test.mjs \
+            cloudflare/music-intelligence/test/source-router.test.mjs \
+            cloudflare/music-intelligence/test/worker-v20.test.mjs \
+            cloudflare/music-intelligence/test/lab39-video-artwork-lastfm-contract.test.mjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK
+        shell: bash
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Verify Last.fm public fallback exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'discoverLastFmPublic' app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt
+          grep -q 'search/tracks' app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt
+
+      - name: Run Android unit tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+
+      - name: UAB preflight diagnostics
+        shell: bash
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build LAB39 APK and ZIP
+        shell: bash
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Stamp exact build SHA
+        shell: bash
+        run: printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Verify LAB39 deliverables
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/uab/apk/MusicLab-LAB39.apk
+          test -s dist/uab/MusicLab-LAB39-APK.zip
+          test -s dist/uab/apk/SHA256SUMS.txt
+          unzip -tq dist/uab/MusicLab-LAB39-APK.zip
+          cat dist/uab/apk/SHA256SUMS.txt
+
+      - name: Upload LAB39 APK ZIP and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB39-Final
+          path: |
+            dist/uab/apk/MusicLab-LAB39.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB39-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Verify Cloudflare deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$GEMINI_API_KEY"
+
+      - name: Install Worker dependencies
+        working-directory: cloudflare/music-intelligence
+        run: npm install
+
+      - name: Verify Cloudflare token
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify")"
+          test "$(jq -r '.success' <<<"$response")" = "true"
+
+      - name: Dry-run LAB39 Worker
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler deploy --config wrangler.lab39.jsonc --dry-run --outdir=/tmp/musiclab-lab39-worker
+
+      - name: Apply additive D1 migrations
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler d1 migrations apply musiclab-intelligence-db --remote --config wrangler.lab39.jsonc
+
+      - name: Configure Gemini secret on stable Worker
+        working-directory: cloudflare/music-intelligence
+        shell: bash
+        run: printf '%s' "$GEMINI_API_KEY" | npx wrangler secret put GEMINI_API_KEY --config wrangler.lab39.jsonc
+
+      - name: Deploy LAB39 runtime to stable endpoint
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler deploy --config wrangler.lab39.jsonc
+
+      - name: Verify published LAB39 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            state="$(curl --fail-with-body --silent --show-error "$WORKER_URL/stato" || true)"
+            archive="$(curl --fail-with-body --silent --show-error \
+              -H 'content-type: application/json' \
+              -d '{"query":"","limit":3}' \
+              "$WORKER_URL/api/v1/archive/search" || true)"
+            playback_code="$(curl --silent --show-error \
+              -o /tmp/lab39-playback.json \
+              -w '%{http_code}' \
+              -H 'content-type: application/json' \
+              -d '{}' \
+              "$WORKER_URL/api/v1/playback/binding" || true)"
+            if jq -e '.stato == "ok" and .memoria == true and .versione == "1.5.0-lab39"' <<<"$state" >/dev/null \
+              && jq -e '.stato == "pronto" and (.items | type == "array")' <<<"$archive" >/dev/null \
+              && [[ "$playback_code" == "400" ]]; then
+              echo "$state"
+              echo "$archive"
+              echo "Playback binding endpoint: reachable"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "LAB39 runtime non verificato" >&2
+          cat /tmp/lab39-playback.json 2>/dev/null || true
+          exit 1
