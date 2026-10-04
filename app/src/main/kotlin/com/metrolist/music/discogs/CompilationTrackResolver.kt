@@ -53,8 +53,8 @@ internal object CompilationTrackResolver {
             }
         }
 
-        val artist = track.artists.firstOrNull().orEmpty()
-        val query = listOf(artist, track.title).filter(String::isNotBlank).joinToString(" ")
+        val queries = searchQueries(track)
+        val query = queries.firstOrNull().orEmpty()
 
         if (fastFirst) {
             fastMusicLabRace(track, query, excludedVideoIds)?.let { return@withContext it }
@@ -102,6 +102,28 @@ internal object CompilationTrackResolver {
 
         bestSong(track, videoSongs, relaxedArtist = true, excludedVideoIds = excludedVideoIds)?.let {
             return@withContext CompilationResolvedTrack(track, it, "YouTube Music video", false)
+        }
+
+        // Deep fallback only after the normal lanes fail. It broadens retrieval, but the
+        // performer-consistency guard below still rejects a title-only hit by a different artist.
+        for (fallbackQuery in queries.drop(1)) {
+            val fallbackSongs = withTimeoutOrNull(if (fastFirst) 2_800L else 6_000L) {
+                YouTube.search(fallbackQuery, YouTube.SearchFilter.FILTER_SONG)
+                    .getOrNull()
+                    ?.items
+                    ?.filterIsInstance<SongItem>()
+                    .orEmpty()
+            }.orEmpty()
+            bestSong(track, fallbackSongs, relaxedArtist = true, excludedVideoIds = excludedVideoIds)?.let {
+                return@withContext CompilationResolvedTrack(track, it, "YouTube Music · ricerca profonda", false)
+            }
+
+            val fallbackWeb = withTimeoutOrNull(if (fastFirst) 3_200L else 7_000L) {
+                YouTubeWebSearch.search(fallbackQuery)?.items.orEmpty()
+            }.orEmpty()
+            bestSong(track, fallbackWeb, relaxedArtist = true, excludedVideoIds = excludedVideoIds)?.let {
+                return@withContext CompilationResolvedTrack(track, it, "YouTube · ricerca profonda", false)
+            }
         }
 
         null
@@ -287,13 +309,24 @@ internal object CompilationTrackResolver {
             score += (tokenOverlap(targetTitle, songTitle) * 50).toInt()
         }
 
-        val artistMatch = targetArtists.any { wanted ->
+        val artistFieldMatch = targetArtists.any { wanted ->
             songArtists.any { actual ->
                 actual == wanted || actual.contains(wanted) || wanted.contains(actual)
-            } || songTitle.contains(wanted)
+            }
         }
+        val titleNamesTargetArtist = targetArtists.any { wanted ->
+            wanted.length >= 3 && songTitle.contains(wanted)
+        }
+        val artistMatch = artistFieldMatch || titleNamesTargetArtist
+        val explicitPerformerConflict =
+            targetArtists.isNotEmpty() &&
+                songArtists.isNotEmpty() &&
+                !artistFieldMatch &&
+                !titleNamesTargetArtist
+
         if (targetArtists.isEmpty()) score += 5
         else if (artistMatch) score += 28
+        else if (explicitPerformerConflict) score -= 90
         else if (!relaxedArtist) score -= 25
 
         val expected = track.durationSeconds
@@ -391,6 +424,20 @@ internal object CompilationTrackResolver {
 
     private fun looksLikeFullAudioTitle(value: String): Boolean =
         FULL_AUDIO_MARKERS.containsMatchIn(normalize(value))
+
+    internal fun searchQueries(track: DiscogsTrack): List<String> {
+        val title = track.title.trim()
+        val artist = track.artists.firstOrNull().orEmpty().trim()
+        return listOf(
+            listOf(artist, title).filter(String::isNotBlank).joinToString(" "),
+            listOf(title, artist).filter(String::isNotBlank).joinToString(" "),
+            title,
+        )
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(3)
+    }
 
     private fun normalize(value: String): String {
         val decomposed = Normalizer.normalize(value.lowercase(), Normalizer.Form.NFD)
