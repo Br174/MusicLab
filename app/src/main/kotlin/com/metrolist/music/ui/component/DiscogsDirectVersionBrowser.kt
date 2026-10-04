@@ -562,6 +562,7 @@ internal fun DiscogsDirectVersionBrowser(
                         onSelected = { selected ->
                             category = selected
                             session.category = selected
+                            scope.launch { listState.scrollToItem(0) }
                         },
                     )
                 }
