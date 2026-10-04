@@ -27,6 +27,7 @@ internal enum class DiscogsDirectMode {
 internal data class DiscogsVersionSearchCriteria(
     val title: String,
     val artist: String?,
+    val releaseTitle: String?,
     val year: Int?,
     val format: String?,
     val country: String?,
@@ -103,6 +104,7 @@ internal object DiscogsVersionSource {
                 token = token,
                 track = criteria.title,
                 artist = lockedArtist,
+                releaseTitle = criteria.releaseTitle,
                 year = criteria.year,
                 format = criteria.format,
                 country = criteria.country,
@@ -535,7 +537,7 @@ internal object DiscogsVersionSource {
         Regex("\\b(reissue|repress|remaster(?:ed)?|anniversary|deluxe|edition|edizione|promo|stereo|mono|vinyl|cd|cassette|digital)\\b")
     private val ARTIST_SUFFIX_REGEX = Regex("\\s+\\(\\d+\\)$")
 
-    private const val DIRECT_PAGE_SIZE = 25
+    private const val DIRECT_PAGE_SIZE = 20
     private const val DETAIL_BATCH_SIZE = 4
     private const val MIN_UNGROUPED_DETAIL_COUNT = 12
     private const val COVER_DETAIL_LIMIT = 30
