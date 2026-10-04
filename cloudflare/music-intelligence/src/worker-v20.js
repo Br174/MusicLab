@@ -668,7 +668,8 @@ async function buildMemoryPayload(input, env) {
   const queryLimit = Math.min(MAX_MEMORY_RESULTS * 2, Math.max(MAX_MEMORY_RESULTS, limit * 2));
   const rows = await env.DB.prepare(`
     SELECT canonical_title, canonical_artist, category, language, year, album, credits_json,
-           same_work_score, version_type_score, decision_status, ai_reason
+           same_work_score, version_type_score, decision_status, ai_reason,
+           user_verified, user_rejected
     FROM versions
     WHERE work_id=?1
     ORDER BY user_verified DESC,
@@ -678,26 +679,37 @@ async function buildMemoryPayload(input, env) {
   `).bind(work.id, queryLimit).all();
 
   const originalArtistKey = canonical(work.original_artist);
-  const versions = (rows?.results || [])
-    .filter(row => {
-      const samePerformer = originalArtistKey && canonical(row.canonical_artist) === originalArtistKey;
-      return mode === 'originals' ? samePerformer : !samePerformer;
-    })
+  const modeMatches = row => {
+    const samePerformer = originalArtistKey && canonical(row.canonical_artist) === originalArtistKey;
+    return mode === 'originals' ? samePerformer : !samePerformer;
+  };
+  const toVersion = row => ({
+    title: row.canonical_title,
+    artist: row.canonical_artist,
+    category: row.category,
+    language: row.language,
+    year: row.year,
+    album: row.album,
+    credits: safeJson(row.credits_json),
+    sameWorkScore: numericScore(row.same_work_score),
+    versionTypeScore: numericScore(row.version_type_score),
+    brainStatus: normalizeDecisionStatus(row.decision_status),
+    brainAdmission: row.user_verified ? 'cloud_user_approved' : 'cloud_memory',
+    brainSignals: [],
+    aiReason: row.ai_reason || null,
+  });
+  const modeRows = (rows?.results || []).filter(modeMatches);
+  const versions = modeRows
+    .filter(row => Number(row.user_rejected || 0) !== 1)
     .slice(0, limit)
+    .map(toVersion);
+  const rejectedVersions = modeRows
+    .filter(row => Number(row.user_rejected || 0) === 1)
     .map(row => ({
       title: row.canonical_title,
       artist: row.canonical_artist,
       category: row.category,
       language: row.language,
-      year: row.year,
-      album: row.album,
-      credits: safeJson(row.credits_json),
-      sameWorkScore: numericScore(row.same_work_score),
-      versionTypeScore: numericScore(row.version_type_score),
-      brainStatus: normalizeDecisionStatus(row.decision_status),
-      brainAdmission: null,
-      brainSignals: [],
-      aiReason: row.ai_reason || null,
     }));
 
   return {
@@ -714,6 +726,7 @@ async function buildMemoryPayload(input, env) {
       credits: safeJson(work.credits_json),
     },
     versions,
+    rejectedVersions,
   };
 }
 
@@ -738,45 +751,219 @@ export async function saveBrainDecision(db, input = {}) {
     return { httpStatus: 400, body: { errore: 'decisione non valida' } };
   }
 
-  let workId = String(input?.workId || '').trim();
-  let versionId = String(input?.versionId || '').trim();
-  const keys = decisionIdentityKeys(input);
   const candidate = input?.candidate && typeof input.candidate === 'object' ? input.candidate : {};
+  const originalTitle = String(input?.originalTitle || '').trim();
+  const originalArtist = String(input?.originalArtist || '').trim();
+  const candidateTitle = String(candidate?.title || '').trim();
+  const candidateArtist = String(candidate?.artist || '').trim();
+  if (!originalTitle || !originalArtist || !candidateTitle || !candidateArtist) {
+    return { httpStatus: 400, body: { errore: 'opera e candidato obbligatori' } };
+  }
 
+  const keys = decisionIdentityKeys(input);
+  let workId = String(input?.workId || '').trim();
   if (!workId && keys.workSearchKey) {
-    const work = await db.prepare('SELECT id FROM works WHERE search_key=?1 AND resolver_version=?2 LIMIT 1')
-      .bind(keys.workSearchKey, MEMORY_RESOLVER_VERSION).first();
+    const work = await db.prepare(
+      'SELECT id FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1',
+    ).bind(keys.workSearchKey, MEMORY_RESOLVER_VERSION).first();
     workId = String(work?.id || '').trim();
   }
-  if (!workId) return { httpStatus: 404, body: { errore: 'opera non trovata' } };
 
+  // LAB38B manual decisions are allowed to create the cloud-memory row.
+  // This closes the old gap where a newly discovered Discogs/provider candidate
+  // could not be approved because it had never been persisted by the AI lane.
+  if (!workId) {
+    const proposedWorkId = crypto.randomUUID();
+    await db.prepare(`
+      INSERT INTO works(
+        id,search_key,canonical_title,original_artist,original_year,original_language,
+        credits_json,ai_model,resolver_version
+      ) VALUES(?1,?2,?3,?4,NULL,NULL,'{}','manual-user',?5)
+      ON CONFLICT(search_key) DO UPDATE SET
+        canonical_title=excluded.canonical_title,
+        original_artist=excluded.original_artist,
+        resolver_version=MAX(COALESCE(works.resolver_version,0),excluded.resolver_version),
+        updated_at=CURRENT_TIMESTAMP
+    `).bind(
+      proposedWorkId,
+      searchKey(originalTitle, originalArtist),
+      originalTitle,
+      originalArtist,
+      MEMORY_RESOLVER_VERSION,
+    ).run();
+    const created = await db.prepare(
+      'SELECT id FROM works WHERE search_key=?1 LIMIT 1',
+    ).bind(searchKey(originalTitle, originalArtist)).first();
+    workId = String(created?.id || '').trim();
+  }
+  if (!workId) return { httpStatus: 500, body: { errore: 'opera non salvabile' } };
+
+  let versionId = String(input?.versionId || '').trim();
   if (!versionId && keys.versionKey) {
-    const exact = await db.prepare('SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1')
-      .bind(workId, keys.versionKey).first();
+    const exact = await db.prepare(
+      'SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1',
+    ).bind(workId, keys.versionKey).first();
     versionId = String(exact?.id || '').trim();
   }
+
   if (!versionId) {
-    const candidateTitle = String(candidate?.title || '').trim();
-    const candidateArtist = String(candidate?.artist || '').trim();
-    if (candidateTitle && candidateArtist) {
-      const fallback = await db.prepare(`SELECT id FROM versions
-        WHERE work_id=?1 AND canonical_title=?2 COLLATE NOCASE AND canonical_artist=?3 COLLATE NOCASE
-        ORDER BY updated_at DESC LIMIT 1`)
-        .bind(workId, candidateTitle, candidateArtist).first();
-      versionId = String(fallback?.id || '').trim();
-    }
+    const proposedVersionId = crypto.randomUUID();
+    const sameWorkScore = numericScore(input?.sameWorkScore) ?? 50;
+    const versionTypeScore = numericScore(input?.versionTypeScore) ?? 50;
+    const category = normalizeStorageCategory(candidate?.category);
+    const language = String(candidate?.language || '').trim() || null;
+    const year = Number(candidate?.year);
+    const validYear = Number.isInteger(year) && year >= 1800 && year <= 2100 ? year : null;
+    const album = String(candidate?.album || '').trim() || null;
+    const credits = candidate?.credits && typeof candidate.credits === 'object' ? candidate.credits : {};
+    await db.prepare(`
+      INSERT INTO versions(
+        id,work_id,version_key,canonical_title,canonical_artist,category,language,year,album,
+        credits_json,ai_model,same_work_score,version_type_score,decision_status,ai_reason,
+        user_verified,user_rejected
+      ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'manual-user',?11,?12,'UNCERTAIN',NULL,0,0)
+      ON CONFLICT(work_id,version_key) DO UPDATE SET
+        canonical_title=excluded.canonical_title,
+        canonical_artist=excluded.canonical_artist,
+        language=COALESCE(excluded.language,versions.language),
+        year=COALESCE(excluded.year,versions.year),
+        album=COALESCE(excluded.album,versions.album),
+        credits_json=CASE WHEN excluded.credits_json<>'{}' THEN excluded.credits_json ELSE versions.credits_json END,
+        same_work_score=MAX(versions.same_work_score,excluded.same_work_score),
+        version_type_score=MAX(versions.version_type_score,excluded.version_type_score),
+        updated_at=CURRENT_TIMESTAMP
+    `).bind(
+      proposedVersionId,
+      workId,
+      versionStorageKey(candidate),
+      candidateTitle,
+      candidateArtist,
+      category,
+      language,
+      validYear,
+      album,
+      JSON.stringify(credits),
+      sameWorkScore,
+      versionTypeScore,
+    ).run();
+    const stored = await db.prepare(
+      'SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1',
+    ).bind(workId, versionStorageKey(candidate)).first();
+    versionId = String(stored?.id || '').trim();
   }
-  if (!versionId) return { httpStatus: 404, body: { errore: 'versione non trovata' } };
+  if (!versionId) return { httpStatus: 500, body: { errore: 'versione non salvabile' } };
 
   const userVerified = status === 'APPROVED' ? 1 : 0;
   const userRejected = status === 'REJECTED' ? 1 : 0;
-  await db.prepare('UPDATE versions SET decision_status=?1,user_verified=?2,user_rejected=?3,updated_at=CURRENT_TIMESTAMP WHERE id=?4 AND work_id=?5')
-    .bind(status, userVerified, userRejected, versionId, workId).run();
-  await db.prepare(`INSERT INTO decision_history(version_id,work_id,decision_status,same_work_score,version_type_score,decided_by,reason,evidence_snapshot_json)
-    VALUES(?1,?2,?3,?4,?5,'user',?6,?7)`)
-    .bind(versionId, workId, status, input?.sameWorkScore ?? null, input?.versionTypeScore ?? null,
-      String(input?.reason || ''), JSON.stringify(input?.evidence || [])).run();
-  return { httpStatus: 200, body: { stato: 'salvato', status } };
+  await db.prepare(`
+    UPDATE versions
+    SET decision_status=?1,user_verified=?2,user_rejected=?3,
+        same_work_score=COALESCE(?4,same_work_score),
+        version_type_score=COALESCE(?5,version_type_score),
+        updated_at=CURRENT_TIMESTAMP
+    WHERE id=?6 AND work_id=?7
+  `).bind(
+    status,
+    userVerified,
+    userRejected,
+    numericScore(input?.sameWorkScore),
+    numericScore(input?.versionTypeScore),
+    versionId,
+    workId,
+  ).run();
+
+  const evidence = Array.isArray(input?.evidence) ? input.evidence : [];
+  await db.prepare(`
+    INSERT INTO decision_history(
+      version_id,work_id,decision_status,same_work_score,version_type_score,decided_by,reason,evidence_snapshot_json
+    ) VALUES(?1,?2,?3,?4,?5,'user',?6,?7)
+  `).bind(
+    versionId,
+    workId,
+    status,
+    input?.sameWorkScore ?? null,
+    input?.versionTypeScore ?? null,
+    String(input?.reason || 'manual_android_lab38b'),
+    JSON.stringify(evidence),
+  ).run();
+
+  for (const signal of evidence) {
+    const source = String(signal?.source || signal?.kind || 'manual').trim() || 'manual';
+    const kind = String(signal?.kind || 'provider_evidence').trim() || 'provider_evidence';
+    await db.prepare(`
+      INSERT INTO version_evidence(
+        version_id,work_id,source,signal_kind,strength,direction,source_url,note,payload_json
+      ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+    `).bind(
+      versionId,
+      workId,
+      source,
+      kind,
+      normalizeSignalStrength(signal?.strength || 'medium'),
+      normalizeSignalDirection(signal?.direction || 'positive'),
+      String(signal?.sourceUrl || '').trim() || null,
+      String(signal?.note || '').trim() || null,
+      JSON.stringify(signal),
+    ).run();
+  }
+
+  return { httpStatus: 200, body: { stato: 'salvato', status, workId, versionId } };
+}
+
+async function archiveSearch(request, env) {
+  if (!env.DB) return json({ stato: 'pronto', query: '', items: [] });
+  const input = await request.json().catch(() => ({}));
+  const query = String(input?.query || '').trim();
+  const requestedLimit = Number(input?.limit);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(Math.trunc(requestedLimit), 100))
+    : 60;
+  const like = `%${query}%`;
+  const rows = await env.DB.prepare(`
+    SELECT
+      v.canonical_title AS title,
+      v.canonical_artist AS artist,
+      v.category AS category,
+      v.language AS language,
+      v.year AS year,
+      v.album AS album,
+      v.decision_status AS decision_status,
+      v.same_work_score AS same_work_score,
+      v.version_type_score AS version_type_score,
+      w.canonical_title AS work_title,
+      w.original_artist AS original_artist
+    FROM versions v
+    JOIN works w ON w.id=v.work_id
+    WHERE v.user_rejected=0
+      AND (v.user_verified=1 OR v.decision_status='APPROVED')
+      AND (
+        ?1='' OR
+        v.canonical_title LIKE ?2 COLLATE NOCASE OR
+        v.canonical_artist LIKE ?2 COLLATE NOCASE OR
+        w.canonical_title LIKE ?2 COLLATE NOCASE OR
+        w.original_artist LIKE ?2 COLLATE NOCASE
+      )
+    ORDER BY v.updated_at DESC, v.canonical_artist ASC
+    LIMIT ?3
+  `).bind(query, like, limit).all();
+
+  return json({
+    stato: 'pronto',
+    query,
+    items: (rows?.results || []).map(row => ({
+      title: row.title,
+      artist: row.artist,
+      category: row.category,
+      language: row.language,
+      year: row.year,
+      album: row.album,
+      decisionStatus: row.decision_status,
+      sameWorkScore: numericScore(row.same_work_score),
+      versionTypeScore: numericScore(row.version_type_score),
+      workTitle: row.work_title,
+      originalArtist: row.original_artist,
+    })),
+  });
 }
 
 async function saveDecision(request, env) {
@@ -801,6 +988,7 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/plan') return brainPlan(request);
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/decision') return saveDecision(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/discover') return memoryDiscovery(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/v1/archive/search') return archiveSearch(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/discover/initial') return forwardDiscovery(request, env, ctx, 'initial');
     if (request.method === 'POST' && url.pathname === '/api/v1/discover/expand') return forwardDiscovery(request, env, ctx, 'expand');
     return legacyWorker.fetch(request, env, ctx);
