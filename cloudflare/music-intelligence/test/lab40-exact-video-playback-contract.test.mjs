@@ -14,7 +14,7 @@ test('LAB40 uses an exact-recording hard gate before score ranking', () => {
   assert.match(resolver, /isHardCompatible/);
   assert.match(resolver, /if \(!artistFieldMatch && !titleNamesTargetArtist\) return false/);
   assert.match(resolver, /sameVersionIntent/);
-  assert.match(resolver, /live candidate/i);
+  assert.match(resolver, /LIVE_MARKERS/);
 });
 
 test('LAB40 never uses title-only YouTube fallback when performer is known', () => {
