@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jsoup.Jsoup
 import java.text.Normalizer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -88,6 +89,7 @@ internal object CoverDiscoverySources {
         val lastFm = async(Dispatchers.IO) { discoverLastFm(cleanTitle, cleanArtist, mode) }
         val lrcLib = async(Dispatchers.IO) { discoverLrcLib(cleanTitle, cleanArtist, mode) }
         val spotify = async(Dispatchers.IO) { discoverSpotify(cleanTitle, cleanArtist, mode) }
+        val coverInfo = async(Dispatchers.IO) { discoverCoverInfo(cleanTitle, cleanArtist, mode) }
         val wikidata = async(Dispatchers.IO) { discoverWikidata(cleanTitle, cleanArtist) }
         val ai = async(Dispatchers.IO) { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) }
 
@@ -98,6 +100,7 @@ internal object CoverDiscoverySources {
                 lastFm.await(),
                 lrcLib.await(),
                 spotify.await(),
+                coverInfo.await(),
                 wikidata.await(),
                 ai.await(),
             )
@@ -422,6 +425,101 @@ internal object CoverDiscoverySources {
         }
     }
 
+    private fun discoverCoverInfo(
+        title: String,
+        originalArtist: String,
+        mode: DiscogsDirectMode,
+    ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+        val url =
+            "https://cover.info/en/search".toHttpUrl().newBuilder()
+                .addQueryParameter("find", title)
+                .build()
+                .toString()
+        val html = fetchHtml(url)
+            ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
+                "COVER.INFO",
+                false,
+                0,
+                "ricerca pubblica non disponibile",
+            )
+
+        val document = runCatching { Jsoup.parse(html, "https://cover.info") }.getOrNull()
+            ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
+                "COVER.INFO",
+                false,
+                0,
+                "HTML non leggibile",
+            )
+
+        val seenIds = linkedSetOf<String>()
+        val candidates =
+            document.select("a[href^=/en/song/], a[href^=https://cover.info/en/song/]")
+                .mapNotNull { anchor ->
+                    val absolute = anchor.absUrl("href").ifBlank { anchor.attr("href") }
+                    val cleanUrl = absolute.substringBefore('?').substringBefore('#')
+                    val match = COVER_INFO_SONG_URL.find(cleanUrl) ?: return@mapNotNull null
+                    val songId = match.groupValues[1]
+                    if (!seenIds.add(songId)) return@mapNotNull null
+
+                    val slugTitle = match.groupValues[2]
+                    val slugArtist = match.groupValues.getOrNull(3).orEmpty()
+                    val parentText =
+                        anchor.closest("fieldset")?.text()
+                            ?: anchor.parent()?.text().orEmpty()
+                    val titleFromText =
+                        anchor.text()
+                            .replace(Regex("\\s*\\((?:18|19|20)\\d{2}\\)\\s*$"), "")
+                            .trim()
+                    val candidateTitle =
+                        titleFromText.ifBlank {
+                            slugTitle.replace('-', ' ').replace(Regex("\\s+"), " ").trim()
+                        }
+                    val artistLink =
+                        anchor.closest("fieldset")
+                            ?.select("a[href*=/artist/]")
+                            ?.firstOrNull()
+                    val artist =
+                        artistLink?.text()?.trim().orEmpty().ifBlank {
+                            slugArtist.replace("-and-", " & ")
+                                .replace('-', ' ')
+                                .replace(Regex("\\s+"), " ")
+                                .trim()
+                        }
+                    if (candidateTitle.isBlank() || artist.isBlank()) return@mapNotNull null
+                    if (!modeAcceptsArtist(mode, artist, originalArtist)) return@mapNotNull null
+
+                    val year =
+                        COVER_INFO_YEAR.find(parentText)
+                            ?.value
+                            ?.toIntOrNull()
+                    val language =
+                        COVER_INFO_LANGUAGES.firstOrNull { languageName ->
+                            parentText.contains(languageName, ignoreCase = true)
+                        }
+                    val sameTitle = sameBaseTitle(title, candidateTitle)
+                    CoverSourceCandidate(
+                        title = candidateTitle,
+                        artist = artist,
+                        sources = listOf("COVER.INFO"),
+                        year = year,
+                        language = language,
+                        category =
+                            if (!sameTitle) AiCoverCategory.FOREIGN
+                            else categoryFromTitle(candidateTitle),
+                        sourceUrl = cleanUrl,
+                        evidenceScore = if (sameTitle) 4 else 5,
+                    )
+                }
+                .distinctBy { identity(it.title, it.artist, it.category) }
+
+        return candidates to CoverSourceDiagnostic(
+            name = "COVER.INFO",
+            available = true,
+            found = candidates.size,
+            note = "ricerca pubblica no-key · find= · sola discovery/evidenza",
+        )
+    }
+
     private fun discoverWikidata(
         title: String,
         originalArtist: String,
@@ -481,6 +579,21 @@ internal object CoverDiscoverySources {
             found = candidates.size,
             note = "propone soltanto; non giudica",
         )
+    }
+
+    private fun fetchHtml(url: String): String? {
+        val request =
+            Request.Builder()
+                .url(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "text/html,application/xhtml+xml")
+                .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                response.body?.string()?.takeIf(String::isNotBlank)
+            }
+        }.getOrNull()
     }
 
     private fun fetchObject(url: String): JSONObject? =
@@ -567,6 +680,16 @@ internal object CoverDiscoverySources {
     private val VERSION_NOISE =
         Regex("\\b(official|music video|video|audio|lyrics?|lyric|visualizer|remaster(?:ed)?|version|versione|cover|live|dal vivo|concert|concerto|performance|session|festival|remix|mix|rework|radio edit|extended mix|club mix|edit|acoustic|unplugged|mono|stereo|hd|hq)\\b")
 
-    private const val USER_AGENT = "MusicLab-LAB38A/1.0"
+    private val COVER_INFO_SONG_URL =
+        Regex("""https?://cover\.info/en/song/(\d+)/([^/?#]+)(?:/([^/?#]+))?""")
+    private val COVER_INFO_YEAR = Regex("""\b(?:18|19|20)\d{2}\b""")
+    private val COVER_INFO_LANGUAGES =
+        listOf(
+            "Italian", "English", "French", "Spanish", "German", "Portuguese",
+            "Dutch", "Swedish", "Norwegian", "Danish", "Finnish", "Greek",
+            "Japanese", "Korean", "Instrumental",
+        )
+
+    private const val USER_AGENT = "MusicLab-LAB38B/1.0"
     private const val CACHE_TTL_MS = 30L * 60L * 1000L
 }
