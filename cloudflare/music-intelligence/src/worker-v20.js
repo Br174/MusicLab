@@ -660,9 +660,26 @@ async function buildMemoryPayload(input, env) {
   };
   if (!env.DB) return empty;
 
-  const work = await env.DB.prepare(
+  let work = await env.DB.prepare(
     'SELECT * FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1',
   ).bind(searchKey(title, artist), MEMORY_RESOLVER_VERSION).first();
+
+  // LAB38B Work Identity fallback: if the entry point is a cover performer,
+  // reuse the canonical work only when this exact canonical title identifies
+  // one unambiguous learned work. This makes the same song converge on the
+  // same cloud archive without guessing across homonymous compositions.
+  if (!work?.id) {
+    const titlePrefix = `${canonical(title)}|%`;
+    const byTitle = await env.DB.prepare(`
+      SELECT * FROM works
+      WHERE search_key LIKE ?1
+        AND COALESCE(resolver_version,0)>=?2
+      ORDER BY updated_at DESC
+      LIMIT 2
+    `).bind(titlePrefix, MEMORY_RESOLVER_VERSION).all();
+    const matches = byTitle?.results || [];
+    if (matches.length === 1) work = matches[0];
+  }
   if (!work?.id) return empty;
 
   const queryLimit = Math.min(MAX_MEMORY_RESULTS * 2, Math.max(MAX_MEMORY_RESULTS, limit * 2));
