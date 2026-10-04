@@ -114,7 +114,6 @@ private data class DirectVersionSession(
     var listOffset: Int = 0,
     var selectedFingerprint: String? = null,
     var initialized: Boolean = false,
-    var foreignScoutComplete: Boolean = false,
     var originalWorkCredits: List<DiscogsCredit> = emptyList(),
     var stableOrder: List<String> = emptyList(),
     var visibleLimit: Int = DIRECT_VERSION_PAGE_SIZE,
@@ -335,9 +334,12 @@ internal fun DiscogsDirectVersionBrowser(
             when (category) {
                 DirectVersionCategory.ALL -> true
                 DirectVersionCategory.STUDIO ->
-                    seed.kind == DiscogsVersionKind.STUDIO || seed.kind == DiscogsVersionKind.ACOUSTIC
-                DirectVersionCategory.LIVE -> seed.kind == DiscogsVersionKind.LIVE
-                DirectVersionCategory.REMIX -> seed.kind == DiscogsVersionKind.REMIX
+                    seed.language.isNullOrBlank() &&
+                        (seed.kind == DiscogsVersionKind.STUDIO || seed.kind == DiscogsVersionKind.ACOUSTIC)
+                DirectVersionCategory.LIVE ->
+                    seed.language.isNullOrBlank() && seed.kind == DiscogsVersionKind.LIVE
+                DirectVersionCategory.REMIX ->
+                    seed.language.isNullOrBlank() && seed.kind == DiscogsVersionKind.REMIX
                 DirectVersionCategory.FOREIGN -> !seed.language.isNullOrBlank()
             }
         }
@@ -910,7 +912,7 @@ internal fun DiscogsDirectVersionBrowser(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (mode == DiscogsDirectMode.COVER) "Cover · Discogs" else "Originali · Discogs",
+                        text = if (mode == DiscogsDirectMode.COVER) "Cover · MusicLab" else "Originali · MusicLab",
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
@@ -960,6 +962,8 @@ internal fun DiscogsDirectVersionBrowser(
                         onSelected = { selected ->
                             category = selected
                             session.category = selected
+                            visibleLimit = DIRECT_VERSION_PAGE_SIZE
+                            session.visibleLimit = visibleLimit
                             scope.launch { listState.scrollToItem(0) }
                         },
                     )
@@ -969,17 +973,34 @@ internal fun DiscogsDirectVersionBrowser(
                     selected = sortMode,
                     onSelected = { selected ->
                         if (selected != sortMode) {
-                            runSearch(selected)
+                            sortMode = selected
+                            session.sortMode = selected
+                            rebuildStableOrder()
+                            visibleLimit = DIRECT_VERSION_PAGE_SIZE
+                            session.visibleLimit = visibleLimit
+                            scope.launch { listState.scrollToItem(0) }
                         }
                     },
                 )
 
-                Button(
-                    onClick = { runSearch() },
-                    enabled = !loading && discogsToken.isNotBlank(),
+                Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(if (loading) "Ricerca Discogs…" else "Cerca su Discogs")
+                    Button(
+                        onClick = { runSearch() },
+                        enabled = !loading && discogsToken.isNotBlank(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(if (loading) "Ricerca…" else "Cerca versioni")
+                    }
+                    OutlinedButton(
+                        onClick = { showSourceDiagnostics = true },
+                        enabled = sourceDiagnostics.isNotEmpty(),
+                    ) {
+                        Text("Fonti")
+                    }
                 }
 
                 error?.let {
@@ -987,18 +1008,37 @@ internal fun DiscogsDirectVersionBrowser(
                 }
 
                 if (activeCriteria != null && currentPage > 0) {
+                    val logicalBlock =
+                        ((visibleLimit.coerceAtLeast(1) - 1) / DIRECT_VERSION_PAGE_SIZE) + 1
                     Text(
-                        text = "Versioni uniche caricate: ${results.size} · Release Discogs: $totalDiscogsResults · Pagina $currentPage/$totalPages",
+                        text =
+                            "Risultati raccolti: ${results.size} · Mostrati: ${visibleResults.size} · " +
+                                "Blocco MusicLab $logicalBlock · 20 per blocco · " +
+                                "Release Discogs disponibili: $totalDiscogsResults",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    if (foreignScoutLoading) {
+                    if (sourceDiscoveryLoading) {
                         Text(
-                            "Cerco anche adattamenti e versioni in altre lingue…",
+                            "Interrogo in parallelo le fonti di scoperta e raccolgo candidati…",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    } else if (verificationJob?.isActive == true) {
+                        val pending =
+                            results.count {
+                                it.releaseId > 0 &&
+                                    it.track == null &&
+                                    !it.discogsVerificationChecked
+                            }
+                        if (pending > 0) {
+                            Text(
+                                "Verifica Discogs in background: $pending candidati ancora da controllare",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -1016,7 +1056,7 @@ internal fun DiscogsDirectVersionBrowser(
             if (!loading && activeCriteria == null && results.isEmpty()) {
                 item(key = "discogs_direct_empty_${mode.name}") {
                     Text(
-                        "Cerca direttamente nel database Discogs. Nessuna selezione AI.",
+                        "Cerca cover/versioni: MusicLab raccoglie tutte le piste e le ordina da 10 a 1 senza scarti automatici.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1027,7 +1067,7 @@ internal fun DiscogsDirectVersionBrowser(
             if (!loading && activeCriteria != null && visibleResults.isEmpty() && currentPage >= totalPages && currentPage > 0) {
                 item(key = "discogs_direct_no_results_${mode.name}") {
                     Text(
-                        "Nessuna versione Discogs trovata con questi filtri.",
+                        "Nessun candidato disponibile con questo filtro. Provo le altre pagine/fonti quando disponibili.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1052,7 +1092,14 @@ internal fun DiscogsDirectVersionBrowser(
                 )
             }
 
-            if (loadingMore || (activeCriteria != null && currentPage > 0 && currentPage < totalPages)) {
+            if (
+                loadingMore ||
+                (
+                    activeCriteria != null &&
+                        currentPage > 0 &&
+                        (orderedPool.size > visibleLimit || currentPage < totalPages)
+                    )
+            ) {
                 item(key = "discogs_direct_more_${mode.name}_${currentPage + 1}") {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -1064,10 +1111,10 @@ internal fun DiscogsDirectVersionBrowser(
                                 strokeWidth = 2.dp,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Carico altre schede Discogs…")
+                            Text("Preparo il prossimo blocco da 20 risultati…")
                         } else {
                             TextButton(onClick = ::loadNextPage) {
-                                Text("Carica altre schede")
+                                Text("Carica i prossimi 20")
                             }
                         }
                         paginationError?.let {
@@ -1083,12 +1130,13 @@ internal fun DiscogsDirectVersionBrowser(
                 activeCriteria != null &&
                 currentPage > 0 &&
                 currentPage >= totalPages &&
+                orderedPool.size <= visibleLimit &&
                 !loading &&
                 !loadingMore
             ) {
                 item(key = "discogs_direct_end_${mode.name}") {
                     Text(
-                        "Tutte le pagine Discogs disponibili sono state caricate.",
+                        "Fine dei risultati attualmente raccolti. Nessun candidato è stato eliminato automaticamente.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -1101,6 +1149,13 @@ internal fun DiscogsDirectVersionBrowser(
         DiscogsVersionDetailsDialog(
             seed = seed,
             onDismiss = { detailSeed = null },
+        )
+    }
+
+    if (showSourceDiagnostics) {
+        SourceDiagnosticsDialog(
+            diagnostics = sourceDiagnostics,
+            onDismiss = { showSourceDiagnostics = false },
         )
     }
 
@@ -1143,8 +1198,20 @@ private fun DiscogsVersionDetailsDialog(
                 Text("Formato: ${seed.formats.joinToString().ifBlank { "non disponibile" }}")
                 Text("Etichetta: ${seed.labels.joinToString().ifBlank { "non disponibile" }}")
                 Text("Lingua/adattamento: ${seed.language ?: "non disponibile"}")
-                Text("Discogs Release: ${seed.releaseId}")
-                Text("Discogs Master: ${seed.masterId ?: "non disponibile"}")
+                Text("Fonti: ${seed.sourceNames.joinToString().ifBlank { "non disponibile" }}")
+                Text(
+                    "Stato evidenza: " +
+                        when {
+                            seed.track != null -> "tracklist Discogs verificata"
+                            seed.releaseId > 0 && seed.discogsVerificationChecked -> "Discogs controllato, corrispondenza non confermata"
+                            seed.releaseId > 0 -> "candidato Discogs in verifica"
+                            else -> "candidato da fonte esterna"
+                        },
+                )
+                if (seed.releaseId > 0) {
+                    Text("Discogs Release: ${seed.releaseId}")
+                    Text("Discogs Master: ${seed.masterId ?: "non disponibile"}")
+                }
                 Text("Video: ${seed.resolvedVideoTitle ?: "in verifica / non disponibile"}")
                 Text("Fonte video: ${seed.resolvedVideoSource ?: "non disponibile"}")
                 Text(creditsText)
@@ -1157,14 +1224,52 @@ private fun DiscogsVersionDetailsDialog(
 }
 
 @Composable
+private fun SourceDiagnosticsDialog(
+    diagnostics: List<CoverSourceDiagnostic>,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Chiudi")
+            }
+        },
+        title = { Text("Fonti della ricerca") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                diagnostics.forEach { diagnostic ->
+                    val state = if (diagnostic.available) "✅" else "⚪"
+                    Text(
+                        "$state ${diagnostic.name} · ${diagnostic.found}" +
+                            diagnostic.note.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Text(
+                    "Le fonti propongono o rafforzano candidati. Nessuna fonte e nessuna AI elimina automaticamente un risultato.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+    )
+}
+
+@Composable
 private fun DirectCategorySelector(
     selected: DirectVersionCategory,
     results: List<DiscogsVersionSeed>,
     onSelected: (DirectVersionCategory) -> Unit,
 ) {
-    val studio = results.count { it.kind == DiscogsVersionKind.STUDIO || it.kind == DiscogsVersionKind.ACOUSTIC }
-    val live = results.count { it.kind == DiscogsVersionKind.LIVE }
-    val remix = results.count { it.kind == DiscogsVersionKind.REMIX }
+    val studio =
+        results.count {
+            it.language.isNullOrBlank() &&
+                (it.kind == DiscogsVersionKind.STUDIO || it.kind == DiscogsVersionKind.ACOUSTIC)
+        }
+    val live = results.count { it.language.isNullOrBlank() && it.kind == DiscogsVersionKind.LIVE }
+    val remix = results.count { it.language.isNullOrBlank() && it.kind == DiscogsVersionKind.REMIX }
+    val foreign = results.count { !it.language.isNullOrBlank() }
 
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1181,6 +1286,9 @@ private fun DirectCategorySelector(
         }
         DirectChip("Mix · $remix", selected == DirectVersionCategory.REMIX) {
             onSelected(DirectVersionCategory.REMIX)
+        }
+        DirectChip("Straniere · $foreign", selected == DirectVersionCategory.FOREIGN) {
+            onSelected(DirectVersionCategory.FOREIGN)
         }
     }
 }
