@@ -824,9 +824,9 @@ internal object DiscogsVersionSource {
         val shared = originalNames.intersect(candidateNames)
         if (shared.isEmpty()) return seed
 
-        val bonus = if (shared.size >= 2) 2 else 1
         return seed.copy(
-            confidenceScore = (seed.confidenceScore + bonus).coerceAtMost(10),
+            // Evidence may become available after the row is already visible. Keep the
+            // score stable so background enrichment never makes the card jump position.
             confidenceReasons = (
                 seed.confidenceReasons +
                     "Crediti dell'opera coincidenti: " + shared.joinToString(", ")
