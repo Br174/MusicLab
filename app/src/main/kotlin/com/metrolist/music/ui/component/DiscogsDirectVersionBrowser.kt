@@ -371,6 +371,26 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
+    LaunchedEffect(
+        activeCriteria,
+        currentPage,
+        totalPages,
+        results.size,
+        loading,
+        loadingMore,
+    ) {
+        if (
+            activeCriteria != null &&
+            currentPage > 0 &&
+            currentPage < totalPages &&
+            results.isEmpty() &&
+            !loading &&
+            !loadingMore
+        ) {
+            loadNextPage()
+        }
+    }
+
     LaunchedEffect(sessionKey, discogsToken) {
         if (
             !session.initialized &&
