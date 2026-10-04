@@ -40,8 +40,10 @@ test('LAB39 retries LRCLIB once and reports reachable empty results separately',
 });
 
 test('LAB39 build fails if Last.fm secrets are absent and verifies generated BuildConfig', () => {
-  assert.match(workflow, /LASTFM_API_KEY: \$\{\{ secrets\.LASTFM_API_KEY \}\}/);
-  assert.match(workflow, /LASTFM_SECRET: \$\{\{ secrets\.LASTFM_SECRET \}\}/);
+  assert.match(workflow, /LASTFM_API_KEY:[^\n]*secrets\.LASTFM_API_KEY/);
+  assert.match(workflow, /LASTFM_SECRET:[^\n]*secrets\.LASTFM_SECRET/);
+  assert.match(workflow, /vars\.LASTFM_API_KEY/);
+  assert.match(workflow, /vars\.LASTFM_SECRET/);
   assert.match(workflow, /test -n "\$LASTFM_API_KEY"/);
   assert.match(workflow, /test -n "\$LASTFM_SECRET"/);
   assert.match(workflow, /LASTFM_API_KEY=%s/);
