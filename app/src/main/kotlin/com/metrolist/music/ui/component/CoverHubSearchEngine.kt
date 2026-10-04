@@ -22,6 +22,11 @@ internal enum class CoverHubMode {
 internal data class CoverHubResult(
     val song: SongItem,
     val year: Int? = null,
+    val releaseDate: String? = null,
+    val releaseTitle: String? = null,
+    val discogsReleaseId: Int? = null,
+    val discogsMasterId: Int? = null,
+    val versionFingerprint: String? = null,
     val source: String = "MusicLab",
     val confirmed: Boolean = false,
     val score: Double = 0.0,
