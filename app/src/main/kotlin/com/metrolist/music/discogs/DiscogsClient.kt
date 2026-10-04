@@ -165,19 +165,28 @@ internal object DiscogsClient {
     suspend fun getRelease(
         token: String,
         releaseId: Int,
+        includeMasterVideos: Boolean = true,
     ): Result<DiscogsCompilationDetail> = withContext(Dispatchers.IO) {
-        detailCache[releaseId]?.let { return@withContext Result.success(it) }
+        if (includeMasterVideos) {
+            detailCache[releaseId]?.let { return@withContext Result.success(it) }
+        } else {
+            detailCache[releaseId]?.let { return@withContext Result.success(it) }
+        }
 
         runCatching {
             require(token.isNotBlank()) { "Token Discogs mancante" }
             val root = requestJson("$API_BASE/releases/$releaseId", token)
-            val detail = parseRelease(root, token)
-            detailCache[releaseId] = detail
+            val detail = parseRelease(root, token, includeMasterVideos)
+            if (includeMasterVideos) detailCache[releaseId] = detail
             detail
         }
     }
 
-    private fun parseRelease(root: JSONObject, token: String): DiscogsCompilationDetail {
+    private fun parseRelease(
+        root: JSONObject,
+        token: String,
+        includeMasterVideos: Boolean = true,
+    ): DiscogsCompilationDetail {
         val releaseArtists = root.artistNames()
         val masterId = root.optInt("master_id").takeIf { it > 0 }
 
@@ -203,7 +212,7 @@ internal object DiscogsClient {
         }
 
         var videos = root.videoList()
-        if (videos.isEmpty() && masterId != null) {
+        if (videos.isEmpty() && masterId != null && includeMasterVideos) {
             videos = runCatching {
                 requestJsonBlocking("$API_BASE/masters/$masterId", token).videoList()
             }.getOrDefault(emptyList())
