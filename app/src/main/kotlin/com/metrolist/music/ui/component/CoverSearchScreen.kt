@@ -1592,10 +1592,45 @@ private fun mergePlayables(
     val merged = linkedMapOf<String, AiCoverPlayable>()
 
     fun add(playable: AiCoverPlayable) {
-        val semanticKey = playableSemanticVersionKey(playable)
-        val previous = merged[semanticKey]
-        merged[semanticKey] =
-            if (previous == null || candidateRichness(playable.candidate) >= candidateRichness(previous.candidate)) {
+        val candidate = playable.candidate
+        val semantic = semanticFallbackVersionKey(playable)
+        val fingerprint = candidate.versionFingerprint?.takeIf(String::isNotBlank)
+
+        if (fingerprint != null) {
+            val exactKey = "discogs|$fingerprint"
+            val exactPrevious = merged[exactKey]
+            if (exactPrevious != null) {
+                if (candidateRichness(candidate) >= candidateRichness(exactPrevious.candidate)) {
+                    merged[exactKey] = playable
+                }
+                return
+            }
+
+            // If a fallback row already describes this semantic version, replace
+            // that row with the Discogs-backed identity. Other Discogs
+            // fingerprints with the same title remain separate real versions.
+            val fallbackKey = "semantic|$semantic"
+            val fallback = merged.remove(fallbackKey)
+            merged[exactKey] =
+                if (fallback == null || candidateRichness(candidate) >= candidateRichness(fallback.candidate)) {
+                    playable
+                } else {
+                    fallback.copy(candidate = candidate)
+                }
+            return
+        }
+
+        // A non-Discogs locator must not create a duplicate if Discogs has
+        // already documented the same semantic recording.
+        val documented = merged.entries.firstOrNull { (key, existing) ->
+            key.startsWith("discogs|") && semanticFallbackVersionKey(existing) == semantic
+        }
+        if (documented != null) return
+
+        val key = "semantic|$semantic"
+        val previous = merged[key]
+        merged[key] =
+            if (previous == null || candidateRichness(candidate) >= candidateRichness(previous.candidate)) {
                 playable
             } else {
                 previous
@@ -1607,24 +1642,14 @@ private fun mergePlayables(
     return merged.values.toList()
 }
 
-private fun playableSemanticVersionKey(playable: AiCoverPlayable): String {
+private fun semanticFallbackVersionKey(playable: AiCoverPlayable): String {
     val candidate = playable.candidate
     val title = semanticToken(candidate.title)
     val artist = semanticToken(candidate.artist)
     val album = semanticToken(candidate.discogsReleaseTitle ?: candidate.album.orEmpty())
     val category = candidate.category.name.lowercase()
     val durationBucket = playable.song.duration?.let { (it / 5).toString() }.orEmpty()
-
-    // Discogs fingerprint is authoritative when present. The human-readable
-    // semantic tail lets the same documented version merge with a fallback
-    // source that localized a different YouTube upload of that recording.
-    val semantic = listOf(title, artist, category, album, durationBucket).joinToString("|")
-    val fingerprint = candidate.versionFingerprint
-    return if (!fingerprint.isNullOrBlank()) {
-        "discogs|$fingerprint|$semantic"
-    } else {
-        "semantic|$semantic"
-    }
+    return listOf(title, artist, category, album, durationBucket).joinToString("|")
 }
 
 private fun semanticToken(value: String): String =
@@ -1664,15 +1689,6 @@ private fun syncPlayableCandidateMetadata(
     }
 }
 
-private fun semanticFallbackVersionKey(playable: AiCoverPlayable): String {
-    val candidate = playable.candidate
-    val title = semanticToken(candidate.title)
-    val artist = semanticToken(candidate.artist)
-    val album = semanticToken(candidate.discogsReleaseTitle ?: candidate.album.orEmpty())
-    val category = candidate.category.name.lowercase()
-    val durationBucket = playable.song.duration?.let { (it / 5).toString() }.orEmpty()
-    return listOf(title, artist, category, album, durationBucket).joinToString("|")
-}
 
 private fun candidateRichness(candidate: AiCoverCandidate): Int {
     var score = 0
