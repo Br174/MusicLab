@@ -1,6 +1,8 @@
 package com.metrolist.music.ui.component
 
+import com.metrolist.music.discogs.DiscogsTrack
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,6 +73,24 @@ class DiscogsVersionSourceTest {
         assertTrue(result.map { it.kind }.toSet().containsAll(
             setOf(DiscogsVersionKind.STUDIO, DiscogsVersionKind.LIVE, DiscogsVersionKind.REMIX),
         ))
+    }
+
+    @Test
+    fun `unverified release candidate is never admissible as a direct version`() {
+        val unverified = seed(releaseId = 9)
+        assertFalse(DiscogsVersionSource.isVerifiedDirectSeed(unverified))
+
+        val verified = unverified.copy(
+            confidenceScore = 7,
+            track = DiscogsTrack(
+                position = "A1",
+                title = "Canzone",
+                artists = listOf("Artista"),
+                durationText = "4:00",
+                durationSeconds = 240,
+            ),
+        )
+        assertTrue(DiscogsVersionSource.isVerifiedDirectSeed(verified))
     }
 
     @Test
