@@ -2,6 +2,7 @@ package com.metrolist.music.ui.component
 
 import com.metrolist.music.discogs.DiscogsClient
 import com.metrolist.music.discogs.DiscogsCompilationDetail
+import com.metrolist.music.discogs.DiscogsCredit
 import com.metrolist.music.discogs.DiscogsReleaseSummary
 import com.metrolist.music.discogs.DiscogsTrack
 import com.metrolist.music.discogs.DiscogsVideo
@@ -66,6 +67,13 @@ internal data class DiscogsVersionSeed(
     val fingerprint: String,
     val track: DiscogsTrack? = null,
     val videos: List<DiscogsVideo> = emptyList(),
+    val credits: List<DiscogsCredit> = emptyList(),
+    val language: String? = null,
+    val confidenceScore: Int = 1,
+    val confidenceReasons: List<String> = emptyList(),
+    val resolvedVideoId: String? = null,
+    val resolvedVideoTitle: String? = null,
+    val resolvedVideoSource: String? = null,
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
@@ -131,6 +139,47 @@ internal object DiscogsVersionSource {
         }
     }
 
+    suspend fun loadReferenceSeeds(
+        token: String,
+        referenceTitle: String,
+        referenceArtist: String,
+        originalArtist: String,
+        adaptedTitle: Boolean,
+        page: Int = 1,
+        perPage: Int = 12,
+    ): List<DiscogsVersionSeed> {
+        if (token.isBlank() || referenceTitle.isBlank() || referenceArtist.isBlank()) return emptyList()
+        val releasePage = DiscogsClient.searchReleases(
+            token = token,
+            track = referenceTitle,
+            artist = referenceArtist,
+            page = page.coerceAtLeast(1),
+            perPage = perPage.coerceIn(1, 30),
+            sort = null,
+            sortOrder = null,
+        ).getOrNull() ?: return emptyList()
+
+        return dedupeVersions(
+            releasePage.items.mapNotNull { summary ->
+                seedFromSearchSummary(
+                    summary = summary,
+                    targetTitle = referenceTitle,
+                    mode = DiscogsDirectMode.COVER,
+                    originalArtist = originalArtist,
+                )?.copy(
+                    artist = referenceArtist.trim(),
+                    trackTitle = referenceTitle.trim(),
+                    language = if (adaptedTitle) "altra lingua / adattamento" else null,
+                    confidenceScore = if (adaptedTitle) 7 else 6,
+                    confidenceReasons = listOf(
+                        if (adaptedTitle) "AI: adattamento della stessa opera" else "AI: possibile cover documentata",
+                        "Discogs: release trovata per interprete e titolo candidati",
+                    ),
+                )
+            },
+        )
+    }
+
     suspend fun enrichSeedMetadata(
         token: String,
         seed: DiscogsVersionSeed,
@@ -157,17 +206,30 @@ internal object DiscogsVersionSource {
         ).firstOrNull()
 
         return if (detailed != null) {
-            detailed.copy(fingerprint = seed.fingerprint)
+            recalculateConfidence(
+                seed = detailed.copy(
+                    language = seed.language,
+                    confidenceScore = maxOf(seed.confidenceScore, detailed.confidenceScore),
+                    confidenceReasons = (seed.confidenceReasons + detailed.confidenceReasons).distinct(),
+                ),
+                mode = mode,
+                originalArtist = originalArtist,
+            )
         } else {
-            seed.copy(
-                releaseDate = detail.releaseDate ?: seed.releaseDate,
-                year = detail.year ?: seed.year,
-                country = detail.country ?: seed.country,
-                formats = detail.formats.ifEmpty { seed.formats },
-                formatDescriptions = detail.formatDescriptions.ifEmpty { seed.formatDescriptions },
-                labels = detail.labels.ifEmpty { seed.labels },
-                coverUrl = detail.coverUrl ?: seed.coverUrl,
-                videos = detail.videos,
+            recalculateConfidence(
+                seed = seed.copy(
+                    releaseDate = detail.releaseDate ?: seed.releaseDate,
+                    year = detail.year ?: seed.year,
+                    country = detail.country ?: seed.country,
+                    formats = detail.formats.ifEmpty { seed.formats },
+                    formatDescriptions = detail.formatDescriptions.ifEmpty { seed.formatDescriptions },
+                    labels = detail.labels.ifEmpty { seed.labels },
+                    coverUrl = detail.coverUrl ?: seed.coverUrl,
+                    videos = detail.videos,
+                    credits = detail.credits,
+                ),
+                mode = mode,
+                originalArtist = originalArtist,
             )
         }
     }
@@ -203,12 +265,6 @@ internal object DiscogsVersionSource {
             }.trim()
         if (artist.isBlank()) return null
 
-        if (mode == DiscogsDirectMode.COVER &&
-            originalArtist.isNotBlank() &&
-            sameArtist(artist, originalArtist)
-        ) {
-            return null
-        }
         if (mode == DiscogsDirectMode.ORIGINAL &&
             originalArtist.isNotBlank() &&
             !sameArtist(artist, originalArtist)
@@ -230,6 +286,13 @@ internal object DiscogsVersionSource {
             masterId = summary.masterId,
             kind = kind,
         )
+        val confidence = initialConfidence(
+            mode = mode,
+            artist = artist,
+            originalArtist = originalArtist,
+            kind = kind,
+            hasMaster = summary.masterId != null,
+        )
 
         return DiscogsVersionSeed(
             trackTitle = targetTitle,
@@ -249,6 +312,8 @@ internal object DiscogsVersionSource {
             fingerprint = fingerprint,
             track = null,
             videos = emptyList(),
+            confidenceScore = confidence.first,
+            confidenceReasons = confidence.second,
         )
     }
 
@@ -269,7 +334,12 @@ internal object DiscogsVersionSource {
         masterId: Int?,
         kind: DiscogsVersionKind,
     ): String {
-        val releaseGroup = masterId?.let { "m$it" } ?: canonicalReleaseContext(releaseTitle)
+        val releaseGroup =
+            if (kind == DiscogsVersionKind.STUDIO) {
+                ""
+            } else {
+                masterId?.let { "m$it" } ?: canonicalReleaseContext(releaseTitle)
+            }
         val qualifier = versionQualifier(releaseTitle)
         return listOf(
             canonicalBaseTitle(trackTitle),
@@ -506,6 +576,10 @@ internal object DiscogsVersionSource {
                 fingerprint = fingerprint,
                 track = track,
                 videos = detail.videos,
+                credits = (track.credits + detail.credits).distinctBy { credit ->
+                    listOf(credit.name.lowercase(), credit.role.lowercase(), credit.tracks.orEmpty().lowercase())
+                        .joinToString("|")
+                },
             )
         }
     }
@@ -631,6 +705,127 @@ internal object DiscogsVersionSource {
             .replace(Regex("\\s+"), " ")
             .trim()
 
+    internal fun markVideoResolved(
+        seed: DiscogsVersionSeed,
+        videoId: String,
+        videoTitle: String,
+        source: String,
+    ): DiscogsVersionSeed =
+        seed.copy(
+            resolvedVideoId = videoId,
+            resolvedVideoTitle = videoTitle,
+            resolvedVideoSource = source,
+            confidenceScore = (seed.confidenceScore + 1).coerceAtMost(10),
+            confidenceReasons = (seed.confidenceReasons + "Video unico verificato: $source").distinct(),
+        )
+
+    private fun initialConfidence(
+        mode: DiscogsDirectMode,
+        artist: String,
+        originalArtist: String,
+        kind: DiscogsVersionKind,
+        hasMaster: Boolean,
+    ): Pair<Int, List<String>> {
+        var score = 1
+        val reasons = mutableListOf<String>()
+        val genericArtist = isGenericArtist(artist)
+
+        if (!genericArtist) {
+            score += 2
+            reasons += "Interprete nominativo"
+        } else {
+            reasons += "Interprete generico/Various: da verificare nella tracklist"
+        }
+
+        when (mode) {
+            DiscogsDirectMode.COVER -> {
+                if (!genericArtist && !sameArtist(artist, originalArtist)) {
+                    score += 3
+                    reasons += "Interprete diverso dall'originale"
+                } else if (!genericArtist && kind != DiscogsVersionKind.STUDIO) {
+                    score += 2
+                    reasons += "Stesso interprete ma variante esplicita"
+                }
+            }
+            DiscogsDirectMode.ORIGINAL -> {
+                if (!genericArtist && sameArtist(artist, originalArtist)) {
+                    score += 3
+                    reasons += "Interprete originale coincidente"
+                }
+            }
+        }
+
+        if (kind != DiscogsVersionKind.STUDIO) {
+            score += 1
+            reasons += "Tipo di versione distinto: ${kind.name.lowercase()}"
+        }
+        if (hasMaster) {
+            score += 1
+            reasons += "Relazione Master Discogs"
+        }
+        return score.coerceIn(1, 8) to reasons.distinct()
+    }
+
+    private fun recalculateConfidence(
+        seed: DiscogsVersionSeed,
+        mode: DiscogsDirectMode,
+        originalArtist: String,
+    ): DiscogsVersionSeed {
+        var score = seed.confidenceScore.coerceAtLeast(1)
+        val reasons = seed.confidenceReasons.toMutableList()
+
+        if (seed.track != null) {
+            score += 1
+            reasons += "Traccia esatta verificata nella release"
+        }
+        if (!isGenericArtist(seed.artist)) {
+            score += 1
+        }
+        when (mode) {
+            DiscogsDirectMode.COVER -> {
+                if (!isGenericArtist(seed.artist) && !sameArtist(seed.artist, originalArtist)) {
+                    score += 2
+                    reasons += "Cover: interprete realmente diverso"
+                } else if (
+                    !isGenericArtist(seed.artist) &&
+                    sameArtist(seed.artist, originalArtist) &&
+                    seed.kind != DiscogsVersionKind.STUDIO
+                ) {
+                    score += 2
+                    reasons += "Versione alternativa dell'interprete originale"
+                }
+            }
+            DiscogsDirectMode.ORIGINAL -> {
+                if (!isGenericArtist(seed.artist) && sameArtist(seed.artist, originalArtist)) {
+                    score += 2
+                    reasons += "Originali: interprete verificato"
+                }
+            }
+        }
+
+        val strongCredit = seed.credits.any { credit ->
+            CREDIT_IDENTITY_REGEX.containsMatchIn(credit.role.lowercase())
+        }
+        if (strongCredit) {
+            score += 1
+            reasons += "Crediti autore/compositore/adattamento presenti"
+        }
+
+        return seed.copy(
+            confidenceScore = score.coerceIn(1, 9),
+            confidenceReasons = reasons.distinct(),
+        )
+    }
+
+    private fun isGenericArtist(value: String): Boolean {
+        val normalized = canonical(value)
+        return normalized.isBlank() ||
+            normalized == "various" ||
+            normalized == "various artists" ||
+            normalized == "unknown" ||
+            normalized == "artisti vari"
+    }
+
     private fun metadataRichness(seed: DiscogsVersionSeed): Int =
         (if (!seed.releaseDate.isNullOrBlank()) 4 else 0) +
             (if (!seed.coverUrl.isNullOrBlank()) 2 else 0) +
@@ -655,6 +850,8 @@ internal object DiscogsVersionSource {
             .trim()
             .replace(Regex("\\s+"), " ")
 
+    private val CREDIT_IDENTITY_REGEX =
+        Regex("\\b(written|writer|songwriter|composed|composer|lyrics|lyricist|adapted|adapter|translated|translator|music by|words by)\\b")
     private val VERSION_NOISE_REGEX =
         Regex("\\b(official|music video|video|audio|lyrics?|lyric|visualizer|remaster(?:ed)?|version|versione|cover|live|dal vivo|concert|concerto|performance|session|festival|remix|mix|rework|radio edit|extended mix|club mix|edit|acoustic|unplugged|mono|stereo|hd|hq)\\b")
     private val VERSION_QUALIFIER_REGEX =
