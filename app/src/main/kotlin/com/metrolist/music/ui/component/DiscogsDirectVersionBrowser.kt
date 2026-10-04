@@ -193,6 +193,7 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     var title by remember(sessionKey) { mutableStateOf(session.title) }
+    var resolvedOriginalArtist by remember(sessionKey) { mutableStateOf(lockedArtist) }
     var artistFilter by remember(sessionKey) { mutableStateOf(session.artistFilter) }
     var releaseTitle by remember(sessionKey) { mutableStateOf(session.releaseTitle) }
     var year by remember(sessionKey) { mutableStateOf(session.year) }
@@ -592,7 +593,7 @@ internal fun DiscogsDirectVersionBrowser(
                             seed = pending,
                             targetTitle = title,
                             mode = mode,
-                            originalArtist = lockedArtist,
+                            originalArtist = resolvedOriginalArtist,
                         )
                     replaceSeed(updated)
                     if (updated.track != null) {
@@ -609,7 +610,7 @@ internal fun DiscogsDirectVersionBrowser(
             Toast.makeText(context, "Archivio cloud non configurato.", Toast.LENGTH_SHORT).show()
             return
         }
-        if (lockedArtist.isBlank() || title.isBlank()) {
+        if (resolvedOriginalArtist.isBlank() || title.isBlank()) {
             Toast.makeText(context, "Opera originale non identificata.", Toast.LENGTH_SHORT).show()
             return
         }
@@ -619,7 +620,7 @@ internal fun DiscogsDirectVersionBrowser(
             val saved =
                 CloudMusicDiscovery.saveBrainDecision(
                     originalTitle = title,
-                    originalArtist = lockedArtist,
+                    originalArtist = resolvedOriginalArtist,
                     candidate = candidate,
                     status = status,
                     config = config,
@@ -723,7 +724,7 @@ internal fun DiscogsDirectVersionBrowser(
             token = discogsToken,
             mode = mode,
             criteria = criteria,
-            originalArtist = lockedArtist,
+            originalArtist = resolvedOriginalArtist,
             page = page,
             perPage = DIRECT_VERSION_PAGE_SIZE,
             sort = discogsSort,
@@ -774,7 +775,7 @@ internal fun DiscogsDirectVersionBrowser(
             error = "Inserisci il titolo del brano."
             return
         }
-        if (lockedArtist.isBlank()) {
+        if (resolvedOriginalArtist.isBlank()) {
             error = "Interprete originale di riferimento mancante."
             return
         }
@@ -823,13 +824,21 @@ internal fun DiscogsDirectVersionBrowser(
                     runCatching {
                         CloudMusicDiscovery.discoverMemoryState(
                             title = criteria.title,
-                            artist = lockedArtist,
+                            artist = resolvedOriginalArtist,
                             config = config,
                             mode = if (mode == DiscogsDirectMode.ORIGINAL) "originals" else "cover",
                             limit = 150,
                         )
                     }.getOrNull()
                 }
+
+            memoryState
+                ?.discovery
+                ?.original
+                ?.artist
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.let { resolvedOriginalArtist = it }
 
             session.rejectedKeys.clear()
             session.rejectedKeys.addAll(memoryState?.rejectedKeys.orEmpty())
@@ -894,7 +903,7 @@ internal fun DiscogsDirectVersionBrowser(
                 async(kotlinx.coroutines.Dispatchers.IO) {
                     CoverDiscoverySources.discover(
                         title = criteria.title,
-                        originalArtist = lockedArtist,
+                        originalArtist = resolvedOriginalArtist,
                         mode = mode,
                         aiConfig = foreignScoutConfig,
                     )
@@ -1000,7 +1009,7 @@ internal fun DiscogsDirectVersionBrowser(
                         seed = currentSeed,
                         targetTitle = title,
                         mode = mode,
-                        originalArtist = lockedArtist,
+                        originalArtist = resolvedOriginalArtist,
                     )
                 replaceSeed(verified)
                 currentSeed =
@@ -1163,14 +1172,14 @@ internal fun DiscogsDirectVersionBrowser(
 
                 if (mode == DiscogsDirectMode.ORIGINAL) {
                     Text(
-                        text = "Artista fisso: $lockedArtist",
+                        text = "Artista fisso: $resolvedOriginalArtist",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
                     )
-                } else if (lockedArtist.isNotBlank()) {
+                } else if (resolvedOriginalArtist.isNotBlank()) {
                     Text(
-                        text = "Interprete originale di riferimento: $lockedArtist",
+                        text = "Interprete originale di riferimento: $resolvedOriginalArtist",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
