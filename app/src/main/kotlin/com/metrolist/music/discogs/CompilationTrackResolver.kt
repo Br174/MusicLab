@@ -286,11 +286,74 @@ internal object CompilationTrackResolver {
         songs
             .asSequence()
             .filterNot { it.id in excludedVideoIds }
-            .filterNot { BAD_VIDEO_MARKERS.containsMatchIn(normalize(it.title)) }
+            .filter { isHardCompatible(track, it) }
             .map { it to scoreSong(track, it, relaxedArtist) }
             .filter { it.second >= if (relaxedArtist) RELAXED_MIN_SCORE else NORMAL_MIN_SCORE }
             .maxByOrNull { it.second }
             ?.first
+
+    internal fun isHardCompatible(
+        track: DiscogsTrack,
+        song: SongItem,
+    ): Boolean {
+        val targetTitle = normalize(track.title)
+        val songTitle = normalize(song.title)
+        if (targetTitle.isBlank() || songTitle.isBlank()) return false
+
+        val titleCompatible =
+            songTitle == targetTitle ||
+                songTitle.contains(targetTitle) ||
+                targetTitle.contains(songTitle) ||
+                tokenOverlap(targetTitle, songTitle) >= 0.78
+        if (!titleCompatible) return false
+
+        if (BAD_VIDEO_MARKERS.containsMatchIn(songTitle)) return false
+        if (!sameVersionIntent(targetTitle, songTitle)) return false
+
+        val targetArtists = track.artists.map(::normalize).filter(String::isNotBlank)
+        if (targetArtists.isNotEmpty()) {
+            val songArtists = song.artists.map { normalize(it.name) }.filter(String::isNotBlank)
+            val artistFieldMatch =
+                targetArtists.any { wanted ->
+                    songArtists.any { actual ->
+                        actual == wanted || actual.contains(wanted) || wanted.contains(actual)
+                    }
+                }
+            val titleNamesTargetArtist =
+                targetArtists.any { wanted -> wanted.length >= 3 && songTitle.contains(wanted) }
+
+            // Exact Recording rule: an explicit target performer must be evidenced either
+            // by YouTube Music metadata or by the video title. A same-title recording by
+            // another performer is not a playable match.
+            if (!artistFieldMatch && !titleNamesTargetArtist) return false
+        }
+
+        val expected = track.durationSeconds
+        val actual = song.duration
+        if (expected != null && actual != null && expected > 0 && actual > 0) {
+            val liveIntent = LIVE_MARKERS.containsMatchIn(targetTitle)
+            val tolerance = if (liveIntent) maxOf(90, (expected * 0.35).toInt()) else maxOf(60, (expected * 0.25).toInt())
+            if (abs(expected - actual) > tolerance) return false
+        }
+        return true
+    }
+
+    private fun sameVersionIntent(
+        targetTitle: String,
+        candidateTitle: String,
+    ): Boolean {
+        val markerPairs =
+            listOf(
+                LIVE_MARKERS,
+                REMIX_MARKERS,
+                ACOUSTIC_MARKERS,
+                INSTRUMENTAL_MARKERS,
+                SPEED_MARKERS,
+            )
+        return markerPairs.all { marker ->
+            marker.containsMatchIn(targetTitle) == marker.containsMatchIn(candidateTitle)
+        }
+    }
 
     internal fun scoreSong(
         track: DiscogsTrack,
@@ -428,15 +491,21 @@ internal object CompilationTrackResolver {
     internal fun searchQueries(track: DiscogsTrack): List<String> {
         val title = track.title.trim()
         val artist = track.artists.firstOrNull().orEmpty().trim()
+        if (artist.isBlank()) return listOf(title).filter(String::isNotBlank)
+
+        // Exact Recording Resolver: retrieval may broaden, identity never does.
+        // Every query keeps the target performer; title-only lookup is deliberately
+        // excluded from automatic playback resolution.
         return listOf(
-            listOf(artist, title).filter(String::isNotBlank).joinToString(" "),
-            listOf(title, artist).filter(String::isNotBlank).joinToString(" "),
-            title,
+            "$artist $title",
+            "$title $artist",
+            "$artist $title official audio",
+            "$artist $title official",
+            "$artist $title topic",
         )
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
-            .take(3)
     }
 
     private fun normalize(value: String): String {
@@ -456,7 +525,17 @@ internal object CompilationTrackResolver {
     }
 
     private val BAD_VIDEO_MARKERS =
-        Regex("\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing)\\b")
+        Regex("\\b(karaoke|reaction|tutorial|lesson|backing track|instrumental backing|tribute|fan made|fanmade)\\b")
+    private val LIVE_MARKERS =
+        Regex("\\b(live|dal vivo|en vivo|ao vivo|concert|concerto)\\b")
+    private val REMIX_MARKERS =
+        Regex("\\b(remix|mix|edit|extended|club mix|radio edit)\\b")
+    private val ACOUSTIC_MARKERS =
+        Regex("\\b(acoustic|acustic[oa])\\b")
+    private val INSTRUMENTAL_MARKERS =
+        Regex("\\b(instrumental|strumentale)\\b")
+    private val SPEED_MARKERS =
+        Regex("\\b(sped up|speed up|slowed|nightcore)\\b")
     private val FULL_AUDIO_MARKERS =
         Regex("\\b(full album|full compilation|complete album|full lp|album completo|compilation completa|intero album|album intero)\\b")
 
