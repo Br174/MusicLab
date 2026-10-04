@@ -40,9 +40,9 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run LAB40 regression and LAB41 player restore contracts
+      - name: Run active LAB41 player restore and inherited-behavior contract
         run: |
-          node --test             cloudflare/music-intelligence/test/lab40-exact-video-playback-contract.test.mjs             cloudflare/music-intelligence/test/lab41-lab07-fast-player-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab41-lab07-fast-player-contract.test.mjs
 
       - uses: actions/setup-java@v4
         with:
