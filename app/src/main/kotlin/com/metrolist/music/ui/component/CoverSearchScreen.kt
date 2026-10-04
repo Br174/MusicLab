@@ -56,6 +56,7 @@ import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.DEFAULT_MUSIC_AI_CLOUD_ENDPOINT
+import com.metrolist.music.constants.DiscogsTokenKey
 import com.metrolist.music.constants.MusicAiCoverEnabledKey
 import com.metrolist.music.constants.MusicAiCloudEndpointKey
 import com.metrolist.music.constants.MusicAiCloudMemoryEnabledKey
@@ -174,6 +175,7 @@ internal fun CoverSearchScreen(
     val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
     val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
     val titleTapSearchEnabled by rememberPreference(TitleTapSearchEnabledKey, true)
+    val discogsToken by rememberPreference(DiscogsTokenKey, "")
     val effectiveCloudEndpoint = cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
 
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
@@ -308,6 +310,7 @@ internal fun CoverSearchScreen(
         foreignAiEnabled,
         cloudMemoryEnabled,
         cloudEndpoint,
+        discogsToken,
     ) {
         if (title.isBlank()) {
             initialLoading = false
@@ -409,6 +412,7 @@ internal fun CoverSearchScreen(
                         originalTitle = title,
                         originalArtist = originalArtist,
                         config = config,
+                        discogsToken = discogsToken,
                     )
                 }
                 titleExpandedDeferred.await() to brainInitialDeferred.await()
@@ -533,6 +537,7 @@ internal fun CoverSearchScreen(
                 existing = knownCandidates,
                 config = config,
                 sourceEvidence = sourceEvidence,
+                discogsToken = discogsToken,
             ) { discoveredBatch ->
                 val evidencedBatch = AiCoverFlowResolver.applyEvidencePolicy(
                     originalTitle = originalInfo?.title?.ifBlank { title } ?: title,
@@ -1445,7 +1450,7 @@ private fun AiCoverResultRow(
             )
             Text(result.candidate.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                text = "Anno: ${result.candidate.year?.toString() ?: "ricerca…"}",
+                text = "Data pubblicazione: ${formatDiscogsPublicationDate(result.candidate.releaseDate, result.candidate.year) ?: "ricerca…"}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -1488,7 +1493,10 @@ private fun CoverDetailDialog(
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(candidate.artist, style = MaterialTheme.typography.titleSmall)
                 Text("Tipo: ${coverCategoryLabel(candidate.category)}")
-                Text("Anno: ${(credits?.year ?: candidate.year)?.toString() ?: "ricerca…"}")
+                Text(
+                    "Data pubblicazione: " +
+                        (formatDiscogsPublicationDate(candidate.releaseDate, credits?.year ?: candidate.year) ?: "ricerca…"),
+                )
                 (credits?.album ?: candidate.album)?.let { Text("Album: $it") }
                 candidate.language?.let { Text("Lingua: $it") }
                 Text("Riproduzione: ${result.playbackSource}", style = MaterialTheme.typography.bodySmall)
@@ -1615,6 +1623,8 @@ private fun syncPlayableCandidateMetadata(
 private fun candidateRichness(candidate: AiCoverCandidate): Int {
     var score = 0
     if (candidate.year != null) score += 2
+    if (!candidate.releaseDate.isNullOrBlank()) score += 4
+    if (candidate.discogsReleaseId != null) score += 3
     if (!candidate.album.isNullOrBlank()) score += 2
     if (!candidate.spotifyTrackId.isNullOrBlank()) score += 2
     if (!candidate.spotifyIsrc.isNullOrBlank()) score += 2
@@ -1655,7 +1665,9 @@ private fun coverEvidenceScore(playable: AiCoverPlayable): Int {
     if (!candidate.spotifyTrackId.isNullOrBlank() || !candidate.spotifyIsrc.isNullOrBlank()) score += 2
     if ((candidate.sameWorkScore ?: 0) >= 70) score += 1
     if ((candidate.versionTypeScore ?: 0) >= 70) score += 1
-    if (candidate.year != null) score += 1
+    if (candidate.releaseDate != null) score += 2
+    else if (candidate.year != null) score += 1
+    if (candidate.discogsReleaseId != null) score += 2
     if (!candidate.album.isNullOrBlank()) score += 1
 
     return score.coerceIn(0, 10)
