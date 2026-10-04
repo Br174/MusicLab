@@ -52,12 +52,19 @@ internal data class DiscogsCompilationPage(
         get() = page < pages
 }
 
+internal data class DiscogsCredit(
+    val name: String,
+    val role: String,
+    val tracks: String? = null,
+)
+
 internal data class DiscogsTrack(
     val position: String,
     val title: String,
     val artists: List<String>,
     val durationText: String?,
     val durationSeconds: Int?,
+    val credits: List<DiscogsCredit> = emptyList(),
 )
 
 internal data class DiscogsVideo(
@@ -83,6 +90,7 @@ internal data class DiscogsCompilationDetail(
     val coverUrl: String?,
     val tracks: List<DiscogsTrack>,
     val videos: List<DiscogsVideo>,
+    val credits: List<DiscogsCredit> = emptyList(),
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$id"
