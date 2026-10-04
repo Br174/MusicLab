@@ -14,6 +14,8 @@ import java.util.concurrent.TimeUnit
 internal object DiscogsClient {
     private const val API_BASE = "https://api.discogs.com"
     private const val USER_AGENT = "MusicLab-Compilation/1.0 Android"
+    private const val DISCOGS_MAX_RETRIES = 3
+    private const val DISCOGS_BACKOFF_BASE_MS = 1_800L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -38,8 +40,8 @@ internal object DiscogsClient {
         catalogNumber: String? = null,
         page: Int = 1,
         perPage: Int = 100,
-        sort: String = "year",
-        sortOrder: String = "asc",
+        sort: String? = "year",
+        sortOrder: String? = "asc",
     ): Result<DiscogsReleasePage> = withContext(Dispatchers.IO) {
         runCatching {
             require(token.isNotBlank()) { "Token Discogs mancante" }
@@ -48,9 +50,9 @@ internal object DiscogsClient {
                 .addQueryParameter("type", "release")
                 .addQueryParameter("page", page.coerceAtLeast(1).toString())
                 .addQueryParameter("per_page", perPage.coerceIn(1, 100).toString())
-                .addQueryParameter("sort", sort)
-                .addQueryParameter("sort_order", sortOrder)
                 .apply {
+                    sort?.takeIf(String::isNotBlank)?.let { addQueryParameter("sort", it) }
+                    sortOrder?.takeIf(String::isNotBlank)?.let { addQueryParameter("sort_order", it) }
                     query?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("q", it) }
                     track?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("track", it) }
                     artist?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("artist", it) }
@@ -255,26 +257,49 @@ internal object DiscogsClient {
         requestJsonBlocking(url, token)
 
     private fun requestJsonBlocking(url: String, token: String): JSONObject {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "application/vnd.discogs.v2.discogs+json")
-            .header("Authorization", "Discogs token=$token")
-            .build()
+        var attempt = 0
+        while (true) {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/vnd.discogs.v2.discogs+json")
+                .header("Authorization", "Discogs token=$token")
+                .build()
 
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                val message = runCatching {
-                    JSONObject(body).optString("message")
-                }.getOrNull().orEmpty()
-                throw IOException(
-                    "Discogs HTTP " + response.code +
-                        message.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty(),
-                )
+            var retryDelayMs: Long? = null
+            var successBody: String? = null
+            var terminalError: IOException? = null
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.code == 429 && attempt < DISCOGS_MAX_RETRIES) {
+                    val retryAfterMs = response.header("Retry-After")
+                        ?.toLongOrNull()
+                        ?.times(1_000L)
+                        ?.coerceIn(1_500L, 15_000L)
+                        ?: (DISCOGS_BACKOFF_BASE_MS * (1L shl attempt)).coerceAtMost(15_000L)
+                    retryDelayMs = retryAfterMs
+                } else if (!response.isSuccessful) {
+                    val message = runCatching {
+                        JSONObject(body).optString("message")
+                    }.getOrNull().orEmpty()
+                    terminalError = IOException(
+                        "Discogs HTTP " + response.code +
+                            message.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty(),
+                    )
+                } else if (body.isBlank()) {
+                    terminalError = IOException("Risposta Discogs vuota")
+                } else {
+                    successBody = body
+                }
             }
-            if (body.isBlank()) throw IOException("Risposta Discogs vuota")
-            return JSONObject(body)
+
+            successBody?.let { return JSONObject(it) }
+            terminalError?.let { throw it }
+
+            val delayMs = retryDelayMs ?: throw IOException("Errore Discogs")
+            attempt += 1
+            Thread.sleep(delayMs)
         }
     }
 
