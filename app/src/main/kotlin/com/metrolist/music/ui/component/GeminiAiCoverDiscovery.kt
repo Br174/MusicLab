@@ -91,9 +91,21 @@ internal data class AiCoverCandidate(
     val spotifyTrackId: String? = null,
     val spotifyIsrc: String? = null,
     val spotifyDurationSec: Int? = null,
+    val releaseDate: String? = null,
+    val discogsReleaseId: Int? = null,
+    val discogsMasterId: Int? = null,
+    val discogsReleaseTitle: String? = null,
+    val versionFingerprint: String? = null,
 ) {
     val stableKey: String
-        get() = "${category.name}|${canonical(artist)}|${canonical(title)}|${canonical(language.orEmpty())}"
+        get() {
+            val discogsIdentity = versionFingerprint?.trim().orEmpty()
+            return if (discogsIdentity.isNotBlank()) {
+                "${category.name}|${canonical(artist)}|${canonical(title)}|discogs|$discogsIdentity"
+            } else {
+                "${category.name}|${canonical(artist)}|${canonical(title)}|${canonical(language.orEmpty())}"
+            }
+        }
 }
 
 internal data class AiCoverDiscoveryResult(
