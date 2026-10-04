@@ -72,6 +72,7 @@ internal data class DiscogsCompilationDetail(
     val masterId: Int?,
     val title: String,
     val year: Int?,
+    val releaseDate: String? = null,
     val country: String?,
     val artists: List<String>,
     val labels: List<String>,
