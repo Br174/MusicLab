@@ -208,6 +208,7 @@ internal object DiscogsClient {
                         artists = track.artistNames().ifEmpty { releaseArtists },
                         durationText = durationText,
                         durationSeconds = durationText?.toDurationSeconds(),
+                        credits = track.creditList(),
                     ),
                 )
             }
@@ -250,6 +251,7 @@ internal object DiscogsClient {
             coverUrl = cover,
             tracks = tracks,
             videos = videos,
+            credits = root.creditList(),
         )
     }
 
@@ -348,6 +350,30 @@ internal object DiscogsClient {
                 }
             }
         }.distinct()
+    }
+
+    private fun JSONObject.creditList(): List<DiscogsCredit> {
+        val array = optJSONArray("extraartists") ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val credit = array.optJSONObject(index) ?: continue
+                val name = credit.optString("name").cleanDiscogsText()
+                    .substringBefore(" (")
+                    .trim()
+                val role = credit.optString("role").cleanDiscogsText().trim()
+                if (name.isBlank() || role.isBlank()) continue
+                add(
+                    DiscogsCredit(
+                        name = name,
+                        role = role,
+                        tracks = credit.optString("tracks").cleanDiscogsText().takeIf(String::isNotBlank),
+                    ),
+                )
+            }
+        }.distinctBy { credit ->
+            listOf(credit.name.lowercase(), credit.role.lowercase(), credit.tracks.orEmpty().lowercase())
+                .joinToString("|")
+        }
     }
 
     private fun normalizeDiscogsDate(raw: String): String? {
