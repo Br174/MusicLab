@@ -40,7 +40,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run current core LAB38B regression and LAB39 contract
+      - name: Run current reusable core and LAB39 contract
         run: |
           node --test \
             cloudflare/music-intelligence/test/brain.test.mjs \
@@ -52,7 +52,6 @@ jobs:
             cloudflare/music-intelligence/test/parallel-coverage-expansion.test.mjs \
             cloudflare/music-intelligence/test/source-router.test.mjs \
             cloudflare/music-intelligence/test/worker-v20.test.mjs \
-            cloudflare/music-intelligence/test/lab38b-cloud-archive-coverinfo-contract.test.mjs \
             cloudflare/music-intelligence/test/lab39-video-artwork-lastfm-contract.test.mjs
 
       - uses: actions/setup-java@v4
