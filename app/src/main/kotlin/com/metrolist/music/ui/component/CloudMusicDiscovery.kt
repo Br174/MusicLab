@@ -152,6 +152,7 @@ internal object CloudMusicDiscovery {
         candidate: AiCoverCandidate,
         status: AiBrainDecisionStatus,
         config: GeminiCoverVerificationConfig,
+        categoryOverride: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         val endpoint = config.cloudEndpoint.trim().trimEnd('/')
         if (endpoint.isBlank() || originalTitle.isBlank() || originalArtist.isBlank()) return@withContext false
@@ -168,7 +169,11 @@ internal object CloudMusicDiscovery {
                 buildJsonObject {
                     put("title", candidate.title)
                     put("artist", candidate.artist)
-                    put("category", candidate.category.cloudName)
+                    put(
+                        "category",
+                        categoryOverride?.trim()?.takeIf(String::isNotBlank)
+                            ?: candidate.category.cloudName,
+                    )
                     candidate.language?.takeIf { it.isNotBlank() }?.let { put("language", it) }
                     candidate.year?.let { put("year", it) }
                     candidate.album?.takeIf { it.isNotBlank() }?.let { put("album", it) }
