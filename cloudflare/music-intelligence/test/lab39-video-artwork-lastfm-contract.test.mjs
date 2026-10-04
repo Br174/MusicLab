@@ -56,3 +56,37 @@ test('LAB39 APK identity is isolated from LAB38B and MADRE', () => {
   assert.match(uab, /UAB_APPLICATION_ID_BASE="it\.verlezza\.musiclab\.lab39"/);
   assert.match(uab, /UAB_APP_NAME_BASE="MusicLab LAB39"/);
 });
+
+
+const cloud = read('app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt');
+const browser = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt');
+const worker = read('cloudflare/music-intelligence/src/worker-v20.js');
+const wrangler = read('cloudflare/music-intelligence/wrangler.lab39.jsonc');
+const migration39 = read('cloudflare/music-intelligence/migrations/0004_lab39_cover_artwork.sql');
+
+test('LAB39 cloud candidates resolve playback independently from Discogs first-page success', () => {
+  assert.match(browser, /Cloud-first playback must not wait for Discogs pagination/);
+  assert.match(browser, /Provider\/cloud video resolution is independent from Discogs page success/);
+  assert.match(browser, /persistCloudPlaybackBinding/);
+});
+
+test('LAB39 persists and reuses cloud playback bindings without changing editorial decision', () => {
+  assert.match(cloud, /savePlaybackBinding/);
+  assert.match(cloud, /\/api\/v1\/playback\/binding/);
+  assert.match(worker, /export async function savePlaybackBinding/);
+  assert.match(worker, /INSERT INTO playback_bindings/);
+  assert.match(worker, /playbackVideoId/);
+  assert.match(worker, /playback_video_id/);
+});
+
+test('LAB39 persists artwork for learned cloud candidates', () => {
+  assert.match(migration39, /ALTER TABLE versions ADD COLUMN cover_url TEXT/);
+  assert.match(worker, /cover_url/);
+  assert.match(cloud, /coverUrl/);
+  assert.match(browser, /coverUrl = candidate\.coverUrl/);
+});
+
+test('LAB39 publishes isolated cloud runtime version', () => {
+  assert.match(wrangler, /"ENGINE_VERSION": "1\.5\.0-lab39"/);
+  assert.match(wrangler, /"BRAIN_VERSION": "39\.0"/);
+});
