@@ -576,7 +576,7 @@ internal fun DiscogsDirectVersionBrowser(
                 )
 
                 Button(
-                    onClick = ::runSearch,
+                    onClick = { runSearch() },
                     enabled = !loading && discogsToken.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
