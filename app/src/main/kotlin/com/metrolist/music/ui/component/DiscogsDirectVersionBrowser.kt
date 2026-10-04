@@ -60,6 +60,7 @@ import com.metrolist.music.discogs.DiscogsCredit
 import com.metrolist.music.discogs.DiscogsTrack
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.queues.ListQueue
+import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -119,6 +120,7 @@ private data class DirectVersionSession(
     var visibleLimit: Int = DIRECT_VERSION_PAGE_SIZE,
     var sourceDiagnostics: List<CoverSourceDiagnostic> = emptyList(),
     var sourceDiscoveryComplete: Boolean = false,
+    val rejectedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
 )
 
@@ -224,6 +226,7 @@ internal fun DiscogsDirectVersionBrowser(
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
 
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = session.listIndex,
@@ -260,6 +263,103 @@ internal fun DiscogsDirectVersionBrowser(
             catalogNumber = null,
         )
 
+    fun cloudCategory(seed: DiscogsVersionSeed): String =
+        when {
+            mode == DiscogsDirectMode.ORIGINAL &&
+                seed.kind == DiscogsVersionKind.STUDIO &&
+                seed.language.isNullOrBlank() -> "originale"
+            !seed.language.isNullOrBlank() -> "straniera"
+            seed.kind == DiscogsVersionKind.LIVE -> "live"
+            seed.kind == DiscogsVersionKind.REMIX -> "remix"
+            else -> "cover"
+        }
+
+    fun rejectionKey(seed: DiscogsVersionSeed): String =
+        CloudMusicDiscovery.memoryKey(
+            title = seed.trackTitle,
+            artist = seed.artist,
+            category = cloudCategory(seed),
+        )
+
+    fun isRejected(seed: DiscogsVersionSeed): Boolean =
+        rejectionKey(seed) in session.rejectedKeys
+
+    fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
+        val score =
+            when (candidate.brainStatus) {
+                AiBrainDecisionStatus.APPROVED -> 10
+                AiBrainDecisionStatus.PROBABLE -> 8
+                AiBrainDecisionStatus.UNCERTAIN -> 4
+                AiBrainDecisionStatus.REJECTED -> 1
+                null -> 4
+            }
+        return DiscogsVersionSource.externalSeed(
+            CoverSourceCandidate(
+                title = candidate.title,
+                artist = candidate.artist,
+                sources = listOf("Archivio Cloud"),
+                year = candidate.year,
+                album = candidate.album,
+                language = candidate.language,
+                category = candidate.category,
+                evidenceScore = score,
+            ),
+        )
+    }
+
+    fun seedToBrainCandidate(seed: DiscogsVersionSeed): AiCoverCandidate {
+        fun creditNames(pattern: Regex): List<String> =
+            seed.credits
+                .filter { pattern.containsMatchIn(it.role.lowercase()) }
+                .map { it.name }
+                .filter(String::isNotBlank)
+                .distinct()
+
+        val category =
+            when {
+                !seed.language.isNullOrBlank() -> AiCoverCategory.FOREIGN
+                seed.kind == DiscogsVersionKind.LIVE -> AiCoverCategory.LIVE
+                seed.kind == DiscogsVersionKind.REMIX -> AiCoverCategory.REMIX
+                else -> AiCoverCategory.COVER
+            }
+        val evidenceStrength =
+            when {
+                seed.confidenceScore >= 9 -> "very_strong"
+                seed.confidenceScore >= 7 -> "strong"
+                seed.confidenceScore >= 4 -> "medium"
+                else -> "weak"
+            }
+        return AiCoverCandidate(
+            title = seed.trackTitle,
+            artist = seed.artist,
+            category = category,
+            language = seed.language,
+            year = seed.year,
+            album = seed.releaseTitle.takeIf(String::isNotBlank),
+            songwriters = creditNames(Regex("\\b(songwriter|written|writer|words by)\\b")),
+            composers = creditNames(Regex("\\b(composer|composed|music by)\\b")),
+            lyricists = creditNames(Regex("\\b(lyrics|lyricist)\\b")),
+            label = seed.labels.firstOrNull(),
+            sameWorkScore = (seed.confidenceScore * 10).coerceIn(10, 100),
+            versionTypeScore = (seed.confidenceScore * 10).coerceIn(10, 100),
+            brainStatus = AiBrainDecisionStatus.UNCERTAIN,
+            brainAdmission = "lab38b_manual_review",
+            brainSignals =
+                seed.sourceNames.map { sourceName ->
+                    AiBrainSignal(
+                        kind = sourceName.lowercase().replace(Regex("[^a-z0-9]+"), "_") + "_evidence",
+                        strength = evidenceStrength,
+                        direction = "positive",
+                    )
+                },
+            releaseDate = seed.releaseDate,
+            discogsReleaseId = seed.releaseId.takeIf { it > 0 },
+            discogsMasterId = seed.masterId,
+            discogsReleaseTitle = seed.releaseTitle.takeIf(String::isNotBlank),
+            versionFingerprint = seed.fingerprint,
+        )
+    }
+
     fun mergePage(
         current: List<DiscogsVersionSeed>,
         incoming: List<DiscogsVersionSeed>,
@@ -267,11 +367,11 @@ internal fun DiscogsDirectVersionBrowser(
     ): List<DiscogsVersionSeed> {
         val merged = linkedMapOf<String, DiscogsVersionSeed>()
         if (!replace) {
-            current.forEach { seed ->
+            current.filterNot(::isRejected).forEach { seed ->
                 merged[DiscogsVersionSource.identityKey(seed)] = seed
             }
         }
-        incoming.forEach { seed ->
+        incoming.filterNot(::isRejected).forEach { seed ->
             val key = DiscogsVersionSource.identityKey(seed)
             val previous = merged[key]
             merged[key] =
