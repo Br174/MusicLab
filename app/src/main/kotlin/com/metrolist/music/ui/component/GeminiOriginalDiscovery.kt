@@ -35,6 +35,7 @@ internal data class GeminiOriginalIdentity(
     val title: String,
     val originalArtists: List<String>,
     val year: Int?,
+    val releaseDate: String? = null,
     val songwriters: List<String>,
     val composers: List<String>,
     val lyricists: List<String>,
