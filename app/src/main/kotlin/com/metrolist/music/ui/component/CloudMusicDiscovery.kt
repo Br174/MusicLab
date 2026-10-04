@@ -110,7 +110,7 @@ internal object CloudMusicDiscovery {
             Request.Builder()
                 .url("$endpoint/api/v1/memory/discover")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("x-musiclab-client", "android-lab38b")
+                .addHeader("x-musiclab-client", "android-lab39")
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
 
@@ -164,7 +164,7 @@ internal object CloudMusicDiscovery {
             put("status", status.name)
             candidate.sameWorkScore?.let { put("sameWorkScore", it) }
             candidate.versionTypeScore?.let { put("versionTypeScore", it) }
-            put("reason", "manual_android_lab38b")
+            put("reason", "manual_android_lab39")
             put(
                 "candidate",
                 buildJsonObject {
@@ -212,9 +212,57 @@ internal object CloudMusicDiscovery {
         val request = Request.Builder()
             .url("$endpoint/api/v1/brain/decision")
             .addHeader("Content-Type", "application/json")
-            .addHeader("x-musiclab-client", "android-lab38b")
+            .addHeader("x-musiclab-client", "android-lab39")
             .post(body.toString().toRequestBody(mediaType))
             .build()
+
+        runCatching {
+            client.newCall(request).execute().use { response -> response.isSuccessful }
+        }.getOrDefault(false)
+    }
+
+    suspend fun savePlaybackBinding(
+        originalTitle: String,
+        originalArtist: String,
+        candidate: AiCoverCandidate,
+        config: GeminiCoverVerificationConfig,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val endpoint = config.cloudEndpoint.trim().trimEnd('/')
+        val playbackVideoId = candidate.playbackVideoId?.trim().orEmpty()
+        if (
+            endpoint.isBlank() ||
+            originalTitle.isBlank() ||
+            originalArtist.isBlank() ||
+            candidate.title.isBlank() ||
+            candidate.artist.isBlank() ||
+            playbackVideoId.isBlank()
+        ) {
+            return@withContext false
+        }
+
+        val body = buildJsonObject {
+            put("originalTitle", originalTitle.trim())
+            put("originalArtist", originalArtist.trim())
+            put(
+                "candidate",
+                buildJsonObject {
+                    put("title", candidate.title.trim())
+                    put("artist", candidate.artist.trim())
+                    put("category", candidate.category.cloudName)
+                    candidate.language?.takeIf { it.isNotBlank() }?.let { put("language", it) }
+                    candidate.coverUrl?.takeIf { it.isNotBlank() }?.let { put("coverUrl", it) }
+                    put("playbackVideoId", playbackVideoId)
+                    candidate.playbackVideoSource?.takeIf { it.isNotBlank() }?.let { put("playbackVideoSource", it) }
+                },
+            )
+        }
+        val request =
+            Request.Builder()
+                .url("$endpoint/api/v1/playback/binding")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("x-musiclab-client", "android-lab39")
+                .post(body.toString().toRequestBody(mediaType))
+                .build()
 
         runCatching {
             client.newCall(request).execute().use { response -> response.isSuccessful }
@@ -237,7 +285,7 @@ internal object CloudMusicDiscovery {
             Request.Builder()
                 .url("$endpoint/api/v1/archive/search")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("x-musiclab-client", "android-lab38b")
+                .addHeader("x-musiclab-client", "android-lab39")
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
 
@@ -394,7 +442,7 @@ internal object CloudMusicDiscovery {
             Request.Builder()
                 .url("$endpoint/api/v1/discover/$route")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("x-musiclab-client", "android-lab38b")
+                .addHeader("x-musiclab-client", "android-lab39")
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
         return runCatching {
