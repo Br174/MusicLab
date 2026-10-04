@@ -603,6 +603,69 @@ internal fun DiscogsDirectVersionBrowser(
             }
     }
 
+    fun saveDecision(seed: DiscogsVersionSeed, status: AiBrainDecisionStatus) {
+        val config = foreignScoutConfig
+        if (config == null || config.cloudEndpoint.isBlank()) {
+            Toast.makeText(context, "Archivio cloud non configurato.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (lockedArtist.isBlank() || title.isBlank()) {
+            Toast.makeText(context, "Opera originale non identificata.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        decisionSavingFingerprint = seed.fingerprint
+        scope.launch {
+            val candidate = seedToBrainCandidate(seed)
+            val saved =
+                CloudMusicDiscovery.saveBrainDecision(
+                    originalTitle = title,
+                    originalArtist = lockedArtist,
+                    candidate = candidate,
+                    status = status,
+                    config = config,
+                    categoryOverride =
+                        if (mode == DiscogsDirectMode.ORIGINAL) {
+                            cloudCategory(seed)
+                        } else {
+                            null
+                        },
+                )
+            decisionSavingFingerprint = null
+            if (!saved) {
+                Toast.makeText(context, "Salvataggio cloud non riuscito.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            if (status == AiBrainDecisionStatus.REJECTED) {
+                session.rejectedKeys += rejectionKey(seed)
+                results = results.filterNot { rejectionKey(it) in session.rejectedKeys }
+                session.results = results
+                detailSeed = null
+                rebuildStableOrder()
+                Toast.makeText(
+                    context,
+                    "Disapprovata: memorizzata e nascosta dalle ricerche future.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } else if (status == AiBrainDecisionStatus.APPROVED) {
+                val approved =
+                    seed.copy(
+                        confidenceScore = 10,
+                        confidenceReasons =
+                            (seed.confidenceReasons + "Approvata manualmente e salvata nel cloud").distinct(),
+                        sourceNames = (seed.sourceNames + "Archivio Cloud").distinct(),
+                    )
+                replaceSeed(approved)
+                detailSeed = results.firstOrNull { it.fingerprint == approved.fingerprint } ?: approved
+                Toast.makeText(
+                    context,
+                    "Approvata e salvata nell'Archivio MusicLab.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
     suspend fun playResolvedContext(selectedFingerprint: String) {
         val connection = playerConnection ?: return
         val ordered = orderedResults(results)
@@ -711,8 +774,8 @@ internal fun DiscogsDirectVersionBrowser(
             error = "Inserisci il titolo del brano."
             return
         }
-        if (mode == DiscogsDirectMode.ORIGINAL && lockedArtist.isBlank()) {
-            error = "Artista originale mancante."
+        if (lockedArtist.isBlank()) {
+            error = "Interprete originale di riferimento mancante."
             return
         }
         if (discogsToken.isBlank()) {
@@ -755,6 +818,78 @@ internal fun DiscogsDirectVersionBrowser(
         scope.launch {
             listState.scrollToItem(0)
 
+            val memoryState =
+                foreignScoutConfig?.let { config ->
+                    runCatching {
+                        CloudMusicDiscovery.discoverMemoryState(
+                            title = criteria.title,
+                            artist = lockedArtist,
+                            config = config,
+                            mode = if (mode == DiscogsDirectMode.ORIGINAL) "originals" else "cover",
+                            limit = 150,
+                        )
+                    }.getOrNull()
+                }
+
+            session.rejectedKeys.clear()
+            session.rejectedKeys.addAll(memoryState?.rejectedKeys.orEmpty())
+
+            val memoryVersions =
+                memoryState
+                    ?.discovery
+                    ?.versions
+                    .orEmpty()
+                    .filterNot { candidate ->
+                        val categoryName =
+                            if (mode == DiscogsDirectMode.ORIGINAL) {
+                                when (candidate.category) {
+                                    AiCoverCategory.LIVE -> "live"
+                                    AiCoverCategory.REMIX -> "remix"
+                                    AiCoverCategory.FOREIGN -> "straniera"
+                                    AiCoverCategory.COVER -> "originale"
+                                }
+                            } else {
+                                when (candidate.category) {
+                                    AiCoverCategory.LIVE -> "live"
+                                    AiCoverCategory.REMIX -> "remix"
+                                    AiCoverCategory.FOREIGN -> "straniera"
+                                    AiCoverCategory.COVER -> "cover"
+                                }
+                            }
+                        CloudMusicDiscovery.memoryKey(
+                            candidate.title,
+                            candidate.artist,
+                            categoryName,
+                        ) in session.rejectedKeys
+                    }
+
+            if (memoryVersions.isNotEmpty()) {
+                results =
+                    mergePage(
+                        current = emptyList(),
+                        incoming = memoryVersions.map(::memoryCandidateToSeed),
+                        replace = true,
+                    )
+                session.results = results
+                rebuildStableOrder()
+            }
+            val memoryDiagnostic =
+                CoverSourceDiagnostic(
+                    name = "Archivio Cloud",
+                    available = memoryState != null,
+                    found = memoryVersions.size,
+                    note =
+                        if (session.rejectedKeys.isEmpty()) {
+                            "cloud-first"
+                        } else {
+                            "cloud-first · ${session.rejectedKeys.size} disapprovate escluse"
+                        },
+                )
+            sourceDiagnostics = listOf(memoryDiagnostic)
+            session.sourceDiagnostics = sourceDiagnostics
+
+            loading = false
+
             val externalDeferred =
                 async(kotlinx.coroutines.Dispatchers.IO) {
                     CoverDiscoverySources.discover(
@@ -769,7 +904,7 @@ internal fun DiscogsDirectVersionBrowser(
                 loadPage(
                     criteria = criteria,
                     page = 1,
-                    replace = true,
+                    replace = false,
                     requestedSort = requestedSort,
                 )
 
@@ -783,15 +918,15 @@ internal fun DiscogsDirectVersionBrowser(
                 session.results = results
             }
             sourceDiagnostics =
-                sourceDiagnostics.filterNot { it.name != "Discogs" } +
-                    external.diagnostics
+                sourceDiagnostics.filter { diagnostic ->
+                    diagnostic.name == "Discogs" || diagnostic.name == "Archivio Cloud"
+                } + external.diagnostics
             session.sourceDiagnostics = sourceDiagnostics
             session.sourceDiscoveryComplete = true
             sourceDiscoveryLoading = false
 
             rebuildStableOrder()
             session.visibleLimit = visibleLimit
-            loading = false
 
             if (firstPageLoaded) {
                 scheduleDiscogsVerification()
