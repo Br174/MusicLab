@@ -93,13 +93,13 @@ Use Google Search. Return only versions performed by a different artist when pos
 Return ONLY valid JSON with this shape:
 {"covers":[{"title":"exact candidate title","artist":"candidate artist","adapted_title":false}]}
 
-Return at most 10 high-confidence candidates. If evidence is weak, omit the candidate rather than guessing."""
+Return up to 30 plausible documented candidates, including weak-but-real leads that can be ranked later by MusicLab. Do not invent unrelated songs merely to fill the list."""
 
         val responseBody =
             executeGroundedRequest(
                 prompt = prompt,
                 config = config,
-                maxOutputTokens = 1200,
+                maxOutputTokens = 2600,
             ) ?: return@withContext emptyList()
 
         val grounded = parseGroundedResponse(responseBody) ?: return@withContext emptyList()
@@ -425,7 +425,7 @@ Return ONLY valid JSON:
     )
 
     private const val CACHE_TTL_MS = 12 * 60 * 60 * 1000L
-    private const val MAX_DISCOVERY_RESULTS = 10
+    private const val MAX_DISCOVERY_RESULTS = 30
     private const val MAX_WEB_CONFIRMATIONS = 2
     private val MODEL_REGEX = Regex("[A-Za-z0-9._-]+")
 }
