@@ -31,10 +31,11 @@ internal object CompilationTrackResolver {
         track: DiscogsTrack,
         discogsVideos: List<DiscogsVideo>,
         fastFirst: Boolean = true,
+        excludedVideoIds: Set<String> = emptySet(),
     ): CompilationResolvedTrack? = withContext(Dispatchers.IO) {
         // Fast lane: direct Discogs video first, then a bounded race between the
         // two MusicLab sources that most often resolve a playable track quickly.
-        val directVideo = bestDiscogsTrackVideo(track, discogsVideos)
+        val directVideo = bestDiscogsTrackVideo(track, discogsVideos, excludedVideoIds)
         if (directVideo != null) {
             val directId = extractYouTubeId(directVideo.uri)
             val directSong = directId?.let { id ->
@@ -56,7 +57,7 @@ internal object CompilationTrackResolver {
         val query = listOf(artist, track.title).filter(String::isNotBlank).joinToString(" ")
 
         if (fastFirst) {
-            fastMusicLabRace(track, query)?.let { return@withContext it }
+            fastMusicLabRace(track, query, excludedVideoIds)?.let { return@withContext it }
         }
 
         val summarySongs = withTimeoutOrNull(if (fastFirst) 2_500L else 5_500L) {
@@ -67,7 +68,7 @@ internal object CompilationTrackResolver {
                 .orEmpty()
         }.orEmpty()
 
-        bestSong(track, summarySongs)?.let {
+        bestSong(track, summarySongs, excludedVideoIds = excludedVideoIds)?.let {
             return@withContext CompilationResolvedTrack(track, it, "YouTube Music", false)
         }
 
@@ -79,7 +80,7 @@ internal object CompilationTrackResolver {
                 .orEmpty()
         }.orEmpty()
 
-        bestSong(track, ytmSongs)?.let {
+        bestSong(track, ytmSongs, excludedVideoIds = excludedVideoIds)?.let {
             return@withContext CompilationResolvedTrack(track, it, "YouTube Music", false)
         }
 
@@ -87,7 +88,7 @@ internal object CompilationTrackResolver {
             YouTubeWebSearch.search(query)?.items.orEmpty()
         }.orEmpty()
 
-        bestSong(track, webSongs, relaxedArtist = true)?.let {
+        bestSong(track, webSongs, relaxedArtist = true, excludedVideoIds = excludedVideoIds)?.let {
             return@withContext CompilationResolvedTrack(track, it, "YouTube", false)
         }
 
@@ -99,7 +100,7 @@ internal object CompilationTrackResolver {
                 .orEmpty()
         }.orEmpty()
 
-        bestSong(track, videoSongs, relaxedArtist = true)?.let {
+        bestSong(track, videoSongs, relaxedArtist = true, excludedVideoIds = excludedVideoIds)?.let {
             return@withContext CompilationResolvedTrack(track, it, "YouTube Music video", false)
         }
 
@@ -109,6 +110,7 @@ internal object CompilationTrackResolver {
     private suspend fun fastMusicLabRace(
         track: DiscogsTrack,
         query: String,
+        excludedVideoIds: Set<String>,
     ): CompilationResolvedTrack? = coroutineScope {
         val winner = CompletableDeferred<CompilationResolvedTrack?>()
         val jobs = mutableListOf<Job>()
@@ -128,7 +130,7 @@ internal object CompilationTrackResolver {
                     ?.filterIsInstance<SongItem>()
                     .orEmpty()
             }.orEmpty()
-            bestSong(track, items)?.let {
+            bestSong(track, items, excludedVideoIds = excludedVideoIds)?.let {
                 CompilationResolvedTrack(track, it, "YouTube Music · rapido", false)
             }
         }
@@ -141,7 +143,7 @@ internal object CompilationTrackResolver {
                     ?.filterIsInstance<SongItem>()
                     .orEmpty()
             }.orEmpty()
-            bestSong(track, items)?.let {
+            bestSong(track, items, excludedVideoIds = excludedVideoIds)?.let {
                 CompilationResolvedTrack(track, it, "YouTube Music · rapido", false)
             }
         }
@@ -211,10 +213,14 @@ internal object CompilationTrackResolver {
     private fun bestDiscogsTrackVideo(
         track: DiscogsTrack,
         videos: List<DiscogsVideo>,
+        excludedVideoIds: Set<String>,
     ): DiscogsVideo? =
         videos
             .asSequence()
-            .filter { extractYouTubeId(it.uri) != null }
+            .filter { video ->
+                val id = extractYouTubeId(video.uri)
+                id != null && id !in excludedVideoIds
+            }
             .filterNot { looksLikeFullAudioTitle(it.title) }
             .map { it to scoreDiscogsVideo(track, it) }
             .filter { it.second >= DIRECT_VIDEO_MIN_SCORE }
@@ -253,9 +259,11 @@ internal object CompilationTrackResolver {
         track: DiscogsTrack,
         songs: List<SongItem>,
         relaxedArtist: Boolean = false,
+        excludedVideoIds: Set<String> = emptySet(),
     ): SongItem? =
         songs
             .asSequence()
+            .filterNot { it.id in excludedVideoIds }
             .filterNot { BAD_VIDEO_MARKERS.containsMatchIn(normalize(it.title)) }
             .map { it to scoreSong(track, it, relaxedArtist) }
             .filter { it.second >= if (relaxedArtist) RELAXED_MIN_SCORE else NORMAL_MIN_SCORE }
