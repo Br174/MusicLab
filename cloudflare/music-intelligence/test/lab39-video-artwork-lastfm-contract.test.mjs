@@ -26,11 +26,12 @@ test('LAB39 fills missing card artwork from the verified YouTube video', () => {
   assert.match(versions, /coverUrl = seed\.coverUrl \?: "https:\/\/i\.ytimg\.com\/vi\/\$videoId\/hqdefault\.jpg"/);
 });
 
-test('LAB39 Last.fm diagnostics distinguish missing build key from API rejection', () => {
+test('LAB39 Last.fm keeps API mode but falls back to public no-key discovery', () => {
   assert.match(providers, /BuildConfig\.LASTFM_API_KEY\.trim\(\)/);
-  assert.match(providers, /chiave non presente nella build/);
+  assert.match(providers, /discoverLastFmPublic/);
+  assert.match(providers, /ricerca pubblica no-key/);
+  assert.match(providers, /LASTFM_PUBLIC_TRACK_URL/);
   assert.match(providers, /root\.optInt\("error", 0\)/);
-  assert.match(providers, /API non valida\/non autorizzata/);
 });
 
 test('LAB39 retries LRCLIB once and reports reachable empty results separately', () => {
@@ -39,14 +40,13 @@ test('LAB39 retries LRCLIB once and reports reachable empty results separately',
   assert.match(providers, /raggiungibile · nessuna corrispondenza/);
 });
 
-test('LAB39 build fails if Last.fm secrets are absent and verifies generated BuildConfig', () => {
+test('LAB39 build uses Last.fm credentials when present without blocking public fallback', () => {
   assert.match(workflow, /LASTFM_API_KEY:[^\n]*secrets\.LASTFM_API_KEY/);
   assert.match(workflow, /LASTFM_SECRET:[^\n]*secrets\.LASTFM_SECRET/);
   assert.match(workflow, /vars\.LASTFM_API_KEY/);
   assert.match(workflow, /vars\.LASTFM_SECRET/);
-  assert.match(workflow, /-z "\$LASTFM_API_KEY"/);
-  assert.match(workflow, /-z "\$LASTFM_SECRET"/);
   assert.match(workflow, /LASTFM_API_KEY=%s/);
+  assert.match(workflow, /public discovery fallback/);
   assert.match(workflow, /Verify Last\.fm BuildConfig injection/);
 });
 
