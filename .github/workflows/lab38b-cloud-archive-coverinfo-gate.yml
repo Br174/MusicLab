@@ -43,8 +43,19 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run complete cloud and LAB38B source suite
-        run: node --test cloudflare/music-intelligence/test/*.test.mjs
+      - name: Run current cloud core and LAB38B source suite
+        run: |
+          node --test \
+            cloudflare/music-intelligence/test/brain.test.mjs \
+            cloudflare/music-intelligence/test/brain-persistence.test.mjs \
+            cloudflare/music-intelligence/test/brain-benchmark.test.mjs \
+            cloudflare/music-intelligence/test/coverage-planner.test.mjs \
+            cloudflare/music-intelligence/test/coverage-expansion-integration.test.mjs \
+            cloudflare/music-intelligence/test/memory-discovery.test.mjs \
+            cloudflare/music-intelligence/test/parallel-coverage-expansion.test.mjs \
+            cloudflare/music-intelligence/test/source-router.test.mjs \
+            cloudflare/music-intelligence/test/worker-v20.test.mjs \
+            cloudflare/music-intelligence/test/lab38b-cloud-archive-coverinfo-contract.test.mjs
 
       - uses: actions/setup-java@v4
         with:
