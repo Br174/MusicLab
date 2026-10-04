@@ -261,9 +261,10 @@ internal object CoverDiscoverySources {
                 title = title,
                 originalArtist = originalArtist,
                 mode = mode,
-                reason = "API key non incorporata · fallback pubblico no-key",
+                notePrefix = "ricerca pubblica no-key · chiave build assente",
             )
         }
+
         val url =
             "https://ws.audioscrobbler.com/2.0/".toHttpUrl().newBuilder()
                 .addQueryParameter("method", "track.search")
@@ -273,22 +274,25 @@ internal object CoverDiscoverySources {
                 .addQueryParameter("limit", "100")
                 .build()
                 .toString()
-        val root = fetchObject(url)
-            ?: return discoverLastFmPublic(
-                title = title,
-                originalArtist = originalArtist,
-                mode = mode,
-                reason = "API non raggiungibile · fallback pubblico no-key",
-            )
+        val root =
+            fetchObject(url)
+                ?: return discoverLastFmPublic(
+                    title = title,
+                    originalArtist = originalArtist,
+                    mode = mode,
+                    notePrefix = "fallback pubblico · API/rete non disponibile",
+                )
+
         if (root.optInt("error", 0) != 0) {
             val message = root.optString("message").trim().ifBlank { "errore API" }
             return discoverLastFmPublic(
                 title = title,
                 originalArtist = originalArtist,
                 mode = mode,
-                reason = "API non autorizzata ($message) · fallback pubblico no-key",
+                notePrefix = "fallback pubblico · API non autorizzata: $message",
             )
         }
+
         val array =
             root.optJSONObject("results")
                 ?.optJSONObject("trackmatches")
@@ -323,51 +327,56 @@ internal object CoverDiscoverySources {
                 )
             }
         }.distinctBy { identity(it.title, it.artist, it.category) }
-        return candidates to CoverSourceDiagnostic("Last.fm", true, candidates.size, "track.search")
+
+        if (candidates.isNotEmpty()) {
+            return candidates to CoverSourceDiagnostic("Last.fm", true, candidates.size, "API track.search")
+        }
+
+        return discoverLastFmPublic(
+            title = title,
+            originalArtist = originalArtist,
+            mode = mode,
+            notePrefix = "API track.search 0 · fallback pubblico",
+        )
     }
 
     private fun discoverLastFmPublic(
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
-        reason: String,
+        notePrefix: String,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
         val url =
             "https://www.last.fm/search/tracks".toHttpUrl().newBuilder()
                 .addQueryParameter("q", title)
                 .build()
                 .toString()
-        val html = fetchHtml(url)
-            ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
-                "Last.fm",
-                false,
-                0,
-                "$reason · pagina pubblica non raggiungibile",
-            )
+        val html =
+            fetchHtml(url)
+                ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
+                    "Last.fm",
+                    false,
+                    0,
+                    "$notePrefix · ricerca pubblica non disponibile",
+                )
+
         val document = runCatching { Jsoup.parse(html, "https://www.last.fm") }.getOrNull()
             ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
                 "Last.fm",
                 false,
                 0,
-                "$reason · HTML pubblico non leggibile",
+                "$notePrefix · HTML non leggibile",
             )
 
-        val trackLink = Regex("""^/music/([^/]+)/_/(.+)$""")
         val candidates =
             document.select("a[href*='/_/']")
                 .mapNotNull { anchor ->
-                    val href = anchor.attr("href").substringBefore('?').substringBefore('#')
-                    val match = trackLink.find(href) ?: return@mapNotNull null
-                    val artist =
-                        runCatching { URLDecoder.decode(match.groupValues[1], Charsets.UTF_8.name()) }
-                            .getOrDefault(match.groupValues[1])
-                            .trim()
-                    val decodedTitle =
-                        runCatching { URLDecoder.decode(match.groupValues[2], Charsets.UTF_8.name()) }
-                            .getOrDefault(match.groupValues[2])
-                            .trim()
-                    val candidateTitle = anchor.text().trim().ifBlank { decodedTitle }
-                    if (candidateTitle.isBlank() || artist.isBlank()) return@mapNotNull null
+                    val href = anchor.absUrl("href").ifBlank { anchor.attr("href") }
+                    val cleanUrl = href.substringBefore('?').substringBefore('#')
+                    val match = LASTFM_PUBLIC_TRACK_URL.find(cleanUrl) ?: return@mapNotNull null
+                    val artist = decodeLastFmPath(match.groupValues[1])
+                    val candidateTitle = decodeLastFmPath(match.groupValues[2])
+                    if (artist.isBlank() || candidateTitle.isBlank()) return@mapNotNull null
                     if (!sameBaseTitle(title, candidateTitle)) return@mapNotNull null
                     if (!modeAcceptsArtist(mode, artist, originalArtist)) return@mapNotNull null
 
@@ -376,19 +385,26 @@ internal object CoverDiscoverySources {
                         artist = artist,
                         sources = listOf("Last.fm"),
                         category = categoryFromTitle(candidateTitle),
-                        sourceUrl = "https://www.last.fm$href",
-                        evidenceScore = 1,
+                        sourceUrl = cleanUrl,
+                        evidenceScore = 2,
                     )
                 }
                 .distinctBy { identity(it.title, it.artist, it.category) }
 
-        return candidates to CoverSourceDiagnostic(
-            name = "Last.fm",
-            available = true,
-            found = candidates.size,
-            note = "$reason · ricerca pubblica",
-        )
+        val note =
+            if (candidates.isEmpty()) {
+                "$notePrefix · raggiungibile, nessuna corrispondenza"
+            } else {
+                "$notePrefix · ${candidates.size} risultati"
+            }
+        return candidates to CoverSourceDiagnostic("Last.fm", true, candidates.size, note)
     }
+
+    private fun decodeLastFmPath(value: String): String =
+        runCatching { URLDecoder.decode(value, Charsets.UTF_8.name()) }
+            .getOrDefault(value)
+            .replace(Regex("\\s+"), " ")
+            .trim()
 
     private fun discoverLrcLib(
         title: String,
@@ -775,6 +791,6 @@ internal object CoverDiscoverySources {
             "Japanese", "Korean", "Instrumental",
         )
 
-    private const val USER_AGENT = "MusicLab-LAB38B/1.0"
+    private const val USER_AGENT = "MusicLab-LAB39/1.0"
     private const val CACHE_TTL_MS = 30L * 60L * 1000L
 }
