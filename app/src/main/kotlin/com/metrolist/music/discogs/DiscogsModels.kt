@@ -1,5 +1,32 @@
 package com.metrolist.music.discogs
 
+internal data class DiscogsReleaseSummary(
+    val id: Int,
+    val masterId: Int?,
+    val title: String,
+    val year: Int?,
+    val releaseDate: String? = null,
+    val country: String?,
+    val formats: List<String>,
+    val genres: List<String>,
+    val styles: List<String>,
+    val labels: List<String>,
+    val catalogNumber: String?,
+    val thumbnailUrl: String?,
+    val coverUrl: String?,
+)
+
+internal data class DiscogsReleasePage(
+    val items: List<DiscogsReleaseSummary>,
+    val page: Int,
+    val pages: Int,
+    val perPage: Int,
+    val totalItems: Int,
+) {
+    val hasNextPage: Boolean
+        get() = page < pages
+}
+
 internal data class DiscogsCompilationSummary(
     val id: Int,
     val masterId: Int?,
@@ -50,6 +77,8 @@ internal data class DiscogsCompilationDetail(
     val labels: List<String>,
     val genres: List<String>,
     val styles: List<String>,
+    val formats: List<String> = emptyList(),
+    val formatDescriptions: List<String> = emptyList(),
     val coverUrl: String?,
     val tracks: List<DiscogsTrack>,
     val videos: List<DiscogsVideo>,
