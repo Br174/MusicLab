@@ -126,4 +126,34 @@ class DiscogsVersionSourceTest {
         assertEquals("1984", formatDiscogsPublicationDate("1984", 1984))
         assertEquals("1984", formatDiscogsPublicationDate(null, 1984))
     }
+    @Test
+    fun `resolved video supplies artwork fallback when provider cover is missing`() {
+        val withoutCover = seed(releaseId = 11).copy(coverUrl = null)
+
+        val resolved =
+            DiscogsVersionSource.markVideoResolved(
+                seed = withoutCover,
+                videoId = "abcdefghijk",
+                videoTitle = "Canzone - Artista",
+                source = "YouTube",
+            )
+
+        assertEquals("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg", resolved.coverUrl)
+    }
+
+    @Test
+    fun `resolved video preserves stronger provider artwork`() {
+        val withCover = seed(releaseId = 12).copy(coverUrl = "https://images.example/cover.jpg")
+
+        val resolved =
+            DiscogsVersionSource.markVideoResolved(
+                seed = withCover,
+                videoId = "abcdefghijk",
+                videoTitle = "Canzone - Artista",
+                source = "YouTube",
+            )
+
+        assertEquals("https://images.example/cover.jpg", resolved.coverUrl)
+    }
+
 }
