@@ -51,6 +51,7 @@ import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.DEFAULT_MUSIC_AI_CLOUD_ENDPOINT
+import com.metrolist.music.constants.DiscogsTokenKey
 import com.metrolist.music.constants.MusicAiEngineEnabledKey
 import com.metrolist.music.constants.MusicAiCloudEndpointKey
 import com.metrolist.music.constants.MusicAiCloudMemoryEnabledKey
@@ -88,6 +89,7 @@ internal fun OriginalVersionScreen(
     val originalsAiEnabled by rememberPreference(MusicAiOriginalsEnabledKey, true)
     val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
     val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
+    val discogsToken by rememberPreference(DiscogsTokenKey, "")
     val effectiveCloudEndpoint = cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
 
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
@@ -175,6 +177,7 @@ internal fun OriginalVersionScreen(
         effectiveModel,
         cloudMemoryEnabled,
         cloudEndpoint,
+        discogsToken,
         aiMasterEnabled,
         originalsAiEnabled,
     ) {
@@ -199,6 +202,7 @@ internal fun OriginalVersionScreen(
                 title = request.title,
                 currentArtist = request.artist,
                 geminiConfig = geminiConfig,
+                discogsToken = discogsToken,
             )
         }.onFailure { failed = true }
             .getOrDefault(OriginalVersionSearchResult(null, emptyList()))
@@ -214,6 +218,7 @@ internal fun OriginalVersionScreen(
             OriginalVersionSearchEngine.findInitialVersions(
                 identity = identity,
                 currentYouTubeId = request.currentYouTubeId,
+                discogsToken = discogsToken,
             )
         }.onFailure { failed = true }
             .getOrElse { identified }
@@ -229,6 +234,7 @@ internal fun OriginalVersionScreen(
                 currentYouTubeId = request.currentYouTubeId,
                 seed = initial,
                 geminiConfig = geminiConfig,
+                discogsToken = discogsToken,
             )
         }.onFailure { failed = true }
             .getOrNull()
@@ -375,15 +381,16 @@ internal fun OriginalVersionScreen(
             text = {
                 Column {
                     Text(
-                        "Gemini AI: ${originalAiState(diagnostics.aiStatus)}",
+                        "Verifica Gemini: ${originalAiState(diagnostics.aiStatus)}",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
                     diagnostics.aiMode?.let { mode ->
                         Text(
                             text = when (mode) {
-                                GeminiOriginalMode.GOOGLE_SEARCH -> "Modalità AI: ricerca Google"
-                                GeminiOriginalMode.MODEL_KNOWLEDGE -> "Modalità AI: conoscenza diretta del modello"
+                                GeminiOriginalMode.DISCOGS -> "Fonte primaria: Discogs"
+                                GeminiOriginalMode.GOOGLE_SEARCH -> "Verifica AI: ricerca Google"
+                                GeminiOriginalMode.MODEL_KNOWLEDGE -> "Verifica AI: conoscenza diretta del modello"
                             },
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -442,6 +449,10 @@ internal fun OriginalVersionScreen(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Versioni: ${diagnostics.finalVersions} · Live: ${diagnostics.liveFound} · Con altri: ${diagnostics.withOthersFound} · Remix: ${diagnostics.remixFound}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "Discogs: ${diagnostics.discogsFound} versioni strutturate",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
@@ -547,19 +558,21 @@ internal fun OriginalVersionScreen(
 
                 searchResult.aiIdentity?.let { identity ->
                     item {
-                        VersionSectionTitle("Identificato dall'AI")
+                        VersionSectionTitle("Identità della versione")
                         Text(
                             text = "${identity.title} · ${identity.originalArtists.joinToString(", ")}",
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            text = identity.year?.let { "Prima pubblicazione: $it" } ?: "Prima pubblicazione: data non disponibile",
+                            text = formatDiscogsPublicationDate(identity.releaseDate, identity.year)
+                                ?.let { "Prima pubblicazione: $it" }
+                                ?: "Prima pubblicazione: data non disponibile",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
                         identity.album?.let { Text("Album / pubblicazione: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Text(
-                            text = "L'AI identifica originale, anno e pubblicazione. I crediti completi vengono caricati solo aprendo Dettagli; YouTube Music e YouTube servono a localizzare la riproduzione.",
+                            text = "Discogs è la fonte strutturata primaria per versione e pubblicazione; le altre fonti completano o verificano i dati. YouTube Music e YouTube servono a localizzare la riproduzione.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 5.dp, bottom = 12.dp),
@@ -588,7 +601,7 @@ internal fun OriginalVersionScreen(
                     val original = searchResult.original
                     if (original != null) {
                         item {
-                            VersionSectionTitle("Originale secondo AI")
+                            VersionSectionTitle("Originale")
                             OriginalVersionRow(
                                 result = original,
                                 credits = versionCredits[original.song.id]
@@ -955,7 +968,9 @@ private fun OriginalVersionRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = displayYear?.let { "Data: $it" } ?: "Data non disponibile",
+                text = formatDiscogsPublicationDate(result.releaseDate, displayYear)
+                    ?.let { "Data pubblicazione: $it" }
+                    ?: "Data pubblicazione: non disponibile",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -984,7 +999,12 @@ private fun OriginalDetailDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(result.song.artists.joinToString(", ") { it.name }, style = MaterialTheme.typography.titleSmall)
-                Text((credits?.year ?: result.year)?.let { "Data: $it" } ?: "Data: non disponibile")
+                Text(
+                    formatDiscogsPublicationDate(result.releaseDate, credits?.year ?: result.year)
+                        ?.let { "Data pubblicazione: $it" }
+                        ?: "Data pubblicazione: non disponibile",
+                )
+                result.releaseTitle?.let { Text("Pubblicazione Discogs: $it") }
                 credits?.album?.let { Text("Album: $it") }
                 if (result.source.isNotBlank()) Text("Riproduzione: ${result.source}", style = MaterialTheme.typography.bodySmall)
                 if (loading) {
