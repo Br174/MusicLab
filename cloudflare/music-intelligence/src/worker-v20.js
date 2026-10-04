@@ -958,6 +958,70 @@ export async function saveBrainDecision(db, input = {}) {
   return { httpStatus: 200, body: { stato: 'salvato', status, workId, versionId } };
 }
 
+export async function savePlaybackBinding(db, input = {}) {
+  if (!db) return { httpStatus: 200, body: { stato: 'ignorato', motivo: 'D1 non configurato' } };
+
+  const candidate = input?.candidate && typeof input.candidate === 'object' ? input.candidate : {};
+  const originalTitle = String(input?.originalTitle || '').trim();
+  const originalArtist = String(input?.originalArtist || '').trim();
+  const candidateTitle = String(candidate?.title || '').trim();
+  const candidateArtist = String(candidate?.artist || '').trim();
+  const playbackVideoId = String(candidate?.playbackVideoId || '').trim();
+  if (!originalTitle || !originalArtist || !candidateTitle || !candidateArtist || !playbackVideoId) {
+    return { httpStatus: 400, body: { errore: 'opera, candidato e playback obbligatori' } };
+  }
+
+  const keys = decisionIdentityKeys(input);
+  let work = await db.prepare(
+    'SELECT id FROM works WHERE search_key=?1 AND COALESCE(resolver_version,0)>=?2 LIMIT 1',
+  ).bind(keys.workSearchKey, MEMORY_RESOLVER_VERSION).first();
+
+  if (!work?.id) {
+    const byTitle = await db.prepare(`
+      SELECT id FROM works
+      WHERE search_key LIKE ?1
+        AND COALESCE(resolver_version,0)>=?2
+      ORDER BY updated_at DESC
+      LIMIT 2
+    `).bind(`${canonical(originalTitle)}|%`, MEMORY_RESOLVER_VERSION).all();
+    const matches = byTitle?.results || [];
+    if (matches.length === 1) work = matches[0];
+  }
+  if (!work?.id) return { httpStatus: 404, body: { errore: 'opera cloud non trovata' } };
+
+  const version = await db.prepare(
+    'SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1',
+  ).bind(work.id, keys.versionKey).first();
+  if (!version?.id) return { httpStatus: 404, body: { errore: 'versione cloud non trovata' } };
+
+  const coverUrl = String(candidate?.coverUrl || '').trim();
+  if (coverUrl) {
+    await db.prepare(`
+      UPDATE versions
+      SET cover_url=?1, updated_at=CURRENT_TIMESTAMP
+      WHERE id=?2 AND work_id=?3
+    `).bind(coverUrl, version.id, work.id).run();
+  }
+
+  const playbackSource = String(candidate?.playbackVideoSource || 'youtube').trim() || 'youtube';
+  await db.prepare('DELETE FROM playback_bindings WHERE version_id=?1 AND playback_id<>?2')
+    .bind(version.id, playbackVideoId).run();
+  await db.prepare(`
+    INSERT INTO playback_bindings(playback_id,version_id,work_id,source_kind,last_verified_at)
+    VALUES(?1,?2,?3,?4,CURRENT_TIMESTAMP)
+    ON CONFLICT(playback_id) DO UPDATE SET
+      version_id=excluded.version_id,
+      work_id=excluded.work_id,
+      source_kind=excluded.source_kind,
+      last_verified_at=CURRENT_TIMESTAMP
+  `).bind(playbackVideoId, version.id, work.id, playbackSource).run();
+
+  return {
+    httpStatus: 200,
+    body: { stato: 'salvato', workId: work.id, versionId: version.id, playbackVideoId },
+  };
+}
+
 async function archiveSearch(request, env) {
   if (!env.DB) return json({ stato: 'pronto', query: '', items: [] });
   const input = await request.json().catch(() => ({}));
@@ -1026,6 +1090,11 @@ async function saveDecision(request, env) {
   return json(result.body, result.httpStatus);
 }
 
+async function savePlayback(request, env) {
+  const result = await savePlaybackBinding(env.DB, await request.json());
+  return json(result.body, result.httpStatus);
+}
+
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -1042,6 +1111,7 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/plan') return brainPlan(request);
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/decision') return saveDecision(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/v1/playback/binding') return savePlayback(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/discover') return memoryDiscovery(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/archive/search') return archiveSearch(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/discover/initial') return forwardDiscovery(request, env, ctx, 'initial');
