@@ -1,0 +1,110 @@
+name: LAB41 LAB07 Fast Player Gate
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-lab07-player-fast-41
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab41-lab07-fast-player-gate
+  cancel-in-progress: true
+
+jobs:
+  verify-build-lab41:
+    name: verify-build-lab41
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact LAB41 source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Record exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "LAB41 source: $GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run LAB40 regression and LAB41 player restore contracts
+        run: |
+          node --test             cloudflare/music-intelligence/test/lab40-exact-video-playback-contract.test.mjs             cloudflare/music-intelligence/test/lab41-lab07-fast-player-contract.test.mjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK and Last.fm build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          fi
+
+      - name: Run Android unit tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+
+      - name: UAB preflight diagnostics
+        shell: bash
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build LAB41 APK and ZIP
+        shell: bash
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Stamp exact build SHA
+        shell: bash
+        run: printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Verify LAB41 deliverables
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/uab/apk/MusicLab-LAB41.apk
+          test -s dist/uab/MusicLab-LAB41-APK.zip
+          test -s dist/uab/apk/SHA256SUMS.txt
+          unzip -tq dist/uab/MusicLab-LAB41-APK.zip
+          cat dist/uab/apk/SHA256SUMS.txt
+
+      - name: Upload LAB41 APK ZIP and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB41
+          path: |
+            dist/uab/apk/MusicLab-LAB41.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB41-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
