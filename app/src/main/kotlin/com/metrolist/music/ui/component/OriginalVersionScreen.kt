@@ -82,6 +82,19 @@ internal fun OriginalVersionScreen(
     request: OriginalVersionRequest,
     navController: NavHostController,
 ) {
+    DiscogsDirectVersionBrowser(
+        mode = DiscogsDirectMode.ORIGINAL,
+        initialTitle = request.title,
+        lockedArtist = request.artist,
+        navController = navController,
+    )
+}
+
+@Composable
+private fun LegacyAiOriginalVersionScreenUnused(
+    request: OriginalVersionRequest,
+    navController: NavHostController,
+) {
     val connection = LocalPlayerConnection.current
     val service = connection?.service
 
