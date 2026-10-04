@@ -145,9 +145,22 @@ private object AiCoverSessionStore {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun CoverSearchScreen(
+    request: CoverSearchRequest,
+    navController: NavHostController,
+) {
+    DiscogsDirectVersionBrowser(
+        mode = DiscogsDirectMode.COVER,
+        initialTitle = request.title,
+        lockedArtist = request.originalArtist,
+        navController = navController,
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LegacyAiCoverSearchScreenUnused(
     request: CoverSearchRequest,
     navController: NavHostController,
 ) {
