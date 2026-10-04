@@ -33,6 +33,7 @@ internal data class OriginalVersionDiagnostics(
     val withOthersFound: Int = 0,
     val remixFound: Int = 0,
     val spotifyHintsFound: Int = 0,
+    val discogsFound: Int = 0,
 )
 
 internal data class OriginalVersionSearchResult(
@@ -63,14 +64,53 @@ internal object OriginalVersionSearchEngine {
         title: String,
         currentArtist: String,
         geminiConfig: GeminiCoverVerificationConfig?,
+        discogsToken: String = "",
     ): OriginalVersionSearchResult = coroutineScope {
+        val discogsHints = if (discogsToken.isBlank()) {
+            emptyList()
+        } else {
+            runCatching {
+                DiscogsVersionSource.discoverTitleHints(
+                    token = discogsToken,
+                    title = title,
+                )
+            }.getOrDefault(emptyList())
+        }
+
+        fun identityFromDiscogs(seed: DiscogsVersionSeed): GeminiOriginalIdentity =
+            GeminiOriginalIdentity(
+                title = seed.trackTitle,
+                originalArtists = listOf(seed.artist),
+                year = seed.year,
+                releaseDate = seed.releaseDate,
+                songwriters = emptyList(),
+                composers = emptyList(),
+                lyricists = emptyList(),
+                producers = emptyList(),
+                label = seed.labels.firstOrNull(),
+                album = seed.releaseTitle,
+                mode = GeminiOriginalMode.DISCOGS,
+                webSourceCount = 0,
+            )
+
         if (geminiConfig == null) {
+            val identity = discogsHints.firstOrNull()?.let(::identityFromDiscogs)
+                ?: return@coroutineScope OriginalVersionSearchResult(
+                    original = null,
+                    versions = emptyList(),
+                    diagnostics = OriginalVersionDiagnostics(
+                        aiStatus = OriginalAiStatus.NOT_CONFIGURED,
+                        discogsFound = discogsHints.size,
+                    ),
+                )
             return@coroutineScope OriginalVersionSearchResult(
                 original = null,
                 versions = emptyList(),
-                diagnostics = OriginalVersionDiagnostics(aiStatus = OriginalAiStatus.NOT_CONFIGURED),
+                aiIdentity = identity,
+                diagnostics = diagnosticsForIdentity(identity).copy(discogsFound = discogsHints.size),
             )
         }
+
         val aiAttempt = runCatching {
             GeminiOriginalDiscovery.identify(
                 currentTitle = title,
@@ -78,32 +118,48 @@ internal object OriginalVersionSearchEngine {
                 config = geminiConfig,
             )
         }
-        if (aiAttempt.isFailure) {
-            return@coroutineScope OriginalVersionSearchResult(
-                original = null,
-                versions = emptyList(),
-                diagnostics = OriginalVersionDiagnostics(aiStatus = OriginalAiStatus.ERROR),
-            )
+
+        val aiIdentity = aiAttempt.getOrNull()
+        val identity = if (aiIdentity != null) {
+            val discogsMatch = discogsHints.firstOrNull { seed ->
+                aiIdentity.originalArtists.any { artist -> discogsArtistMatches(seed.artist, artist) }
+            }
+            if (discogsMatch != null) {
+                aiIdentity.copy(
+                    year = discogsMatch.year ?: aiIdentity.year,
+                    releaseDate = discogsMatch.releaseDate ?: aiIdentity.releaseDate,
+                    album = discogsMatch.releaseTitle.ifBlank { aiIdentity.album.orEmpty() }.ifBlank { null },
+                )
+            } else {
+                aiIdentity
+            }
+        } else {
+            discogsHints.firstOrNull()?.let(::identityFromDiscogs)
         }
-        val identity = aiAttempt.getOrNull()
+
         if (identity == null) {
             return@coroutineScope OriginalVersionSearchResult(
                 original = null,
                 versions = emptyList(),
-                diagnostics = OriginalVersionDiagnostics(aiStatus = OriginalAiStatus.NO_ANSWER),
+                diagnostics = OriginalVersionDiagnostics(
+                    aiStatus = if (aiAttempt.isFailure) OriginalAiStatus.ERROR else OriginalAiStatus.NO_ANSWER,
+                    discogsFound = discogsHints.size,
+                ),
             )
         }
+
         OriginalVersionSearchResult(
             original = null,
             versions = emptyList(),
             aiIdentity = identity,
-            diagnostics = diagnosticsForIdentity(identity),
+            diagnostics = diagnosticsForIdentity(identity).copy(discogsFound = discogsHints.size),
         )
     }
 
     suspend fun findInitialVersions(
         identity: GeminiOriginalIdentity,
         currentYouTubeId: String,
+        discogsToken: String = "",
     ): OriginalVersionSearchResult = coroutineScope {
         val targetTitle = exactBaseTitle(identity.title)
         val originalArtists = canonicalOriginalArtists(identity)
@@ -117,10 +173,28 @@ internal object OriginalVersionSearchEngine {
             )
         }
 
-        val query = "${identity.title} $leadArtist"
-        val music = searchFirstPage(query, targetTitle, originalArtists, YouTube.SearchFilter.FILTER_SONG, "YouTube Music")
         val merged = linkedMapOf<String, CoverHubResult>()
-        music.results.forEach { mergeInto(merged, it) }
+        val discogsSeeds = if (discogsToken.isBlank()) {
+            emptyList()
+        } else {
+            runCatching {
+                DiscogsVersionSource.discoverOriginalVersions(
+                    token = discogsToken,
+                    title = identity.title,
+                    originalArtist = leadArtist,
+                )
+            }.getOrDefault(emptyList())
+        }
+        val discogsResults = resolveDiscogsOriginalVersions(discogsSeeds, currentYouTubeId)
+        discogsResults.forEach { mergeInto(merged, it) }
+
+        val query = "${identity.title} $leadArtist"
+        val music = if (merged.size < INITIAL_RESULTS_LIMIT) {
+            searchFirstPage(query, targetTitle, originalArtists, YouTube.SearchFilter.FILTER_SONG, "YouTube Music")
+                .also { outcome -> outcome.results.forEach { mergeInto(merged, it) } }
+        } else {
+            QueryOutcome(emptyList(), 0, false, false)
+        }
         includeCurrentIfOriginal(currentYouTubeId, targetTitle, originalArtists, merged)
 
         val video = if (merged.size < INITIAL_RESULTS_LIMIT) {
@@ -134,8 +208,18 @@ internal object OriginalVersionSearchEngine {
         chosen?.let { visible[it.song.id] = it }
         pool.forEach { candidate -> if (visible.size < INITIAL_RESULTS_LIMIT) visible[candidate.song.id] = candidate }
 
-        val original = chosen?.copy(year = identity.year ?: chosen.year, source = aiSource(chosen.source), confirmed = true)
-        val versions = visible.values.asSequence().filter { it.song.id != original?.song?.id }.sortedWith(versionOrder).toList()
+        val original = chosen?.copy(
+            year = identity.year ?: chosen.year,
+            releaseDate = identity.releaseDate ?: chosen.releaseDate,
+            releaseTitle = chosen.releaseTitle ?: identity.album,
+            source = if (chosen.source.contains("Discogs")) chosen.source else aiSource(chosen.source),
+            confirmed = true,
+        )
+        val versions = visible.values.asSequence()
+            .filter { it.song.id != original?.song?.id }
+            .distinctBy { it.versionFingerprint ?: it.song.id }
+            .sortedWith(versionOrder)
+            .toList()
 
         buildCategorizedResult(
             identity = identity,
@@ -151,6 +235,7 @@ internal object OriginalVersionSearchEngine {
                 finalVersions = versions.size + if (original != null) 1 else 0,
                 initialVisible = versions.size + if (original != null) 1 else 0,
                 backgroundComplete = false,
+                discogsFound = discogsResults.size,
             ),
         )
     }
@@ -160,6 +245,7 @@ internal object OriginalVersionSearchEngine {
         currentYouTubeId: String,
         seed: OriginalVersionSearchResult,
         geminiConfig: GeminiCoverVerificationConfig?,
+        discogsToken: String = "",
     ): OriginalVersionSearchResult = coroutineScope {
         val targetTitle = exactBaseTitle(identity.title)
         val originalArtists = canonicalOriginalArtists(identity)
@@ -169,6 +255,18 @@ internal object OriginalVersionSearchEngine {
         val merged = linkedMapOf<String, CoverHubResult>()
         seed.original?.let { mergeInto(merged, it) }
         seed.versions.forEach { mergeInto(merged, it) }
+
+        if (discogsToken.isNotBlank() && leadArtist.isNotBlank()) {
+            val knownFingerprints = merged.values.mapNotNull { it.versionFingerprint }.toSet()
+            val freshDiscogs = runCatching {
+                DiscogsVersionSource.discoverOriginalVersions(
+                    token = discogsToken,
+                    title = identity.title,
+                    originalArtist = leadArtist,
+                ).filter { it.fingerprint !in knownFingerprints }
+            }.getOrDefault(emptyList())
+            resolveDiscogsOriginalVersions(freshDiscogs, currentYouTubeId).forEach { mergeInto(merged, it) }
+        }
 
         val memoryCandidates = if (
             geminiConfig != null &&
@@ -287,10 +385,16 @@ internal object OriginalVersionSearchEngine {
         includeCurrentIfOriginal(currentYouTubeId, targetTitle, originalArtists, merged)
         val raw = resolveMissingYears(merged.values.toList())
         val chosen = chooseAiOriginal(raw, identity)
-        val original = chosen?.copy(year = identity.year ?: chosen.year, source = aiSource(chosen.source), confirmed = true)
+        val original = chosen?.copy(
+            year = identity.year ?: chosen.year,
+            releaseDate = identity.releaseDate ?: chosen.releaseDate,
+            releaseTitle = chosen.releaseTitle ?: identity.album,
+            source = if (chosen.source.contains("Discogs")) chosen.source else aiSource(chosen.source),
+            confirmed = true,
+        )
         val alternatives = raw.asSequence()
             .filter { it.song.id != original?.song?.id }
-            .distinctBy { it.song.id }
+            .distinctBy { it.versionFingerprint ?: it.song.id }
             .sortedWith(versionOrder)
             .toList()
 
@@ -309,6 +413,8 @@ internal object OriginalVersionSearchEngine {
                 initialVisible = seed.diagnostics.initialVisible,
                 backgroundComplete = true,
                 spotifyHintsFound = spotifyHints.size,
+                discogsFound = alternatives.count { it.source.contains("Discogs") } +
+                    if (original?.source?.contains("Discogs") == true) 1 else 0,
             ),
         )
     }
@@ -319,11 +425,12 @@ internal object OriginalVersionSearchEngine {
         durationSec: Int,
         currentYouTubeId: String,
         geminiConfig: GeminiCoverVerificationConfig?,
+        discogsToken: String = "",
     ): OriginalVersionSearchResult {
-        val identified = identifyOriginal(title, currentArtist, geminiConfig)
+        val identified = identifyOriginal(title, currentArtist, geminiConfig, discogsToken)
         val identity = identified.aiIdentity ?: return identified
-        val initial = findInitialVersions(identity, currentYouTubeId)
-        return findExpandedVersions(identity, currentYouTubeId, initial, geminiConfig)
+        val initial = findInitialVersions(identity, currentYouTubeId, discogsToken)
+        return findExpandedVersions(identity, currentYouTubeId, initial, geminiConfig, discogsToken)
     }
 
     private fun defaultVersionQueries(identity: GeminiOriginalIdentity): List<String> {
@@ -445,6 +552,38 @@ internal object OriginalVersionSearchEngine {
         return OriginalArtistSearchOutcome(merged.values.toList(), first.pages + second.pages, status)
     }
 
+    private suspend fun resolveDiscogsOriginalVersions(
+        seeds: List<DiscogsVersionSeed>,
+        currentYouTubeId: String,
+    ): List<CoverHubResult> {
+        if (seeds.isEmpty()) return emptyList()
+        val candidates = seeds.map(DiscogsVersionSource::toCoverCandidate)
+        val resolved = runCatching {
+            AiCoverSearchEngine.resolveCandidates(
+                candidates = candidates,
+                currentYouTubeId = currentYouTubeId,
+                pauseBetweenBatches = false,
+            )
+        }.getOrDefault(AiCoverResolveResult(emptyList(), AiCoverResolveStats()))
+
+        return resolved.playables.map { playable ->
+            val candidate = playable.candidate
+            CoverHubResult(
+                song = playable.song,
+                year = candidate.year,
+                releaseDate = candidate.releaseDate,
+                releaseTitle = candidate.discogsReleaseTitle ?: candidate.album,
+                discogsReleaseId = candidate.discogsReleaseId,
+                discogsMasterId = candidate.discogsMasterId,
+                versionFingerprint = candidate.versionFingerprint,
+                source = "Discogs → ${playable.playbackSource}",
+                confirmed = true,
+                score = 1.15,
+                brainCandidate = candidate,
+            )
+        }
+    }
+
     private suspend fun searchFirstPage(
         query: String,
         targetTitle: String,
@@ -541,6 +680,10 @@ internal object OriginalVersionSearchEngine {
     private fun chooseAiOriginal(results: List<CoverHubResult>, identity: GeminiOriginalIdentity): CoverHubResult? {
         if (results.isEmpty()) return null
         val plain = results.filter { isPlainVersionTitle(it.song.title) }
+        identity.releaseDate?.let { exactDate ->
+            plain.firstOrNull { it.releaseDate == exactDate }?.let { return it }
+            results.firstOrNull { it.releaseDate == exactDate }?.let { return it }
+        }
         identity.year?.let { aiYear ->
             plain.firstOrNull { it.year == aiYear }?.let { return it }
             results.firstOrNull { it.year == aiYear }?.let { return it }
@@ -621,12 +764,26 @@ internal object OriginalVersionSearchEngine {
         value.isNotBlank() && phrase.isNotBlank() && (value == phrase || value.startsWith("$phrase ") || value.endsWith(" $phrase") || value.contains(" $phrase "))
 
     private fun mergeInto(target: MutableMap<String, CoverHubResult>, candidate: CoverHubResult) {
-        val previous = target[candidate.song.id]
-        if (previous == null) { target[candidate.song.id] = candidate; return }
+        val fingerprint = candidate.versionFingerprint
+        val existingEntry = target.entries.firstOrNull { (_, existing) ->
+            existing.song.id == candidate.song.id ||
+                (!fingerprint.isNullOrBlank() && existing.versionFingerprint == fingerprint)
+        }
+        val key = existingEntry?.key ?: fingerprint?.takeIf(String::isNotBlank) ?: candidate.song.id
+        val previous = existingEntry?.value
+        if (previous == null) {
+            target[key] = candidate
+            return
+        }
         val sources = listOf(previous.source, candidate.source)
             .flatMap { it.split(" + ") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().joinToString(" + ")
-        target[candidate.song.id] = previous.copy(
+        target[key] = previous.copy(
             year = previous.year ?: candidate.year,
+            releaseDate = previous.releaseDate ?: candidate.releaseDate,
+            releaseTitle = previous.releaseTitle ?: candidate.releaseTitle,
+            discogsReleaseId = previous.discogsReleaseId ?: candidate.discogsReleaseId,
+            discogsMasterId = previous.discogsMasterId ?: candidate.discogsMasterId,
+            versionFingerprint = previous.versionFingerprint ?: candidate.versionFingerprint,
             source = sources,
             confirmed = previous.confirmed || candidate.confirmed,
             score = maxOf(previous.score, candidate.score),
@@ -640,6 +797,12 @@ internal object OriginalVersionSearchEngine {
     }
 
     private fun canonicalOriginalArtists(identity: GeminiOriginalIdentity) = identity.originalArtists.map(::canonicalArtist).filter { it.isNotBlank() }.toSet()
+
+    private fun discogsArtistMatches(left: String, right: String): Boolean {
+        val a = canonicalArtist(left)
+        val b = canonicalArtist(right)
+        return a.isNotBlank() && b.isNotBlank() && artistContains(a, b)
+    }
 
     private fun exactBaseTitle(value: String): String {
         var clean = Normalizer.normalize(value, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase().trim()
@@ -675,8 +838,11 @@ internal object OriginalVersionSearchEngine {
         return candidate.startsWith("$original ") || candidate.endsWith(" $original") || candidate.contains(" $original ") || original.startsWith("$candidate ") || original.endsWith(" $candidate")
     }
 
-    private val versionOrder = compareBy<CoverHubResult> { if (it.year == null) 1 else 0 }
-        .thenBy { it.year ?: Int.MAX_VALUE }.thenByDescending { it.confirmed }.thenByDescending { it.score }
+    private val versionOrder =
+        compareBy<CoverHubResult> { if (it.year == null && it.releaseDate == null) 1 else 0 }
+            .thenBy { it.releaseDate ?: it.year?.toString() ?: "9999-99-99" }
+            .thenByDescending { it.confirmed }
+            .thenByDescending { it.score }
     private val BRACKETED_BLOCK_REGEX = Regex("\\([^)]*\\)|\\[[^]]*]")
     private val YEAR_ONLY_REGEX = Regex("^(?:18|19|20)\\d{2}$")
     private val YEAR_IN_TEXT_REGEX = Regex("\\b(?:18|19|20)\\d{2}\\b")
