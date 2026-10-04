@@ -1673,19 +1673,6 @@ private fun syncPlayableCandidateMetadata(
         } else {
             playable
         }
-    }.let { enrichedPlayables ->
-        val merged = linkedMapOf<String, AiCoverPlayable>()
-        enrichedPlayables.forEach { playable ->
-            val key = semanticFallbackVersionKey(playable)
-            val previous = merged[key]
-            merged[key] =
-                if (previous == null || candidateRichness(playable.candidate) > candidateRichness(previous.candidate)) {
-                    playable
-                } else {
-                    previous
-                }
-        }
-        merged.values.toList()
     }
 }
 
