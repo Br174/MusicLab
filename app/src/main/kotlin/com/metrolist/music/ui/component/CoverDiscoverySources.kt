@@ -96,12 +96,12 @@ internal object CoverDiscoverySources {
 
         val lanes =
             listOf(
+                coverInfo.await(),
                 musicBrainz.await(),
                 iTunes.await(),
                 lastFm.await(),
                 lrcLib.await(),
                 spotify.await(),
-                coverInfo.await(),
                 wikidata.await(),
                 ai.await(),
             )
@@ -525,94 +525,169 @@ internal object CoverDiscoverySources {
         originalArtist: String,
         mode: DiscogsDirectMode,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
-        val url =
-            "https://cover.info/en/search".toHttpUrl().newBuilder()
-                .addQueryParameter("find", title)
-                .build()
-                .toString()
-        val html = fetchHtml(url)
-            ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
-                "COVER.INFO",
-                false,
-                0,
-                "ricerca pubblica non disponibile",
-            )
+        val cleanTitle = title.replace('"', ' ').trim()
+        val cleanArtist = originalArtist.replace('"', ' ').trim()
+        val searchTerms =
+            listOfNotNull(
+                if (cleanArtist.isNotBlank()) {
+                    """song="$cleanTitle" performer="$cleanArtist""""
+                } else {
+                    null
+                },
+                """song="$cleanTitle"""",
+                cleanTitle,
+            ).distinct()
 
-        val document = runCatching { Jsoup.parse(html, "https://cover.info") }.getOrNull()
-            ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
-                "COVER.INFO",
-                false,
-                0,
-                "HTML non leggibile",
-            )
+        var searchDocument: org.jsoup.nodes.Document? = null
+        var usedSearch = ""
+        for (term in searchTerms) {
+            val url =
+                "https://cover.info/en/search".toHttpUrl().newBuilder()
+                    .addQueryParameter("find", term)
+                    .build()
+                    .toString()
+            val html = fetchHtml(url) ?: continue
+            val parsed = runCatching { Jsoup.parse(html, "https://cover.info") }.getOrNull() ?: continue
+            if (parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty()) {
+                searchDocument = parsed
+                usedSearch = term
+                break
+            }
+        }
 
-        val seenIds = linkedSetOf<String>()
-        val candidates =
-            document.select("a[href^=/en/song/], a[href^=https://cover.info/en/song/]")
-                .mapNotNull { anchor ->
-                    val absolute = anchor.absUrl("href").ifBlank { anchor.attr("href") }
-                    val cleanUrl = absolute.substringBefore('?').substringBefore('#')
-                    val match = COVER_INFO_SONG_URL.find(cleanUrl) ?: return@mapNotNull null
-                    val songId = match.groupValues[1]
-                    if (!seenIds.add(songId)) return@mapNotNull null
+        val document =
+            searchDocument
+                ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
+                    "COVER.INFO",
+                    false,
+                    0,
+                    "ricerca pubblica non disponibile",
+                )
 
-                    val slugTitle = match.groupValues[2]
-                    val slugArtist = match.groupValues.getOrNull(3).orEmpty()
-                    val parentText =
-                        anchor.closest("fieldset")?.text()
-                            ?: anchor.parent()?.text().orEmpty()
-                    val titleFromText =
-                        anchor.text()
-                            .replace(Regex("\\s*\\((?:18|19|20)\\d{2}\\)\\s*$"), "")
-                            .trim()
-                    val candidateTitle =
-                        titleFromText.ifBlank {
-                            slugTitle.replace('-', ' ').replace(Regex("\\s+"), " ").trim()
-                        }
-                    val artistLink =
-                        anchor.closest("fieldset")
-                            ?.select("a[href*=/artist/]")
-                            ?.firstOrNull()
-                    val artist =
-                        artistLink?.text()?.trim().orEmpty().ifBlank {
-                            slugArtist.replace("-and-", " & ")
-                                .replace('-', ' ')
-                                .replace(Regex("\\s+"), " ")
-                                .trim()
-                        }
-                    if (candidateTitle.isBlank() || artist.isBlank()) return@mapNotNull null
-                    if (!modeAcceptsArtist(mode, artist, originalArtist)) return@mapNotNull null
+        val searchSeeds = parseCoverInfoDocument(document)
+        val relationRoots =
+            searchSeeds
+                .sortedWith(
+                    compareByDescending<CoverInfoSeed> {
+                        sameBaseTitle(title, it.title) && sameArtist(originalArtist, it.artist)
+                    }.thenByDescending {
+                        sameBaseTitle(title, it.title)
+                    },
+                )
+                .take(3)
 
-                    val year =
-                        COVER_INFO_YEAR.find(parentText)
-                            ?.value
-                            ?.toIntOrNull()
-                    val language =
-                        COVER_INFO_LANGUAGES.firstOrNull { languageName ->
-                            parentText.contains(languageName, ignoreCase = true)
-                        }
-                    val sameTitle = sameBaseTitle(title, candidateTitle)
-                    CoverSourceCandidate(
-                        title = candidateTitle,
-                        artist = artist,
-                        sources = listOf("COVER.INFO"),
-                        year = year,
-                        language = language,
-                        category =
-                            if (!sameTitle) AiCoverCategory.FOREIGN
-                            else categoryFromTitle(candidateTitle),
-                        sourceUrl = cleanUrl,
-                        evidenceScore = if (sameTitle) 4 else 5,
-                    )
+        val related = mutableListOf<CoverInfoSeed>()
+        relationRoots.forEach { root ->
+            val html = fetchHtml(root.url) ?: return@forEach
+            val page = runCatching { Jsoup.parse(html, "https://cover.info") }.getOrNull() ?: return@forEach
+            related += parseCoverInfoDocument(page).map { it.copy(directRelation = true) }
+        }
+
+        val mergedSeeds =
+            (related + searchSeeds)
+                .distinctBy { it.songId }
+                .filter { seed ->
+                    seed.title.isNotBlank() &&
+                        seed.artist.isNotBlank() &&
+                        modeAcceptsArtist(mode, seed.artist, originalArtist)
                 }
-                .distinctBy { identity(it.title, it.artist, it.category) }
+
+        val candidates =
+            mergedSeeds.map { seed ->
+                val sameTitle = sameBaseTitle(title, seed.title)
+                CoverSourceCandidate(
+                    title = seed.title,
+                    artist = seed.artist,
+                    sources = listOf("COVER.INFO"),
+                    year = seed.year,
+                    language = seed.language,
+                    category =
+                        if (!sameTitle) AiCoverCategory.FOREIGN
+                        else categoryFromTitle(seed.title),
+                    sourceUrl = seed.url,
+                    // Direct relationship pages are COVER.INFO's strongest signal,
+                    // especially for foreign/adapted titles that other sources miss.
+                    evidenceScore =
+                        when {
+                            seed.directRelation -> 10
+                            sameTitle -> 9
+                            else -> 8
+                        },
+                )
+            }.distinctBy { identity(it.title, it.artist, it.category) }
 
         return candidates to CoverSourceDiagnostic(
             name = "COVER.INFO",
             available = true,
             found = candidates.size,
-            note = "ricerca pubblica no-key · find= · sola discovery/evidenza",
+            note = "fonte primaria · ricerca precisa + relazioni opera/versioni · $usedSearch",
         )
+    }
+
+    private data class CoverInfoSeed(
+        val songId: String,
+        val title: String,
+        val artist: String,
+        val url: String,
+        val year: Int?,
+        val language: String?,
+        val directRelation: Boolean = false,
+    )
+
+    private fun parseCoverInfoDocument(document: org.jsoup.nodes.Document): List<CoverInfoSeed> {
+        val seenIds = linkedSetOf<String>()
+        return document.select(COVER_INFO_SONG_SELECTOR)
+            .mapNotNull { anchor ->
+                val absolute = anchor.absUrl("href").ifBlank { anchor.attr("href") }
+                val cleanUrl = absolute.substringBefore('?').substringBefore('#')
+                val match = COVER_INFO_SONG_URL.find(cleanUrl) ?: return@mapNotNull null
+                val songId = match.groupValues[1]
+                if (!seenIds.add(songId)) return@mapNotNull null
+
+                val slugTitle = match.groupValues[2]
+                val slugArtist = match.groupValues.getOrNull(3).orEmpty()
+                val container =
+                    anchor.parents().firstOrNull { parent ->
+                        parent.text().length <= 1_200 &&
+                            parent.select("a[href*=/artist/]").isNotEmpty()
+                    }
+                val contextText = container?.text().orEmpty().ifBlank { anchor.parent()?.text().orEmpty() }
+                val titleFromText =
+                    anchor.text()
+                        .replace(Regex("\\s*\\((?:18|19|20)\\d{2}\\)\\s*$"), "")
+                        .trim()
+                val candidateTitle =
+                    titleFromText.ifBlank {
+                        slugTitle.replace('-', ' ').replace(Regex("\\s+"), " ").trim()
+                    }
+                val artistFromSlug =
+                    slugArtist.replace("-and-", " & ")
+                        .replace('-', ' ')
+                        .replace(Regex("\\s+"), " ")
+                        .trim()
+                val artist =
+                    artistFromSlug.ifBlank {
+                        container
+                            ?.select("a[href*=/artist/]")
+                            ?.firstOrNull()
+                            ?.text()
+                            ?.trim()
+                            .orEmpty()
+                    }
+                if (candidateTitle.isBlank() || artist.isBlank()) return@mapNotNull null
+
+                CoverInfoSeed(
+                    songId = songId,
+                    title = candidateTitle,
+                    artist = artist,
+                    url = cleanUrl,
+                    year = COVER_INFO_YEAR.find(contextText)?.value?.toIntOrNull(),
+                    language =
+                        COVER_INFO_LANGUAGES.firstOrNull { languageName ->
+                            contextText.contains(languageName, ignoreCase = true)
+                        },
+                )
+            }
     }
 
     private fun discoverWikidata(
@@ -784,6 +859,7 @@ internal object CoverDiscoverySources {
     private val LASTFM_PUBLIC_TRACK_URL =
         Regex("""(?:https?://(?:www\.)?last\.fm)?/music/([^/?#]+)/_/([^/?#]+)""")
 
+    private const val COVER_INFO_SONG_SELECTOR = "a[href^=/en/song/], a[href^=https://cover.info/en/song/]"
     private val COVER_INFO_SONG_URL =
         Regex("""https?://cover\.info/en/song/(\d+)/([^/?#]+)(?:/([^/?#]+))?""")
     private val COVER_INFO_YEAR = Regex("""\b(?:18|19|20)\d{2}\b""")
@@ -794,6 +870,6 @@ internal object CoverDiscoverySources {
             "Japanese", "Korean", "Instrumental",
         )
 
-    private const val USER_AGENT = "MusicLab-LAB39/1.0"
+    private const val USER_AGENT = "MusicLab-LAB40/1.0"
     private const val CACHE_TTL_MS = 30L * 60L * 1000L
 }
