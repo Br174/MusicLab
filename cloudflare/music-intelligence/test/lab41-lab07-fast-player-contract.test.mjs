@@ -5,6 +5,10 @@ import fs from 'node:fs';
 const read = (p) => fs.readFileSync(p, 'utf8');
 
 const player = read('app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt');
+const resolver = read('app/src/main/kotlin/com/metrolist/music/discogs/CompilationTrackResolver.kt');
+const browser = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt');
+const providers = read('app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt');
+const versions = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt');
 const uab = read('uab-project.env');
 
 test('LAB41 restores LAB07-style fast-first playback before the modern fallback', () => {
@@ -36,4 +40,23 @@ test('LAB41 remains isolated from LAB40 and MADRE', () => {
   assert.match(uab, /UAB_OUTPUT_NAME="MusicLab-LAB41"/);
   assert.match(uab, /UAB_APPLICATION_ID_BASE="it\.verlezza\.musiclab\.lab41"/);
   assert.match(uab, /UAB_APP_NAME_BASE="MusicLab LAB41"/);
+});
+
+test('LAB41 preserves LAB40 exact-recording and selected-first playback behavior', () => {
+  assert.match(resolver, /isHardCompatible/);
+  assert.match(resolver, /if \(!artistFieldMatch && !titleNamesTargetArtist\) return false/);
+  assert.match(resolver, /sameVersionIntent/);
+  assert.match(browser, /preparedVideoSongs/);
+  assert.match(browser, /first sound wins/);
+  assert.match(browser, /items = listOf\(selectedSong\.toMediaItem\(\)\)/);
+  assert.match(browser, /connection\.addToQueue\(tailItems\)/);
+});
+
+test('LAB41 preserves LAB40 COVER.INFO, artwork and Last.fm behavior', () => {
+  const lanes = providers.slice(providers.indexOf('val lanes ='), providers.indexOf('val merged ='));
+  assert.ok(lanes.indexOf('coverInfo.await()') < lanes.indexOf('musicBrainz.await()'));
+  assert.match(providers, /directRelation = true/);
+  assert.match(providers, /seed\.directRelation -> 10/);
+  assert.match(versions, /i\.ytimg\.com\/vi\/\$videoId\/hqdefault\.jpg/);
+  assert.match(providers, /discoverLastFmPublic/);
 });
