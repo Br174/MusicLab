@@ -76,9 +76,10 @@ class DiscogsVersionSourceTest {
     }
 
     @Test
-    fun `unverified release candidate is never admissible as a direct version`() {
-        val unverified = seed(releaseId = 9)
+    fun `unverified candidate is preserved at low score while verified status stays distinct`() {
+        val unverified = seed(releaseId = 9).copy(confidenceScore = 1)
         assertFalse(DiscogsVersionSource.isVerifiedDirectSeed(unverified))
+        assertTrue(DiscogsVersionSource.isDisplayableDirectSeed(unverified))
 
         val verified = unverified.copy(
             confidenceScore = 7,
@@ -91,6 +92,31 @@ class DiscogsVersionSourceTest {
             ),
         )
         assertTrue(DiscogsVersionSource.isVerifiedDirectSeed(verified))
+        assertTrue(DiscogsVersionSource.isDisplayableDirectSeed(verified))
+    }
+
+    @Test
+    fun `independent evidence is merged without deleting the candidate`() {
+        val discogs = seed(releaseId = 9).copy(
+            confidenceScore = 1,
+            sourceNames = listOf("Discogs"),
+        )
+        val apple =
+            DiscogsVersionSource.externalSeed(
+                CoverSourceCandidate(
+                    title = "Canzone",
+                    artist = "Artista",
+                    sources = listOf("Apple/iTunes"),
+                    evidenceScore = 2,
+                ),
+            )
+
+        val merged = DiscogsVersionSource.mergeEvidence(discogs, apple)
+
+        assertTrue("Discogs" in merged.sourceNames)
+        assertTrue("Apple/iTunes" in merged.sourceNames)
+        assertTrue(merged.confidenceScore >= 3)
+        assertEquals(9, merged.releaseId)
     }
 
     @Test
