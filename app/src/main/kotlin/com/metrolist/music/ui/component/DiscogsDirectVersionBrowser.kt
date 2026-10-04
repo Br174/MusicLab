@@ -497,6 +497,21 @@ internal fun DiscogsDirectVersionBrowser(
         }
 
 
+    suspend fun persistCloudPlaybackBinding(seed: DiscogsVersionSeed) {
+        if ("Archivio Cloud" !in seed.sourceNames || seed.resolvedVideoId.isNullOrBlank()) return
+        val config = foreignScoutConfig ?: return
+        if (title.isBlank() || resolvedOriginalArtist.isBlank()) return
+
+        runCatching {
+            CloudMusicDiscovery.savePlaybackBinding(
+                originalTitle = title,
+                originalArtist = resolvedOriginalArtist,
+                candidate = seedToBrainCandidate(seed),
+                config = config,
+            )
+        }
+    }
+
     suspend fun resolveVideoChunk(chunk: List<DiscogsVersionSeed>) = coroutineScope {
         if (chunk.isEmpty()) return@coroutineScope
         val excludedSnapshot = session.usedVideoIds.toSet()
@@ -546,6 +561,9 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                 }
             replaceSeed(updated)
+            if (!updated.resolvedVideoId.isNullOrBlank()) {
+                persistCloudPlaybackBinding(updated)
+            }
         }
     }
 
@@ -1072,6 +1090,7 @@ internal fun DiscogsDirectVersionBrowser(
                     source = resolved.source,
                 )
                 replaceSeed(prepared)
+                persistCloudPlaybackBinding(prepared)
                 playResolvedContext(prepared.fingerprint)
             }
         }
