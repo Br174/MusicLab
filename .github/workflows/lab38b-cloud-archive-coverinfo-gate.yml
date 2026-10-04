@@ -1,0 +1,159 @@
+name: LAB38B Cloud Archive CoverInfo Gate
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-cloud-archive-coverinfo-38b
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab38b-cloud-archive-coverinfo-gate
+  cancel-in-progress: true
+
+jobs:
+  verify-build-deploy:
+    name: verify-build-deploy-lab38b
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 5781b597517f6f7fe25751170a99b9ab
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      WORKER_URL: https://musiclab-music-intelligence.brunoverlezza.workers.dev
+      WRANGLER_SEND_METRICS: "false"
+
+    steps:
+      - name: Checkout exact LAB38B source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Record exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "LAB38B source: $GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run complete cloud and LAB38B source suite
+        run: node --test cloudflare/music-intelligence/test/*.test.mjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK path
+        shell: bash
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      - name: Run Android unit tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+
+      - name: UAB preflight diagnostics
+        shell: bash
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build LAB38B APK and ZIP
+        shell: bash
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Stamp exact build SHA
+        shell: bash
+        run: printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Verify LAB38B deliverables
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/uab/apk/MusicLab-LAB38B.apk
+          test -s dist/uab/MusicLab-LAB38B-APK.zip
+          test -s dist/uab/apk/SHA256SUMS.txt
+          unzip -tq dist/uab/MusicLab-LAB38B-APK.zip
+          cat dist/uab/apk/SHA256SUMS.txt
+
+      - name: Upload LAB38B APK ZIP and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB38B
+          path: |
+            dist/uab/apk/MusicLab-LAB38B.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB38B-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Verify Cloudflare deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$GEMINI_API_KEY"
+
+      - name: Install Worker dependencies
+        working-directory: cloudflare/music-intelligence
+        run: npm install
+
+      - name: Verify Cloudflare token
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "https://api.cloudflare.com/client/v4/user/tokens/verify")"
+          test "$(jq -r '.success' <<<"$response")" = "true"
+
+      - name: Dry-run LAB38B Worker
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler deploy --config wrangler.lab38b.jsonc --dry-run --outdir=/tmp/musiclab-lab38b-worker
+
+      - name: Apply additive D1 migrations
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler d1 migrations apply musiclab-intelligence-db --remote --config wrangler.lab38b.jsonc
+
+      - name: Configure Gemini secret on stable Worker
+        working-directory: cloudflare/music-intelligence
+        shell: bash
+        run: printf '%s' "$GEMINI_API_KEY" | npx wrangler secret put GEMINI_API_KEY --config wrangler.lab38b.jsonc
+
+      - name: Deploy LAB38B runtime to stable endpoint
+        working-directory: cloudflare/music-intelligence
+        run: npx wrangler deploy --config wrangler.lab38b.jsonc
+
+      - name: Verify published LAB38B runtime and archive route
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            state="$(curl --fail-with-body --silent --show-error "$WORKER_URL/stato" || true)"
+            archive="$(curl --fail-with-body --silent --show-error               -H 'content-type: application/json'               -d '{"query":"","limit":3}'               "$WORKER_URL/api/v1/archive/search" || true)"
+            if jq -e '.stato == "ok" and .memoria == true and .versione == "1.4.0-lab38b"' <<<"$state" >/dev/null               && jq -e '.stato == "pronto" and (.items | type == "array")' <<<"$archive" >/dev/null; then
+              echo "$state"
+              echo "$archive"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "LAB38B Worker non verificato sull'endpoint stabile" >&2
+          exit 1
