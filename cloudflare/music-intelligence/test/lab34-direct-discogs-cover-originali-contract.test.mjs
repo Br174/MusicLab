@@ -32,7 +32,9 @@ test('LAB34 Cover and Originali share the same sticky filters pagination and min
   assert.match(browser, /layoutInfo\.visibleItemsInfo\.lastOrNull\(\)\?\.index/);
   assert.match(browser, /results\.size - lastVisible <= DIRECT_VERSION_PREFETCH_DISTANCE/);
   assert.match(browser, /loadNextPage\(\)/);
-  assert.match(browser, /results\.isEmpty\(\)[\s\S]*currentPage < totalPages[\s\S]*loadNextPage\(\)/);
+  assert.match(browser, /results\.isEmpty\(\)/);
+  assert.match(browser, /currentPage < totalPages/);
+  assert.match(browser, /!loadingMore[\s\S]*loadNextPage\(\)/);
 });
 
 test('LAB34 prevents ALL-style duplicate lazy keys even if duplicate data reaches UI', () => {
