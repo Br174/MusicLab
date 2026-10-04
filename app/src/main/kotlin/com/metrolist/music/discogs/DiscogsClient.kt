@@ -14,8 +14,10 @@ import java.util.concurrent.TimeUnit
 internal object DiscogsClient {
     private const val API_BASE = "https://api.discogs.com"
     private const val USER_AGENT = "MusicLab-Compilation/1.0 Android"
-    private const val DISCOGS_MAX_RETRIES = 3
+    private const val DISCOGS_MAX_RETRIES = 4
     private const val DISCOGS_BACKOFF_BASE_MS = 1_800L
+    private const val DISCOGS_MIN_REQUEST_INTERVAL_MS = 1_050L
+    private const val DISCOGS_LOW_REMAINING_PAUSE_MS = 2_200L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -24,6 +26,9 @@ internal object DiscogsClient {
         .build()
 
     private val detailCache = ConcurrentHashMap<Int, DiscogsCompilationDetail>()
+    private val requestGate = Any()
+    @Volatile private var nextAllowedRequestAtMs = 0L
+
 
     suspend fun searchReleases(
         token: String,
@@ -261,6 +266,8 @@ internal object DiscogsClient {
     private fun requestJsonBlocking(url: String, token: String): JSONObject {
         var attempt = 0
         while (true) {
+            awaitRequestSlot()
+
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", USER_AGENT)
@@ -273,6 +280,10 @@ internal object DiscogsClient {
             var terminalError: IOException? = null
 
             client.newCall(request).execute().use { response ->
+                val remaining = response.header("X-Discogs-Ratelimit-Remaining")?.toIntOrNull()
+                if (remaining != null && remaining <= 3) {
+                    extendRequestGate(DISCOGS_LOW_REMAINING_PAUSE_MS)
+                }
                 val body = response.body?.string().orEmpty()
                 if (response.code == 429 && attempt < DISCOGS_MAX_RETRIES) {
                     val retryAfterMs = response.header("Retry-After")
@@ -281,6 +292,7 @@ internal object DiscogsClient {
                         ?.coerceIn(1_500L, 15_000L)
                         ?: (DISCOGS_BACKOFF_BASE_MS * (1L shl attempt)).coerceAtMost(15_000L)
                     retryDelayMs = retryAfterMs
+                    extendRequestGate(retryAfterMs)
                 } else if (!response.isSuccessful) {
                     val message = runCatching {
                         JSONObject(body).optString("message")
@@ -302,6 +314,24 @@ internal object DiscogsClient {
             val delayMs = retryDelayMs ?: throw IOException("Errore Discogs")
             attempt += 1
             Thread.sleep(delayMs)
+        }
+    }
+
+    private fun awaitRequestSlot() {
+        synchronized(requestGate) {
+            val now = System.currentTimeMillis()
+            val waitMs = (nextAllowedRequestAtMs - now).coerceAtLeast(0L)
+            if (waitMs > 0L) Thread.sleep(waitMs)
+            nextAllowedRequestAtMs =
+                maxOf(nextAllowedRequestAtMs, System.currentTimeMillis()) +
+                    DISCOGS_MIN_REQUEST_INTERVAL_MS
+        }
+    }
+
+    private fun extendRequestGate(extraMs: Long) {
+        synchronized(requestGate) {
+            nextAllowedRequestAtMs =
+                maxOf(nextAllowedRequestAtMs, System.currentTimeMillis() + extraMs)
         }
     }
 
