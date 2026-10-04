@@ -89,6 +89,8 @@ internal object DiscogsVersionSource {
         originalArtist: String,
         page: Int,
         perPage: Int = DIRECT_PAGE_SIZE,
+        sort: String? = "year",
+        sortOrder: String? = "asc",
     ): Result<DiscogsVersionPage> = coroutineScope {
         runCatching {
             require(token.isNotBlank()) { "Token Discogs mancante" }
@@ -97,54 +99,26 @@ internal object DiscogsVersionSource {
             val lockedArtist =
                 when (mode) {
                     DiscogsDirectMode.ORIGINAL -> originalArtist.trim().ifBlank { criteria.artist.orEmpty().trim() }
-                    DiscogsDirectMode.COVER -> criteria.artist.orEmpty().trim()
-                }.takeIf(String::isNotBlank)
+                    DiscogsDirectMode.COVER -> null
+                }
 
             val releasePage = DiscogsClient.searchReleases(
                 token = token,
                 track = criteria.title,
                 artist = lockedArtist,
-                releaseTitle = criteria.releaseTitle,
-                year = criteria.year,
-                format = criteria.format,
-                country = criteria.country,
-                label = criteria.label,
-                genre = criteria.genre,
-                style = criteria.style,
-                catalogNumber = criteria.catalogNumber,
                 page = page.coerceAtLeast(1),
                 perPage = perPage.coerceIn(1, 100),
-                sort = "year",
-                sortOrder = "asc",
+                sort = sort,
+                sortOrder = sortOrder,
             ).getOrThrow()
 
-            val details = releasePage.items
-                .chunked(DETAIL_BATCH_SIZE)
-                .flatMap { batch ->
-                    batch.map { summary ->
-                        async(Dispatchers.IO) {
-                            DiscogsClient.getRelease(token, summary.id, includeMasterVideos = false).getOrNull()
-                        }
-                    }.awaitAll().filterNotNull()
-                }
-
-            val seeds = details.flatMap { detail ->
-                seedsFromRelease(
-                    detail = detail,
+            val seeds = releasePage.items.mapNotNull { summary ->
+                seedFromSearchSummary(
+                    summary = summary,
                     targetTitle = criteria.title,
-                    artistFilter =
-                        when (mode) {
-                            DiscogsDirectMode.ORIGINAL -> originalArtist
-                            DiscogsDirectMode.COVER -> lockedArtist
-                        },
+                    mode = mode,
+                    originalArtist = originalArtist,
                 )
-            }.filter { seed ->
-                when (mode) {
-                    DiscogsDirectMode.ORIGINAL ->
-                        originalArtist.isNotBlank() && sameArtist(seed.artist, originalArtist)
-                    DiscogsDirectMode.COVER ->
-                        originalArtist.isBlank() || !sameArtist(seed.artist, originalArtist)
-                }
             }
 
             DiscogsVersionPage(
@@ -156,6 +130,156 @@ internal object DiscogsVersionSource {
             )
         }
     }
+
+    suspend fun enrichSeedMetadata(
+        token: String,
+        seed: DiscogsVersionSeed,
+        targetTitle: String,
+        mode: DiscogsDirectMode,
+        originalArtist: String,
+    ): DiscogsVersionSeed {
+        val detail = DiscogsClient.getRelease(
+            token = token,
+            releaseId = seed.releaseId,
+            includeMasterVideos = false,
+        ).getOrNull() ?: return seed
+
+        val detailed = seedsFromRelease(
+            detail = detail,
+            targetTitle = targetTitle,
+            artistFilter = if (mode == DiscogsDirectMode.ORIGINAL) originalArtist else null,
+        ).firstOrNull { candidate ->
+            sameArtist(candidate.artist, seed.artist)
+        } ?: seedsFromRelease(
+            detail = detail,
+            targetTitle = targetTitle,
+            artistFilter = if (mode == DiscogsDirectMode.ORIGINAL) originalArtist else null,
+        ).firstOrNull()
+
+        return if (detailed != null) {
+            detailed.copy(fingerprint = seed.fingerprint)
+        } else {
+            seed.copy(
+                releaseDate = detail.releaseDate ?: seed.releaseDate,
+                year = detail.year ?: seed.year,
+                country = detail.country ?: seed.country,
+                formats = detail.formats.ifEmpty { seed.formats },
+                formatDescriptions = detail.formatDescriptions.ifEmpty { seed.formatDescriptions },
+                labels = detail.labels.ifEmpty { seed.labels },
+                coverUrl = detail.coverUrl ?: seed.coverUrl,
+                videos = detail.videos,
+            )
+        }
+    }
+
+    suspend fun resolveSeedForPlayback(
+        token: String,
+        seed: DiscogsVersionSeed,
+        targetTitle: String,
+        mode: DiscogsDirectMode,
+        originalArtist: String,
+    ): DiscogsVersionSeed? {
+        val enriched = enrichSeedMetadata(
+            token = token,
+            seed = seed,
+            targetTitle = targetTitle,
+            mode = mode,
+            originalArtist = originalArtist,
+        )
+        return enriched.takeIf { it.track != null }
+    }
+
+    private fun seedFromSearchSummary(
+        summary: DiscogsReleaseSummary,
+        targetTitle: String,
+        mode: DiscogsDirectMode,
+        originalArtist: String,
+    ): DiscogsVersionSeed? {
+        val (parsedArtist, parsedReleaseTitle) = splitSearchTitle(summary.title)
+        val artist =
+            when (mode) {
+                DiscogsDirectMode.ORIGINAL -> originalArtist.trim().ifBlank { parsedArtist }
+                DiscogsDirectMode.COVER -> parsedArtist
+            }.trim()
+        if (artist.isBlank()) return null
+
+        if (mode == DiscogsDirectMode.COVER &&
+            originalArtist.isNotBlank() &&
+            sameArtist(artist, originalArtist)
+        ) {
+            return null
+        }
+        if (mode == DiscogsDirectMode.ORIGINAL &&
+            originalArtist.isNotBlank() &&
+            !sameArtist(artist, originalArtist)
+        ) {
+            return null
+        }
+
+        val kind = classify(
+            trackTitle = targetTitle,
+            releaseTitle = parsedReleaseTitle,
+            formats = summary.formats,
+            descriptions = emptyList(),
+            styles = summary.styles,
+        )
+        val fingerprint = summaryVersionFingerprint(
+            trackTitle = targetTitle,
+            artist = artist,
+            releaseTitle = parsedReleaseTitle,
+            masterId = summary.masterId,
+            kind = kind,
+        )
+
+        return DiscogsVersionSeed(
+            trackTitle = targetTitle,
+            artist = artist,
+            releaseTitle = parsedReleaseTitle,
+            releaseId = summary.id,
+            masterId = summary.masterId,
+            year = summary.year,
+            releaseDate = summary.releaseDate,
+            kind = kind,
+            country = summary.country,
+            formats = summary.formats,
+            formatDescriptions = emptyList(),
+            labels = summary.labels,
+            coverUrl = summary.coverUrl ?: summary.thumbnailUrl,
+            durationSeconds = null,
+            fingerprint = fingerprint,
+            track = null,
+            videos = emptyList(),
+        )
+    }
+
+    private fun splitSearchTitle(value: String): Pair<String, String> {
+        val marker = " - "
+        val index = value.indexOf(marker)
+        return if (index > 0) {
+            value.substring(0, index).trim() to value.substring(index + marker.length).trim()
+        } else {
+            "" to value.trim()
+        }
+    }
+
+    private fun summaryVersionFingerprint(
+        trackTitle: String,
+        artist: String,
+        releaseTitle: String,
+        masterId: Int?,
+        kind: DiscogsVersionKind,
+    ): String {
+        val releaseGroup = masterId?.let { "m$it" } ?: canonicalReleaseContext(releaseTitle)
+        val qualifier = versionQualifier(releaseTitle)
+        return listOf(
+            canonicalBaseTitle(trackTitle),
+            canonicalArtist(artist),
+            kind.name.lowercase(),
+            releaseGroup,
+            qualifier,
+        ).joinToString("|")
+    }
+
 
     suspend fun discoverCoverVersions(
         token: String,
