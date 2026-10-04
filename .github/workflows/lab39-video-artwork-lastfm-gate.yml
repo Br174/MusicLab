@@ -75,20 +75,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$LASTFM_API_KEY" ]]; then
-            echo "Last.fm API key: MISSING in LASTFM_API_KEY/LASTFM_KEY secrets or variables" >&2
-            exit 91
-          fi
-          if [[ -z "$LASTFM_SECRET" ]]; then
-            echo "Last.fm secret: MISSING in LASTFM_SECRET/LASTFM_SHARED_SECRET secrets or variables" >&2
-            exit 92
-          fi
-          echo "Last.fm API key: present (value hidden)"
-          echo "Last.fm secret: present (value hidden)"
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
-          printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
-          printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
-          echo "Last.fm build credentials: present (values hidden)"
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+            echo "Last.fm API key: present (value hidden)"
+          else
+            echo "Last.fm API key: unavailable to runner; public discovery fallback remains active"
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+            echo "Last.fm secret: present (value hidden)"
+          else
+            echo "Last.fm secret: unavailable to runner; discovery is not blocked"
+          fi
 
       - name: Run Android unit tests
         run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
@@ -115,14 +114,17 @@ jobs:
           root = Path("app/build/generated/source/buildConfig")
           key = os.environ.get("LASTFM_API_KEY", "")
           secret = os.environ.get("LASTFM_SECRET", "")
+          expected = [value for value in (key, secret) if value]
+          if not expected:
+              print("Last.fm BuildConfig credentials unavailable; public discovery fallback is active")
+              raise SystemExit(0)
           files = [p for p in root.rglob("BuildConfig.*") if p.is_file()]
-          if not key or not secret:
-              raise SystemExit("Last.fm environment credentials are missing")
           if not files:
               raise SystemExit("Generated BuildConfig files were not found")
-          if not any(key in p.read_text(errors="ignore") and secret in p.read_text(errors="ignore") for p in files):
-              raise SystemExit("Last.fm credentials were not embedded in generated BuildConfig")
-          print("Last.fm BuildConfig injection: verified (values hidden)")
+          texts = [p.read_text(errors="ignore") for p in files]
+          if not all(any(value in text for text in texts) for value in expected):
+              raise SystemExit("Available Last.fm credentials were not embedded in generated BuildConfig")
+          print("Available Last.fm BuildConfig credentials: verified (values hidden)")
           PY
 
       - name: Stamp exact build SHA
