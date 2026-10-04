@@ -356,6 +356,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.listOffset = 0
         session.foreignScoutComplete = false
         session.usedVideoIds.clear()
+        session.originalWorkCredits = emptyList()
         foreignScoutLoading = false
 
         scope.launch {
@@ -689,7 +690,7 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                 } else if (lockedArtist.isNotBlank()) {
                     Text(
-                        text = "Escludo l'interprete originale: $lockedArtist",
+                        text = "Interprete originale di riferimento: $lockedArtist",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
