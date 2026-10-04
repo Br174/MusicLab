@@ -419,17 +419,24 @@ internal object DiscogsVersionSource {
     ): String {
         val baseTitle = canonicalBaseTitle(trackTitle)
         val artistKey = canonical(artist)
-        val releaseGroup = masterId?.let { "m$it" } ?: canonicalReleaseContext(releaseTitle)
         val qualifier = versionQualifier(trackTitle)
         val durationBucket = durationSeconds?.let { (it / 3).toString() }.orEmpty()
+        val distinctVersionContext =
+            when (kind) {
+                DiscogsVersionKind.STUDIO -> ""
+                DiscogsVersionKind.LIVE,
+                DiscogsVersionKind.REMIX,
+                DiscogsVersionKind.ACOUSTIC,
+                -> canonicalReleaseContext(releaseTitle)
+            }
 
         return listOf(
             baseTitle,
             artistKey,
             kind.name.lowercase(),
-            releaseGroup,
             qualifier,
             durationBucket,
+            distinctVersionContext,
         ).joinToString("|")
     }
 
