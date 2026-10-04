@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 internal enum class GeminiOriginalMode {
+    DISCOGS,
     GOOGLE_SEARCH,
     MODEL_KNOWLEDGE,
 }
