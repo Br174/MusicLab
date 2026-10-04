@@ -1151,6 +1151,11 @@ internal fun DiscogsDirectVersionBrowser(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
+                    TextButton(
+                        onClick = { navController.navigate(MusicLabArchiveNavigationBridge.ROUTE) },
+                    ) {
+                        Text("Archivio")
+                    }
                     TextButton(onClick = { navController.popBackStack() }) {
                         Text("Chiudi")
                     }
@@ -1383,7 +1388,15 @@ internal fun DiscogsDirectVersionBrowser(
     detailSeed?.let { seed ->
         DiscogsVersionDetailsDialog(
             seed = seed,
+            saving = decisionSavingFingerprint == seed.fingerprint,
             onDismiss = { detailSeed = null },
+            onSearch = { value ->
+                value.trim().takeIf(String::isNotBlank)?.let { query ->
+                    navController.navigate(SearchRoutes.resultRoute(query))
+                }
+            },
+            onApprove = { saveDecision(seed, AiBrainDecisionStatus.APPROVED) },
+            onReject = { saveDecision(seed, AiBrainDecisionStatus.REJECTED) },
         )
     }
 
@@ -1399,20 +1412,12 @@ internal fun DiscogsDirectVersionBrowser(
 @Composable
 private fun DiscogsVersionDetailsDialog(
     seed: DiscogsVersionSeed,
+    saving: Boolean,
     onDismiss: () -> Unit,
+    onSearch: (String) -> Unit,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
 ) {
-    val creditsText =
-        if (seed.credits.isEmpty()) {
-            "Crediti: non disponibili"
-        } else {
-            seed.credits
-                .groupBy { it.role }
-                .entries
-                .joinToString("\n") { (role, credits) ->
-                    "$role: " + credits.joinToString(", ") { it.name }
-                }
-        }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -1420,12 +1425,42 @@ private fun DiscogsVersionDetailsDialog(
                 Text("Chiudi")
             }
         },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = onApprove,
+                    enabled = !saving,
+                ) {
+                    Text(if (saving) "Salvo…" else "Approva")
+                }
+                TextButton(
+                    onClick = onReject,
+                    enabled = !saving,
+                ) {
+                    Text("Disapprova")
+                }
+            }
+        },
         title = { Text("Dettagli versione") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("Titolo: ${seed.trackTitle}")
-                Text("Interprete: ${seed.artist}")
-                Text("Pubblicazione: ${seed.releaseTitle}")
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Titolo: ${seed.trackTitle}",
+                    modifier = Modifier.clickable { onSearch(seed.trackTitle) },
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    "Interprete: ${seed.artist}",
+                    modifier = Modifier.clickable { onSearch(seed.artist) },
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    "Pubblicazione: ${seed.releaseTitle}",
+                    modifier =
+                        Modifier.clickable(enabled = seed.releaseTitle.isNotBlank()) {
+                            onSearch(seed.releaseTitle)
+                        },
+                )
                 Text("Tipo: ${seed.kind.name.lowercase()}")
                 Text("Affidabilità: ${seed.confidenceScore}/10")
                 Text("Data: ${seed.displayDate ?: "non disponibile"}")
@@ -1438,7 +1473,8 @@ private fun DiscogsVersionDetailsDialog(
                     "Stato evidenza: " +
                         when {
                             seed.track != null -> "tracklist Discogs verificata"
-                            seed.releaseId > 0 && seed.discogsVerificationChecked -> "Discogs controllato, corrispondenza non confermata"
+                            seed.releaseId > 0 && seed.discogsVerificationChecked ->
+                                "Discogs controllato, corrispondenza non confermata"
                             seed.releaseId > 0 -> "candidato Discogs in verifica"
                             else -> "candidato da fonte esterna"
                         },
@@ -1449,10 +1485,30 @@ private fun DiscogsVersionDetailsDialog(
                 }
                 Text("Video: ${seed.resolvedVideoTitle ?: "in verifica / non disponibile"}")
                 Text("Fonte video: ${seed.resolvedVideoSource ?: "non disponibile"}")
-                Text(creditsText)
+
+                if (seed.credits.isEmpty()) {
+                    Text("Crediti: non disponibili")
+                } else {
+                    Text("Crediti:", fontWeight = FontWeight.SemiBold)
+                    seed.credits
+                        .distinctBy { "${it.name}|${it.role}" }
+                        .forEach { credit ->
+                            Text(
+                                "${credit.role}: ${credit.name}",
+                                modifier = Modifier.clickable { onSearch(credit.name) },
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                }
+
                 if (seed.confidenceReasons.isNotEmpty()) {
                     Text("Motivi punteggio: " + seed.confidenceReasons.joinToString(" · "))
                 }
+                Text(
+                    "Tocca titolo, interprete, pubblicazione o un autore per cercarlo in MusicLab.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
     )
