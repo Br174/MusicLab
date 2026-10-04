@@ -23,6 +23,84 @@ internal object DiscogsClient {
 
     private val detailCache = ConcurrentHashMap<Int, DiscogsCompilationDetail>()
 
+    suspend fun searchReleases(
+        token: String,
+        query: String? = null,
+        track: String? = null,
+        artist: String? = null,
+        releaseTitle: String? = null,
+        year: Int? = null,
+        format: String? = null,
+        country: String? = null,
+        label: String? = null,
+        genre: String? = null,
+        style: String? = null,
+        catalogNumber: String? = null,
+        page: Int = 1,
+        perPage: Int = 100,
+        sort: String = "year",
+        sortOrder: String = "asc",
+    ): Result<DiscogsReleasePage> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(token.isNotBlank()) { "Token Discogs mancante" }
+
+            val url = "$API_BASE/database/search".toHttpUrl().newBuilder()
+                .addQueryParameter("type", "release")
+                .addQueryParameter("page", page.coerceAtLeast(1).toString())
+                .addQueryParameter("per_page", perPage.coerceIn(1, 100).toString())
+                .addQueryParameter("sort", sort)
+                .addQueryParameter("sort_order", sortOrder)
+                .apply {
+                    query?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("q", it) }
+                    track?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("track", it) }
+                    artist?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("artist", it) }
+                    releaseTitle?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("release_title", it) }
+                    year?.let { addQueryParameter("year", it.toString()) }
+                    format?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("format", it) }
+                    country?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("country", it) }
+                    label?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("label", it) }
+                    genre?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("genre", it) }
+                    style?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("style", it) }
+                    catalogNumber?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("catno", it) }
+                }
+                .build()
+
+            val root = requestJson(url.toString(), token)
+            val results = root.optJSONArray("results") ?: JSONArray()
+            val pagination = root.optJSONObject("pagination")
+            val summaries = buildList {
+                for (index in 0 until results.length()) {
+                    val item = results.optJSONObject(index) ?: continue
+                    val id = item.optInt("id").takeIf { it > 0 } ?: continue
+                    add(
+                        DiscogsReleaseSummary(
+                            id = id,
+                            masterId = item.optInt("master_id").takeIf { it > 0 },
+                            title = item.optString("title").cleanDiscogsText(),
+                            year = item.optInt("year").takeIf { it in 1800..3000 },
+                            country = item.optString("country").takeIf(String::isNotBlank),
+                            formats = item.stringList("format"),
+                            genres = item.stringList("genre"),
+                            styles = item.stringList("style"),
+                            labels = item.stringList("label"),
+                            catalogNumber = item.optString("catno").cleanDiscogsText().takeIf(String::isNotBlank),
+                            thumbnailUrl = item.optString("thumb").takeIf(String::isNotBlank),
+                            coverUrl = item.optString("cover_image").takeIf(String::isNotBlank),
+                        ),
+                    )
+                }
+            }.distinctBy { it.id }
+
+            DiscogsReleasePage(
+                items = summaries,
+                page = pagination?.optInt("page")?.takeIf { it > 0 } ?: page.coerceAtLeast(1),
+                pages = pagination?.optInt("pages")?.takeIf { it > 0 } ?: page.coerceAtLeast(1),
+                perPage = pagination?.optInt("per_page")?.takeIf { it > 0 } ?: perPage.coerceIn(1, 100),
+                totalItems = pagination?.optInt("items")?.takeIf { it >= 0 } ?: summaries.size,
+            )
+        }
+    }
+
     suspend fun searchCompilations(
         token: String,
         query: String,
@@ -149,12 +227,15 @@ internal object DiscogsClient {
             id = root.optInt("id"),
             masterId = masterId,
             title = root.optString("title").cleanDiscogsText(),
-            year = root.optInt("year").takeIf { it in 1900..3000 },
+            year = root.optInt("year").takeIf { it in 1800..3000 },
+            releaseDate = normalizeDiscogsDate(root.optString("released")),
             country = root.optString("country").takeIf(String::isNotBlank),
             artists = releaseArtists,
             labels = root.objectNameList("labels"),
             genres = root.stringList("genres"),
             styles = root.stringList("styles"),
+            formats = root.formatNames(),
+            formatDescriptions = root.formatDescriptions(),
             coverUrl = cover,
             tracks = tracks,
             videos = videos,
@@ -209,6 +290,45 @@ internal object DiscogsClient {
                 if (value.isNotBlank()) add(value)
             }
         }.distinct()
+    }
+
+    private fun JSONObject.formatNames(): List<String> {
+        val array = optJSONArray("formats") ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val name = array.optJSONObject(index)?.optString("name")?.cleanDiscogsText().orEmpty()
+                if (name.isNotBlank()) add(name)
+            }
+        }.distinct()
+    }
+
+    private fun JSONObject.formatDescriptions(): List<String> {
+        val array = optJSONArray("formats") ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val format = array.optJSONObject(index) ?: continue
+                val descriptions = format.optJSONArray("descriptions") ?: continue
+                for (descriptionIndex in 0 until descriptions.length()) {
+                    val description = descriptions.optString(descriptionIndex).cleanDiscogsText()
+                    if (description.isNotBlank()) add(description)
+                }
+            }
+        }.distinct()
+    }
+
+    private fun normalizeDiscogsDate(raw: String): String? {
+        val value = raw.trim()
+        if (value.isBlank()) return null
+        val match = Regex("""^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?""").find(value) ?: return null
+        val year = match.groupValues.getOrNull(1).orEmpty()
+        val month = match.groupValues.getOrNull(2).orEmpty().takeUnless { it == "00" }
+        val day = match.groupValues.getOrNull(3).orEmpty().takeUnless { it == "00" }
+        return when {
+            year.isBlank() -> null
+            !month.isNullOrBlank() && !day.isNullOrBlank() -> "$year-$month-$day"
+            !month.isNullOrBlank() -> "$year-$month"
+            else -> year
+        }
     }
 
     private fun JSONObject.videoList(): List<DiscogsVideo> {
