@@ -977,6 +977,7 @@ internal object DiscogsVersionSource {
             resolvedVideoTitle = videoTitle,
             resolvedVideoSource = source,
             videoResolutionChecked = true,
+            coverUrl = seed.coverUrl ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg",
             confidenceReasons = (seed.confidenceReasons + "Video unico verificato: $source").distinct(),
         )
 
