@@ -684,11 +684,13 @@ async function buildMemoryPayload(input, env) {
 
   const queryLimit = Math.min(MAX_MEMORY_RESULTS * 2, Math.max(MAX_MEMORY_RESULTS, limit * 2));
   const rows = await env.DB.prepare(`
-    SELECT canonical_title, canonical_artist, category, language, year, album, credits_json,
-           same_work_score, version_type_score, decision_status, ai_reason,
-           user_verified, user_rejected
-    FROM versions
-    WHERE work_id=?1
+    SELECT v.canonical_title, v.canonical_artist, v.category, v.language, v.year, v.album, v.cover_url, v.credits_json,
+           v.same_work_score, v.version_type_score, v.decision_status, v.ai_reason,
+           v.user_verified, v.user_rejected,
+           (SELECT pb.playback_id FROM playback_bindings pb WHERE pb.version_id=v.id ORDER BY pb.last_verified_at DESC LIMIT 1) AS playback_video_id,
+           (SELECT pb.source_kind FROM playback_bindings pb WHERE pb.version_id=v.id ORDER BY pb.last_verified_at DESC LIMIT 1) AS playback_video_source
+    FROM versions v
+    WHERE v.work_id=?1
     ORDER BY user_verified DESC,
              CASE WHEN decision_status='APPROVED' THEN 0 WHEN decision_status='PROBABLE' THEN 1 WHEN decision_status='UNCERTAIN' THEN 2 ELSE 3 END,
              CASE WHEN year IS NULL THEN 1 ELSE 0 END, year ASC, canonical_artist ASC
@@ -707,6 +709,10 @@ async function buildMemoryPayload(input, env) {
     language: row.language,
     year: row.year,
     album: row.album,
+    coverUrl: row.cover_url || null,
+    playbackVideoId: row.playback_video_id || null,
+    playbackVideoTitle: row.playback_video_id ? row.canonical_title : null,
+    playbackVideoSource: row.playback_video_source || null,
     credits: safeJson(row.credits_json),
     sameWorkScore: numericScore(row.same_work_score),
     versionTypeScore: numericScore(row.version_type_score),
@@ -870,6 +876,31 @@ export async function saveBrainDecision(db, input = {}) {
   }
   if (!versionId) return { httpStatus: 500, body: { errore: 'versione non salvabile' } };
 
+  const coverUrl = String(candidate?.coverUrl || '').trim() || null;
+  if (coverUrl) {
+    await db.prepare(`
+      UPDATE versions
+      SET cover_url=?1, updated_at=CURRENT_TIMESTAMP
+      WHERE id=?2 AND work_id=?3
+    `).bind(coverUrl, versionId, workId).run();
+  }
+
+  const playbackVideoId = String(candidate?.playbackVideoId || '').trim();
+  if (playbackVideoId) {
+    const playbackSource = String(candidate?.playbackVideoSource || 'youtube').trim() || 'youtube';
+    await db.prepare('DELETE FROM playback_bindings WHERE version_id=?1 AND playback_id<>?2')
+      .bind(versionId, playbackVideoId).run();
+    await db.prepare(`
+      INSERT INTO playback_bindings(playback_id,version_id,work_id,source_kind,last_verified_at)
+      VALUES(?1,?2,?3,?4,CURRENT_TIMESTAMP)
+      ON CONFLICT(playback_id) DO UPDATE SET
+        version_id=excluded.version_id,
+        work_id=excluded.work_id,
+        source_kind=excluded.source_kind,
+        last_verified_at=CURRENT_TIMESTAMP
+    `).bind(playbackVideoId, versionId, workId, playbackSource).run();
+  }
+
   const userVerified = status === 'APPROVED' ? 1 : 0;
   const userRejected = status === 'REJECTED' ? 1 : 0;
   await db.prepare(`
@@ -944,9 +975,12 @@ async function archiveSearch(request, env) {
       v.language AS language,
       v.year AS year,
       v.album AS album,
+      v.cover_url AS cover_url,
       v.decision_status AS decision_status,
       v.same_work_score AS same_work_score,
       v.version_type_score AS version_type_score,
+      (SELECT pb.playback_id FROM playback_bindings pb WHERE pb.version_id=v.id ORDER BY pb.last_verified_at DESC LIMIT 1) AS playback_video_id,
+      (SELECT pb.source_kind FROM playback_bindings pb WHERE pb.version_id=v.id ORDER BY pb.last_verified_at DESC LIMIT 1) AS playback_video_source,
       w.canonical_title AS work_title,
       w.original_artist AS original_artist
     FROM versions v
@@ -974,6 +1008,10 @@ async function archiveSearch(request, env) {
       language: row.language,
       year: row.year,
       album: row.album,
+      coverUrl: row.cover_url || null,
+      playbackVideoId: row.playback_video_id || null,
+      playbackVideoTitle: row.playback_video_id ? row.title : null,
+      playbackVideoSource: row.playback_video_source || null,
       decisionStatus: row.decision_status,
       sameWorkScore: numericScore(row.same_work_score),
       versionTypeScore: numericScore(row.version_type_score),
