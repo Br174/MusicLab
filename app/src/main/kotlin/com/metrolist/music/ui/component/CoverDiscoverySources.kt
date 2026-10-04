@@ -279,6 +279,15 @@ internal object CoverDiscoverySources {
                 0,
                 "rete/non disponibile",
             )
+        if (root.optInt("error", 0) != 0) {
+            val message = root.optString("message").trim().ifBlank { "errore API" }
+            return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
+                "Last.fm",
+                false,
+                0,
+                "API non valida/non autorizzata: $message",
+            )
+        }
         val array =
             root.optJSONObject("results")
                 ?.optJSONObject("trackmatches")
@@ -326,12 +335,12 @@ internal object CoverDiscoverySources {
                 .addQueryParameter("q", title)
                 .build()
                 .toString()
-        val array = fetchArray(url)
+        val array = fetchArrayWithRetry(url)
             ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
                 "LRCLIB",
                 false,
                 0,
-                "rete/non disponibile",
+                "HTTP/rete non disponibile dopo 2 tentativi",
             )
         val candidates = buildList {
             for (i in 0 until array.length()) {
@@ -355,7 +364,12 @@ internal object CoverDiscoverySources {
                 )
             }
         }.distinctBy { identity(it.title, it.artist, it.category) }
-        return candidates to CoverSourceDiagnostic("LRCLIB", true, candidates.size, "catalogo/testi senza chiave")
+        return candidates to CoverSourceDiagnostic(
+            "LRCLIB",
+            true,
+            candidates.size,
+            if (candidates.isEmpty()) "raggiungibile · nessuna corrispondenza" else "catalogo/testi senza chiave",
+        )
     }
 
     private suspend fun discoverSpotify(
@@ -601,6 +615,12 @@ internal object CoverDiscoverySources {
 
     private fun fetchArray(url: String): JSONArray? =
         fetchText(url)?.let { runCatching { JSONArray(it) }.getOrNull() }
+
+    private fun fetchArrayWithRetry(url: String): JSONArray? {
+        fetchArray(url)?.let { return it }
+        Thread.sleep(180)
+        return fetchArray(url)
+    }
 
     private fun fetchText(url: String): String? {
         val request =
