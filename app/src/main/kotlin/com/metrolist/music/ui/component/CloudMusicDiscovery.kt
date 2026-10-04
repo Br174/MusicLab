@@ -178,6 +178,10 @@ internal object CloudMusicDiscovery {
                     candidate.language?.takeIf { it.isNotBlank() }?.let { put("language", it) }
                     candidate.year?.let { put("year", it) }
                     candidate.album?.takeIf { it.isNotBlank() }?.let { put("album", it) }
+                    candidate.coverUrl?.takeIf { it.isNotBlank() }?.let { put("coverUrl", it) }
+                    candidate.playbackVideoId?.takeIf { it.isNotBlank() }?.let { put("playbackVideoId", it) }
+                    candidate.playbackVideoTitle?.takeIf { it.isNotBlank() }?.let { put("playbackVideoTitle", it) }
+                    candidate.playbackVideoSource?.takeIf { it.isNotBlank() }?.let { put("playbackVideoSource", it) }
                     put(
                         "credits",
                         buildJsonObject {
@@ -444,6 +448,10 @@ internal object CloudMusicDiscovery {
                 language = obj.nullableString("language"),
                 year = obj.year("year"),
                 album = obj.nullableString("album"),
+                coverUrl = obj.nullableString("coverUrl"),
+                playbackVideoId = obj.nullableString("playbackVideoId"),
+                playbackVideoTitle = obj.nullableString("playbackVideoTitle"),
+                playbackVideoSource = obj.nullableString("playbackVideoSource"),
                 songwriters = credits?.strings("songwriters").orEmpty(),
                 composers = credits?.strings("composers").orEmpty(),
                 lyricists = credits?.strings("lyricists").orEmpty(),
