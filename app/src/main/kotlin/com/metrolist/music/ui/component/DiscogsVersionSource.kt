@@ -139,6 +139,38 @@ internal object DiscogsVersionSource {
         }
     }
 
+    suspend fun loadOriginalWorkCredits(
+        token: String,
+        title: String,
+        originalArtist: String,
+    ): List<DiscogsCredit> {
+        if (token.isBlank() || title.isBlank() || originalArtist.isBlank()) return emptyList()
+        val page = DiscogsClient.searchReleases(
+            token = token,
+            track = title,
+            artist = originalArtist,
+            page = 1,
+            perPage = 8,
+            sort = "year",
+            sortOrder = "asc",
+        ).getOrNull() ?: return emptyList()
+
+        page.items.forEach { summary ->
+            val detail = DiscogsClient.getRelease(
+                token = token,
+                releaseId = summary.id,
+                includeMasterVideos = false,
+            ).getOrNull() ?: return@forEach
+            val seed = seedsFromRelease(
+                detail = detail,
+                targetTitle = title,
+                artistFilter = originalArtist,
+            ).firstOrNull() ?: return@forEach
+            if (seed.credits.isNotEmpty()) return seed.credits
+        }
+        return emptyList()
+    }
+
     suspend fun loadReferenceSeeds(
         token: String,
         referenceTitle: String,
@@ -264,13 +296,6 @@ internal object DiscogsVersionSource {
                 DiscogsDirectMode.COVER -> parsedArtist
             }.trim()
         if (artist.isBlank()) return null
-
-        if (mode == DiscogsDirectMode.ORIGINAL &&
-            originalArtist.isNotBlank() &&
-            !sameArtist(artist, originalArtist)
-        ) {
-            return null
-        }
 
         val kind = classify(
             trackTitle = targetTitle,
@@ -704,6 +729,38 @@ internal object DiscogsVersionSource {
             .replace(ARTIST_SUFFIX_REGEX, " ")
             .replace(Regex("\\s+"), " ")
             .trim()
+
+    internal fun applySharedWorkCreditEvidence(
+        seed: DiscogsVersionSeed,
+        originalCredits: List<DiscogsCredit>,
+    ): DiscogsVersionSeed {
+        if (originalCredits.isEmpty() || seed.credits.isEmpty()) return seed
+
+        fun relevant(credit: DiscogsCredit): Boolean =
+            CREDIT_IDENTITY_REGEX.containsMatchIn(credit.role.lowercase())
+
+        val originalNames = originalCredits
+            .filter(::relevant)
+            .map { canonical(it.name) }
+            .filter(String::isNotBlank)
+            .toSet()
+        val candidateNames = seed.credits
+            .filter(::relevant)
+            .map { canonical(it.name) }
+            .filter(String::isNotBlank)
+            .toSet()
+        val shared = originalNames.intersect(candidateNames)
+        if (shared.isEmpty()) return seed
+
+        val bonus = if (shared.size >= 2) 2 else 1
+        return seed.copy(
+            confidenceScore = (seed.confidenceScore + bonus).coerceAtMost(10),
+            confidenceReasons = (
+                seed.confidenceReasons +
+                    "Crediti dell'opera coincidenti: " + shared.joinToString(", ")
+                ).distinct(),
+        )
+    }
 
     internal fun markVideoResolved(
         seed: DiscogsVersionSeed,
