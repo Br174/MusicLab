@@ -19,6 +19,7 @@ internal object AiCoverFlowResolver {
         originalArtist: String,
         config: GeminiCoverVerificationConfig,
         sourceEvidence: AiCoverSourceEvidence? = null,
+        discogsToken: String = "",
     ): AiCoverDiscoveryResult = coroutineScope {
         // LAB23: AI identity/discovery and structured evidence no longer wait for each other.
         val primaryDeferred = async(Dispatchers.IO) {
@@ -34,12 +35,28 @@ internal object AiCoverFlowResolver {
                     .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) },
             )
         }
+        val discogsDeferred = async(Dispatchers.IO) {
+            if (discogsToken.isBlank()) {
+                emptyList()
+            } else {
+                runCatching {
+                    DiscogsVersionSource.discoverCoverVersions(
+                        token = discogsToken,
+                        title = originalTitle,
+                        originalArtist = originalArtist,
+                    ).map(DiscogsVersionSource::toCoverCandidate)
+                }.getOrDefault(emptyList())
+            }
+        }
 
+        val discogsSeeds = discogsDeferred.await()
         val primary = primaryDeferred.await()
         val evidence = evidenceDeferred.await()
         val seeds = musicBrainzSeeds(originalTitle, originalArtist, evidence)
         primary.copy(
-            versions = mergeCandidates(primary.versions, seeds),
+            // Discogs is the first structured authority. AI and MusicBrainz enrich
+            // or recover what Discogs cannot document, but never reorder it ahead.
+            versions = mergeCandidates(discogsSeeds, primary.versions, seeds),
         )
     }
 
@@ -49,6 +66,7 @@ internal object AiCoverFlowResolver {
         existing: List<AiCoverCandidate>,
         config: GeminiCoverVerificationConfig,
         sourceEvidence: AiCoverSourceEvidence? = null,
+        discogsToken: String = "",
         onBatch: suspend (List<AiCoverCandidate>) -> Unit,
     ) {
         val collected = linkedMapOf<String, AiCoverCandidate>()
@@ -61,6 +79,18 @@ internal object AiCoverFlowResolver {
             if (fresh.isEmpty()) return
             fresh.forEach { collected[it.stableKey] = it }
             onBatch(fresh)
+        }
+
+        if (discogsToken.isNotBlank()) {
+            emitFresh(
+                runCatching {
+                    DiscogsVersionSource.discoverCoverVersions(
+                        token = discogsToken,
+                        title = originalTitle,
+                        originalArtist = originalArtist,
+                    ).map(DiscogsVersionSource::toCoverCandidate)
+                }.getOrDefault(emptyList()),
+            )
         }
 
         val evidence = sourceEvidence ?: AiCoverSourceEvidence.fromMusicBrainz(
