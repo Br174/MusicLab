@@ -699,9 +699,15 @@ internal object OriginalVersionSearchEngine {
         diagnostics: OriginalVersionDiagnostics,
     ): OriginalVersionSearchResult {
         val originalArtists = canonicalOriginalArtists(identity)
-        val live = versions.filter { isLiveVersion(it.song.title) }
+        val live = versions.filter {
+            it.brainCandidate?.category == AiCoverCategory.LIVE ||
+                isLiveVersion(it.song.title)
+        }
         val withOthers = versions.filter { isWithOthersVersion(it.song, originalArtists) }
-        val remix = versions.filter { isRemixVersion(it.song.title) }
+        val remix = versions.filter {
+            it.brainCandidate?.category == AiCoverCategory.REMIX ||
+                isRemixVersion(it.song.title)
+        }
         return OriginalVersionSearchResult(
             original = original,
             versions = versions,
