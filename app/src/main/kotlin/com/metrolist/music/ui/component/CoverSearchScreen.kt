@@ -1590,19 +1590,50 @@ private fun mergePlayables(
     incoming: List<AiCoverPlayable>,
 ): List<AiCoverPlayable> {
     val merged = linkedMapOf<String, AiCoverPlayable>()
-    current.forEach { merged[it.song.id] = it }
-    incoming.forEach { playable ->
-        val previous = merged[playable.song.id]
-        merged[playable.song.id] =
+
+    fun add(playable: AiCoverPlayable) {
+        val semanticKey = playableSemanticVersionKey(playable)
+        val previous = merged[semanticKey]
+        merged[semanticKey] =
             if (previous == null || candidateRichness(playable.candidate) >= candidateRichness(previous.candidate)) {
                 playable
             } else {
                 previous
             }
     }
-    // Ordering belongs to the UI sort selector; the merge itself stays allocation-light.
+
+    current.forEach(::add)
+    incoming.forEach(::add)
     return merged.values.toList()
 }
+
+private fun playableSemanticVersionKey(playable: AiCoverPlayable): String {
+    val candidate = playable.candidate
+    val title = semanticToken(candidate.title)
+    val artist = semanticToken(candidate.artist)
+    val album = semanticToken(candidate.discogsReleaseTitle ?: candidate.album.orEmpty())
+    val category = candidate.category.name.lowercase()
+    val durationBucket = playable.song.duration?.let { (it / 5).toString() }.orEmpty()
+
+    // Discogs fingerprint is authoritative when present. The human-readable
+    // semantic tail lets the same documented version merge with a fallback
+    // source that localized a different YouTube upload of that recording.
+    val semantic = listOf(title, artist, category, album, durationBucket).joinToString("|")
+    val fingerprint = candidate.versionFingerprint
+    return if (!fingerprint.isNullOrBlank()) {
+        "discogs|$fingerprint|$semantic"
+    } else {
+        "semantic|$semantic"
+    }
+}
+
+private fun semanticToken(value: String): String =
+    java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}+"), "")
+        .lowercase()
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+        .replace(Regex("\\s+"), " ")
 
 private fun syncPlayableCandidateMetadata(
     playables: List<AiCoverPlayable>,
@@ -1617,7 +1648,30 @@ private fun syncPlayableCandidateMetadata(
         } else {
             playable
         }
+    }.let { enrichedPlayables ->
+        val merged = linkedMapOf<String, AiCoverPlayable>()
+        enrichedPlayables.forEach { playable ->
+            val key = semanticFallbackVersionKey(playable)
+            val previous = merged[key]
+            merged[key] =
+                if (previous == null || candidateRichness(playable.candidate) > candidateRichness(previous.candidate)) {
+                    playable
+                } else {
+                    previous
+                }
+        }
+        merged.values.toList()
     }
+}
+
+private fun semanticFallbackVersionKey(playable: AiCoverPlayable): String {
+    val candidate = playable.candidate
+    val title = semanticToken(candidate.title)
+    val artist = semanticToken(candidate.artist)
+    val album = semanticToken(candidate.discogsReleaseTitle ?: candidate.album.orEmpty())
+    val category = candidate.category.name.lowercase()
+    val durationBucket = playable.song.duration?.let { (it / 5).toString() }.orEmpty()
+    return listOf(title, artist, category, album, durationBucket).joinToString("|")
 }
 
 private fun candidateRichness(candidate: AiCoverCandidate): Int {
