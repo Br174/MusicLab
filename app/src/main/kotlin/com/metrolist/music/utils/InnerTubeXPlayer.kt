@@ -26,6 +26,7 @@ import com.metrolist.innertubex.extraction.strategy.PoTokenProviderKind
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.utils.potoken.PoTokenGenerator
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
@@ -36,6 +37,10 @@ object InnerTubeXPlayer {
     private const val TAG = "InnerTubeXPlayer"
     private const val STREAM_CLIENT_FAILURE_TTL_MS = 5 * 60 * 1000L
     private const val DEFAULT_STREAM_TTL_SECONDS = 5 * 60
+    // LAB41 selective restore: reproduce the LAB07 "ispeed" first-sound behavior
+    // inside the modern resolver. The first lane never opens WebView/PoToken; the
+    // full InnerTubeX path remains an automatic fallback for protected/harder media.
+    private const val LAB07_FAST_LANE_TIMEOUT_MS = 1_800L
 
     @Volatile
     private var applicationContext: Context? = null
@@ -83,16 +88,47 @@ object InnerTubeXPlayer {
                     allowBoundedRange = allowBoundedRange,
                 )
             val excludedClients = failedStreamClients(videoId)
+            val extractionBundle = bundle()
+            val resolvedAudioQuality = audioQuality.toInnerTubeX(connectivityManager)
+
+            // LAB07 fast lane: try the simplest anonymous/direct stream route first.
+            // This intentionally has no WebView/PoToken capability, matching the old
+            // player's "first sound first" behavior. A short bound prevents this lane
+            // from becoming a new delay when a track truly needs the modern resolver.
+            val fastStream =
+                withTimeoutOrNull(LAB07_FAST_LANE_TIMEOUT_MS) {
+                    try {
+                        extractionBundle.fastExtractor.extract(
+                            videoId = videoId,
+                            hints = hints,
+                            excludedClients = excludedClients,
+                            audioQuality = resolvedAudioQuality,
+                            clientPlaybackNonce = generateClientPlaybackNonce(),
+                        )
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Timber.tag(TAG).d(error, "LAB07 fast lane unavailable for %s", videoId)
+                        null
+                    }
+                }
+
             val stream =
-                requireNotNull(
-                    bundle().extractor.extract(
+                fastStream ?: requireNotNull(
+                    extractionBundle.extractor.extract(
                         videoId = videoId,
                         hints = hints,
                         excludedClients = excludedClients,
-                        audioQuality = audioQuality.toInnerTubeX(connectivityManager),
+                        audioQuality = resolvedAudioQuality,
                         clientPlaybackNonce = generateClientPlaybackNonce(),
                     ),
                 ) { "InnerTubeX returned no playable stream" }
+
+            if (fastStream != null) {
+                Timber.tag(TAG).d("LAB07 fast lane resolved %s via %s", videoId, stream.clientName)
+            } else {
+                Timber.tag(TAG).d("LAB07 fast lane missed; modern fallback resolved %s via %s", videoId, stream.clientName)
+            }
             check(stream.sabrBootstrap == null) { "SABR is not supported by this playback engine" }
             Result.success(stream.toPlaybackData())
         } catch (error: CancellationException) {
@@ -161,21 +197,32 @@ object InnerTubeXPlayer {
 
             val remoteStore = RemotePlayerConfigStore(latestTransport.httpClient, configRepository, logger)
             val cipherService = YouTubeCipherService(latestTransport.httpClient, remoteStore, logger)
+
+            fun parser(): YtConfigParser =
+                YtConfigParserImpl(
+                    latestTransport.httpClient,
+                    latestTransport.innerTube,
+                    remoteStore,
+                    logger,
+                ).withEmbeddedConfigFallback()
+
+            val fastExtractor =
+                InnerTubeExtractor(
+                    configParser = parser(),
+                    cipherService = cipherService,
+                    innerTube = latestTransport.innerTube,
+                    tokenProvider = fastTokenProvider,
+                    logger = logger,
+                )
             val extractor =
                 InnerTubeExtractor(
-                    configParser =
-                        YtConfigParserImpl(
-                            latestTransport.httpClient,
-                            latestTransport.innerTube,
-                            remoteStore,
-                            logger,
-                        ).withEmbeddedConfigFallback(),
+                    configParser = parser(),
                     cipherService = cipherService,
                     innerTube = latestTransport.innerTube,
                     tokenProvider = tokenProvider,
                     logger = logger,
                 )
-            ExtractionBundle(latestTransport.generation, cipherService, extractor).also { currentBundle = it }
+            ExtractionBundle(latestTransport.generation, cipherService, fastExtractor, extractor).also { currentBundle = it }
         }
     }
 
@@ -186,6 +233,23 @@ object InnerTubeXPlayer {
     private val poTokenGenerator: PoTokenGenerator by lazy {
         PoTokenGenerator(requireNotNull(applicationContext) { "InnerTubeXPlayer is not initialized" })
     }
+
+    private val fastTokenProvider =
+        object : TokenProvider {
+            override val capabilities =
+                TokenProviderCapabilities(
+                    providers = emptySet(),
+                    usesWebView = false,
+                )
+
+            override suspend fun getPoToken(
+                videoId: String,
+                visitorData: String,
+                cookie: String?,
+            ): PoTokenResult? = null
+
+            override suspend fun close() = Unit
+        }
 
     private val tokenProvider =
         object : TokenProvider {
@@ -242,6 +306,7 @@ object InnerTubeXPlayer {
     private data class ExtractionBundle(
         val transportGeneration: Long,
         val cipherService: YouTubeCipherService,
+        val fastExtractor: InnerTubeExtractor,
         val extractor: InnerTubeExtractor,
     )
 
