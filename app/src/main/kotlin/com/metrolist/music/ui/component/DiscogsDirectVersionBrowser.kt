@@ -56,6 +56,7 @@ import com.metrolist.music.constants.MusicAiCloudMemoryEnabledKey
 import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.discogs.CompilationTrackResolver
+import com.metrolist.music.discogs.DiscogsCredit
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Job
@@ -106,6 +107,7 @@ private data class DirectVersionSession(
     var selectedFingerprint: String? = null,
     var initialized: Boolean = false,
     var foreignScoutComplete: Boolean = false,
+    var originalWorkCredits: List<DiscogsCredit> = emptyList(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
 )
 
@@ -364,6 +366,24 @@ internal fun DiscogsDirectVersionBrowser(
                 replace = true,
                 requestedSort = requestedSort,
             )
+
+            if (session.originalWorkCredits.isEmpty() && lockedArtist.isNotBlank()) {
+                session.originalWorkCredits = DiscogsVersionSource.loadOriginalWorkCredits(
+                    token = discogsToken,
+                    title = criteria.title,
+                    originalArtist = lockedArtist,
+                )
+                if (session.originalWorkCredits.isNotEmpty()) {
+                    results = results.map { seed ->
+                        DiscogsVersionSource.applySharedWorkCreditEvidence(
+                            seed = seed,
+                            originalCredits = session.originalWorkCredits,
+                        )
+                    }
+                    session.results = results
+                }
+            }
+
             loading = false
 
             if (
@@ -592,6 +612,12 @@ internal fun DiscogsDirectVersionBrowser(
                     mode = mode,
                     originalArtist = lockedArtist,
                 )
+                if (session.originalWorkCredits.isNotEmpty()) {
+                    enriched = DiscogsVersionSource.applySharedWorkCreditEvidence(
+                        seed = enriched,
+                        originalCredits = session.originalWorkCredits,
+                    )
+                }
 
                 val resolvedTrack = enriched.track
                 if (resolvedTrack != null && enriched.resolvedVideoId.isNullOrBlank()) {
