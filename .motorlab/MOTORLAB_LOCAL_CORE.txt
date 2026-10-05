@@ -156,7 +156,7 @@ POLLICINO CONTINUITY - R20+
 - Alive-but-stalled evidence may precompute `READY_STALL_SUSPECTED`; resumed progress supersedes it.
 
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.14
+MOTORLAB-SATELLITE-BUNDLE-V2.15
 Revision 2.6: r16 adds authority/data ownership, persistent operational state, MOTORLAB_OPERATION_ID, observability boundaries, service connection-status tracking and non-redundant auxiliary-tool routing.
 Revision 2.7: r17 adds Android update-family lifecycle fallback markers.
 
@@ -173,3 +173,5 @@ Revision 2.12: r20 adds D1-gated source-proof self-enrollment and ephemeral sess
 Revision 2.13: r20 adds explicit stable POLLICINO_PROOF_HEAD inheritance so secretless enrollment survives later operational source-head reconciliation.
 
 Revision 2.14: r20 persists and consumes the stable local sidecar-adoption proof so later metadata-only commits do not break source-proof enrollment.
+
+Revision 2.15: r20 Codex sidecar emits an immediate synchronous liveness pulse on active hooks before starting the detached daemon, eliminating first-heartbeat startup ambiguity.
