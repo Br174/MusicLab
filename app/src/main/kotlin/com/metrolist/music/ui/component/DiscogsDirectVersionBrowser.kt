@@ -310,6 +310,8 @@ internal fun DiscogsDirectVersionBrowser(
                     category = candidate.category,
                     evidenceScore = score,
                 ),
+            ).copy(
+                manuallyApproved = candidate.brainStatus == AiBrainDecisionStatus.APPROVED,
             )
         val playbackId = candidate.playbackVideoId?.trim().orEmpty()
         return if (playbackId.isNotBlank()) {
@@ -726,6 +728,7 @@ internal fun DiscogsDirectVersionBrowser(
                         confidenceReasons =
                             (seed.confidenceReasons + "Approvata manualmente e salvata nel cloud").distinct(),
                         sourceNames = (seed.sourceNames + "Archivio Cloud").distinct(),
+                        manuallyApproved = true,
                     )
                 replaceSeed(approved)
                 detailSeed = results.firstOrNull { it.fingerprint == approved.fingerprint } ?: approved
@@ -827,6 +830,17 @@ internal fun DiscogsDirectVersionBrowser(
         ).getOrElse { failure ->
             val message = failure.message ?: "Errore Discogs"
             if (replace) error = message else paginationError = message
+            val discogsDiagnostic =
+                CoverSourceDiagnostic(
+                    name = "Discogs",
+                    available = false,
+                    found = 0,
+                    note = message,
+                )
+            sourceDiagnostics =
+                listOf(discogsDiagnostic) +
+                    sourceDiagnostics.filterNot { it.name == "Discogs" }
+            session.sourceDiagnostics = sourceDiagnostics
             return false
         }
 
@@ -874,11 +888,6 @@ internal fun DiscogsDirectVersionBrowser(
             error = "Interprete originale di riferimento mancante."
             return
         }
-        if (discogsToken.isBlank()) {
-            error = "Inserisci il token Discogs in Impostazioni → Account → Last.fm + Discogs."
-            return
-        }
-
         paginationJob?.cancel()
         verificationJob?.cancel()
         videoPreloadJob?.cancel()
@@ -1474,6 +1483,7 @@ internal fun DiscogsDirectVersionBrowser(
         DiscogsVersionDetailsDialog(
             seed = seed,
             saving = decisionSavingFingerprint == seed.fingerprint,
+            approved = seed.manuallyApproved,
             onDismiss = { detailSeed = null },
             onSearch = { value ->
                 value.trim().takeIf(String::isNotBlank)?.let { query ->
@@ -1498,6 +1508,7 @@ internal fun DiscogsDirectVersionBrowser(
 private fun DiscogsVersionDetailsDialog(
     seed: DiscogsVersionSeed,
     saving: Boolean,
+    approved: Boolean,
     onDismiss: () -> Unit,
     onSearch: (String) -> Unit,
     onApprove: () -> Unit,
@@ -1514,9 +1525,15 @@ private fun DiscogsVersionDetailsDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(
                     onClick = onApprove,
-                    enabled = !saving,
+                    enabled = !saving && !approved,
                 ) {
-                    Text(if (saving) "Salvo…" else "Approva")
+                    Text(
+                        when {
+                            saving -> "Salvo…"
+                            approved -> "Approvata"
+                            else -> "Approva"
+                        },
+                    )
                 }
                 TextButton(
                     onClick = onReject,
@@ -1529,6 +1546,16 @@ private fun DiscogsVersionDetailsDialog(
         title = { Text("Dettagli versione") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    if (approved) "Stato: Approvata" else "Stato: Non approvata",
+                    color =
+                        if (approved) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     "Titolo: ${seed.trackTitle}",
                     modifier = Modifier.clickable { onSearch(seed.trackTitle) },
