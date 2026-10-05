@@ -803,6 +803,7 @@ internal object DiscogsVersionSource {
             RERECORD_REGEX.containsMatchIn(canonical(seed.trackTitle + " " + seed.releaseTitle))
 
     private fun musicalPublicationNumber(seed: DiscogsVersionSeed): Int {
+        if (seed.releaseDate.isNullOrBlank() && seed.year == null) return 0
         val normalized = normalizedPublicationDate(seed)
         return normalized.replace("-", "").take(8).padEnd(8, '0').toIntOrNull()
             ?: (seed.year ?: 0) * 10_000
