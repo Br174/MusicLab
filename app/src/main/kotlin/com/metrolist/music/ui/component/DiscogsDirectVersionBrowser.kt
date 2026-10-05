@@ -409,7 +409,9 @@ internal fun DiscogsDirectVersionBrowser(
             song.id !in session.preparedVideoSongs &&
             session.preparedVideoSongs.size >= DIRECT_PREPARED_VIDEO_CACHE_LIMIT
         ) {
-            session.preparedVideoSongs.keys.firstOrNull()?.let(session.preparedVideoSongs::remove)
+            session.preparedVideoSongs.keys.firstOrNull()?.let { staleId ->
+                session.preparedVideoSongs.remove(staleId)
+            }
         }
         session.preparedVideoSongs[song.id] = song
     }
