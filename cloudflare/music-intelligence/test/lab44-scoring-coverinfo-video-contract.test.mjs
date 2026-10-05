@@ -36,7 +36,8 @@ test('LAB44 COVER.INFO parser ignores counters and follows relation target perfo
   assert.match(cover, /initial-details/);
   assert.match(cover, /follow-up-details/);
   assert.match(cover, /row\?\.selectFirst\("\.field-artists a\[href\*=\'\/artist\/\'\]"\)/);
-  assert.match(cover, /candidateTitle\.matches\(Regex\("""\\d\+"""\)\)/);
+  assert.match(cover, /candidateTitle\.matches\(Regex/);
+  assert.match(cover, /\\\\d\+/);
   assert.match(cover, /originalWorkReference =[\s\S]*CoverInfoRelationRole\.INITIAL/);
 });
 
