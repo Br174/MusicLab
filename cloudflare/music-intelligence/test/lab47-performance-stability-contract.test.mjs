@@ -78,13 +78,11 @@ test('first-sound hot path does not synchronously read DataStore for queue cache
   assert.match(service, /cachedEnableQobuz/);
 });
 
-test('urgent first-sound path caps PoToken wait without changing the approved fast lane', () => {
+test('stalled PoToken fallback is capped while approved LAB41 player remains untouched', () => {
   const poToken = read('app/src/main/kotlin/com/metrolist/music/utils/potoken/PoTokenGenerator.kt');
   assert.match(player, /LAB07_FAST_LANE_TIMEOUT_MS = 1_800L/);
-  assert.match(player, /URGENT_POTOKEN_TIMEOUT_MS = 3_500L/);
-  assert.match(player, /urgentPoTokenRequests/);
-  assert.match(player, /urgentPlayback: Boolean = false/);
-  assert.match(service, /urgentPlayback = playbackPriorityBurstActive/);
+  assert.match(service, /InnerTubeXPlayer\.prewarm\(\)/);
+  assert.match(poToken, /POTOKEN_TIMEOUT_MS = 5_000L/);
   assert.match(poToken, /timeoutMs: Long = POTOKEN_TIMEOUT_MS/);
   assert.match(poToken, /withTimeout\(timeoutMs\)/);
 });
