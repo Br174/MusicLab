@@ -964,13 +964,15 @@ internal fun DiscogsDirectVersionBrowser(
                     }.getOrNull()
                 }
 
-            memoryState
-                ?.discovery
-                ?.original
-                ?.artist
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
-                ?.let { resolvedOriginalArtist = it }
+            if (explicitArtistHint.isNullOrBlank()) {
+                memoryState
+                    ?.discovery
+                    ?.original
+                    ?.artist
+                    ?.trim()
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { resolvedOriginalArtist = it }
+            }
 
             session.rejectedKeys.clear()
             session.rejectedKeys.addAll(memoryState?.rejectedKeys.orEmpty())
