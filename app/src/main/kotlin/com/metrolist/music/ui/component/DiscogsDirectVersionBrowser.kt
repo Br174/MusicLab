@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
+import androidx.media3.common.Player
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerConnection
@@ -79,8 +80,10 @@ import java.util.concurrent.ConcurrentHashMap
 private const val DIRECT_VERSION_PAGE_SIZE = 20
 private const val DIRECT_VERSION_PREFETCH_DISTANCE = 4
 private const val DIRECT_VERSION_BOTTOM_SAFE_DP = 260
-private const val DIRECT_VIDEO_BATCH_SIZE = 24
-private const val DIRECT_VIDEO_PARALLELISM = 6
+private const val DIRECT_VIDEO_BATCH_SIZE = 8
+private const val DIRECT_VIDEO_PARALLELISM = 3
+private const val DIRECT_BACKGROUND_PREFETCH_AHEAD = 4
+private const val DIRECT_PREPARED_VIDEO_CACHE_LIMIT = 48
 private val DirectCoverGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 
 private enum class DirectVersionCategory {
@@ -139,8 +142,14 @@ private object DirectVersionSessionStore {
         key: String,
         initialTitle: String,
     ): DirectVersionSession {
-        if (sessions.size > 16 && !sessions.containsKey(key)) {
-            sessions.keys.firstOrNull()?.let(sessions::remove)
+        if (sessions.size > 8 && !sessions.containsKey(key)) {
+            sessions.keys.firstOrNull()?.let { staleKey ->
+                sessions.remove(staleKey)?.let { stale ->
+                    stale.preparedVideoSongs.clear()
+                    stale.knownVideoBindings.clear()
+                    stale.usedVideoIds.clear()
+                }
+            }
         }
         return sessions.getOrPut(key) {
             DirectVersionSession(title = initialTitle)
@@ -235,6 +244,7 @@ internal fun DiscogsDirectVersionBrowser(
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    var backgroundResumeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
     var closeSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
 
@@ -394,6 +404,16 @@ internal fun DiscogsDirectVersionBrowser(
         )
     }
 
+    fun rememberPreparedVideoSong(song: SongItem) {
+        if (
+            song.id !in session.preparedVideoSongs &&
+            session.preparedVideoSongs.size >= DIRECT_PREPARED_VIDEO_CACHE_LIMIT
+        ) {
+            session.preparedVideoSongs.keys.firstOrNull()?.let(session.preparedVideoSongs::remove)
+        }
+        session.preparedVideoSongs[song.id] = song
+    }
+
     fun rememberKnownVideoBinding(seed: DiscogsVersionSeed) {
         val id = seed.resolvedVideoId?.trim().orEmpty()
         if (id.isBlank()) return
@@ -459,7 +479,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.preparedVideoSongs[videoId]
                 ?: withTimeoutOrNull(1_800L) {
                     YouTube.queue(videoIds = listOf(videoId)).getOrNull()?.firstOrNull()
-                }?.also { session.preparedVideoSongs[it.id] = it }
+                }?.also(::rememberPreparedVideoSong)
                 ?: return null
         if (!CompilationTrackResolver.isHardCompatible(track, song)) return null
         return song to ("MusicLab interno · " + binding.third)
@@ -762,7 +782,7 @@ internal fun DiscogsDirectVersionBrowser(
                         resolvedSource = retry?.source
                     }
 
-                    resolvedSong?.let { song -> session.preparedVideoSongs[song.id] = song }
+                    resolvedSong?.let(::rememberPreparedVideoSong)
 
                     val updated =
                         if (resolvedSong == null || !session.usedVideoIds.add(resolvedSong!!.id)) {
@@ -783,11 +803,13 @@ internal fun DiscogsDirectVersionBrowser(
     }
     suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
         val ordered = orderedResults(results)
-        val visibleFirst =
-            (ordered.take(visibleLimit.coerceAtLeast(DIRECT_VERSION_PAGE_SIZE)) + ordered)
-                .distinctBy { it.fingerprint }
+        val workWindow =
+            ordered.take(
+                (visibleLimit.coerceAtLeast(DIRECT_VERSION_PAGE_SIZE) + DIRECT_BACKGROUND_PREFETCH_AHEAD)
+                    .coerceAtMost(ordered.size),
+            )
         val batch =
-            visibleFirst
+            workWindow
                 .filter { seed ->
                     DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                         playableTrack(seed) != null &&
@@ -801,7 +823,7 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
-    suspend fun warmResolvedVideoMetadata(limit: Int = 24) {
+    suspend fun warmResolvedVideoMetadata(limit: Int = 12) {
         val ids =
             orderedResults(results)
                 .take(visibleLimit.coerceAtLeast(DIRECT_VERSION_PAGE_SIZE))
@@ -816,21 +838,27 @@ internal fun DiscogsDirectVersionBrowser(
                 withTimeoutOrNull(4_500L) {
                     YouTube.queue(videoIds = chunk).getOrNull().orEmpty()
                 }.orEmpty()
-            songs.forEach { song ->
-                session.preparedVideoSongs[song.id] = song
-            }
+            songs.forEach(::rememberPreparedVideoSong)
         }
     }
 
     fun scheduleVideoPreload() {
         if (videoPreloadJob?.isActive == true) return
+        if (playerConnection?.isPlaybackPriorityBurstActive() == true) return
         videoPreloadJob =
             scope.launch {
-                // Warm cloud/restored bindings before the user can tap them.
+                // Keep automatic work bounded to the visible block plus a tiny look-ahead.
+                // Hundreds of off-screen candidates must never compete with playback or Compose.
                 warmResolvedVideoMetadata()
                 while (true) {
+                    if (playerConnection?.isPlaybackPriorityBurstActive() == true) break
+                    val workWindow =
+                        orderedResults(results).take(
+                            (visibleLimit.coerceAtLeast(DIRECT_VERSION_PAGE_SIZE) + DIRECT_BACKGROUND_PREFETCH_AHEAD)
+                                .coerceAtMost(results.size),
+                        )
                     val pendingBefore =
-                        results.count { seed ->
+                        workWindow.count { seed ->
                             DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                                 playableTrack(seed) != null &&
                                 !seed.videoResolutionChecked
@@ -840,30 +868,42 @@ internal fun DiscogsDirectVersionBrowser(
                     resolveNextVideoBatch()
                     warmResolvedVideoMetadata()
 
+                    val refreshedWindow =
+                        orderedResults(results).take(
+                            (visibleLimit.coerceAtLeast(DIRECT_VERSION_PAGE_SIZE) + DIRECT_BACKGROUND_PREFETCH_AHEAD)
+                                .coerceAtMost(results.size),
+                        )
                     val pendingAfter =
-                        results.count { seed ->
+                        refreshedWindow.count { seed ->
                             DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                                 playableTrack(seed) != null &&
                                 !seed.videoResolutionChecked
                         }
                     if (pendingAfter >= pendingBefore) break
-                    delay(80)
+                    delay(120)
                 }
-                warmResolvedVideoMetadata(limit = 40)
+                warmResolvedVideoMetadata(limit = 16)
             }
     }
 
     fun scheduleDiscogsVerification() {
         if (verificationJob?.isActive == true) return
+        if (playerConnection?.isPlaybackPriorityBurstActive() == true) return
         verificationJob =
             scope.launch {
                 while (true) {
+                    if (playerConnection?.isPlaybackPriorityBurstActive() == true) break
                     val pending =
-                        results.firstOrNull { seed ->
-                            seed.releaseId > 0 &&
-                                seed.track == null &&
-                                !seed.discogsVerificationChecked
-                        } ?: break
+                        orderedResults(results)
+                            .take(
+                                (visibleLimit.coerceAtLeast(DIRECT_VERSION_PAGE_SIZE) + DIRECT_BACKGROUND_PREFETCH_AHEAD)
+                                    .coerceAtMost(results.size),
+                            )
+                            .firstOrNull { seed ->
+                                seed.releaseId > 0 &&
+                                    seed.track == null &&
+                                    !seed.discogsVerificationChecked
+                            } ?: break
 
                     val updated =
                         DiscogsVersionSource.enrichSeedMetadata(
@@ -877,8 +917,28 @@ internal fun DiscogsDirectVersionBrowser(
                     if (updated.track != null) {
                         scheduleVideoPreload()
                     }
-                    delay(80)
+                    delay(120)
                 }
+            }
+    }
+
+    fun pauseCoverBackgroundForPlayback() {
+        paginationJob?.cancel()
+        verificationJob?.cancel()
+        videoPreloadJob?.cancel()
+        backgroundResumeJob?.cancel()
+    }
+
+    fun resumeCoverBackgroundAfterPlaybackBurst() {
+        backgroundResumeJob?.cancel()
+        backgroundResumeJob =
+            scope.launch {
+                while (playerConnection?.isPlaybackPriorityBurstActive() == true) {
+                    delay(120)
+                }
+                delay(250)
+                scheduleDiscogsVerification()
+                scheduleVideoPreload()
             }
     }
 
@@ -967,7 +1027,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.preparedVideoSongs[selectedId]
                 ?: withTimeoutOrNull(2_500L) {
                     YouTube.queue(videoIds = listOf(selectedId)).getOrNull()?.firstOrNull()
-                }?.also { session.preparedVideoSongs[it.id] = it }
+                }?.also(::rememberPreparedVideoSong)
                 ?: return
 
         val queueTitle =
@@ -985,34 +1045,28 @@ internal fun DiscogsDirectVersionBrowser(
             ),
         )
 
-        // Build the rest only after playback has been handed to the player.
-        val tailSeeds =
+        // LAB47 playback-first gate: do not hydrate the rest of a 20/40/300 item
+        // result set while the selected stream is still being extracted/buffered.
+        // After first sound is stable, prepare exactly ONE following item.
+        while (connection.isPlaybackPriorityBurstActive()) {
+            delay(120)
+        }
+        if (connection.playbackState.value != Player.STATE_READY) return
+
+        val nextSeed =
             (readySeeds.drop(selectedIndex + 1) + readySeeds.take(selectedIndex))
                 .distinctBy { it.resolvedVideoId }
-        val missingIds =
-            tailSeeds.mapNotNull { it.resolvedVideoId }
-                .filterNot { session.preparedVideoSongs.containsKey(it) }
-                .distinct()
+                .firstOrNull()
+                ?: return
+        val nextId = nextSeed.resolvedVideoId ?: return
+        val nextSong =
+            session.preparedVideoSongs[nextId]
+                ?: withTimeoutOrNull(2_500L) {
+                    YouTube.queue(videoIds = listOf(nextId)).getOrNull()?.firstOrNull()
+                }?.also(::rememberPreparedVideoSong)
+                ?: return
 
-        missingIds.chunked(20).forEach { chunk ->
-            val hydrated =
-                withTimeoutOrNull(4_500L) {
-                    YouTube.queue(videoIds = chunk).getOrNull().orEmpty()
-                }.orEmpty()
-            hydrated.forEach { song ->
-                session.preparedVideoSongs[song.id] = song
-            }
-        }
-
-        val tailItems =
-            tailSeeds.mapNotNull { seed ->
-                seed.resolvedVideoId
-                    ?.let(session.preparedVideoSongs::get)
-                    ?.toMediaItem()
-            }
-        if (tailItems.isNotEmpty()) {
-            connection.addToQueue(tailItems)
-        }
+        connection.addToQueue(listOf(nextSong.toMediaItem()))
     }
 
     suspend fun loadPage(
@@ -1131,6 +1185,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.sourceDiscoveryComplete = false
         session.usedVideoIds.clear()
         session.knownVideoBindings.clear()
+        session.preparedVideoSongs.clear()
         session.originalWorkCredits = emptyList()
 
         scope.launch {
@@ -1369,11 +1424,15 @@ internal fun DiscogsDirectVersionBrowser(
         if (currentlyAvailable >= target) {
             visibleLimit = target
             session.visibleLimit = visibleLimit
+            scheduleDiscogsVerification()
+            scheduleVideoPreload()
             return
         }
         if (currentPage <= 0 || currentPage >= totalPages) {
             visibleLimit = target
             session.visibleLimit = visibleLimit
+            scheduleDiscogsVerification()
+            scheduleVideoPreload()
             return
         }
 
@@ -1436,7 +1495,7 @@ internal fun DiscogsDirectVersionBrowser(
                     session.preparedVideoSongs[id]
                         ?: withTimeoutOrNull(2_500L) {
                             YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
-                        }?.also { session.preparedVideoSongs[it.id] = it }
+                        }?.also(::rememberPreparedVideoSong)
                         ?: return false
                 if (!CompilationTrackResolver.isHardCompatible(compatibilityTrack, song)) return false
                 foundSong = song
@@ -1551,7 +1610,7 @@ internal fun DiscogsDirectVersionBrowser(
             val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
             val updated =
                 if (foundSong != null && session.usedVideoIds.add(foundSong!!.id)) {
-                    session.preparedVideoSongs[foundSong!!.id] = foundSong!!
+                    rememberPreparedVideoSong(foundSong!!)
                     DiscogsVersionSource.markVideoResolved(
                         seed = current,
                         videoId = foundSong!!.id,
@@ -1578,36 +1637,40 @@ internal fun DiscogsDirectVersionBrowser(
         selectedFingerprint = seed.fingerprint
         session.selectedFingerprint = seed.fingerprint
         resolvingFingerprint = seed.fingerprint
-        playerConnection?.beginPlaybackPriorityBurst("musiclab-version")
+
+        // The selected row owns the device now: stop list/network maintenance before
+        // resolving or starting audio. This prevents Cover from fighting the player.
+        pauseCoverBackgroundForPlayback()
+        backgroundResumeJob?.cancel()
 
         scope.launch {
             var currentSeed =
                 results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
 
+            if (
+                currentSeed.resolvedVideoId.isNullOrBlank() &&
+                !currentSeed.videoResolutionChecked
+            ) {
+                // Resolve only the tapped row. Never keep six/twenty-four sibling
+                // resolvers alive while Bruno is waiting for first sound.
+                resolveVideoChunk(listOf(currentSeed))
+                currentSeed =
+                    results.firstOrNull { it.fingerprint == seed.fingerprint } ?: currentSeed
+            }
+
             if (!currentSeed.resolvedVideoId.isNullOrBlank()) {
+                playerConnection?.beginPlaybackPriorityBurst("musiclab-version")
                 resolvingFingerprint = null
-                playResolvedContext(currentSeed.fingerprint)
+                try {
+                    playResolvedContext(currentSeed.fingerprint)
+                } finally {
+                    resumeCoverBackgroundAfterPlaybackBurst()
+                }
                 return@launch
             }
 
-            // LAB40: tapping a row must never launch the long resolver. Preload owns
-            // video discovery. If it is already running we briefly wait for its result;
-            // otherwise we fail fast instead of making Bruno wait 50–60 seconds.
-            if (videoPreloadJob?.isActive == true) {
-                repeat(14) {
-                    delay(150)
-                    currentSeed =
-                        results.firstOrNull { it.fingerprint == seed.fingerprint } ?: currentSeed
-                    if (!currentSeed.resolvedVideoId.isNullOrBlank()) {
-                        resolvingFingerprint = null
-                        playResolvedContext(currentSeed.fingerprint)
-                        return@launch
-                    }
-                    if (currentSeed.videoResolutionChecked) return@repeat
-                }
-            }
-
             resolvingFingerprint = null
+            resumeCoverBackgroundAfterPlaybackBurst()
             Toast.makeText(
                 context,
                 if (currentSeed.videoResolutionChecked) {
