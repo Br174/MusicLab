@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
@@ -275,6 +276,9 @@ fun AccountSettings(
             var tempDiscogsToken by remember(discogsToken, showExternalApiEditor) {
                 mutableStateOf(discogsToken)
             }
+            var showLastFmApiKey by remember(showExternalApiEditor) { mutableStateOf(false) }
+            var showLastFmSecret by remember(showExternalApiEditor) { mutableStateOf(false) }
+            var showDiscogsToken by remember(showExternalApiEditor) { mutableStateOf(false) }
 
             AlertDialog(
                 onDismissRequest = { showExternalApiEditor = false },
@@ -293,8 +297,29 @@ fun AccountSettings(
                             onValueChange = { tempLastFmApiKey = it },
                             label = { Text(stringResource(R.string.lastfm_api_key)) },
                             singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
+                            visualTransformation =
+                                if (showLastFmApiKey) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { showLastFmApiKey = !showLastFmApiKey }) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.visibility),
+                                            contentDescription =
+                                                if (showLastFmApiKey) "Nascondi credenziale" else "Mostra credenziale",
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { tempLastFmApiKey = "" },
+                                        enabled = tempLastFmApiKey.isNotEmpty(),
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.delete),
+                                            contentDescription = "Cancella credenziale",
+                                        )
+                                    }
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(8.dp))
@@ -303,8 +328,29 @@ fun AccountSettings(
                             onValueChange = { tempLastFmSecret = it },
                             label = { Text(stringResource(R.string.lastfm_shared_secret)) },
                             singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
+                            visualTransformation =
+                                if (showLastFmSecret) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { showLastFmSecret = !showLastFmSecret }) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.visibility),
+                                            contentDescription =
+                                                if (showLastFmSecret) "Nascondi credenziale" else "Mostra credenziale",
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { tempLastFmSecret = "" },
+                                        enabled = tempLastFmSecret.isNotEmpty(),
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.delete),
+                                            contentDescription = "Cancella credenziale",
+                                        )
+                                    }
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
 
@@ -319,8 +365,29 @@ fun AccountSettings(
                             onValueChange = { tempDiscogsToken = it },
                             label = { Text(stringResource(R.string.discogs_personal_token)) },
                             singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
+                            visualTransformation =
+                                if (showDiscogsToken) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { showDiscogsToken = !showDiscogsToken }) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.visibility),
+                                            contentDescription =
+                                                if (showDiscogsToken) "Nascondi credenziale" else "Mostra credenziale",
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { tempDiscogsToken = "" },
+                                        enabled = tempDiscogsToken.isNotEmpty(),
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.delete),
+                                            contentDescription = "Cancella credenziale",
+                                        )
+                                    }
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(12.dp))
