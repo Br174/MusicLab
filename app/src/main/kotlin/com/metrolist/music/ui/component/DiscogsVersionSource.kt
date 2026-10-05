@@ -759,6 +759,73 @@ internal object DiscogsVersionSource {
         )
     }
 
+    internal fun sameCrossSourceVersion(
+        left: DiscogsVersionSeed,
+        right: DiscogsVersionSeed,
+    ): Boolean {
+        if (canonicalBaseTitle(left.trackTitle) != canonicalBaseTitle(right.trackTitle)) return false
+        if (!sameArtist(left.artist, right.artist)) return false
+        if (left.kind != right.kind) return false
+        if (
+            left.kind == DiscogsVersionKind.STUDIO &&
+            isRemasterSeed(left) != isRemasterSeed(right)
+        ) {
+            return false
+        }
+
+        val leftDuration = left.durationSeconds
+        val rightDuration = right.durationSeconds
+        val closeDuration =
+            leftDuration != null && rightDuration != null &&
+                kotlin.math.abs(leftDuration - rightDuration) <= 7
+        val exactDecoratedTitle = canonical(left.trackTitle) == canonical(right.trackTitle)
+        val sameMaster =
+            left.masterId != null && right.masterId != null && left.masterId == right.masterId
+        val sameReleaseContext =
+            canonicalReleaseContext(left.releaseTitle).isNotBlank() &&
+                canonicalReleaseContext(left.releaseTitle) == canonicalReleaseContext(right.releaseTitle)
+        val oneExternal = left.releaseId <= 0 || right.releaseId <= 0
+
+        return when (left.kind) {
+            DiscogsVersionKind.STUDIO ->
+                sameMaster || closeDuration ||
+                    (exactDecoratedTitle && oneExternal && (leftDuration == null || rightDuration == null || sameReleaseContext))
+            DiscogsVersionKind.LIVE,
+            DiscogsVersionKind.REMIX,
+            DiscogsVersionKind.ACOUSTIC,
+            -> {
+                val leftQualifier = versionQualifier(left.trackTitle + " " + left.releaseTitle)
+                val rightQualifier = versionQualifier(right.trackTitle + " " + right.releaseTitle)
+                (sameMaster || closeDuration || sameReleaseContext) &&
+                    (leftQualifier == rightQualifier || leftQualifier.isBlank() || rightQualifier.isBlank())
+            }
+        }
+    }
+
+    internal fun mergeCrossSourceEvidence(
+        existing: DiscogsVersionSeed,
+        incoming: DiscogsVersionSeed,
+    ): DiscogsVersionSeed {
+        val merged = mergeEvidence(existing, incoming)
+        val preferredVideo =
+            listOf(existing, incoming)
+                .filter { !it.resolvedVideoId.isNullOrBlank() }
+                .maxWithOrNull(
+                    compareBy<DiscogsVersionSeed> { it.confidenceScore }
+                        .thenBy { it.videos.size }
+                        .thenBy { it.sourceNames.distinct().size }
+                        .thenBy { if (it.track != null) 1 else 0 },
+                )
+                ?: return merged
+
+        return merged.copy(
+            resolvedVideoId = preferredVideo.resolvedVideoId,
+            resolvedVideoTitle = preferredVideo.resolvedVideoTitle,
+            resolvedVideoSource = preferredVideo.resolvedVideoSource,
+            videoResolutionChecked = true,
+        )
+    }
+
     internal fun recordingIdentityKey(seed: DiscogsVersionSeed): String = recordingFamilyKey(seed)
 
     internal fun isSameMusicalRecording(
