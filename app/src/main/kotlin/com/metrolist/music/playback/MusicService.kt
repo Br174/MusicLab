@@ -554,6 +554,12 @@ class MusicService :
     @Volatile
     private var cachedPersistentQueue = true
     @Volatile
+    private var cachedPersistentShuffleAcrossQueues = false
+    @Volatile
+    private var cachedEnableSongCache = true
+    @Volatile
+    private var cachedEnableQobuz = false
+    @Volatile
     private var cachedAutoplay = true
     @Volatile
     private var cachedDisableLoadMoreWhenRepeatAll = false
@@ -724,6 +730,16 @@ class MusicService :
         // never calls dataStore.get() (which does runBlocking internally).
         // This consolidates ~15 main-thread-blocking DataStore reads into 1.
         startupPrefs = runBlocking(Dispatchers.IO) { dataStore.data.first() }
+        cachedPersistentQueue = startupPrefs!![PersistentQueueKey] ?: true
+        cachedPersistentShuffleAcrossQueues = startupPrefs!![PersistentShuffleAcrossQueuesKey] ?: false
+        cachedEnableSongCache = startupPrefs!![EnableSongCacheKey] ?: true
+        cachedEnableQobuz = startupPrefs!![EnableQobuzKey] ?: false
+        cachedAutoplay = startupPrefs!![AutoplayKey] ?: true
+        cachedDisableLoadMoreWhenRepeatAll = startupPrefs!![DisableLoadMoreWhenRepeatAllKey] ?: false
+        cachedHideExplicit = startupPrefs!![HideExplicitKey] ?: false
+        cachedHideVideoSongs = startupPrefs!![HideVideoSongsKey] ?: false
+        cachedShufflePlaylistFirst = startupPrefs!![ShufflePlaylistFirstKey] ?: false
+        cachedAutoLoadMore = startupPrefs!![AutoLoadMoreKey] ?: true
 
         // 3. Connect the processor to the service
         // handled in createExoPlayer
@@ -1343,6 +1359,15 @@ class MusicService :
         // Observe and cache common preferences to avoid runBlocking reads in playback callbacks
         scope.launch {
             dataStore.data.map { it[PersistentQueueKey] ?: true }.distinctUntilChanged().collect { cachedPersistentQueue = it }
+        }
+        scope.launch {
+            dataStore.data.map { it[PersistentShuffleAcrossQueuesKey] ?: false }.distinctUntilChanged().collect { cachedPersistentShuffleAcrossQueues = it }
+        }
+        scope.launch {
+            dataStore.data.map { it[EnableSongCacheKey] ?: true }.distinctUntilChanged().collect { cachedEnableSongCache = it }
+        }
+        scope.launch {
+            dataStore.data.map { it[EnableQobuzKey] ?: false }.distinctUntilChanged().collect { cachedEnableQobuz = it }
         }
         scope.launch {
             dataStore.data.map { it[AutoplayKey] ?: true }.distinctUntilChanged().collect { cachedAutoplay = it }
@@ -1970,8 +1995,7 @@ class MusicService :
 
         currentQueue = queue
         queueTitle = null
-        val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
-        if (!persistShuffleAcrossQueues && !restoringQueue) {
+        if (!cachedPersistentShuffleAcrossQueues && !restoringQueue) {
             player.shuffleModeEnabled = false
         }
         originalQueueSize = 0
@@ -4269,7 +4293,7 @@ class MusicService :
         }
 
         val stream = cachedStream ?: return
-        if (!dataStore.get(EnableSongCacheKey, true)) return
+        if (!cachedEnableSongCache) return
 
         val prefixLength =
             if (contentLength > 0L) {
@@ -4343,7 +4367,7 @@ class MusicService :
             Timber.tag(PRECACHE_TAG).d("[PRECACHE] Skipped: pre-cache count is $preCacheCount (disabled)")
             return
         }
-        if (!dataStore.get(EnableSongCacheKey, true)) {
+        if (!cachedEnableSongCache) {
             Timber.tag(PRECACHE_TAG).d("[PRECACHE] Skipped: song cache is disabled")
             return
         }
@@ -4904,7 +4928,7 @@ class MusicService :
             // check already-ready YouTube/local cache state before any optional provider
             // discovery. This keeps tap-to-audio independent from Qobuz lookup latency.
             if (playbackPriorityBurstActive && !shouldBypassCache) {
-                val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
+                val usePlayerCache = cachedEnableSongCache
                 val contentLength = storedFormat?.contentLength
                 val requiredLength =
                     when {
@@ -4934,8 +4958,8 @@ class MusicService :
             // to DB title/artist/album for YT-native tracks. Silently falls through
             // to the YouTube path on any failure.
             val qobuzEnabled =
-                !playbackPriorityBurstActive && dataStore.get(EnableQobuzKey, false)
-            if (playbackPriorityBurstActive && dataStore.get(EnableQobuzKey, false)) {
+                !playbackPriorityBurstActive && cachedEnableQobuz
+            if (playbackPriorityBurstActive && cachedEnableQobuz) {
                 Timber.tag("Qobuz").d("Player Veloce 2: skipping Qobuz during playback-priority burst for %s", mediaId)
             }
             if (qobuzEnabled) {
@@ -4943,7 +4967,7 @@ class MusicService :
                     .toEnum(QobuzAudioQuality.CD_QUALITY)
                 val qualityCode = QobuzAudioProvider.qualityCodeFor(qobuzQualityEnum)
                 val qobuzKey = qobuzCacheKey(mediaId, qualityCode)
-                val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
+                val usePlayerCache = cachedEnableSongCache
 
                 if (!shouldBypassCache &&
                     (downloadCache.isCached(qobuzKey, dataSpec.position,
@@ -5134,7 +5158,7 @@ class MusicService :
             }
 
             if (!shouldBypassCache) {
-                val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
+                val usePlayerCache = cachedEnableSongCache
 
                 val contentLength = storedFormat?.contentLength
                 val requiredLength =
