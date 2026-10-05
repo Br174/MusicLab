@@ -526,17 +526,44 @@ internal fun DiscogsDirectVersionBrowser(
             }
         }
         incoming.filterNot(::isRejected).forEach { seed ->
-            val key = DiscogsVersionSource.identityKey(seed)
-            val previous = merged[key]
+            val exactKey = DiscogsVersionSource.identityKey(seed)
+            val equivalentEntry =
+                merged.entries.firstOrNull { (_, existing) ->
+                    DiscogsVersionSource.sameCrossSourceVersion(existing, seed)
+                }
+            val key = equivalentEntry?.key ?: exactKey
+            val previous = equivalentEntry?.value ?: merged[exactKey]
             merged[key] =
-                if (previous == null) seed else DiscogsVersionSource.mergeEvidence(previous, seed)
+                if (previous == null) {
+                    seed
+                } else {
+                    DiscogsVersionSource.mergeCrossSourceEvidence(previous, seed)
+                }
         }
 
         val recordingDeduped = DiscogsVersionSource.dedupeVersions(merged.values.toList())
         return normalizeSearchLocalVideoBindings(recordingDeduped)
     }
+    fun modeAcceptsSeed(seed: DiscogsVersionSeed): Boolean {
+        if (mode == DiscogsDirectMode.COVER) return true
+        val workTitle = TitleMeaningResolver.workAnchorTitle(title)
+        val originalArtistOk =
+            resolvedOriginalArtist.isNotBlank() &&
+                TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
+        val titleOk =
+            workTitle.isBlank() ||
+                TitleMeaningResolver.matchesBaseTitle(
+                    targetTitle = workTitle,
+                    value = seed.trackTitle,
+                    artistAliases = setOf(resolvedOriginalArtist).filter(String::isNotBlank).toSet(),
+                )
+        return originalArtistOk && titleOk
+    }
+
     fun sortedPool(source: List<DiscogsVersionSeed>): List<DiscogsVersionSeed> {
-        val displayable = source.filter(DiscogsVersionSource::isDisplayableDirectSeed)
+        val displayable =
+            source.filter(DiscogsVersionSource::isDisplayableDirectSeed)
+                .filter(::modeAcceptsSeed)
         return when (sortMode) {
             DirectVersionSort.RELEVANCE ->
                 displayable.sortedWith(
@@ -584,20 +611,30 @@ internal fun DiscogsDirectVersionBrowser(
                     if (none { it.fingerprint == seed.fingerprint }) add(seed)
                 }
             }.filter(DiscogsVersionSource::isDisplayableDirectSeed)
+                .filter(::modeAcceptsSeed)
 
-        return ordered.filter { seed ->
-            when (category) {
-                DirectVersionCategory.ALL -> true
-                DirectVersionCategory.STUDIO ->
-                    seed.language.isNullOrBlank() &&
-                        (seed.kind == DiscogsVersionKind.STUDIO || seed.kind == DiscogsVersionKind.ACOUSTIC)
-                DirectVersionCategory.LIVE ->
-                    seed.language.isNullOrBlank() && seed.kind == DiscogsVersionKind.LIVE
-                DirectVersionCategory.REMIX ->
-                    seed.language.isNullOrBlank() && seed.kind == DiscogsVersionKind.REMIX
-                DirectVersionCategory.FOREIGN -> !seed.language.isNullOrBlank()
+        val categoryFiltered =
+            ordered.filter { seed ->
+                when (category) {
+                    DirectVersionCategory.ALL -> true
+                    DirectVersionCategory.STUDIO ->
+                        seed.language.isNullOrBlank() &&
+                            (seed.kind == DiscogsVersionKind.STUDIO || seed.kind == DiscogsVersionKind.ACOUSTIC)
+                    DirectVersionCategory.LIVE ->
+                        seed.language.isNullOrBlank() && seed.kind == DiscogsVersionKind.LIVE
+                    DirectVersionCategory.REMIX ->
+                        seed.language.isNullOrBlank() && seed.kind == DiscogsVersionKind.REMIX
+                    DirectVersionCategory.FOREIGN -> !seed.language.isNullOrBlank()
+                }
             }
-        }
+
+        // Failed/red video rows are useful evidence but should never interrupt the
+        // playable list. Keep their relative order, always after ready/pending rows.
+        val (failedVideo, usableOrPending) =
+            categoryFiltered.partition { seed ->
+                seed.videoResolutionChecked && seed.resolvedVideoId.isNullOrBlank()
+            }
+        return usableOrPending + failedVideo
     }
 
     fun replaceSeed(updated: DiscogsVersionSeed) {
@@ -1091,7 +1128,7 @@ internal fun DiscogsDirectVersionBrowser(
                     }.getOrNull()
                 }
 
-            if (explicitArtistHint.isNullOrBlank()) {
+            if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                 memoryState
                     ?.discovery
                     ?.original
@@ -1213,7 +1250,7 @@ internal fun DiscogsDirectVersionBrowser(
                 runCatching { externalDeferred.await() }
                     .getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
 
-            if (explicitArtistHint.isNullOrBlank()) {
+            if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                 consensusOriginalArtist(external.candidates)
                     ?.let { resolvedOriginalArtist = it }
             }
@@ -1241,7 +1278,7 @@ internal fun DiscogsDirectVersionBrowser(
                     }.getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
                 external = mergeDiscoveryOutcomes(external, fallback)
 
-                if (explicitArtistHint.isNullOrBlank()) {
+                if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                     consensusOriginalArtist(external.candidates)
                         ?.let { resolvedOriginalArtist = it }
                 }
@@ -1341,6 +1378,136 @@ internal fun DiscogsDirectVersionBrowser(
                     loadingMore = false
                 }
             }
+    }
+
+    fun retryMissingVideo(seed: DiscogsVersionSeed) {
+        val track = playableTrack(seed)
+        if (track == null) {
+            Toast.makeText(context, "Dati versione insufficienti per la ricerca video.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        resolvingFingerprint = seed.fingerprint
+        results =
+            results.map { current ->
+                if (current.fingerprint == seed.fingerprint) {
+                    current.copy(videoResolutionChecked = false)
+                } else {
+                    current
+                }
+            }
+        session.results = results
+
+        scope.launch {
+            var foundSong: SongItem? = null
+            var foundSource: String? = null
+            val excluded = session.usedVideoIds.toSet()
+
+            suspend fun acceptVideo(videoId: String?, sourceName: String): Boolean {
+                val id = videoId?.trim().orEmpty()
+                if (id.isBlank() || id in excluded) return false
+                val song =
+                    session.preparedVideoSongs[id]
+                        ?: withTimeoutOrNull(2_500L) {
+                            YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
+                        }?.also { session.preparedVideoSongs[it.id] = it }
+                        ?: return false
+                if (!CompilationTrackResolver.isHardCompatible(track, song)) return false
+                foundSong = song
+                foundSource = sourceName
+                return true
+            }
+
+            // Lane 1: MusicLab cloud/internal memory for this exact musical version.
+            foreignScoutConfig?.let { config ->
+                val memory =
+                    runCatching {
+                        CloudMusicDiscovery.discoverMemoryState(
+                            title = TitleMeaningResolver.workAnchorTitle(title),
+                            artist = resolvedOriginalArtist,
+                            config = config,
+                            mode = if (mode == DiscogsDirectMode.ORIGINAL) "originals" else "cover",
+                            limit = 200,
+                        )
+                    }.getOrNull()
+
+                memory?.discovery?.versions.orEmpty()
+                    .asSequence()
+                    .filter { candidate ->
+                        TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) &&
+                            TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title)
+                    }
+                    .mapNotNull { candidate ->
+                        candidate.playbackVideoId?.let { id ->
+                            Triple(id, candidate.playbackVideoSource ?: "Archivio MusicLab", candidate)
+                        }
+                    }
+                    .firstOrNull { (id, sourceName, _) -> acceptVideo(id, sourceName) }
+            }
+
+            // Lane 2: provider discovery (COVER.INFO / Spotify / iTunes / etc.) can
+            // contribute a direct binding or better evidence for this exact version.
+            if (foundSong == null) {
+                val discovery =
+                    runCatching {
+                        CoverDiscoverySources.discover(
+                            title = seed.trackTitle,
+                            originalArtist = resolvedOriginalArtist,
+                            mode = mode,
+                            aiConfig = foreignScoutConfig,
+                        )
+                    }.getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
+
+                discovery.candidates
+                    .asSequence()
+                    .filter { candidate ->
+                        TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) &&
+                            TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title)
+                    }
+                    .mapNotNull { candidate ->
+                        candidate.playbackVideoId?.let { id ->
+                            id to (candidate.playbackVideoSource ?: candidate.sources.joinToString(" + "))
+                        }
+                    }
+                    .firstOrNull { (id, sourceName) -> acceptVideo(id, sourceName) }
+            }
+
+            // Lane 3: full/deep YouTube resolver, only after internal/provider evidence.
+            if (foundSong == null) {
+                val deep =
+                    CompilationTrackResolver.resolveTrack(
+                        track = track,
+                        discogsVideos = seed.videos,
+                        fastFirst = false,
+                        excludedVideoIds = session.usedVideoIds.toSet(),
+                    )
+                foundSong = deep?.song
+                foundSource = deep?.source?.let { "Ricerca approfondita · $it" }
+            }
+
+            val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
+            val updated =
+                if (foundSong != null && session.usedVideoIds.add(foundSong!!.id)) {
+                    session.preparedVideoSongs[foundSong!!.id] = foundSong!!
+                    DiscogsVersionSource.markVideoResolved(
+                        seed = current,
+                        videoId = foundSong!!.id,
+                        videoTitle = foundSong!!.title,
+                        source = foundSource ?: "Ricerca MusicLab",
+                    )
+                } else {
+                    DiscogsVersionSource.markVideoUnavailable(current)
+                }
+
+            replaceSeed(updated)
+            resolvingFingerprint = null
+            if (!updated.resolvedVideoId.isNullOrBlank()) {
+                persistCloudPlaybackBinding(updated)
+                Toast.makeText(context, "Video trovato.", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Nessun video compatibile trovato.", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     fun play(seed: DiscogsVersionSeed) {
@@ -1686,6 +1853,7 @@ internal fun DiscogsDirectVersionBrowser(
                     selected = seed.fingerprint == selectedFingerprint,
                     resolving = seed.fingerprint == resolvingFingerprint,
                     onPlay = { play(seed) },
+                    onRetryVideo = { retryMissingVideo(seed) },
                     onDetails = { detailSeed = seed },
                 )
             }
@@ -2029,6 +2197,7 @@ private fun DiscogsVersionCard(
     selected: Boolean,
     resolving: Boolean,
     onPlay: () -> Unit,
+    onRetryVideo: () -> Unit,
     onDetails: () -> Unit,
 ) {
     Surface(
@@ -2151,7 +2320,7 @@ private fun DiscogsVersionCard(
                         Text(
                             when {
                                 videoReady -> "Tocca per riprodurre"
-                                seed.videoResolutionChecked -> "Video non trovato"
+                                seed.videoResolutionChecked -> "Video non trovato · Tocca per cercare"
                                 else -> "Video in verifica…"
                             },
                             style = MaterialTheme.typography.bodySmall,
@@ -2162,7 +2331,16 @@ private fun DiscogsVersionCard(
                                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             fontWeight = if (videoReady) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.weight(1f),
+                            modifier =
+                                Modifier
+                                    .weight(1f)
+                                    .then(
+                                        if (seed.videoResolutionChecked && !videoReady) {
+                                            Modifier.clickable(onClick = onRetryVideo)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
                         )
                         TextButton(onClick = onDetails) {
                             Text("Dettagli")
