@@ -17,7 +17,9 @@ internal object DiscogsClient {
     private const val DISCOGS_MAX_RETRIES = 4
     private const val DISCOGS_BACKOFF_BASE_MS = 1_800L
     private const val DISCOGS_MIN_REQUEST_INTERVAL_MS = 1_050L
+    private const val DISCOGS_PUBLIC_MIN_REQUEST_INTERVAL_MS = 2_500L
     private const val DISCOGS_LOW_REMAINING_PAUSE_MS = 2_200L
+    private val DISCOGS_TRANSIENT_HTTP_CODES = setOf(408, 425, 500, 502, 503, 504)
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -49,8 +51,6 @@ internal object DiscogsClient {
         sortOrder: String? = "asc",
     ): Result<DiscogsReleasePage> = withContext(Dispatchers.IO) {
         runCatching {
-            require(token.isNotBlank()) { "Token Discogs mancante" }
-
             val url = "$API_BASE/database/search".toHttpUrl().newBuilder()
                 .addQueryParameter("type", "release")
                 .addQueryParameter("page", page.coerceAtLeast(1).toString())
@@ -119,8 +119,6 @@ internal object DiscogsClient {
         perPage: Int = 100,
     ): Result<DiscogsCompilationPage> = withContext(Dispatchers.IO) {
         runCatching {
-            require(token.isNotBlank()) { "Token Discogs mancante" }
-
             val url = "$API_BASE/database/search".toHttpUrl().newBuilder()
                 .addQueryParameter("type", "release")
                 .addQueryParameter("format", "Compilation")
@@ -181,7 +179,6 @@ internal object DiscogsClient {
         }
 
         runCatching {
-            require(token.isNotBlank()) { "Token Discogs mancante" }
             val root = requestJson("$API_BASE/releases/$releaseId", token)
             val detail = parseRelease(root, token, includeMasterVideos)
             if (includeMasterVideos) detailCache[releaseId] = detail
@@ -265,50 +262,81 @@ internal object DiscogsClient {
 
     private fun requestJsonBlocking(url: String, token: String): JSONObject {
         var attempt = 0
+        var useAuthentication = token.isNotBlank()
         while (true) {
-            awaitRequestSlot()
+            awaitRequestSlot(if (useAuthentication) DISCOGS_MIN_REQUEST_INTERVAL_MS else DISCOGS_PUBLIC_MIN_REQUEST_INTERVAL_MS)
 
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "application/vnd.discogs.v2.discogs+json")
-                .header("Authorization", "Discogs token=$token")
-                .build()
+            val requestBuilder =
+                Request.Builder()
+                    .url(url)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "application/vnd.discogs.v2.discogs+json")
+            if (useAuthentication) {
+                requestBuilder.header("Authorization", "Discogs token=$token")
+            }
+            val request = requestBuilder.build()
 
             var retryDelayMs: Long? = null
             var successBody: String? = null
             var terminalError: IOException? = null
+            var retryWithoutAuthentication = false
 
-            client.newCall(request).execute().use { response ->
-                val remaining = response.header("X-Discogs-Ratelimit-Remaining")?.toIntOrNull()
-                if (remaining != null && remaining <= 3) {
-                    extendRequestGate(DISCOGS_LOW_REMAINING_PAUSE_MS)
+            try {
+                client.newCall(request).execute().use { response ->
+                    val remaining = response.header("X-Discogs-Ratelimit-Remaining")?.toIntOrNull()
+                    if (remaining != null && remaining <= 3) {
+                        extendRequestGate(DISCOGS_LOW_REMAINING_PAUSE_MS)
+                    }
+                    val body = response.body?.string().orEmpty()
+                    when {
+                        response.isSuccessful && body.isNotBlank() -> successBody = body
+
+                        (response.code == 401 || response.code == 403) && useAuthentication -> {
+                            // A stale/invalid personal token must never make Discogs disappear.
+                            // Retry the same public catalogue request without Authorization.
+                            retryWithoutAuthentication = true
+                        }
+
+                        (response.code == 429 || response.code in DISCOGS_TRANSIENT_HTTP_CODES) &&
+                            attempt < DISCOGS_MAX_RETRIES -> {
+                            val retryAfterMs =
+                                response.header("Retry-After")
+                                    ?.toLongOrNull()
+                                    ?.times(1_000L)
+                                    ?.coerceIn(1_500L, 15_000L)
+                                    ?: (DISCOGS_BACKOFF_BASE_MS * (1L shl attempt)).coerceAtMost(15_000L)
+                            retryDelayMs = retryAfterMs
+                            extendRequestGate(retryAfterMs)
+                        }
+
+                        !response.isSuccessful -> {
+                            val message = runCatching {
+                                JSONObject(body).optString("message")
+                            }.getOrNull().orEmpty()
+                            terminalError = IOException(
+                                "Discogs HTTP " + response.code +
+                                    message.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty(),
+                            )
+                        }
+
+                        body.isBlank() -> terminalError = IOException("Risposta Discogs vuota")
+                        else -> successBody = body
+                    }
                 }
-                val body = response.body?.string().orEmpty()
-                if (response.code == 429 && attempt < DISCOGS_MAX_RETRIES) {
-                    val retryAfterMs = response.header("Retry-After")
-                        ?.toLongOrNull()
-                        ?.times(1_000L)
-                        ?.coerceIn(1_500L, 15_000L)
-                        ?: (DISCOGS_BACKOFF_BASE_MS * (1L shl attempt)).coerceAtMost(15_000L)
-                    retryDelayMs = retryAfterMs
-                    extendRequestGate(retryAfterMs)
-                } else if (!response.isSuccessful) {
-                    val message = runCatching {
-                        JSONObject(body).optString("message")
-                    }.getOrNull().orEmpty()
-                    terminalError = IOException(
-                        "Discogs HTTP " + response.code +
-                            message.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty(),
-                    )
-                } else if (body.isBlank()) {
-                    terminalError = IOException("Risposta Discogs vuota")
+            } catch (error: IOException) {
+                if (attempt < DISCOGS_MAX_RETRIES) {
+                    retryDelayMs = (DISCOGS_BACKOFF_BASE_MS * (1L shl attempt)).coerceAtMost(15_000L)
                 } else {
-                    successBody = body
+                    terminalError = error
                 }
             }
 
             successBody?.let { return JSONObject(it) }
+            if (retryWithoutAuthentication) {
+                useAuthentication = false
+                attempt = 0
+                continue
+            }
             terminalError?.let { throw it }
 
             val delayMs = retryDelayMs ?: throw IOException("Errore Discogs")
@@ -316,15 +344,13 @@ internal object DiscogsClient {
             Thread.sleep(delayMs)
         }
     }
-
-    private fun awaitRequestSlot() {
+    private fun awaitRequestSlot(minIntervalMs: Long) {
         synchronized(requestGate) {
             val now = System.currentTimeMillis()
             val waitMs = (nextAllowedRequestAtMs - now).coerceAtLeast(0L)
             if (waitMs > 0L) Thread.sleep(waitMs)
             nextAllowedRequestAtMs =
-                maxOf(nextAllowedRequestAtMs, System.currentTimeMillis()) +
-                    DISCOGS_MIN_REQUEST_INTERVAL_MS
+                maxOf(nextAllowedRequestAtMs, System.currentTimeMillis()) + minIntervalMs
         }
     }
 
