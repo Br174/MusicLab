@@ -5202,6 +5202,7 @@ class MusicService :
                             isExplicit = song?.explicit,
                             isUploaded = song?.isUploaded,
                         ),
+                        urgentPlayback = playbackPriorityBurstActive,
                     )
                 }.getOrElse { throwable ->
                     when (throwable) {
