@@ -241,6 +241,7 @@ internal fun DiscogsDirectVersionBrowser(
     var showSourceDiagnostics by remember(sessionKey) { mutableStateOf(false) }
     var sourceDiagnostics by remember(sessionKey) { mutableStateOf(session.sourceDiagnostics) }
     var visibleLimit by remember(sessionKey) { mutableStateOf(session.visibleLimit) }
+    var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -942,10 +943,14 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun pauseCoverBackgroundForPlayback() {
+        searchJob?.cancel()
         paginationJob?.cancel()
         verificationJob?.cancel()
         videoPreloadJob?.cancel()
         backgroundResumeJob?.cancel()
+        loading = false
+        loadingMore = false
+        sourceDiscoveryLoading = false
     }
 
     fun resumeCoverBackgroundAfterPlaybackBurst() {
@@ -1173,6 +1178,7 @@ internal fun DiscogsDirectVersionBrowser(
             error = "Interprete originale di riferimento mancante."
             return
         }
+        searchJob?.cancel()
         paginationJob?.cancel()
         verificationJob?.cancel()
         videoPreloadJob?.cancel()
@@ -1207,8 +1213,9 @@ internal fun DiscogsDirectVersionBrowser(
         session.preparedVideoSongs.clear()
         session.originalWorkCredits = emptyList()
 
-        scope.launch {
-            listState.scrollToItem(0)
+        searchJob =
+            scope.launch {
+                listState.scrollToItem(0)
 
             val memoryState =
                 foreignScoutConfig?.let { config ->
@@ -1431,6 +1438,12 @@ internal fun DiscogsDirectVersionBrowser(
             }
             // Provider/cloud video resolution is independent from Discogs page success.
             scheduleVideoPreload()
+        }
+        searchJob?.invokeOnCompletion {
+            scope.launch {
+                loading = false
+                sourceDiscoveryLoading = false
+            }
         }
     }
 
