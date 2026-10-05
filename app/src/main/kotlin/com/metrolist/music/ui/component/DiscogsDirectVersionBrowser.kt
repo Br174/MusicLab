@@ -997,7 +997,12 @@ internal fun DiscogsDirectVersionBrowser(
                                     AiCoverCategory.COVER -> "originale"
                                 }
                             } else {
-                                candidate.category.cloudName
+                                when (candidate.category) {
+                                    AiCoverCategory.LIVE -> "live"
+                                    AiCoverCategory.REMIX -> "remix"
+                                    AiCoverCategory.FOREIGN -> "straniera"
+                                    AiCoverCategory.COVER -> "cover"
+                                }
                             }
                         CloudMusicDiscovery.memoryKey(
                             candidate.title,
