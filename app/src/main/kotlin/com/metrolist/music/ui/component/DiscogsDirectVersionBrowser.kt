@@ -123,6 +123,7 @@ private data class DirectVersionSession(
     var sourceDiagnostics: List<CoverSourceDiagnostic> = emptyList(),
     var sourceDiscoveryComplete: Boolean = false,
     val rejectedKeys: MutableSet<String> = linkedSetOf(),
+    val approvedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
     val preparedVideoSongs: MutableMap<String, SongItem> = ConcurrentHashMap(),
 )
@@ -287,6 +288,9 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun isRejected(seed: DiscogsVersionSeed): Boolean =
         rejectionKey(seed) in session.rejectedKeys
+
+    fun isApproved(seed: DiscogsVersionSeed): Boolean =
+        seed.manuallyApproved || rejectionKey(seed) in session.approvedKeys
 
     fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
         val score =
@@ -649,7 +653,7 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun scheduleDiscogsVerification() {
-        if (verificationJob?.isActive == true || discogsToken.isBlank()) return
+        if (verificationJob?.isActive == true) return
         verificationJob =
             scope.launch {
                 while (true) {
@@ -711,6 +715,7 @@ internal fun DiscogsDirectVersionBrowser(
             }
 
             if (status == AiBrainDecisionStatus.REJECTED) {
+                session.approvedKeys -= rejectionKey(seed)
                 session.rejectedKeys += rejectionKey(seed)
                 results = results.filterNot { rejectionKey(it) in session.rejectedKeys }
                 session.results = results
@@ -722,6 +727,8 @@ internal fun DiscogsDirectVersionBrowser(
                     Toast.LENGTH_LONG,
                 ).show()
             } else if (status == AiBrainDecisionStatus.APPROVED) {
+                session.rejectedKeys -= rejectionKey(seed)
+                session.approvedKeys += rejectionKey(seed)
                 val approved =
                     seed.copy(
                         confidenceScore = 10,
@@ -946,6 +953,7 @@ internal fun DiscogsDirectVersionBrowser(
 
             session.rejectedKeys.clear()
             session.rejectedKeys.addAll(memoryState?.rejectedKeys.orEmpty())
+            session.approvedKeys.clear()
 
             val memoryVersions =
                 memoryState
@@ -975,6 +983,18 @@ internal fun DiscogsDirectVersionBrowser(
                             categoryName,
                         ) in session.rejectedKeys
                     }
+
+            session.approvedKeys.addAll(
+                memoryVersions
+                    .filter { it.brainStatus == AiBrainDecisionStatus.APPROVED }
+                    .map { candidate ->
+                        CloudMusicDiscovery.memoryKey(
+                            candidate.title,
+                            candidate.artist,
+                            candidate.category.cloudName,
+                        )
+                    },
+            )
 
             if (memoryVersions.isNotEmpty()) {
                 results =
@@ -1054,7 +1074,7 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun loadNextPage() {
         val criteria = activeCriteria ?: return
-        if (loading || loadingMore || discogsToken.isBlank()) return
+        if (loading || loadingMore) return
 
         val target = visibleLimit + DIRECT_VERSION_PAGE_SIZE
         val currentlyAvailable = orderedResults(results).size
@@ -1483,7 +1503,7 @@ internal fun DiscogsDirectVersionBrowser(
         DiscogsVersionDetailsDialog(
             seed = seed,
             saving = decisionSavingFingerprint == seed.fingerprint,
-            approved = seed.manuallyApproved,
+            approved = isApproved(seed),
             onDismiss = { detailSeed = null },
             onSearch = { value ->
                 value.trim().takeIf(String::isNotBlank)?.let { query ->
