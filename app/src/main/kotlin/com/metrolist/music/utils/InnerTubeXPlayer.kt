@@ -41,6 +41,7 @@ object InnerTubeXPlayer {
     // inside the modern resolver. The first lane never opens WebView/PoToken; the
     // full InnerTubeX path remains an automatic fallback for protected/harder media.
     private const val LAB07_FAST_LANE_TIMEOUT_MS = 1_800L
+    private const val URGENT_POTOKEN_TIMEOUT_MS = 3_500L
 
     @Volatile
     private var applicationContext: Context? = null
@@ -49,6 +50,7 @@ object InnerTubeXPlayer {
     private var currentBundle: ExtractionBundle? = null
 
     private val bundleMutex = Mutex()
+    private val urgentPoTokenRequests = java.util.concurrent.atomic.AtomicInteger(0)
     private val streamClientFailures = java.util.concurrent.ConcurrentHashMap<String, FailedStreamClients>()
 
     @Synchronized
@@ -74,6 +76,7 @@ object InnerTubeXPlayer {
         connectivityManager: ConnectivityManager,
         contentHints: ContentHints = ContentHints(),
         allowBoundedRange: Boolean = true,
+        urgentPlayback: Boolean = false,
     ): Result<PlaybackData> =
         try {
             val hints =
@@ -114,15 +117,24 @@ object InnerTubeXPlayer {
                 }
 
             val stream =
-                fastStream ?: requireNotNull(
-                    extractionBundle.extractor.extract(
-                        videoId = videoId,
-                        hints = hints,
-                        excludedClients = excludedClients,
-                        audioQuality = resolvedAudioQuality,
-                        clientPlaybackNonce = generateClientPlaybackNonce(),
-                    ),
-                ) { "InnerTubeX returned no playable stream" }
+                if (fastStream != null) {
+                    fastStream
+                } else {
+                    if (urgentPlayback) urgentPoTokenRequests.incrementAndGet()
+                    try {
+                        requireNotNull(
+                            extractionBundle.extractor.extract(
+                                videoId = videoId,
+                                hints = hints,
+                                excludedClients = excludedClients,
+                                audioQuality = resolvedAudioQuality,
+                                clientPlaybackNonce = generateClientPlaybackNonce(),
+                            ),
+                        ) { "InnerTubeX returned no playable stream" }
+                    } finally {
+                        if (urgentPlayback) urgentPoTokenRequests.decrementAndGet()
+                    }
+                }
 
             if (fastStream != null) {
                 Timber.tag(TAG).d("LAB07 fast lane resolved %s via %s", videoId, stream.clientName)
@@ -263,14 +275,25 @@ object InnerTubeXPlayer {
                 videoId: String,
                 visitorData: String,
                 cookie: String?,
-            ): PoTokenResult? =
-                poTokenGenerator.getWebClientPoToken(videoId, visitorData)?.let { token ->
+            ): PoTokenResult? {
+                val token =
+                    if (urgentPoTokenRequests.get() > 0) {
+                        poTokenGenerator.getWebClientPoToken(
+                            videoId = videoId,
+                            sessionId = visitorData,
+                            timeoutMs = URGENT_POTOKEN_TIMEOUT_MS,
+                        )
+                    } else {
+                        poTokenGenerator.getWebClientPoToken(videoId, visitorData)
+                    }
+                return token?.let {
                     PoTokenResult(
-                        playerRequestToken = token.playerRequestPoToken,
-                        streamingDataToken = token.streamingDataPoToken,
+                        playerRequestToken = it.playerRequestPoToken,
+                        streamingDataToken = it.streamingDataPoToken,
                         visitorData = visitorData,
                     )
                 }
+            }
 
             override suspend fun close() {
                 poTokenGenerator.close()
