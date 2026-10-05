@@ -18,6 +18,9 @@ jobs:
     name: build-update-first
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload_update.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_update.outputs.artifact-digest }}
     env:
       LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
       LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
@@ -118,6 +121,7 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
 
       - name: Upload LAB 47 aggiornamento immediately
+        id: upload_update
         uses: actions/upload-artifact@v4
         with:
           name: MusicLab-LAB47-aggiornamento
@@ -136,6 +140,9 @@ jobs:
     needs: build-update
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload_safety.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_safety.outputs.artifact-digest }}
     env:
       LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
       LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
@@ -236,6 +243,7 @@ jobs:
           sha256sum "$APK" "$ZIP" > "$SAFETY_OUT/SAFETY_SHA256SUMS.txt"
 
       - name: Upload LAB di sicurezza 47
+        id: upload_safety
         uses: actions/upload-artifact@v4
         with:
           name: MusicLab-LAB-di-sicurezza-47
@@ -249,3 +257,50 @@ jobs:
             dist/safety47/logs/*.log
           if-no-files-found: error
           retention-days: 30
+
+  record-status:
+    name: record-lab47-gate-result
+    needs:
+      - build-update
+      - build-safety
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout LAB47 branch for durable status
+        uses: actions/checkout@v4
+        with:
+          ref: uab-build/musiclab-lab47-aggiornamento-family-01
+          fetch-depth: 0
+
+      - name: Record run and artifact pointers
+        continue-on-error: true
+        shell: bash
+        env:
+          UPDATE_RESULT: ${{ needs.build-update.result }}
+          SAFETY_RESULT: ${{ needs.build-safety.result }}
+          UPDATE_ARTIFACT_ID: ${{ needs.build-update.outputs.artifact_id }}
+          UPDATE_ARTIFACT_DIGEST: ${{ needs.build-update.outputs.artifact_digest }}
+          SAFETY_ARTIFACT_ID: ${{ needs.build-safety.outputs.artifact_id }}
+          SAFETY_ARTIFACT_DIGEST: ${{ needs.build-safety.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          cat > LAB47_BUILD_STATUS.txt <<EOF
+          LAB=47
+          SOURCE_SHA=$GITHUB_SHA
+          RUN_ID=$GITHUB_RUN_ID
+          RUN_ATTEMPT=$GITHUB_RUN_ATTEMPT
+          UPDATE_RESULT=$UPDATE_RESULT
+          SAFETY_RESULT=$SAFETY_RESULT
+          UPDATE_ARTIFACT_ID=$UPDATE_ARTIFACT_ID
+          UPDATE_ARTIFACT_DIGEST=$UPDATE_ARTIFACT_DIGEST
+          SAFETY_ARTIFACT_ID=$SAFETY_ARTIFACT_ID
+          SAFETY_ARTIFACT_DIGEST=$SAFETY_ARTIFACT_DIGEST
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add LAB47_BUILD_STATUS.txt
+          git commit -m "chore(ci): record LAB47 gate result" || exit 0
+          git push origin HEAD:uab-build/musiclab-lab47-aggiornamento-family-01
