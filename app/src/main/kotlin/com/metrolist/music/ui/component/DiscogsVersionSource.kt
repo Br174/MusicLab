@@ -106,7 +106,6 @@ internal object DiscogsVersionSource {
         sortOrder: String? = "asc",
     ): Result<DiscogsVersionPage> = coroutineScope {
         runCatching {
-            require(token.isNotBlank()) { "Token Discogs mancante" }
             require(criteria.title.isNotBlank()) { "Titolo mancante" }
 
             val releasePage = DiscogsClient.searchReleases(
@@ -227,7 +226,7 @@ internal object DiscogsVersionSource {
         title: String,
         originalArtist: String,
     ): List<DiscogsCredit> {
-        if (token.isBlank() || title.isBlank() || originalArtist.isBlank()) return emptyList()
+        if (title.isBlank() || originalArtist.isBlank()) return emptyList()
         val page = DiscogsClient.searchReleases(
             token = token,
             track = title,
@@ -263,7 +262,7 @@ internal object DiscogsVersionSource {
         page: Int = 1,
         perPage: Int = 12,
     ): List<DiscogsVersionSeed> {
-        if (token.isBlank() || referenceTitle.isBlank() || referenceArtist.isBlank()) return emptyList()
+        if (referenceTitle.isBlank() || referenceArtist.isBlank()) return emptyList()
         val releasePage = DiscogsClient.searchReleases(
             token = token,
             track = referenceTitle,
@@ -479,7 +478,7 @@ internal object DiscogsVersionSource {
         originalArtist: String,
         maxDetails: Int = COVER_DETAIL_LIMIT,
     ): List<DiscogsVersionSeed> {
-        if (token.isBlank() || title.isBlank()) return emptyList()
+        if (title.isBlank()) return emptyList()
         val key = "cover|${canonical(title)}|${canonical(originalArtist)}|$maxDetails"
         cache[key]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let { return it.value }
 
@@ -502,7 +501,7 @@ internal object DiscogsVersionSource {
         originalArtist: String,
         maxDetails: Int = ORIGINAL_DETAIL_LIMIT,
     ): List<DiscogsVersionSeed> {
-        if (token.isBlank() || title.isBlank() || originalArtist.isBlank()) return emptyList()
+        if (title.isBlank() || originalArtist.isBlank()) return emptyList()
         val key = "original|${canonical(title)}|${canonical(originalArtist)}|$maxDetails"
         cache[key]?.takeIf { it.expiresAtMs > System.currentTimeMillis() }?.let { return it.value }
 
