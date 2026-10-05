@@ -66,6 +66,24 @@ def _safe_id(value: str) -> str:
     return value[:128]
 
 
+def _local_proof_head(cwd: str) -> str:
+    root = _repo_root(cwd)
+    candidates = [
+        root / ".motorlab" / "MOTORLAB_SYNC_STATE.txt",
+        root / "MOTORLAB_PROJECT_HOOK.txt",
+    ]
+    pattern = re.compile(r"^(?:POLLICINO_PROOF_HEAD|MOTORLAB_POLLICINO_PROOF_HEAD)=([0-9a-fA-F]{7,64})\s*$")
+    for path in candidates:
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                match = pattern.match(line.strip())
+                if match:
+                    return match.group(1).lower()
+        except Exception:
+            continue
+    return ""
+
+
 def _state_path(session_id: str) -> Path:
     base = Path(os.environ.get("MOTORLAB_HOOK_STATE_DIR") or (Path(tempfile.gettempdir()) / "motorlab-pollicino"))
     base.mkdir(parents=True, exist_ok=True)
@@ -398,7 +416,11 @@ def _hook_main() -> int:
     path = _state_path(session_id)
     state = _load_state(path)
     head, _ = _git_snapshot(cwd)
-    source_head = os.environ.get("MOTORLAB_SOURCE_HEAD", "").strip() or head
+    source_head = (
+        os.environ.get("MOTORLAB_SOURCE_HEAD", "").strip()
+        or _local_proof_head(cwd)
+        or head
+    )
     operation_id = _safe_id(os.environ.get("MOTORLAB_OPERATION_ID", "").strip() or str(state.get("operation_id") or ""))
     context = None
 
