@@ -40,7 +40,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run update-family contract
+      - name: Run update-family and safety contract
         run: node --test cloudflare/music-intelligence/test/lab44-update-family-contract.test.mjs
 
       - uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
           CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
           CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
 
-      - name: Verify update-compatible package version and certificate
+      - name: Verify LAB 44 aggiornamento package version and certificate
         shell: bash
         run: |
           set -euo pipefail
@@ -87,15 +87,18 @@ jobs:
           unzip -tq "$ZIP"
 
           AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$AAPT"
+          test -x "$APKSIGNER"
+
           BADGING="$("$AAPT" dump badging "$APK")"
           printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.labupdate01'"
           printf '%s\n' "$BADGING" | grep -F "versionCode='4401'"
           printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab LAB 44 aggiornamento'"
 
-          EXPECTED="9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49"
-          APK_CERT="$(keytool -printcert -jarfile "$APK" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1)"
-          KEY_CERT="$(keytool -list -v -keystore dist/uab/.signing/01.jks -storepass android -alias musiclab_lab_family_01 | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1)"
+          EXPECTED="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          APK_CERT="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr '[:lower:]' '[:upper:]' | tr -d ':')"
+          KEY_CERT="$(keytool -list -v -keystore dist/uab/.signing/01.jks -storepass android -alias musiclab_lab_family_01 | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':')"
           test "$APK_CERT" = "$EXPECTED"
           test "$KEY_CERT" = "$EXPECTED"
           test "$APK_CERT" = "$KEY_CERT"
@@ -105,6 +108,69 @@ jobs:
           echo "VERSION_CODE=4401" >> dist/uab/UPDATE_FAMILY.txt
           echo "SIGNING_CERT_SHA256=$APK_CERT" >> dist/uab/UPDATE_FAMILY.txt
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Build LAB di sicurezza 44 from same source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SAFETY_KEY="$RUNNER_TEMP/musiclab-safety-44.jks"
+          SAFETY_CONFIG="$RUNNER_TEMP/musiclab-safety-44.env"
+          SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety44"
+
+          keytool -genkeypair             -keystore "$SAFETY_KEY"             -storepass android             -alias musiclab_safety_44             -keypass android             -dname "CN=MusicLab LAB di sicurezza 44,O=MotorLab Test,C=IT"             -keyalg RSA             -keysize 2048             -validity 36500             -noprompt
+
+          cat > "$SAFETY_CONFIG" <<'EOF'
+          UAB_TASK=":app:assembleFossDebug"
+          UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
+          UAB_FILE_VERSION="LAB_DI_SICUREZZA_44"
+          UAB_OUTPUT_NAME="MusicLab-LAB-di-sicurezza-44"
+          UAB_GRADLE_ARGS="-x lint"
+          UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
+          UAB_PARALLEL_INSTALL="off"
+          export METROLIST_APPLICATION_ID="it.verlezza.musiclab.safety44"
+          export METROLIST_APP_NAME="MusicLab LAB di sicurezza 44"
+          export MUSICLAB_VERSION_CODE="4401"
+          export MUSICLAB_VERSION_NAME="0.9.2-safety44"
+          export PULL_REQUEST="false"
+          EOF
+
+          UAB_CONFIG_FILE="$SAFETY_CONFIG"           UAB_OUTPUT_DIR="$SAFETY_OUT"           METROLIST_DEBUG_KEYSTORE_PATH="$SAFETY_KEY"           METROLIST_DEBUG_KEYSTORE_PASSWORD="android"           METROLIST_DEBUG_KEY_ALIAS="musiclab_safety_44"           METROLIST_DEBUG_KEY_PASSWORD="android"           CRASH_REPORT_TOKEN="${{ secrets.CRASH_REPORT_TOKEN }}"           CRASH_REPORT_REPO="${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}"           bash tools/universal-apk-builder/build-apk.sh .
+
+      - name: Verify LAB di sicurezza 44 independent identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety44"
+          APK="$SAFETY_OUT/apk/MusicLab-LAB-di-sicurezza-44.apk"
+          ZIP="$SAFETY_OUT/MusicLab-LAB-di-sicurezza-44-APK.zip"
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.safety44'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='4401'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab LAB di sicurezza 44'"
+
+          SAFETY_CERT="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr '[:lower:]' '[:upper:]' | tr -d ':')"
+          MAIN_CERT="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          test -n "$SAFETY_CERT"
+          test "$SAFETY_CERT" != "$MAIN_CERT"
+
+          {
+            echo "SAFETY_LABEL=LAB di sicurezza 44"
+            echo "PAIRED_UPDATE_LABEL=LAB 44 aggiornamento"
+            echo "PAIRED_UPDATE_SHA=$GITHUB_SHA"
+            echo "APPLICATION_ID=it.verlezza.musiclab.safety44"
+            echo "VERSION_CODE=4401"
+            echo "SIGNING_CERT_SHA256=$SAFETY_CERT"
+            echo "IMMUTABLE=yes"
+          } > "$SAFETY_OUT/SAFETY_44.txt"
+
+          printf '%s\n' "$GITHUB_SHA" > "$SAFETY_OUT/BUILD_SHA.txt"
+          sha256sum "$APK" "$ZIP" > "$SAFETY_OUT/SAFETY_SHA256SUMS.txt"
 
       - name: Upload LAB 44 aggiornamento
         uses: actions/upload-artifact@v4
@@ -119,3 +185,18 @@ jobs:
             dist/uab/logs/*.log
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload LAB di sicurezza 44
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB-di-sicurezza-44
+          path: |
+            dist/safety44/apk/MusicLab-LAB-di-sicurezza-44.apk
+            dist/safety44/apk/SHA256SUMS.txt
+            dist/safety44/MusicLab-LAB-di-sicurezza-44-APK.zip
+            dist/safety44/BUILD_SHA.txt
+            dist/safety44/SAFETY_44.txt
+            dist/safety44/SAFETY_SHA256SUMS.txt
+            dist/safety44/logs/*.log
+          if-no-files-found: error
+          retention-days: 30
