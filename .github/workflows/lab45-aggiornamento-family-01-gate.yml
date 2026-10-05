@@ -1,0 +1,208 @@
+name: LAB45 Aggiornamento + Sicurezza 45 Gate
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-lab45-aggiornamento-family-01
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab45-aggiornamento-family-01
+  cancel-in-progress: true
+
+jobs:
+  verify-update-family:
+    name: verify-update-family
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact LAB45 family source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Record exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$GITHUB_SHA" > /tmp/LAB45_SOURCE_SHA
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run LAB45 behavioral contract
+        run: node --test cloudflare/music-intelligence/test/lab45-cover-dedupe-video-contract.test.mjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK and Last.fm build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          fi
+
+      - name: Run Android unit tests
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+
+      - name: UAB preflight diagnostics
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build LAB 45 aggiornamento
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verify LAB 45 aggiornamento update identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="dist/uab/apk/MusicLab-LAB45-aggiornamento.apk"
+          ZIP="dist/uab/MusicLab-LAB45-aggiornamento-APK.zip"
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.labupdate01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='4501'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab LAB 45 aggiornamento'"
+
+          EXPECTED="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          APK_CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test -n "$APK_CERT"
+          test "$APK_CERT" = "$EXPECTED"
+
+          {
+            echo "UPDATE_FAMILY_ID=01"
+            echo "APPLICATION_ID=it.verlezza.musiclab.labupdate01"
+            echo "VERSION_CODE=4501"
+            echo "SIGNING_CERT_SHA256=$APK_CERT"
+            echo "PAIRED_SAFETY=LAB di sicurezza 45"
+          } > dist/uab/UPDATE_FAMILY.txt
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Build LAB di sicurezza 45 from exact same source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SAFETY_KEY="$RUNNER_TEMP/musiclab-safety-45.jks"
+          SAFETY_CONFIG="$RUNNER_TEMP/musiclab-safety-45.env"
+          SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety45"
+
+          keytool -genkeypair             -keystore "$SAFETY_KEY"             -storepass android             -alias musiclab_safety_45             -keypass android             -dname "CN=MusicLab LAB di sicurezza 45,O=MotorLab Test,C=IT"             -keyalg RSA             -keysize 2048             -validity 36500             -noprompt
+
+          cat > "$SAFETY_CONFIG" <<'EOF'
+          UAB_TASK=":app:assembleFossDebug"
+          UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
+          UAB_FILE_VERSION="LAB_DI_SICUREZZA_45"
+          UAB_OUTPUT_NAME="MusicLab-LAB-di-sicurezza-45"
+          UAB_GRADLE_ARGS="-x lint"
+          UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
+          UAB_PARALLEL_INSTALL="off"
+          export METROLIST_APPLICATION_ID="it.verlezza.musiclab.safety45"
+          export METROLIST_APP_NAME="MusicLab LAB di sicurezza 45"
+          export MUSICLAB_VERSION_CODE="4501"
+          export MUSICLAB_VERSION_NAME="0.9.2-safety45"
+          export PULL_REQUEST="false"
+          EOF
+
+          UAB_CONFIG_FILE="$SAFETY_CONFIG"           UAB_OUTPUT_DIR="$SAFETY_OUT"           METROLIST_DEBUG_KEYSTORE_PATH="$SAFETY_KEY"           METROLIST_DEBUG_KEYSTORE_PASSWORD="android"           METROLIST_DEBUG_KEY_ALIAS="musiclab_safety_45"           METROLIST_DEBUG_KEY_PASSWORD="android"           CRASH_REPORT_TOKEN="${{ secrets.CRASH_REPORT_TOKEN }}"           CRASH_REPORT_REPO="${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}"           bash tools/universal-apk-builder/build-apk.sh .
+
+      - name: Verify LAB di sicurezza 45 identity and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety45"
+          APK="$SAFETY_OUT/apk/MusicLab-LAB-di-sicurezza-45.apk"
+          ZIP="$SAFETY_OUT/MusicLab-LAB-di-sicurezza-45-APK.zip"
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.safety45'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='4501'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab LAB di sicurezza 45'"
+
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          SAFETY_CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          MAIN_CERT="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          test -n "$SAFETY_CERT"
+          test "$SAFETY_CERT" != "$MAIN_CERT"
+
+          {
+            echo "SAFETY_LABEL=LAB di sicurezza 45"
+            echo "PAIRED_UPDATE_LABEL=LAB 45 aggiornamento"
+            echo "PAIRED_UPDATE_SHA=$GITHUB_SHA"
+            echo "APPLICATION_ID=it.verlezza.musiclab.safety45"
+            echo "VERSION_CODE=4501"
+            echo "SIGNING_CERT_SHA256=$SAFETY_CERT"
+            echo "IMMUTABLE=yes"
+          } > "$SAFETY_OUT/SAFETY_45.txt"
+
+          printf '%s\n' "$GITHUB_SHA" > "$SAFETY_OUT/BUILD_SHA.txt"
+          sha256sum "$APK" "$ZIP" > "$SAFETY_OUT/SAFETY_SHA256SUMS.txt"
+
+      - name: Upload LAB 45 aggiornamento
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB45-aggiornamento
+          path: |
+            dist/uab/apk/MusicLab-LAB45-aggiornamento.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB45-aggiornamento-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/UPDATE_FAMILY.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload LAB di sicurezza 45
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB-di-sicurezza-45
+          path: |
+            dist/safety45/apk/MusicLab-LAB-di-sicurezza-45.apk
+            dist/safety45/apk/SHA256SUMS.txt
+            dist/safety45/MusicLab-LAB-di-sicurezza-45-APK.zip
+            dist/safety45/BUILD_SHA.txt
+            dist/safety45/SAFETY_45.txt
+            dist/safety45/SAFETY_SHA256SUMS.txt
+            dist/safety45/logs/*.log
+          if-no-files-found: error
+          retention-days: 30
