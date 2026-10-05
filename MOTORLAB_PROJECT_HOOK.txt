@@ -37,6 +37,7 @@ MOTORLAB_FAST_LAB=conditional
 MOTORLAB_UPDATE_FAMILY_MODE=lab
 MOTORLAB_UPDATE_FAMILY_ID=01
 MOTORLAB_PAIRED_SAFETY_LAB=required
+MOTORLAB_CHANGE_COMPATIBILITY_PILLAR=required
 MOTORLAB_BACKGROUND_MODE=github-actions
 MOTORLAB_REGRESSION_MAP=MusicLab-r13-default-profile
 
@@ -71,7 +72,7 @@ MANDATORY RULES
 25. Every verified LAB NN aggiornamento must also produce LAB di sicurezza NN from the same functional source state, with a distinct package/family and unique test-only certificate. Safety is immutable and can seed a new active update family if later updates corrupt.
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.9
+MOTORLAB-PROJECT-HOOK-V1.10
 Established: 2026-09-29
 Revision 1.5: r8 pre-response gate + Project Continuity.
 Revision 1.6: r12 MusicLab risk-scaled FAST LAB + No-Spin durable handoff.
@@ -79,3 +80,5 @@ Revision 1.7: r13 semantic Change History registry, automatic verified change ca
 Revision 1.8: r17 MusicLab update-family mode with stable LAB package/signing identity and Bruno-facing LAB aggiornamento naming.
 
 Revision 1.9: r18 paired immutable LAB di sicurezza checkpoint for every LAB aggiornamento.
+
+Revision 1.10: r19 foundational Change Compatibility Pillar; every MusicLab change must preflight overlap/redundancy/conflict and preserve one active coordinator per responsibility.
