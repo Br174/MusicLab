@@ -1,5 +1,5 @@
 MOTORLAB SATELLITE BUNDLE
-RELEASE=2026.10.05-r17
+RELEASE=2026.10.05-r18
 CENTRAL_AUTHORITY=Br174/Chatgpt
 PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
 PRE_RESPONSE_BOOT_GATE=required
@@ -48,6 +48,7 @@ CONTEXT7_ON_DEMAND=required
 FREE_FIRST_PLUGIN_ROUTING=required
 SERVICE_INTEGRATION_STATUS=required
 UPDATE_FAMILY_LIFECYCLE=required
+PAIRED_SAFETY_LAB=required
 EXECUTION_CONTINUITY=required
 NO_TIMED_CONTINUATION=required
 
@@ -87,6 +88,12 @@ R16 OBSERVABILITY / KNOWLEDGE ROUTING
 - Context7 is used only when current/versioned external documentation materially reduces uncertainty.
 - Auxiliary plugin usage is free-first and quota-aware; no hidden paid upgrade.
 
+PAIRED SAFETY LAB - R18+
+- Every verified LAB NN aggiornamento also produces LAB di sicurezza NN from the same functional source state.
+- Safety uses a different package/family and unique test-only signing certificate.
+- Safety is immutable and may seed a NEW active update family if the current family later corrupts.
+- Safety is not CANDIDATA and cannot promote directly to MADRE.
+
 ANDROID UPDATE FAMILY - R17+
 - When update-family mode is active, later LAB aggiornamento builds keep one stable applicationId + signing certificate and increase versionCode.
 - Bruno-facing revision names are LAB NN aggiornamento while internal family identity stays stable.
@@ -119,6 +126,8 @@ NO RUNTIME COUPLING
 This bundle is orchestration metadata only and must not intentionally alter app runtime/UI/package/signing/native engines. Project telemetry SDKs and provider bindings require separate approved project changes.
 
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.7
+MOTORLAB-SATELLITE-BUNDLE-V2.8
 Revision 2.6: r16 adds authority/data ownership, persistent operational state, MOTORLAB_OPERATION_ID, observability boundaries, service connection-status tracking and non-redundant auxiliary-tool routing.
 Revision 2.7: r17 adds Android update-family lifecycle fallback markers.
+
+Revision 2.8: r18 adds paired immutable LAB di sicurezza checkpoints and recovery-floor semantics.
