@@ -68,6 +68,7 @@ internal object TitleMeaningResolver {
         if (separator != null && isTechnicalSegment(separator.groupValues[1])) {
             result = result.substring(0, separator.range.first).trim()
         }
+        result = stripTrailingArtistHint(result)
         return result.ifBlank { stripTrailingArtistHint(value).trim() }
     }
 
