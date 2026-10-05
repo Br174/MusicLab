@@ -201,6 +201,23 @@ def _endpoint(path: str) -> str:
     return f"{base}/{path.lstrip('/')}"
 
 
+def _json_request(method: str, url: str, body: bytes = b"", headers: dict | None = None) -> dict | None:
+    merged = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "user-agent": "MotorLab-Pollicino-Codex/1.1",
+    }
+    if headers:
+        merged.update(headers)
+    req = urllib.request.Request(url, data=body if method != "GET" else None, method=method, headers=merged)
+    try:
+        with urllib.request.urlopen(req, timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return None
+
+
 def _signed_request(method: str, url: str, body: bytes = b"") -> dict | None:
     secret = _secret()
     if not secret:
@@ -210,29 +227,39 @@ def _signed_request(method: str, url: str, body: bytes = b"") -> dict | None:
     path_query = parsed.path + (f"?{parsed.query}" if parsed.query else "")
     canonical = f"{timestamp}.{method}.{path_query}.{body.decode('utf-8')}"
     signature = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
-    req = urllib.request.Request(
-        url,
-        data=body if method != "GET" else None,
-        method=method,
-        headers={
-            "accept": "application/json",
-            "content-type": "application/json",
-            "user-agent": "MotorLab-Pollicino-Codex/1.0",
-            "x-motorlab-timestamp": timestamp,
-            "x-motorlab-signature": signature,
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=2) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-            return payload if isinstance(payload, dict) else {}
-    except Exception:
+    return _json_request(method, url, body, {
+        "x-motorlab-timestamp": timestamp,
+        "x-motorlab-signature": signature,
+    })
+
+
+def _bearer_request(method: str, url: str, token: str, body: bytes = b"") -> dict | None:
+    if not token:
         return None
+    return _json_request(method, url, body, {"authorization": f"Bearer {token}"})
 
 
-def _discover_operation(project_id: str) -> dict | None:
-    query = urllib.parse.urlencode({"project_id": project_id})
-    return _signed_request("GET", _endpoint("context") + "?" + query, b"")
+def _discover_operation(project_id: str, source_head: str = "") -> dict | None:
+    query = {"project_id": project_id}
+    if source_head:
+        query["source_head"] = source_head
+    url = _endpoint("context") + "?" + urllib.parse.urlencode(query)
+    if _secret():
+        return _signed_request("GET", url, b"")
+    return _json_request("GET", url, b"")
+
+
+def _enroll(project_id: str, session_id: str, source_head: str) -> dict | None:
+    if not source_head:
+        return None
+    payload = {
+        "project_id": project_id,
+        "session_id": session_id,
+        "source_head": source_head,
+        "executor_type": "codex-hook-sidecar",
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return _json_request("POST", _endpoint("enroll"), body)
 
 
 def _runtime_fingerprint(state: dict) -> str:
@@ -292,7 +319,9 @@ def _pulse_payload(state: dict) -> dict:
 
 def _send_pulse(state: dict) -> dict | None:
     body = json.dumps(_pulse_payload(state), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return _signed_request("POST", _endpoint("pulse"), body)
+    if _secret():
+        return _signed_request("POST", _endpoint("pulse"), body)
+    return _bearer_request("POST", _endpoint("pulse"), str(state.get("session_token") or ""), body)
 
 
 def _send_seal(state: dict, terminal_state: str) -> dict | None:
@@ -303,7 +332,9 @@ def _send_seal(state: dict, terminal_state: str) -> dict | None:
         "terminal_state": terminal_state,
     }
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    return _signed_request("POST", _endpoint("seal"), body)
+    if _secret():
+        return _signed_request("POST", _endpoint("seal"), body)
+    return _bearer_request("POST", _endpoint("seal"), str(state.get("session_token") or ""), body)
 
 
 def _daemon_interval() -> int:
@@ -356,8 +387,7 @@ def _hook_main() -> int:
         return 0
 
     session_id = _safe_id(str(payload.get("session_id") or ""))
-    secret = _secret()
-    if not session_id or not secret:
+    if not session_id:
         return 0
 
     cwd = str(payload.get("cwd") or os.getcwd())
@@ -365,18 +395,31 @@ def _hook_main() -> int:
     if not project_id:
         return 0
 
-    operation_id = _safe_id(os.environ.get("MOTORLAB_OPERATION_ID", "").strip())
-    context = None
-    if not operation_id:
-        discovered = _discover_operation(project_id)
-        context = discovered.get("context") if isinstance(discovered, dict) else None
-        operation_id = _safe_id(str((context or {}).get("operation_id") or ""))
-    if not operation_id:
-        return 0
-
     path = _state_path(session_id)
     state = _load_state(path)
     head, _ = _git_snapshot(cwd)
+    source_head = os.environ.get("MOTORLAB_SOURCE_HEAD", "").strip() or head
+    operation_id = _safe_id(os.environ.get("MOTORLAB_OPERATION_ID", "").strip() or str(state.get("operation_id") or ""))
+    context = None
+
+    if _secret() and not operation_id:
+        discovered = _discover_operation(project_id, source_head)
+        context = discovered.get("context") if isinstance(discovered, dict) else None
+        operation_id = _safe_id(str((context or {}).get("operation_id") or ""))
+
+    if not operation_id and not state.get("session_token"):
+        enrolled = _enroll(project_id, session_id, source_head)
+        if isinstance(enrolled, dict):
+            operation_id = _safe_id(str(enrolled.get("operation_id") or ""))
+            token = str(enrolled.get("session_token") or "")
+            if operation_id and token:
+                state["session_token"] = token
+                state["token_expires_at"] = enrolled.get("token_expires_at")
+                context = enrolled.get("context") if isinstance(enrolled.get("context"), dict) else None
+
+    if not operation_id:
+        return 0
+
     state.update({
         "session_id": session_id,
         "operation_id": operation_id,
@@ -386,7 +429,7 @@ def _hook_main() -> int:
         "transcript_path": payload.get("transcript_path"),
         "canonical_chat_ref": os.environ.get("MOTORLAB_CANONICAL_CHAT_REF") or None,
         "source_ref": os.environ.get("MOTORLAB_SOURCE_REF") or (context or {}).get("source_ref") or None,
-        "source_head": head or os.environ.get("MOTORLAB_SOURCE_HEAD") or (context or {}).get("source_head") or None,
+        "source_head": source_head or (context or {}).get("source_head") or None,
         "phase": os.environ.get("MOTORLAB_PHASE") or (context or {}).get("phase") or None,
         "next_action": os.environ.get("MOTORLAB_NEXT_ACTION") or None,
         "updated_at": time.time(),
