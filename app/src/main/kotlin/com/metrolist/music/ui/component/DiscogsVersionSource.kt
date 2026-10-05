@@ -759,6 +759,30 @@ internal object DiscogsVersionSource {
         )
     }
 
+    /**
+     * Cheap first-stage key for cross-source candidate merging.
+     *
+     * LAB46 compared every incoming candidate against every already collected row.
+     * On large works (hundreds of provider candidates) that quadratic scan ran on
+     * the UI coroutine before Compose could breathe. The bucket deliberately omits
+     * duration/release context: sameCrossSourceVersion still performs the precise
+     * check inside the much smaller artist/title/kind bucket.
+     */
+    internal fun crossSourceBucketKey(seed: DiscogsVersionSeed): String {
+        val studioClass =
+            if (seed.kind == DiscogsVersionKind.STUDIO && isRemasterSeed(seed)) {
+                "remaster"
+            } else {
+                "base"
+            }
+        return listOf(
+            canonicalBaseTitle(seed.trackTitle),
+            canonicalArtist(seed.artist),
+            seed.kind.name.lowercase(),
+            studioClass,
+        ).joinToString("|")
+    }
+
     internal fun sameCrossSourceVersion(
         left: DiscogsVersionSeed,
         right: DiscogsVersionSeed,
