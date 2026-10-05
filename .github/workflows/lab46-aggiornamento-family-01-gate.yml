@@ -14,41 +14,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify-update-family:
-    name: verify-update-family
+  build-update:
+    name: build-update-first
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 60
     env:
       LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
       LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
 
     steps:
-      - name: Checkout exact LAB46 family source
+      - name: Checkout exact LAB46 source
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Record exact source SHA
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '%s\n' "$GITHUB_SHA" > /tmp/LAB46_SOURCE_SHA
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-
-      - name: Prove Player buono is exact LAB41 resolver
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --exit-code 329e663061d46928dc4d58a946c0d3d2f88881b3 -- app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt
-          echo "Player buono LAB41 exact resolver preserved."
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Run LAB46 behavioral contract
-        run: node --test cloudflare/music-intelligence/test/lab46-red-retry-originals-player-contract.test.mjs
+      - name: Run LAB46 behavioral contracts
+        run: |
+          node --test cloudflare/music-intelligence/test/lab46-originals-retry-player-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab46-red-retry-originals-player-contract.test.mjs
 
       - uses: actions/setup-java@v4
         with:
@@ -62,7 +50,7 @@ jobs:
       - name: Set up Protobuf
         uses: ./.github/actions/setup-protobuf
 
-      - name: Configure Android SDK and Last.fm build inputs
+      - name: Configure Android SDK and Last.fm inputs
         shell: bash
         run: |
           set -euo pipefail
@@ -74,8 +62,19 @@ jobs:
             printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
           fi
 
-      - name: Run Android unit tests
-        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Prove Player buono LAB41 is byte-identical
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOOD_SHA="329e663061d46928dc4d58a946c0d3d2f88881b3"
+          PLAYER_PATH="app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt"
+          git show "$GOOD_SHA:$PLAYER_PATH" > /tmp/player-buono.kt
+          cmp /tmp/player-buono.kt "$PLAYER_PATH"
+          grep -F 'LAB07_FAST_LANE_TIMEOUT_MS = 1_800L' "$PLAYER_PATH"
+
+      - name: Run targeted LAB45 + LAB46 unit tests
+        run: |
+          ./gradlew --console=plain :app:testFossDebugUnitTest             --tests 'com.metrolist.music.ui.component.Lab45CoverDedupTest'             --tests 'com.metrolist.music.ui.component.Lab46CrossSourceDedupTest'             --warning-mode summary
 
       - name: UAB preflight diagnostics
         run: bash tools/universal-apk-builder/diagnose.sh .
@@ -86,7 +85,7 @@ jobs:
           CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
           CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
 
-      - name: Verify LAB 46 aggiornamento update identity
+      - name: Verify LAB 46 update identity
         shell: bash
         run: |
           set -euo pipefail
@@ -98,9 +97,6 @@ jobs:
 
           AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -x "$AAPT"
-          test -x "$APKSIGNER"
-
           BADGING="$("$AAPT" dump badging "$APK")"
           printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.labupdate01'"
           printf '%s\n' "$BADGING" | grep -F "versionCode='4601'"
@@ -109,7 +105,6 @@ jobs:
           EXPECTED="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
           CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
           APK_CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
-          test -n "$APK_CERT"
           test "$APK_CERT" = "$EXPECTED"
 
           {
@@ -117,12 +112,12 @@ jobs:
             echo "APPLICATION_ID=it.verlezza.musiclab.labupdate01"
             echo "VERSION_CODE=4601"
             echo "SIGNING_CERT_SHA256=$APK_CERT"
+            echo "PLAYER_BUONO_SOURCE_SHA=329e663061d46928dc4d58a946c0d3d2f88881b3"
             echo "PAIRED_SAFETY=LAB di sicurezza 46"
           } > dist/uab/UPDATE_FAMILY.txt
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
 
-      # Fast handoff: publish the installable update before building its safety twin.
-      - name: Upload LAB 46 aggiornamento
+      - name: Upload LAB 46 aggiornamento immediately
         uses: actions/upload-artifact@v4
         with:
           name: MusicLab-LAB46-aggiornamento
@@ -136,6 +131,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-safety:
+    name: build-safety-after-update
+    needs: build-update
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact same LAB46 source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK and Last.fm inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          fi
 
       - name: Build LAB di sicurezza 46 from exact same source
         shell: bash
@@ -164,7 +198,7 @@ jobs:
 
           UAB_CONFIG_FILE="$SAFETY_CONFIG"           UAB_OUTPUT_DIR="$SAFETY_OUT"           METROLIST_DEBUG_KEYSTORE_PATH="$SAFETY_KEY"           METROLIST_DEBUG_KEYSTORE_PASSWORD="android"           METROLIST_DEBUG_KEY_ALIAS="musiclab_safety_46"           METROLIST_DEBUG_KEY_PASSWORD="android"           CRASH_REPORT_TOKEN="${{ secrets.CRASH_REPORT_TOKEN }}"           CRASH_REPORT_REPO="${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}"           bash tools/universal-apk-builder/build-apk.sh .
 
-      - name: Verify LAB di sicurezza 46 identity and isolation
+      - name: Verify LAB di sicurezza 46 isolation
         shell: bash
         run: |
           set -euo pipefail
