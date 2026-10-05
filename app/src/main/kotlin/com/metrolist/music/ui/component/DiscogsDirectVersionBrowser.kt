@@ -76,8 +76,8 @@ import java.util.concurrent.ConcurrentHashMap
 private const val DIRECT_VERSION_PAGE_SIZE = 20
 private const val DIRECT_VERSION_PREFETCH_DISTANCE = 4
 private const val DIRECT_VERSION_BOTTOM_SAFE_DP = 260
-private const val DIRECT_VIDEO_BATCH_SIZE = 10
-private const val DIRECT_VIDEO_PARALLELISM = 3
+private const val DIRECT_VIDEO_BATCH_SIZE = 24
+private const val DIRECT_VIDEO_PARALLELISM = 6
 private val DirectCoverGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 
 private enum class DirectVersionCategory {
