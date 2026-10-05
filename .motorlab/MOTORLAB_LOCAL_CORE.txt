@@ -150,10 +150,12 @@ POLLICINO CONTINUITY - R20+
 - Opaque normal ChatGPT thinking is not a trustworthy ping target unless the host exposes a real side-channel.
 - Long risky phases should use observable persistent execution when possible; otherwise use bounded checkpoints.
 - Supported Codex satellites install the external `.codex/hooks/motorlab_pollicino.py` sidecar adapter and lifecycle hooks when safe; the adapter is not application code.
+- Adopted private-project satellites may self-enroll without a long-lived secret when D1 explicitly marks POLLICINO_SOURCE_PROOF_ENABLED and the local Git HEAD matches the registered project/active-operation SHA; the Worker then returns only an ephemeral session token.
+- Because project operational heads are mutable, adopted private satellites also publish `POLLICINO_PROOF_HEAD=<adopted-git-sha>` inside the D1 satellite-state string; this stable proof is preferred until the next verified satellite adoption.
 - Alive-but-stalled evidence may precompute `READY_STALL_SUSPECTED`; resumed progress supersedes it.
 
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.11
+MOTORLAB-SATELLITE-BUNDLE-V2.13
 Revision 2.6: r16 adds authority/data ownership, persistent operational state, MOTORLAB_OPERATION_ID, observability boundaries, service connection-status tracking and non-redundant auxiliary-tool routing.
 Revision 2.7: r17 adds Android update-family lifecycle fallback markers.
 
@@ -164,3 +166,7 @@ Revision 2.9: r19 adds foundational Change Compatibility Pillar for all current/
 Revision 2.10: r20 adds external Pollicino journal/liveness/progress/terminal-seal/RESUME_READY markers while preserving app-code isolation.
 
 Revision 2.11: completes r20 with the Codex external sidecar adapter, terminal hooks and stall-precompute semantics.
+
+Revision 2.12: r20 adds D1-gated source-proof self-enrollment and ephemeral session tokens for private adopted projects while preserving HMAC compatibility.
+
+Revision 2.13: r20 adds explicit stable POLLICINO_PROOF_HEAD inheritance so secretless enrollment survives later operational source-head reconciliation.
