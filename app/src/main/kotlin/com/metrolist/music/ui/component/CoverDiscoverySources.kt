@@ -37,6 +37,8 @@ internal data class CoverSourceCandidate(
     val playbackVideoId: String? = null,
     val playbackVideoTitle: String? = null,
     val playbackVideoSource: String? = null,
+    val workRelationConfirmed: Boolean = false,
+    val originalWorkReference: Boolean = false,
     val evidenceScore: Int = 1,
 )
 
@@ -131,6 +133,10 @@ internal object CoverDiscoverySources {
                         playbackVideoId = previous.playbackVideoId ?: candidate.playbackVideoId,
                         playbackVideoTitle = previous.playbackVideoTitle ?: candidate.playbackVideoTitle,
                         playbackVideoSource = previous.playbackVideoSource ?: candidate.playbackVideoSource,
+                        workRelationConfirmed =
+                            previous.workRelationConfirmed || candidate.workRelationConfirmed,
+                        originalWorkReference =
+                            previous.originalWorkReference || candidate.originalWorkReference,
                         evidenceScore =
                             (maxOf(previous.evidenceScore, candidate.evidenceScore) + extraSourceBonus)
                                 .coerceIn(1, 10),
@@ -175,7 +181,6 @@ internal object CoverDiscoverySources {
                 val artist = cover.artist.trim()
                 val candidateTitle = cover.title.trim()
                 if (artist.isBlank() || candidateTitle.isBlank()) return@mapNotNull null
-                if (sameArtist(artist, originalArtist)) return@mapNotNull null
                 CoverSourceCandidate(
                     title = candidateTitle,
                     artist = artist,
@@ -630,13 +635,18 @@ internal object CoverDiscoverySources {
                     playbackVideoId = seed.playbackVideoId,
                     playbackVideoTitle = seed.playbackVideoId?.let { seed.title },
                     playbackVideoSource = seed.playbackVideoId?.let { "COVER.INFO" },
+                    workRelationConfirmed =
+                        seed.directRelation || seed.relationRole != CoverInfoRelationRole.NONE,
+                    originalWorkReference =
+                        seed.relationRole == CoverInfoRelationRole.INITIAL,
                     // Direct relationship pages are COVER.INFO's strongest signal,
                     // especially for foreign/adapted titles that other sources miss.
                     evidenceScore =
                         when {
-                            seed.directRelation -> 10
-                            sameTitle -> 9
-                            else -> 8
+                            seed.relationRole == CoverInfoRelationRole.INITIAL -> 9
+                            seed.directRelation -> 8
+                            sameTitle -> 7
+                            else -> 6
                         },
                 )
             }.distinctBy { identity(it.title, it.artist, it.category) }
@@ -660,17 +670,31 @@ internal object CoverDiscoverySources {
         val year: Int?,
         val language: String?,
         val playbackVideoId: String?,
+        val relationRole: CoverInfoRelationRole = CoverInfoRelationRole.NONE,
         val directRelation: Boolean = false,
     )
+
+    private enum class CoverInfoRelationRole {
+        NONE,
+        INITIAL,
+        FOLLOW_UP,
+    }
 
     private fun parseCoverInfoDocument(document: org.jsoup.nodes.Document): List<CoverInfoSeed> {
         val seenIds = linkedSetOf<String>()
         return document.select(COVER_INFO_SONG_SELECTOR)
             .mapNotNull { anchor ->
                 val absolute = anchor.absUrl("href").ifBlank { anchor.attr("href") }
-                val cleanUrl = absolute.substringBefore('?').substringBefore('#')
-                val match = COVER_INFO_SONG_URL.find(cleanUrl) ?: return@mapNotNull null
-                val songId = match.groupValues[1]
+                val pathUrl = absolute.substringBefore('?').substringBefore('#')
+                val match = COVER_INFO_SONG_URL.find(pathUrl) ?: return@mapNotNull null
+                val relationMatch = COVER_INFO_RELATION_TARGET.find(absolute)
+                val relationRole =
+                    when {
+                        absolute.contains("initial-details=", ignoreCase = true) -> CoverInfoRelationRole.INITIAL
+                        absolute.contains("follow-up-details=", ignoreCase = true) -> CoverInfoRelationRole.FOLLOW_UP
+                        else -> CoverInfoRelationRole.NONE
+                    }
+                val songId = relationMatch?.groupValues?.getOrNull(1).orEmpty().ifBlank { match.groupValues[1] }
                 if (!seenIds.add(songId)) return@mapNotNull null
 
                 val slugTitle = match.groupValues[2]
@@ -679,12 +703,8 @@ internal object CoverDiscoverySources {
                     anchor.parents().firstOrNull { parent ->
                         parent.hasClass("youtube-parent")
                     }
-                val container =
-                    anchor.parents().firstOrNull { parent ->
-                        parent.text().length <= 1_200 &&
-                            parent.select("a[href*=/artist/]").isNotEmpty()
-                    }
-                val contextText = container?.text().orEmpty().ifBlank { anchor.parent()?.text().orEmpty() }
+                val container = row ?: anchor.parent()
+                val contextText = container?.text().orEmpty()
                 val titleFromText =
                     anchor.text()
                         .replace(Regex("\\s*\\((?:18|19|20)\\d{2}\\)\\s*$"), "")
@@ -693,24 +713,22 @@ internal object CoverDiscoverySources {
                     titleFromText.ifBlank {
                         slugTitle.replace('-', ' ').replace(Regex("\\s+"), " ").trim()
                     }
+                // Relation links point through the root song URL. Therefore the slug
+                // artist may describe the root, not this row. Prefer the row performer.
+                val rowArtist =
+                    row?.selectFirst(".field-artists a[href*='/artist/']")
+                        ?.text()
+                        ?.trim()
+                        .orEmpty()
                 val artistFromSlug =
                     slugArtist.replace("-and-", " & ")
                         .replace('-', ' ')
                         .replace(Regex("\\s+"), " ")
                         .trim()
-                val artist =
-                    artistFromSlug.ifBlank {
-                        container
-                            ?.select("a[href*=/artist/]")
-                            ?.firstOrNull()
-                            ?.text()
-                            ?.trim()
-                            .orEmpty()
-                    }
+                val artist = rowArtist.ifBlank { artistFromSlug }
                 if (candidateTitle.isBlank() || artist.isBlank()) return@mapNotNull null
+                if (candidateTitle.matches(Regex("""\\d+"""))) return@mapNotNull null
 
-                // COVER.INFO exposes the YouTube id in the same result row.
-                // Keeping this lookup row-scoped prevents cross-song misbinding.
                 val playbackVideoId =
                     row?.selectFirst(".youtube-id")
                         ?.text()
@@ -721,13 +739,14 @@ internal object CoverDiscoverySources {
                     songId = songId,
                     title = candidateTitle,
                     artist = artist,
-                    url = cleanUrl,
+                    url = if (relationRole == CoverInfoRelationRole.NONE) pathUrl else absolute.substringBefore('#'),
                     year = COVER_INFO_YEAR.find(contextText)?.value?.toIntOrNull(),
                     language =
                         COVER_INFO_LANGUAGES.firstOrNull { languageName ->
                             contextText.contains(languageName, ignoreCase = true)
                         },
                     playbackVideoId = playbackVideoId,
+                    relationRole = relationRole,
                 )
             }
     }
@@ -840,7 +859,7 @@ internal object CoverDiscoverySources {
         originalArtist: String,
     ): Boolean =
         when (mode) {
-            DiscogsDirectMode.COVER -> !sameArtist(artist, originalArtist)
+            DiscogsDirectMode.COVER -> true
             DiscogsDirectMode.ORIGINAL -> sameArtist(artist, originalArtist)
         }
 
@@ -901,8 +920,11 @@ internal object CoverDiscoverySources {
         Regex("""(?:https?://(?:www\.)?last\.fm)?/music/([^/?#]+)/_/([^/?#]+)""")
 
     private const val COVER_INFO_RELATION_ROOT_LIMIT = 12
-    private const val COVER_INFO_SONG_SELECTOR = "a[href^=/en/song/], a[href^=https://cover.info/en/song/]"
+    private const val COVER_INFO_SONG_SELECTOR =
+        ".field-title a[href^=/en/song/], .field-title a[href^=https://cover.info/en/song/]"
     private val COVER_INFO_YOUTUBE_ID = Regex("""^[A-Za-z0-9_-]{11}$""")
+    private val COVER_INFO_RELATION_TARGET =
+        Regex("""[?&](?:follow-up-details|initial-details)=(\d+)""", RegexOption.IGNORE_CASE)
     private val COVER_INFO_SONG_URL =
         Regex("""https?://cover\.info/en/song/(\d+)/([^/?#]+)(?:/([^/?#]+))?""")
     private val COVER_INFO_YEAR = Regex("""\b(?:18|19|20)\d{2}\b""")
