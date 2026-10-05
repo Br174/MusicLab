@@ -1,0 +1,51 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const browser = fs.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt', 'utf8');
+const source = fs.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt', 'utf8');
+const player = fs.readFileSync('app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt', 'utf8');
+const uab = fs.readFileSync('uab-project.env', 'utf8');
+
+test('failed red rows are appended after playable or pending rows', () => {
+  assert.match(browser, /val \(failedVideo, usableOrPending\)/);
+  assert.match(browser, /seed\.videoResolutionChecked && seed\.resolvedVideoId\.isNullOrBlank\(\)/);
+  assert.match(browser, /return usableOrPending \+ failedVideo/);
+});
+
+test('red label launches deep retry without creating a global blacklist', () => {
+  assert.match(browser, /Video non trovato · Tocca per cercare/);
+  assert.match(browser, /fun retryMissingVideo/);
+  assert.match(browser, /discoverMemoryState/);
+  assert.match(browser, /CoverDiscoverySources\.discover/);
+  assert.match(browser, /fastFirst = false/);
+  assert.match(browser, /excludedVideoIds = session\.usedVideoIds\.toSet\(\)/);
+});
+
+test('cross-provider duplicates use one merge coordinator', () => {
+  assert.match(source, /sameCrossSourceVersion/);
+  assert.match(source, /mergeCrossSourceEvidence/);
+  assert.match(browser, /DiscogsVersionSource\.sameCrossSourceVersion/);
+  assert.match(browser, /DiscogsVersionSource\.mergeCrossSourceEvidence/);
+});
+
+test('Originali fixes performer to the resolved original artist and reuses work identity', () => {
+  assert.match(browser, /fun modeAcceptsSeed/);
+  assert.match(browser, /TitleMeaningResolver\.sameArtist\(seed\.artist, resolvedOriginalArtist\)/);
+  assert.match(browser, /TitleMeaningResolver\.matchesBaseTitle/);
+  assert.match(browser, /mode == DiscogsDirectMode\.COVER && explicitArtistHint\.isNullOrBlank\(\)/);
+});
+
+test('approved LAB41 Player buono fast lane is preserved', () => {
+  assert.match(player, /LAB07_FAST_LANE_TIMEOUT_MS = 1_800L/);
+  assert.match(player, /fastExtractor\.extract/);
+  assert.match(player, /fastStream \?: requireNotNull/);
+  assert.match(player, /usesWebView = false/);
+});
+
+test('LAB46 stays in update family 01', () => {
+  assert.match(uab, /UAB_UPDATE_FAMILY_ID="01"/);
+  assert.match(uab, /METROLIST_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
+  assert.match(uab, /MUSICLAB_VERSION_CODE="4601"/);
+  assert.match(uab, /MusicLab LAB 46 aggiornamento/);
+});
