@@ -79,6 +79,7 @@ internal data class DiscogsVersionSeed(
     val sourceNames: List<String> = listOf("Discogs"),
     val sourceUrl: String? = null,
     val discogsVerificationChecked: Boolean = false,
+    val manuallyApproved: Boolean = false,
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
@@ -941,6 +942,7 @@ internal object DiscogsVersionSource {
             sourceUrl = existing.sourceUrl ?: incoming.sourceUrl,
             discogsVerificationChecked =
                 existing.discogsVerificationChecked || incoming.discogsVerificationChecked,
+            manuallyApproved = existing.manuallyApproved || incoming.manuallyApproved,
         )
     }
 
