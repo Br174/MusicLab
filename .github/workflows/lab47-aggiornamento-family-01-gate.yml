@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: musiclab-lab47-final-gate-v2
+  group: musiclab-lab47-final-gate-v3
   cancel-in-progress: true
 
 jobs:
@@ -266,7 +266,7 @@ jobs:
     needs:
       - build-update
       - build-safety
-    if: always()
+    if: ${{ always() && needs.build-update.result != 'cancelled' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
