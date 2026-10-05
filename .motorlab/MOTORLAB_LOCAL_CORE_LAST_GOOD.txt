@@ -1,5 +1,5 @@
-MOTORLAB_SATELLITE_BUNDLE
-RELEASE=2026.09.30-r13
+MOTORLAB SATELLITE BUNDLE
+RELEASE=2026.09.30-r16
 CENTRAL_AUTHORITY=Br174/Chatgpt
 PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
 PRE_RESPONSE_BOOT_GATE=required
@@ -9,15 +9,14 @@ EXTENDED_VISUAL_STATUS=required
 HIGH_PRESENCE_NUMERIC_PROGRESS=required
 HARD_PROGRESS_VISIBILITY=required
 ROOT_CAUSE_CLOSURE=required
+ARTIFACT_FIRST_ROOT_CAUSE=required
+DUAL_ARTIFACT_OVERALL_PROGRESS=required
+POST_ARTIFACT_ROOT_CAUSE_QUEUE=required
+DELIVERED_ARTIFACT_IMMUTABILITY=required
 LIVE_EVENT_CLASSIFICATION=required
 CONTROL_PLANE_CI_SUPPRESSION=required
 CHANGE_COMPATIBILITY_GUARD=required
 WATCHDOG=required
-PREVENTIVE_WATCHDOG=required
-MANUAL_LIGHTNING_RECOVERY=required
-MANUAL_LIGHTNING_SAVE_THEN_RESUME=required
-MONOTONIC_RECOVERY_FLOOR=required
-TWO_STRIKE_NO_PROGRESS=required
 RESUME_RECOVERY=required
 FOREGROUND_STALL_GUARD=required
 PROGRESS_REPORTING=required
@@ -30,88 +29,85 @@ CHANGE_HISTORY_REGISTRY=required
 SEMANTIC_CHANGE_LOOKUP=required
 SELECTIVE_EXACT_RESTORE=required
 HISTORICAL_BACKFILL_ON_DEMAND=required
+PRE_CHANGE_APPROVAL_GATE=required
+USER_CONFIRMED_RESTORE_REGISTER=required
+SIMPLE_STABLE_RESTORE_NUMBERS=required
+MULTI_CHANGE_ITEM_CONFIRMATION=required
+AUTHORITY_DATA_OWNERSHIP=required
+MOTORLAB_OPERATION_ID=required
+PERSISTENT_OPERATIONAL_STATE=required
+D1_GITHUB_RECONCILIATION=required
+KV_CACHE_NON_AUTHORITATIVE=required
+OPTIONAL_SERVICE_FAILSAFE=required
+OBSERVABILITY_DIAGNOSTICS=required
+POSTHOG_EVIDENCE_ONLY=required
+NOTION_STATUS_PROJECTION_ONLY=required
+GITBOOK_MANUAL_PROJECTION_ONLY=required
+SUPERPOWERS_SUBORDINATE=required
+CONTEXT7_ON_DEMAND=required
+FREE_FIRST_PLUGIN_ROUTING=required
+SERVICE_INTEGRATION_STATUS=required
 
 LOCAL FALLBACK CONTRACT
-- MotorLab activates before substantive project work when project/software-build context is visible.
 - First user-visible line: ⚙️ MotorLab attivo
-- Load project hook and project-specific central continuity ledger automatically.
-- Load project-specific Change History registry when available for historical semantic lookup/restoration.
-- Reconcile continuity with newer live repo/ref/head/provider/job/artifact evidence before choosing a starting point.
-- Change History is historical lookup/provenance only and never overrides newer current state.
-- Preserve active operation, verified progress floor, completed step, pending verification and next safe step across chats.
-- No recurring activation or transfer prompt is required.
-- Unfinished work continues through Resume Recovery under Watchdog coordination.
-- Manual ⚡ uses save-then-resume and monotonic recovery-floor rules.
-- A missed expected write-through is a Root Cause Closure problem; manual alignment alone is not definitive closure.
-- Change Compatibility Guard applies before writes.
-- Foreground Stall Guard applies before substantial/risky phases.
-- Only one writer may mutate same project/ref/resource scope.
-- Project-native/domain engines are preserved and never replaced by MotorLab activation.
+- Reconcile Project Continuity with newer live evidence before choosing a work starting point.
+- Preserve native project engines/lifecycle state.
+- Before every NEW write-capable application/project modification, initial mutation wording is intent only; perform read-only preparation, show pre-change report, then wait for Bruno approval.
+- Apply Change Compatibility Guard and single-writer before writes.
+- Eligible LAB work uses risk-scaled Fast Iteration/No-Spin; HIGH-risk and CANDIDATA/MADRE retain full gates.
 
-FAST ITERATION / NO-SPIN - R12+
-- Prefer risk-scaled iterative LAB verification for eligible LOW/MEDIUM corrections.
-- HIGH-risk and CANDIDATA/MADRE retain full applicable gates.
-- When a real persistent job is accepted and its job/run identity + checkpoint + next safe step are persisted, foreground chat must not poll indefinitely.
-- Default max consecutive unchanged foreground provider probes: 2 unless project profile safely defines otherwise.
+ARTIFACT-FIRST ROOT CAUSE - R15+
+- When Bruno expects an APK/ZIP/testable artifact for an approved defect/regression, artifact delivery is the default critical path.
+- Preferred order: repair -> risk-appropriate verify -> artifact -> deliver -> causal/prevention follow-up -> definitive closure.
+- Safely deferrable causal work goes to POST_ARTIFACT_ROOT_CAUSE_QUEUE and must remain durably pending.
+- Root Cause Closure remains mandatory; ordering changes, obligation does not.
+- Non-deferrable safety/security/signing/data-integrity/unreliable-build/high-risk causes remain before artifact delivery when needed to trust the artifact.
+- After delivery, preserve exact artifact/ref/checksum while Bruno tests it; later prevention builds are distinct follow-up LAB/ref/artifacts.
+- `Artefatto: 100%` may coexist with `Progresso MotorLab complessivo: <100%` while causal items remain.
+- Do not use ✅ Problema risolto or 💯 Conclusione definitiva while mandatory causal work is pending.
+- Several deferrable defects encountered on the way to one artifact must not force serial full causal archaeology before packaging.
 
-CHANGE HISTORY / RESTORE - R13+
-- Every verified material Bruno-requested change is automatically indexed at a material verified boundary when central registry write access exists.
-- Registry records use semantic tags/aliases plus exact immutable Git provenance.
-- Natural query such as "player" searches project registry first.
-- If several materially different matches remain and Bruno did not specify one, present concise date/LAB-labelled candidates.
-- Default restoration preserves current baseline/unrelated later work and transplants only selected registered change into a new isolated LAB.
-- Never direct-edit MADRE for a feature restore.
-- Whole-version rollback is separate and requires explicit whole-version intent.
-- Composite records must not replay unrelated subfeatures unless safe separation is impossible and Bruno explicitly selects whole composite change.
-- Pre-r13 history may be backfilled from verified Git/ledger evidence on demand and then persisted.
-- Every successful restore creates a new registry record linking RESTORED_FROM.
-- If an old patch no longer applies byte-identically, use three-way compatibility replay; report deviation and do not overwrite modern files blindly.
+R16 AUTHORITY / PERSISTENT STATE
+- GitHub is durable technical authority.
+- D1 is live operational authority when connected and reconciled.
+- KV is reconstructible cache only and must never contain unique-only critical state.
+- One MOTORLAB_OPERATION_ID correlates one logical operation across checkpoints, artifacts, diagnostics and projections.
+- Optional service loss must not make MotorLab unusable.
+- Never claim provider/plugin integration is live until the connection/resources are verified.
+- MOTORLAB_SERVICE_INTEGRATION_STATUS_V1.txt tracks CORE_READY vs real connection/resource/project adoption.
 
-CANONICAL LABELED VISUAL STATUS
-⚙️ MotorLab attivo
-🎆 Azione completata
-⚡ Risveglio / recupero
-✅ Problema risolto
-👍🏻 Procede tutto bene
-⚠️ Piccolo problema risolvibile
-🧭 Cambiare approccio
-🛑 Stop di sicurezza / blocco reale
-♻️ Una parte va rifatta
-💀 Tutto da rifare
-💯 Conclusione definitiva
-🔍 Ricerca soluzione
-🧩 Compatibile
-🐢 Lentezza rilevata
-💭 Elaborazione in corso
-⏳ Attesa esterna
-🧪 Test / verifica in corso
-🔄 Sincronizzazione in corso
+R16 OBSERVABILITY / KNOWLEDGE ROUTING
+- PostHog supplies runtime evidence only; it cannot authorize changes or lifecycle decisions.
+- Notion is Bruno-facing status projection only.
+- GitBook is architecture/manual projection only.
+- Superpowers may improve engineering method but is subordinate to MotorLab gates and scope.
+- Context7 is used only when current/versioned external documentation materially reduces uncertainty.
+- Auxiliary plugin usage is free-first and quota-aware; no hidden paid upgrade.
 
-HARD NUMERIC PROGRESS
-Classic form: Progresso MotorLab: <N>%
-For substantial active/pending/new operations establish/reconstruct evidence-based N% before long opaque work; meaningful statuses repeat/advance it without fabrication.
+TECHNICAL CHANGE HISTORY
+Technical Change History remains Git-backed provenance/search and is separate from the visible Bruno-confirmed restore list.
 
-ROOT CAUSE CLOSURE
-Every real defect/anomaly/stale state/unexpected trigger/failure receives immediate containment plus evidence-based causal investigation and proportionate prevention before definitive closure.
+REGISTRO MODIFICHE E RIPRISTINI - R14+
+- Visible register contains only specific modifications Bruno confirms as working and wants conserved.
+- Plain stable numbers 1,2,3...; one feature family keeps one number.
+- Multi-change work registers only item(s) Bruno specifically identifies.
+- Failed/unconfirmed/ambiguous attempts never enter the visible list.
 
 CONTROL-PLANE CI SUPPRESSION
-MotorLab-only metadata changes such as `.motorlab/**`, project hook or central registry pointer/history metadata should not launch unrelated app build/release workflows when provider filters/skip mechanisms support safe suppression. Do not suppress CI when same commit changes real app/source/config requiring validation.
+MotorLab-only metadata changes should not launch unrelated app workflows where safe provider filters/skip mechanisms support suppression.
 
 CENTRAL SYNC
-Compare local release with MOTORLAB_RELEASE_MANIFEST_V1.txt only at safe boundaries. Never switch release mid active write/build/test/promotion. Preserve current verified local bundle as LAST_GOOD before adoption.
+Compare local release with central manifest only at safe boundaries. Preserve current VERIFIED local bundle as LAST_GOOD before adoption. Never switch release mid active write/build/test/promotion.
 
-FALLBACK
-If central state is unavailable, use VERIFIED local bundle/LAST_GOOD and live project evidence conservatively. Do not claim an exact historical restore from memory alone; immutable Git evidence is required.
+FUTURE PROJECTS
+Future projects inherit hard pre-change approval, Root Cause Closure, Artifact-First ordering, dual progress, Fast Iteration/No-Spin, technical history, visible restore register and r16 multi-service authority/persistent-state/observability/knowledge-routing contracts.
 
 PLATFORM LIMIT
-A repository cannot wake a host with no execution cycle. Persistent external jobs continue only when a real durable executor exists and are reconciled at next available cycle.
+Repository text cannot wake a host with no execution cycle and cannot continue invisibly without a real durable executor.
 
 NO RUNTIME COUPLING
-This is development/orchestration metadata only; it must not intentionally alter app runtime, UI, package/signing identity or source lifecycle state.
+This bundle is orchestration metadata only and must not intentionally alter app runtime/UI/package/signing/native engines. Project telemetry SDKs and provider bindings require separate approved project changes.
 
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.3
-Revision 2.0: r11 Root Cause Closure/live classification/hard progress.
-Revision 2.1: r11 control-plane CI suppression.
-Revision 2.2: r12 Fast Iteration + No-Spin and risk-scaled LAB iteration.
-Revision 2.3: r13 semantic Change History registry, automatic verified change capture, historical backfill and selective exact restore.
+MOTORLAB-SATELLITE-BUNDLE-V2.6
+Revision 2.6: r16 adds authority/data ownership, persistent operational state, MOTORLAB_OPERATION_ID, observability boundaries, service connection-status tracking and non-redundant auxiliary-tool routing.
