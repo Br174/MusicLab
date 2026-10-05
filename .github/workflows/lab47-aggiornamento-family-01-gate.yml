@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - uab-build/musiclab-lab47-aggiornamento-family-01
+    paths-ignore:
+      - LAB47_BUILD_STATUS.txt
   workflow_dispatch:
 
 permissions:
@@ -36,10 +38,11 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run retained LAB46 behavioral contracts
+      - name: Run retained LAB46 and LAB47 behavioral contracts
         run: |
           node --test cloudflare/music-intelligence/test/lab46-originals-retry-player-contract.test.mjs
           node --test cloudflare/music-intelligence/test/lab46-red-retry-originals-player-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab47-performance-stability-contract.test.mjs
 
       - uses: actions/setup-java@v4
         with:
