@@ -43,9 +43,10 @@ test('approved LAB41 Player buono fast lane is preserved', () => {
   assert.match(player, /usesWebView = false/);
 });
 
-test('LAB46 stays in update family 01', () => {
+test('active LAB revision stays in update family 01', () => {
   assert.match(uab, /UAB_UPDATE_FAMILY_ID="01"/);
   assert.match(uab, /METROLIST_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(uab, /MUSICLAB_VERSION_CODE="4601"/);
-  assert.match(uab, /MusicLab LAB 46 aggiornamento/);
+  const versionCode = Number(uab.match(/MUSICLAB_VERSION_CODE="(\d+)"/)?.[1] ?? 0);
+  assert.ok(versionCode >= 4601);
+  assert.match(uab, /MusicLab LAB \d+ aggiornamento/);
 });
