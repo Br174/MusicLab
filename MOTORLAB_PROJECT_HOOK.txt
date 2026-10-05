@@ -11,6 +11,7 @@ MOTORLAB_CHANGE_HISTORY_MODULE=MOTORLAB_CHANGE_HISTORY_REGISTRY_V1.txt
 MOTORLAB_CHANGE_REGISTRY=MOTORLAB_CHANGE_REGISTRY_MUSICLAB_V1.txt
 MOTORLAB_SATELLITE_SYNC_MODULE=MOTORLAB_SATELLITE_SYNC_V1.txt
 MOTORLAB_FAST_ITERATION_NO_SPIN_MODULE=MOTORLAB_FAST_ITERATION_NO_SPIN_V1.txt
+MOTORLAB_UPDATE_FAMILY_LIFECYCLE_MODULE=MOTORLAB_UPDATE_FAMILY_LIFECYCLE_V1.txt
 MOTORLAB_LOCAL_CORE=.motorlab/MOTORLAB_LOCAL_CORE.txt
 MOTORLAB_LOCAL_LAST_GOOD=.motorlab/MOTORLAB_LOCAL_CORE_LAST_GOOD.txt
 MOTORLAB_LOCAL_SYNC_STATE=.motorlab/MOTORLAB_SYNC_STATE.txt
@@ -33,6 +34,8 @@ MOTORLAB_NO_SPIN_HANDOFF=required
 MOTORLAB_FOREGROUND_JOB_PROBES_MAX=2
 MOTORLAB_FULL_REGRESSION_AT=high-risk,candidate,madre
 MOTORLAB_FAST_LAB=conditional
+MOTORLAB_UPDATE_FAMILY_MODE=lab
+MOTORLAB_UPDATE_FAMILY_ID=01
 MOTORLAB_BACKGROUND_MODE=github-actions
 MOTORLAB_REGRESSION_MAP=MusicLab-r13-default-profile
 
@@ -62,10 +65,13 @@ MANDATORY RULES
 20. If an older MusicLab change predates r13 and is not indexed, perform bounded verified Git/ledger backfill, persist the new record, then use it.
 21. Every newly verified Bruno-requested material MusicLab change and every successful restore is automatically written through to the central change registry when possible.
 22. UAB remains canonical for installable MusicLab APK/ZIP output; avoid redundant build/test phases that add no distinct verification value.
+23. For Bruno's active Android update family, preserve the same applicationId and signing certificate across LAB NN aggiornamento revisions, strictly increase versionCode, and continue from the immediately previous LAB aggiornamento head.
+24. LAB -> CANDIDATA creates a new immutable family from the approved LAB state/method and must not mutate the LAB family. Approved CANDIDATA -> MADRE promotes that same candidate source/family identity.
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.7
+MOTORLAB-PROJECT-HOOK-V1.8
 Established: 2026-09-29
 Revision 1.5: r8 pre-response gate + Project Continuity.
 Revision 1.6: r12 MusicLab risk-scaled FAST LAB + No-Spin durable handoff.
 Revision 1.7: r13 semantic Change History registry, automatic verified change capture and selective exact restore/backfill.
+Revision 1.8: r17 MusicLab update-family mode with stable LAB package/signing identity and Bruno-facing LAB aggiornamento naming.
