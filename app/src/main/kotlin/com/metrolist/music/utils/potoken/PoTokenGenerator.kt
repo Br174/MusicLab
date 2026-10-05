@@ -78,10 +78,11 @@ class PoTokenGenerator(context: Context) {
     }
 
     private companion object {
-        // Healthy cold-start (WebView spin-up + botguard JS + token gen) is ~2–5s in practice;
-        // 8s leaves slack for a slow device without making the user wait too long before the
-        // fallback chain (ANDROID_VR, etc.) takes over when the WebView hangs.
-        const val POTOKEN_TIMEOUT_MS = 8_000L
+        // LAB47 responsiveness guard: healthy cold-start is normally ~2–5s.
+        // Cap the blocking fallback at 5s so a stalled WebView cannot recreate the
+        // ~10s tap-to-audio delay reported on device; background prewarm handles
+        // the normal case before the user presses Play.
+        const val POTOKEN_TIMEOUT_MS = 5_000L
     }
 
     /**
