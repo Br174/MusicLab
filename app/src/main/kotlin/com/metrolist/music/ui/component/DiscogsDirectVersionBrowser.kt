@@ -484,6 +484,33 @@ internal fun DiscogsDirectVersionBrowser(
         val enoughConsensus = winner.value.size >= 3 && winner.value.size * 100 / total >= 40 && winner.value.size > second
         return if (explicitOriginal || enoughConsensus) winner.value.first().artist else null
     }
+    fun mergeDiscoveryOutcomes(
+        primary: CoverSourceOutcome,
+        fallback: CoverSourceOutcome,
+    ): CoverSourceOutcome {
+        val candidates =
+            (primary.candidates + fallback.candidates)
+                .distinctBy { candidate ->
+                    listOf(
+                        TitleMeaningResolver.canonical(candidate.title),
+                        TitleMeaningResolver.canonical(candidate.artist).removePrefix("the "),
+                        candidate.category.name,
+                    ).joinToString("|")
+                }
+        val diagnostics =
+            (primary.diagnostics + fallback.diagnostics)
+                .groupBy { it.name }
+                .map { (name, items) ->
+                    val notes = items.map { it.note }.filter(String::isNotBlank).distinct()
+                    CoverSourceDiagnostic(
+                        name = name,
+                        available = items.any { it.available },
+                        found = items.maxOfOrNull { it.found } ?: 0,
+                        note = notes.joinToString(" · "),
+                    )
+                }
+        return CoverSourceOutcome(candidates, diagnostics)
+    }
     fun mergePage(
         current: List<DiscogsVersionSeed>,
         incoming: List<DiscogsVersionSeed>,
@@ -1182,15 +1209,51 @@ internal fun DiscogsDirectVersionBrowser(
                     requestedSort = requestedSort,
                 )
 
-            val external =
+            var external =
                 runCatching { externalDeferred.await() }
                     .getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
 
             if (explicitArtistHint.isNullOrBlank()) {
-                external.candidates
-                    .firstOrNull { it.originalWorkReference && it.artist.isNotBlank() }
-                    ?.artist
+                consensusOriginalArtist(external.candidates)
                     ?.let { resolvedOriginalArtist = it }
+            }
+
+            // Only when identity/coverage is weak, use the simplified work anchor as
+            // a second discovery lane. The original decorated title remains untouched
+            // and its live/remix/duet/etc. signals are still represented by the first lane.
+            val workAnchor = TitleMeaningResolver.workAnchorTitle(criteria.title)
+            val hasExplicitOriginalEvidence = external.candidates.any { it.originalWorkReference }
+            val weakCoverage = external.candidates.size < 5 || totalDiscogsResults == 0
+            val needsAnchorFallback =
+                workAnchor.isNotBlank() &&
+                    !workAnchor.equals(criteria.title, ignoreCase = true) &&
+                    (!hasExplicitOriginalEvidence || weakCoverage)
+
+            if (needsAnchorFallback) {
+                val fallback =
+                    runCatching {
+                        CoverDiscoverySources.discover(
+                            title = workAnchor,
+                            originalArtist = resolvedOriginalArtist,
+                            mode = mode,
+                            aiConfig = foreignScoutConfig,
+                        )
+                    }.getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
+                external = mergeDiscoveryOutcomes(external, fallback)
+
+                if (explicitArtistHint.isNullOrBlank()) {
+                    consensusOriginalArtist(external.candidates)
+                        ?.let { resolvedOriginalArtist = it }
+                }
+
+                if (totalDiscogsResults == 0) {
+                    loadPage(
+                        criteria = criteria.copy(title = workAnchor),
+                        page = 1,
+                        replace = false,
+                        requestedSort = requestedSort,
+                    )
+                }
             }
 
             if (external.candidates.isNotEmpty()) {
@@ -1198,7 +1261,7 @@ internal fun DiscogsDirectVersionBrowser(
                     external.candidates.map { candidate ->
                         DiscogsVersionSource.externalSeed(
                             candidate = candidate,
-                            targetTitle = criteria.title,
+                            targetTitle = workAnchor.takeIf { needsAnchorFallback } ?: criteria.title,
                             originalArtist = resolvedOriginalArtist,
                         )
                     }
@@ -1206,10 +1269,24 @@ internal fun DiscogsDirectVersionBrowser(
                 session.results = results
                 scheduleVideoPreload()
             }
+            val identityDiagnostic =
+                CoverSourceDiagnostic(
+                    name = "Identità opera",
+                    available = resolvedOriginalArtist.isNotBlank(),
+                    found = external.candidates.count { it.originalWorkReference },
+                    note =
+                        buildString {
+                            append("titolo base: ")
+                            append(TitleMeaningResolver.workAnchorTitle(criteria.title))
+                            append(" · interprete: ")
+                            append(resolvedOriginalArtist.ifBlank { "non risolto" })
+                            if (needsAnchorFallback) append(" · fallback titolo-base usato")
+                        },
+                )
             sourceDiagnostics =
                 sourceDiagnostics.filter { diagnostic ->
                     diagnostic.name == "Discogs" || diagnostic.name == "Archivio Cloud"
-                } + external.diagnostics
+                } + external.diagnostics + identityDiagnostic
             session.sourceDiagnostics = sourceDiagnostics
             session.sourceDiscoveryComplete = true
             sourceDiscoveryLoading = false
