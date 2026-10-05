@@ -462,6 +462,10 @@ def _hook_main() -> int:
         if event == "PostToolUse":
             state["last_completed_action"] = str(payload.get("tool_name") or "tool")
         _save_state(path, state)
+        first_pulse = _send_pulse(state)
+        state["initial_pulse_ok"] = isinstance(first_pulse, dict)
+        state["initial_pulse_at"] = time.time() if state["initial_pulse_ok"] else None
+        _save_state(path, state)
         _ensure_daemon(path, state)
         return 0
 
