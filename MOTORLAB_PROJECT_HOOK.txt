@@ -68,7 +68,7 @@ MANDATORY RULES
 21. Every newly verified Bruno-requested material MusicLab change and every successful restore is automatically written through to the central change registry when possible.
 22. UAB remains canonical for installable MusicLab APK/ZIP output; avoid redundant build/test phases that add no distinct verification value.
 23. Pollicino remains external MotorLab control-plane infrastructure: never inject liveness/breadcrumb code into MusicLab runtime/source.
-24. The external Codex sidecar self-enrolls through D1-gated source proof when the checkout SHA matches the registered project/active-operation SHA, receives only an ephemeral session token, and uses it for liveness/progress/terminal seals. Provider-native HMAC remains an optional stronger mode when already available. Never place secrets or session tokens in repository text.
+24. The external Codex sidecar self-enrolls through D1-gated source proof using the verified stable satellite POLLICINO_PROOF_HEAD first, with current project/active-operation SHA as fallback; it receives only an ephemeral session token and uses it for liveness/progress/terminal seals. Provider-native HMAC remains an optional stronger mode when already available. Never place secrets or session tokens in repository text.
 
 MOTORLAB_CODEX_BOOTSTRAP=required
 MOTORLAB_CODEX_HOOK=.codex/hooks.json
