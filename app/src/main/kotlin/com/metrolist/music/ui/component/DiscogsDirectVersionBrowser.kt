@@ -1401,9 +1401,14 @@ internal fun DiscogsDirectVersionBrowser(
         scope.launch {
             var foundSong: SongItem? = null
             var foundSource: String? = null
+            var providerTrackHint: DiscogsTrack? = null
             val excluded = session.usedVideoIds.toSet()
 
-            suspend fun acceptVideo(videoId: String?, sourceName: String): Boolean {
+            suspend fun acceptVideo(
+                videoId: String?,
+                sourceName: String,
+                compatibilityTrack: DiscogsTrack = track,
+            ): Boolean {
                 val id = videoId?.trim().orEmpty()
                 if (id.isBlank() || id in excluded) return false
                 val song =
@@ -1412,7 +1417,7 @@ internal fun DiscogsDirectVersionBrowser(
                             YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
                         }?.also { session.preparedVideoSongs[it.id] = it }
                         ?: return false
-                if (!CompilationTrackResolver.isHardCompatible(track, song)) return false
+                if (!CompilationTrackResolver.isHardCompatible(compatibilityTrack, song)) return false
                 foundSong = song
                 foundSource = sourceName
                 return true
@@ -1427,26 +1432,25 @@ internal fun DiscogsDirectVersionBrowser(
                             artist = resolvedOriginalArtist,
                             config = config,
                             mode = if (mode == DiscogsDirectMode.ORIGINAL) "originals" else "cover",
-                            limit = 200,
+                            limit = 150,
                         )
                     }.getOrNull()
 
                 for (candidate in memory?.discovery?.versions.orEmpty()) {
                     if (
-                        TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) &&
-                        TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title) &&
-                        acceptVideo(
-                            candidate.playbackVideoId,
-                            candidate.playbackVideoSource ?: "Archivio MusicLab",
-                        )
+                        !TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) ||
+                        !TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title)
                     ) {
+                        continue
+                    }
+                    if (acceptVideo(candidate.playbackVideoId, candidate.playbackVideoSource ?: "Archivio MusicLab")) {
                         break
                     }
                 }
             }
 
-            // Lane 2: provider discovery (COVER.INFO / Spotify / iTunes / etc.) can
-            // contribute a direct binding or better evidence for this exact version.
+            // Lane 2: COVER.INFO / Spotify / iTunes / other music sources can either
+            // provide a direct binding or a better exact-version query for the video lane.
             if (foundSong == null) {
                 val discovery =
                     runCatching {
@@ -1458,31 +1462,69 @@ internal fun DiscogsDirectVersionBrowser(
                         )
                     }.getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
 
-                for (candidate in discovery.candidates) {
+                val matching =
+                    discovery.candidates
+                        .filter { candidate ->
+                            TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) &&
+                                TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title)
+                        }
+                        .sortedWith(
+                            compareByDescending<CoverSourceCandidate> { it.evidenceScore }
+                                .thenByDescending { it.sources.distinct().size }
+                                .thenByDescending { it.durationSeconds != null },
+                        )
+
+                for (candidate in matching) {
+                    val hintedTrack =
+                        DiscogsTrack(
+                            position = "",
+                            title = candidate.title,
+                            artists = listOf(candidate.artist),
+                            durationText = null,
+                            durationSeconds = candidate.durationSeconds ?: seed.durationSeconds,
+                        )
                     if (
-                        TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) &&
-                        TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title) &&
                         acceptVideo(
                             candidate.playbackVideoId,
                             candidate.playbackVideoSource ?: candidate.sources.joinToString(" + "),
+                            hintedTrack,
                         )
                     ) {
                         break
                     }
+                    if (providerTrackHint == null) providerTrackHint = hintedTrack
                 }
             }
 
-            // Lane 3: full/deep YouTube resolver, only after internal/provider evidence.
+            // Lane 3: deep YouTube lookup. If Spotify/iTunes/etc. clarified the exact
+            // version, use that query first, then fall back to the original row metadata.
             if (foundSong == null) {
-                val deep =
-                    CompilationTrackResolver.resolveTrack(
-                        track = track,
-                        discogsVideos = seed.videos,
-                        fastFirst = false,
-                        excludedVideoIds = session.usedVideoIds.toSet(),
-                    )
-                foundSong = deep?.song
-                foundSource = deep?.source?.let { "Ricerca approfondita · $it" }
+                val deepTracks =
+                    listOfNotNull(providerTrackHint, track)
+                        .distinctBy { candidateTrack ->
+                            candidateTrack.title.lowercase() + "|" +
+                                candidateTrack.artists.joinToString("|").lowercase()
+                        }
+
+                for ((index, deepTrack) in deepTracks.withIndex()) {
+                    val deep =
+                        CompilationTrackResolver.resolveTrack(
+                            track = deepTrack,
+                            discogsVideos = seed.videos,
+                            fastFirst = false,
+                            excludedVideoIds = session.usedVideoIds.toSet(),
+                        )
+                    if (deep != null) {
+                        foundSong = deep.song
+                        foundSource =
+                            if (index == 0 && providerTrackHint != null) {
+                                "Ricerca approfondita da fonti musicali · ${deep.source}"
+                            } else {
+                                "Ricerca approfondita · ${deep.source}"
+                            }
+                        break
+                    }
+                }
             }
 
             val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
@@ -1509,7 +1551,6 @@ internal fun DiscogsDirectVersionBrowser(
             }
         }
     }
-
     fun play(seed: DiscogsVersionSeed) {
         session.listIndex = listState.firstVisibleItemIndex
         session.listOffset = listState.firstVisibleItemScrollOffset
