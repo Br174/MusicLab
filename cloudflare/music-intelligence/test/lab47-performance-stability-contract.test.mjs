@@ -58,3 +58,22 @@ test('approved LAB41 fast stream lane remains byte-contract compatible', () => {
   assert.match(player, /tokenProvider = fastTokenProvider/);
   assert.match(player, /tokenProvider = tokenProvider/);
 });
+
+test('full Cover discovery is cancelled when playback takes priority', () => {
+  assert.match(browser, /var searchJob by remember/);
+  const start = browser.indexOf('fun pauseCoverBackgroundForPlayback()');
+  const end = browser.indexOf('fun resumeCoverBackgroundAfterPlaybackBurst()', start);
+  const pause = browser.slice(start, end);
+  assert.match(pause, /searchJob\?\.cancel\(\)/);
+  assert.match(pause, /loading = false/);
+  assert.match(pause, /sourceDiscoveryLoading = false/);
+});
+
+test('first-sound hot path does not synchronously read DataStore for queue cache or Qobuz flags', () => {
+  assert.doesNotMatch(service, /dataStore\.get\(PersistentShuffleAcrossQueuesKey/);
+  assert.doesNotMatch(service, /dataStore\.get\(EnableSongCacheKey/);
+  assert.doesNotMatch(service, /dataStore\.get\(EnableQobuzKey/);
+  assert.match(service, /cachedPersistentShuffleAcrossQueues/);
+  assert.match(service, /cachedEnableSongCache/);
+  assert.match(service, /cachedEnableQobuz/);
+});
