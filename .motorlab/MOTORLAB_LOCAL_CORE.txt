@@ -1,5 +1,5 @@
 MOTORLAB SATELLITE BUNDLE
-RELEASE=2026.09.30-r16
+RELEASE=2026.10.05-r17
 CENTRAL_AUTHORITY=Br174/Chatgpt
 PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
 PRE_RESPONSE_BOOT_GATE=required
@@ -47,6 +47,9 @@ SUPERPOWERS_SUBORDINATE=required
 CONTEXT7_ON_DEMAND=required
 FREE_FIRST_PLUGIN_ROUTING=required
 SERVICE_INTEGRATION_STATUS=required
+UPDATE_FAMILY_LIFECYCLE=required
+EXECUTION_CONTINUITY=required
+NO_TIMED_CONTINUATION=required
 
 LOCAL FALLBACK CONTRACT
 - First user-visible line: ⚙️ MotorLab attivo
@@ -84,6 +87,13 @@ R16 OBSERVABILITY / KNOWLEDGE ROUTING
 - Context7 is used only when current/versioned external documentation materially reduces uncertainty.
 - Auxiliary plugin usage is free-first and quota-aware; no hidden paid upgrade.
 
+ANDROID UPDATE FAMILY - R17+
+- When update-family mode is active, later LAB aggiornamento builds keep one stable applicationId + signing certificate and increase versionCode.
+- Bruno-facing revision names are LAB NN aggiornamento while internal family identity stays stable.
+- LAB -> CANDIDATA creates a new immutable Android family from the approved method/state; it does not convert or mutate LAB.
+- Approved CANDIDATA -> MADRE promotes the same candidate source/family identity according to project signing policy.
+- A LAB test key must never silently become a production/MADRE key.
+
 TECHNICAL CHANGE HISTORY
 Technical Change History remains Git-backed provenance/search and is separate from the visible Bruno-confirmed restore list.
 
@@ -109,5 +119,6 @@ NO RUNTIME COUPLING
 This bundle is orchestration metadata only and must not intentionally alter app runtime/UI/package/signing/native engines. Project telemetry SDKs and provider bindings require separate approved project changes.
 
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.6
+MOTORLAB-SATELLITE-BUNDLE-V2.7
 Revision 2.6: r16 adds authority/data ownership, persistent operational state, MOTORLAB_OPERATION_ID, observability boundaries, service connection-status tracking and non-redundant auxiliary-tool routing.
+Revision 2.7: r17 adds Android update-family lifecycle fallback markers.
