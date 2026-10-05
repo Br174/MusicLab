@@ -36,6 +36,7 @@ MOTORLAB_FULL_REGRESSION_AT=high-risk,candidate,madre
 MOTORLAB_FAST_LAB=conditional
 MOTORLAB_UPDATE_FAMILY_MODE=lab
 MOTORLAB_UPDATE_FAMILY_ID=01
+MOTORLAB_PAIRED_SAFETY_LAB=required
 MOTORLAB_BACKGROUND_MODE=github-actions
 MOTORLAB_REGRESSION_MAP=MusicLab-r13-default-profile
 
@@ -67,11 +68,14 @@ MANDATORY RULES
 22. UAB remains canonical for installable MusicLab APK/ZIP output; avoid redundant build/test phases that add no distinct verification value.
 23. For Bruno's active Android update family, preserve the same applicationId and signing certificate across LAB NN aggiornamento revisions, strictly increase versionCode, and continue from the immediately previous LAB aggiornamento head.
 24. LAB -> CANDIDATA creates a new immutable family from the approved LAB state/method and must not mutate the LAB family. Approved CANDIDATA -> MADRE promotes that same candidate source/family identity.
+25. Every verified LAB NN aggiornamento must also produce LAB di sicurezza NN from the same functional source state, with a distinct package/family and unique test-only certificate. Safety is immutable and can seed a new active update family if later updates corrupt.
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.8
+MOTORLAB-PROJECT-HOOK-V1.9
 Established: 2026-09-29
 Revision 1.5: r8 pre-response gate + Project Continuity.
 Revision 1.6: r12 MusicLab risk-scaled FAST LAB + No-Spin durable handoff.
 Revision 1.7: r13 semantic Change History registry, automatic verified change capture and selective exact restore/backfill.
 Revision 1.8: r17 MusicLab update-family mode with stable LAB package/signing identity and Bruno-facing LAB aggiornamento naming.
+
+Revision 1.9: r18 paired immutable LAB di sicurezza checkpoint for every LAB aggiornamento.
