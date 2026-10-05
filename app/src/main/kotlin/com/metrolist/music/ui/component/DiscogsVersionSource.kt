@@ -712,25 +712,122 @@ internal object DiscogsVersionSource {
         seeds: List<DiscogsVersionSeed>,
     ): List<DiscogsVersionSeed> {
         if (seeds.isEmpty()) return emptyList()
-        return seeds
-            .groupBy { it.fingerprint }
-            .values
-            .map { sameVersion ->
-                sameVersion.minWithOrNull(
-                    compareBy<DiscogsVersionSeed> { it.year ?: Int.MAX_VALUE }
-                        .thenByDescending { publicationPrecision(it.releaseDate) }
-                        .thenBy { it.releaseDate ?: "9999-99-99" }
-                        .thenByDescending { metadataRichness(it) },
-                ) ?: sameVersion.first()
-            }
-            .sortedWith(
-                compareBy<DiscogsVersionSeed> { it.year ?: Int.MAX_VALUE }
-                    .thenBy { it.releaseDate ?: "9999-99-99" }
-                    .thenBy { canonical(it.artist) }
-                    .thenBy { canonical(it.releaseTitle) },
-            )
+
+        // Stage 1: merge evidence for the same concrete version identity.
+        val exact =
+            seeds
+                .groupBy(::identityKey)
+                .values
+                .map { group -> group.drop(1).fold(group.first(), ::mergeEvidence) }
+
+        // Stage 2: collapse repeated releases of the same musical recording.
+        // For a studio recording keep only the first/original publication plus
+        // the newest remaster. Release/upload dates of YouTube videos are never used.
+        val collapsed =
+            exact
+                .groupBy(::recordingFamilyKey)
+                .values
+                .flatMap { family ->
+                    val sample = family.first()
+                    if (sample.kind != DiscogsVersionKind.STUDIO || isDistinctStudioReRecording(sample)) {
+                        family
+                    } else {
+                        val originals = family.filterNot(::isRemasterSeed)
+                        val remasters = family.filter(::isRemasterSeed)
+                        val firstOriginal = originals.minWithOrNull(EARLIEST_MUSICAL_PUBLICATION)
+                        val latestRemaster = remasters.maxWithOrNull(LATEST_MUSICAL_PUBLICATION)
+
+                        buildList {
+                            firstOriginal?.let(::add)
+                            latestRemaster
+                                ?.takeIf { remaster ->
+                                    firstOriginal == null || remaster.fingerprint != firstOriginal.fingerprint
+                                }
+                                ?.let(::add)
+                            if (isEmpty()) {
+                                family.minWithOrNull(EARLIEST_MUSICAL_PUBLICATION)?.let(::add)
+                            }
+                        }
+                    }
+                }
+
+        return collapsed.sortedWith(
+            compareBy<DiscogsVersionSeed> { it.year ?: Int.MAX_VALUE }
+                .thenBy { normalizedPublicationDate(it) }
+                .thenBy { canonical(it.artist) }
+                .thenBy { canonical(it.releaseTitle) },
+        )
     }
 
+    internal fun recordingIdentityKey(seed: DiscogsVersionSeed): String = recordingFamilyKey(seed)
+
+    internal fun isSameMusicalRecording(
+        left: DiscogsVersionSeed,
+        right: DiscogsVersionSeed,
+    ): Boolean = recordingFamilyKey(left) == recordingFamilyKey(right)
+
+    private fun recordingFamilyKey(seed: DiscogsVersionSeed): String {
+        val durationBucket = seed.durationSeconds?.let { ((it + 4) / 8).toString() }.orEmpty()
+        val reRecording = if (isDistinctStudioReRecording(seed)) "rerecord" else ""
+        val intent =
+            when (seed.kind) {
+                DiscogsVersionKind.STUDIO -> reRecording
+                DiscogsVersionKind.LIVE,
+                DiscogsVersionKind.REMIX,
+                DiscogsVersionKind.ACOUSTIC,
+                -> versionQualifier(seed.trackTitle + " " + seed.releaseTitle) + "|" + canonicalReleaseContext(seed.releaseTitle)
+            }
+        return listOf(
+            canonicalBaseTitle(seed.trackTitle),
+            canonicalArtist(seed.artist),
+            seed.kind.name.lowercase(),
+            durationBucket,
+            intent,
+        ).joinToString("|")
+    }
+
+    internal fun isRemasterSeed(seed: DiscogsVersionSeed): Boolean =
+        REMASTER_REGEX.containsMatchIn(
+            canonical(
+                listOf(
+                    seed.trackTitle,
+                    seed.releaseTitle,
+                    seed.formats.joinToString(" "),
+                    seed.formatDescriptions.joinToString(" "),
+                ).joinToString(" "),
+            ),
+        )
+
+    private fun isDistinctStudioReRecording(seed: DiscogsVersionSeed): Boolean =
+        seed.kind == DiscogsVersionKind.STUDIO &&
+            RERECORD_REGEX.containsMatchIn(canonical(seed.trackTitle + " " + seed.releaseTitle))
+
+    private fun musicalPublicationNumber(seed: DiscogsVersionSeed): Int {
+        val normalized = normalizedPublicationDate(seed)
+        return normalized.replace("-", "").take(8).padEnd(8, '0').toIntOrNull()
+            ?: (seed.year ?: 0) * 10_000
+    }
+
+    private fun normalizedPublicationDate(seed: DiscogsVersionSeed): String {
+        val value = seed.releaseDate?.trim().orEmpty()
+        return when {
+            Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(value) -> value
+            Regex("^\\d{4}-\\d{2}$").matches(value) -> "$value-00"
+            Regex("^\\d{4}$").matches(value) -> "$value-00-00"
+            seed.year != null -> "${seed.year}-00-00"
+            else -> "9999-99-99"
+        }
+    }
+
+    private val EARLIEST_MUSICAL_PUBLICATION =
+        compareBy<DiscogsVersionSeed> { musicalPublicationNumber(it).takeIf { number -> number > 0 } ?: Int.MAX_VALUE }
+            .thenByDescending { publicationPrecision(it.releaseDate) }
+            .thenByDescending(::metadataRichness)
+
+    private val LATEST_MUSICAL_PUBLICATION =
+        compareBy<DiscogsVersionSeed> { musicalPublicationNumber(it) }
+            .thenBy { publicationPrecision(it.releaseDate) }
+            .thenBy(::metadataRichness)
     private fun versionFingerprint(
         trackTitle: String,
         artist: String,
@@ -930,12 +1027,25 @@ internal object DiscogsVersionSource {
         )
     }
 
-    internal fun identityKey(seed: DiscogsVersionSeed): String =
-        listOf(
+    internal fun identityKey(seed: DiscogsVersionSeed): String {
+        val remasterClass = if (isRemasterSeed(seed)) "remaster" else "original"
+        val durationBucket = seed.durationSeconds?.let { ((it + 4) / 8).toString() }.orEmpty()
+        val variant =
+            when (seed.kind) {
+                DiscogsVersionKind.STUDIO -> remasterClass
+                DiscogsVersionKind.LIVE,
+                DiscogsVersionKind.REMIX,
+                DiscogsVersionKind.ACOUSTIC,
+                -> versionQualifier(seed.trackTitle + " " + seed.releaseTitle) + "|" + canonicalReleaseContext(seed.releaseTitle)
+            }
+        return listOf(
             canonicalBaseTitle(seed.trackTitle),
             canonicalArtist(seed.artist),
             seed.kind.name.lowercase(),
+            durationBucket,
+            variant,
         ).joinToString("|")
+    }
 
     internal fun mergeEvidence(
         existing: DiscogsVersionSeed,
@@ -949,8 +1059,17 @@ internal object DiscogsVersionSource {
             (incoming.track != null && existing.track == null) ||
                 (incoming.releaseId > 0 && existing.releaseId <= 0)
 
-        val base = if (incomingIsRicher) incoming else existing
-        val other = if (incomingIsRicher) existing else incoming
+        val sameRemasterClass = isRemasterSeed(existing) == isRemasterSeed(incoming)
+        val preferredByPublication =
+            if (sameRemasterClass && isRemasterSeed(existing)) {
+                listOf(existing, incoming).maxWithOrNull(LATEST_MUSICAL_PUBLICATION)
+            } else if (sameRemasterClass) {
+                listOf(existing, incoming).minWithOrNull(EARLIEST_MUSICAL_PUBLICATION)
+            } else {
+                null
+            }
+        val base = preferredByPublication ?: if (incomingIsRicher) incoming else existing
+        val other = if (base === existing) incoming else existing
         val mergedOriginalReference =
             existing.originalWorkReference || incoming.originalWorkReference
         val mergedScore =
@@ -1197,6 +1316,10 @@ internal object DiscogsVersionSource {
     private val REMIX_REGEX =
         Regex("\\b(remix|rework|club mix|extended mix|radio mix|dance mix|dub mix|edit mix)\\b")
     private val ACOUSTIC_REGEX = Regex("\\b(acoustic|unplugged|acustic[oa])\\b")
+    private val REMASTER_REGEX =
+        Regex("\\b(remaster(?:ed)?|rimasterizzat[oa]|remastered edition|digital remaster)\\b")
+    private val RERECORD_REGEX =
+        Regex("\\b(re-record(?:ed|ing)?|rerecord(?:ed|ing)?|new recording|nuova incisione|reincisione)\\b")
     private val REISSUE_NOISE_REGEX =
         Regex("\\b(reissue|repress|remaster(?:ed)?|anniversary|deluxe|edition|edizione|promo|stereo|mono|vinyl|cd|cassette|digital)\\b")
     private val ARTIST_SUFFIX_REGEX = Regex("\\s+\\(\\d+\\)$")
