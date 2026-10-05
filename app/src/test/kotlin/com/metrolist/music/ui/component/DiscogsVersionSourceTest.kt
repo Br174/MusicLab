@@ -156,4 +156,59 @@ class DiscogsVersionSourceTest {
         assertEquals("https://images.example/cover.jpg", resolved.coverUrl)
     }
 
+    @Test
+    fun `same provider version merges across Discogs and Apple evidence`() {
+        val discogs = seed(releaseId = 31, durationSeconds = 240).copy(
+            confidenceScore = 8,
+            sourceNames = listOf("Discogs"),
+        )
+        val apple =
+            DiscogsVersionSource.externalSeed(
+                CoverSourceCandidate(
+                    title = "Canzone",
+                    artist = "Artista",
+                    sources = listOf("Apple/iTunes"),
+                    durationSeconds = 242,
+                    evidenceScore = 6,
+                ),
+                targetTitle = "Canzone",
+                originalArtist = "Artista",
+            )
+
+        assertTrue(DiscogsVersionSource.sameCrossSourceVersion(discogs, apple))
+        val merged = DiscogsVersionSource.mergeCrossSourceEvidence(discogs, apple)
+        assertTrue("Discogs" in merged.sourceNames)
+        assertTrue("Apple/iTunes" in merged.sourceNames)
+    }
+
+    @Test
+    fun `cross source merge keeps the actually playable video`() {
+        val noVideo = seed(releaseId = 41).copy(
+            confidenceScore = 9,
+            sourceNames = listOf("Discogs"),
+        )
+        val withVideo =
+            DiscogsVersionSource.markVideoResolved(
+                seed = seed(releaseId = 0, masterId = null).copy(
+                    confidenceScore = 7,
+                    sourceNames = listOf("COVER.INFO"),
+                ),
+                videoId = "abcdefghijk",
+                videoTitle = "Canzone - Artista",
+                source = "COVER.INFO",
+            )
+
+        val merged = DiscogsVersionSource.mergeCrossSourceEvidence(noVideo, withVideo)
+        assertEquals("abcdefghijk", merged.resolvedVideoId)
+        assertTrue("Discogs" in merged.sourceNames)
+        assertTrue("COVER.INFO" in merged.sourceNames)
+    }
+
+    @Test
+    fun `same title from different singer is not a provider duplicate`() {
+        val original = seed(releaseId = 51)
+        val cover = seed(releaseId = 52).copy(artist = "Altro cantante")
+        assertFalse(DiscogsVersionSource.sameCrossSourceVersion(original, cover))
+    }
+
 }
