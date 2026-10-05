@@ -34,6 +34,9 @@ internal data class CoverSourceCandidate(
     val language: String? = null,
     val category: AiCoverCategory = AiCoverCategory.COVER,
     val sourceUrl: String? = null,
+    val playbackVideoId: String? = null,
+    val playbackVideoTitle: String? = null,
+    val playbackVideoSource: String? = null,
     val evidenceScore: Int = 1,
 )
 
@@ -125,6 +128,9 @@ internal object CoverDiscoverySources {
                         durationSeconds = previous.durationSeconds ?: candidate.durationSeconds,
                         language = previous.language ?: candidate.language,
                         sourceUrl = previous.sourceUrl ?: candidate.sourceUrl,
+                        playbackVideoId = previous.playbackVideoId ?: candidate.playbackVideoId,
+                        playbackVideoTitle = previous.playbackVideoTitle ?: candidate.playbackVideoTitle,
+                        playbackVideoSource = previous.playbackVideoSource ?: candidate.playbackVideoSource,
                         evidenceScore =
                             (maxOf(previous.evidenceScore, candidate.evidenceScore) + extraSourceBonus)
                                 .coerceIn(1, 10),
@@ -538,40 +544,48 @@ internal object CoverDiscoverySources {
                 cleanTitle,
             ).distinct()
 
-        var searchDocument: org.jsoup.nodes.Document? = null
-        var usedSearch = ""
+        val searchDocuments = mutableListOf<Pair<String, org.jsoup.nodes.Document>>()
         var publicSearchReachable = false
         for (term in searchTerms) {
             val url =
                 "https://cover.info/en/search".toHttpUrl().newBuilder()
                     .addQueryParameter("find", term)
+                    // COVER.INFO exposes up to 200 rows through this public selector.
+                    // Pull the widest page so MusicLab does not silently stop at the
+                    // first 10/25 entries when a work has many covers/adaptations.
+                    .addQueryParameter("per-page-songs", "200")
                     .build()
                     .toString()
             val html = fetchHtml(url) ?: continue
             val parsed = runCatching { Jsoup.parse(html, "https://cover.info") }.getOrNull() ?: continue
             publicSearchReachable = true
             if (parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty()) {
-                searchDocument = parsed
-                usedSearch = term
-                break
+                searchDocuments += term to parsed
             }
         }
 
-        val document =
-            searchDocument
-                ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
-                    "COVER.INFO",
-                    available = publicSearchReachable,
-                    found = 0,
-                    note =
-                        if (publicSearchReachable) {
-                            "raggiungibile · nessuna corrispondenza"
-                        } else {
-                            "ricerca pubblica non disponibile"
-                        },
-                )
+        if (searchDocuments.isEmpty()) {
+            return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
+                "COVER.INFO",
+                available = publicSearchReachable,
+                found = 0,
+                note =
+                    if (publicSearchReachable) {
+                        "raggiungibile · nessuna corrispondenza"
+                    } else {
+                        "ricerca pubblica non disponibile"
+                    },
+            )
+        }
 
-        val searchSeeds = parseCoverInfoDocument(document)
+        // LAB43: merge all successful query lanes instead of stopping at the
+        // first precise hit. This preserves precise results while also recovering
+        // broader covers, foreign adaptations and alternate performers.
+        val searchSeeds =
+            searchDocuments
+                .flatMap { (_, document) -> parseCoverInfoDocument(document) }
+                .distinctBy { it.songId }
+        val usedSearch = searchDocuments.joinToString(" + ") { it.first }
         val relationRoots =
             searchSeeds
                 .sortedWith(
@@ -581,7 +595,7 @@ internal object CoverDiscoverySources {
                         sameBaseTitle(title, it.title)
                     },
                 )
-                .take(3)
+                .take(COVER_INFO_RELATION_ROOT_LIMIT)
 
         val related = mutableListOf<CoverInfoSeed>()
         relationRoots.forEach { root ->
@@ -612,6 +626,10 @@ internal object CoverDiscoverySources {
                         if (!sameTitle) AiCoverCategory.FOREIGN
                         else categoryFromTitle(seed.title),
                     sourceUrl = seed.url,
+                    coverUrl = seed.playbackVideoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
+                    playbackVideoId = seed.playbackVideoId,
+                    playbackVideoTitle = seed.playbackVideoId?.let { seed.title },
+                    playbackVideoSource = seed.playbackVideoId?.let { "COVER.INFO" },
                     // Direct relationship pages are COVER.INFO's strongest signal,
                     // especially for foreign/adapted titles that other sources miss.
                     evidenceScore =
@@ -627,7 +645,10 @@ internal object CoverDiscoverySources {
             name = "COVER.INFO",
             available = true,
             found = candidates.size,
-            note = "fonte primaria · ricerca precisa + relazioni opera/versioni · $usedSearch",
+            note =
+                "fonte primaria · query fuse ${searchDocuments.size}/${searchTerms.size}" +
+                    " · video diretti ${candidates.count { !it.playbackVideoId.isNullOrBlank() }}" +
+                    " · $usedSearch",
         )
     }
 
@@ -638,6 +659,7 @@ internal object CoverDiscoverySources {
         val url: String,
         val year: Int?,
         val language: String?,
+        val playbackVideoId: String?,
         val directRelation: Boolean = false,
     )
 
@@ -653,6 +675,10 @@ internal object CoverDiscoverySources {
 
                 val slugTitle = match.groupValues[2]
                 val slugArtist = match.groupValues.getOrNull(3).orEmpty()
+                val row =
+                    anchor.parents().firstOrNull { parent ->
+                        parent.hasClass("youtube-parent")
+                    }
                 val container =
                     anchor.parents().firstOrNull { parent ->
                         parent.text().length <= 1_200 &&
@@ -683,6 +709,14 @@ internal object CoverDiscoverySources {
                     }
                 if (candidateTitle.isBlank() || artist.isBlank()) return@mapNotNull null
 
+                // COVER.INFO exposes the YouTube id in the same result row.
+                // Keeping this lookup row-scoped prevents cross-song misbinding.
+                val playbackVideoId =
+                    row?.selectFirst(".youtube-id")
+                        ?.text()
+                        ?.trim()
+                        ?.takeIf { COVER_INFO_YOUTUBE_ID.matches(it) }
+
                 CoverInfoSeed(
                     songId = songId,
                     title = candidateTitle,
@@ -693,10 +727,10 @@ internal object CoverDiscoverySources {
                         COVER_INFO_LANGUAGES.firstOrNull { languageName ->
                             contextText.contains(languageName, ignoreCase = true)
                         },
+                    playbackVideoId = playbackVideoId,
                 )
             }
     }
-
     private fun discoverWikidata(
         title: String,
         originalArtist: String,
@@ -866,7 +900,9 @@ internal object CoverDiscoverySources {
     private val LASTFM_PUBLIC_TRACK_URL =
         Regex("""(?:https?://(?:www\.)?last\.fm)?/music/([^/?#]+)/_/([^/?#]+)""")
 
+    private const val COVER_INFO_RELATION_ROOT_LIMIT = 12
     private const val COVER_INFO_SONG_SELECTOR = "a[href^=/en/song/], a[href^=https://cover.info/en/song/]"
+    private val COVER_INFO_YOUTUBE_ID = Regex("""^[A-Za-z0-9_-]{11}$""")
     private val COVER_INFO_SONG_URL =
         Regex("""https?://cover\.info/en/song/(\d+)/([^/?#]+)(?:/([^/?#]+))?""")
     private val COVER_INFO_YEAR = Regex("""\b(?:18|19|20)\d{2}\b""")
