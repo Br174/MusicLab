@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: musiclab-lab46-aggiornamento-family-01
+  group: musiclab-lab47-aggiornamento-family-01
   cancel-in-progress: true
 
 jobs:
@@ -191,7 +191,7 @@ jobs:
           UAB_PARALLEL_INSTALL="off"
           export METROLIST_APPLICATION_ID="it.verlezza.musiclab.safety47"
           export METROLIST_APP_NAME="MusicLab LAB di sicurezza 47"
-          export MUSICLAB_VERSION_CODE="4601"
+          export MUSICLAB_VERSION_CODE="4701"
           export MUSICLAB_VERSION_NAME="0.9.2-safety47"
           export PULL_REQUEST="false"
           EOF
