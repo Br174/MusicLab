@@ -679,26 +679,43 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun replaceSeed(updated: DiscogsVersionSeed) {
-        var relevanceChanged = false
-        results = results.map { current ->
-            val same =
+        val updatedIdentity = DiscogsVersionSource.identityKey(updated)
+        val index =
+            results.indexOfFirst { current ->
                 current.fingerprint == updated.fingerprint ||
                     (current.releaseId > 0 && current.releaseId == updated.releaseId) ||
-                    DiscogsVersionSource.identityKey(current) == DiscogsVersionSource.identityKey(updated)
-            if (same) {
-                val merged = DiscogsVersionSource.mergeEvidence(current, updated)
-                if (
-                    merged.confidenceScore != current.confidenceScore ||
-                    merged.originalWorkReference != current.originalWorkReference
-                ) {
-                    relevanceChanged = true
-                }
-                merged
-            } else {
-                current
+                    DiscogsVersionSource.identityKey(current) == updatedIdentity
             }
+
+        if (index < 0) {
+            results = mergePage(results, listOf(updated), replace = false)
+            session.results = results
+            syncStableOrder()
+            return
         }
-        results = normalizeSearchLocalVideoBindings(DiscogsVersionSource.dedupeVersions(results))
+
+        val current = results[index]
+        val merged = DiscogsVersionSource.mergeEvidence(current, updated)
+        val relevanceChanged =
+            merged.confidenceScore != current.confidenceScore ||
+                merged.originalWorkReference != current.originalWorkReference
+        val identityChanged =
+            DiscogsVersionSource.identityKey(merged) != DiscogsVersionSource.identityKey(current) ||
+                DiscogsVersionSource.recordingIdentityKey(merged) != DiscogsVersionSource.recordingIdentityKey(current)
+        val videoChanged = merged.resolvedVideoId != current.resolvedVideoId
+
+        val mutable = results.toMutableList()
+        mutable[index] = merged
+        results =
+            when {
+                identityChanged ->
+                    normalizeSearchLocalVideoBindings(
+                        DiscogsVersionSource.dedupeVersions(mutable),
+                    )
+                videoChanged -> normalizeSearchLocalVideoBindings(mutable)
+                else -> mutable
+            }
+
         session.results = results
         if (sortMode == DirectVersionSort.RELEVANCE && relevanceChanged) {
             rebuildStableOrder()
