@@ -1,5 +1,5 @@
 MOTORLAB SATELLITE BUNDLE
-RELEASE=2026.09.30-r16
+RELEASE=2026.10.05-r20
 CENTRAL_AUTHORITY=Br174/Chatgpt
 PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
 PRE_RESPONSE_BOOT_GATE=required
@@ -16,6 +16,7 @@ DELIVERED_ARTIFACT_IMMUTABILITY=required
 LIVE_EVENT_CLASSIFICATION=required
 CONTROL_PLANE_CI_SUPPRESSION=required
 CHANGE_COMPATIBILITY_GUARD=required
+CHANGE_COMPATIBILITY_PILLAR=required
 WATCHDOG=required
 RESUME_RECOVERY=required
 FOREGROUND_STALL_GUARD=required
@@ -23,6 +24,13 @@ PROGRESS_REPORTING=required
 VISUAL_STATUS=required
 SINGLE_WRITER=required
 CHECKPOINT_RECOVERY=required
+POLLICINO_CONTINUITY=required
+EXTERNAL_SESSION_JOURNAL=required
+DUAL_LIVENESS_PROGRESS_SIGNAL=required
+TERMINAL_SEAL=required
+PRECOMPUTED_RESUME_READY=required
+POLLICINO_EXECUTOR_ADAPTER=required
+POLLICINO_TERMINAL_HOOKS=required
 FAST_ITERATION_NO_SPIN=required
 RISK_SCALED_LAB_ITERATION=required
 CHANGE_HISTORY_REGISTRY=required
@@ -47,6 +55,8 @@ SUPERPOWERS_SUBORDINATE=required
 CONTEXT7_ON_DEMAND=required
 FREE_FIRST_PLUGIN_ROUTING=required
 SERVICE_INTEGRATION_STATUS=required
+UPDATE_FAMILY_LIFECYCLE=required
+PAIRED_SAFETY_LAB=required
 EXECUTION_CONTINUITY=required
 NO_TIMED_CONTINUATION=required
 
@@ -86,6 +96,27 @@ R16 OBSERVABILITY / KNOWLEDGE ROUTING
 - Context7 is used only when current/versioned external documentation materially reduces uncertainty.
 - Auxiliary plugin usage is free-first and quota-aware; no hidden paid upgrade.
 
+FOUNDATIONAL CHANGE COMPATIBILITY PILLAR - R19+
+- Mandatory before every write-capable MotorLab/project change.
+- Inspect authoritative current state for existing equivalent/overlapping rules/functions/paths.
+- ONE RESPONSIBILITY = ONE ACTIVE COORDINATOR.
+- Reuse/extend/merge the responsible mechanism; explicitly supersede obsolete/conflicting paths.
+- Never accumulate avoidable duplicate writers/resolvers/caches/state machines/UI-domain decisions for one responsibility.
+- Fast paths, Velocity, automation, restore, migration and optimization cannot bypass this pillar.
+
+PAIRED SAFETY LAB - R18+
+- Every verified LAB NN aggiornamento also produces LAB di sicurezza NN from the same functional source state.
+- Safety uses a different package/family and unique test-only signing certificate.
+- Safety is immutable and may seed a NEW active update family if the current family later corrupts.
+- Safety is not CANDIDATA and cannot promote directly to MADRE.
+
+ANDROID UPDATE FAMILY - R17+
+- When update-family mode is active, later LAB aggiornamento builds keep one stable applicationId + signing certificate and increase versionCode.
+- Bruno-facing revision names are LAB NN aggiornamento while internal family identity stays stable.
+- LAB -> CANDIDATA creates a new immutable Android family from the approved method/state; it does not convert or mutate LAB.
+- Approved CANDIDATA -> MADRE promotes the same candidate source/family identity according to project signing policy.
+- A LAB test key must never silently become a production/MADRE key.
+
 TECHNICAL CHANGE HISTORY
 Technical Change History remains Git-backed provenance/search and is separate from the visible Bruno-confirmed restore list.
 
@@ -110,6 +141,26 @@ Repository text cannot wake a host with no execution cycle and cannot continue i
 NO RUNTIME COUPLING
 This bundle is orchestration metadata only and must not intentionally alter app runtime/UI/package/signing/native engines. Project telemetry SDKs and provider bindings require separate approved project changes.
 
+POLLICINO CONTINUITY - R20+
+- Pollicino remains external control-plane infrastructure; never inject continuity breadcrumbs into application/domain code.
+- Supported persistent/queryable executors publish real liveness plus progress fingerprint evidence.
+- Watchdog owns stall/loop classification; Resume Recovery owns continuation.
+- Controlled ends publish a terminal seal.
+- Missing supported liveness without a seal triggers external read-only pre-reconciliation and RESUME_READY preparation before a later `continua` when the durable sentinel is available.
+- Opaque normal ChatGPT thinking is not a trustworthy ping target unless the host exposes a real side-channel.
+- Long risky phases should use observable persistent execution when possible; otherwise use bounded checkpoints.
+- Supported Codex satellites install the external `.codex/hooks/motorlab_pollicino.py` sidecar adapter and lifecycle hooks when safe; the adapter is not application code.
+- Alive-but-stalled evidence may precompute `READY_STALL_SUSPECTED`; resumed progress supersedes it.
+
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.6
+MOTORLAB-SATELLITE-BUNDLE-V2.11
 Revision 2.6: r16 adds authority/data ownership, persistent operational state, MOTORLAB_OPERATION_ID, observability boundaries, service connection-status tracking and non-redundant auxiliary-tool routing.
+Revision 2.7: r17 adds Android update-family lifecycle fallback markers.
+
+Revision 2.8: r18 adds paired immutable LAB di sicurezza checkpoints and recovery-floor semantics.
+
+Revision 2.9: r19 adds foundational Change Compatibility Pillar for all current/future project satellites.
+
+Revision 2.10: r20 adds external Pollicino journal/liveness/progress/terminal-seal/RESUME_READY markers while preserving app-code isolation.
+
+Revision 2.11: completes r20 with the Codex external sidecar adapter, terminal hooks and stall-precompute semantics.
