@@ -123,6 +123,34 @@ setup_parallel_install() {
   [[ -n "${UAB_EFFECTIVE_APP_NAME:-}" ]] && status "Nome app LAB: $UAB_EFFECTIVE_APP_NAME"
 }
 
+setup_family_signing() {
+  local encoded_rel="${UAB_FAMILY_SIGNING_KEY_B64_FILE:-}"
+  [[ -n "$encoded_rel" ]] || return 0
+
+  local encoded="$encoded_rel"
+  [[ "$encoded" = /* ]] || encoded="$PROJECT_ROOT/$encoded"
+  [[ -s "$encoded" ]] || fail "Family signing key base64 non trovata: $encoded_rel" 26
+
+  local signing_dir="$OUTPUT_DIR/.signing"
+  local family_id="${UAB_UPDATE_FAMILY_ID:-family}"
+  local keystore="$signing_dir/${family_id}.jks"
+  mkdir -p "$signing_dir"
+
+  if base64 --help >/dev/null 2>&1; then
+    base64 -d "$encoded" > "$keystore"
+  else
+    base64 -D "$encoded" > "$keystore"
+  fi
+  [[ -s "$keystore" ]] || fail "Family signing key decodificata ma vuota." 26
+
+  export METROLIST_DEBUG_KEYSTORE_PATH="$keystore"
+  export METROLIST_DEBUG_KEYSTORE_PASSWORD="${UAB_FAMILY_KEYSTORE_PASSWORD:-android}"
+  export METROLIST_DEBUG_KEY_ALIAS="${UAB_FAMILY_KEY_ALIAS:-androiddebugkey}"
+  export METROLIST_DEBUG_KEY_PASSWORD="${UAB_FAMILY_KEY_PASSWORD:-android}"
+
+  status "Firma famiglia LAB: profilo stabile ${UAB_UPDATE_FAMILY_ID:-n/d}"
+}
+
 ensure_debug_keystore() {
   local keystore="${UAB_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}"
   [[ -f "$keystore" ]] && return 0
@@ -210,6 +238,7 @@ status "Output: $OUTPUT_DIR"
 
 cd "$PROJECT_ROOT"
 run_hook "Pre-build" "${UAB_PRE_BUILD_SCRIPT:-}" "$PROJECT_ROOT/.uab/pre-build.sh"
+setup_family_signing
 ensure_debug_keystore
 
 set +e
