@@ -38,7 +38,7 @@ MOTORLAB_FAST_LAB=conditional
 MOTORLAB_BACKGROUND_MODE=github-actions
 MOTORLAB_POLLICINO_MODE=external-control-plane
 MOTORLAB_POLLICINO_EXECUTOR_ADAPTER=.codex/hooks/motorlab_pollicino.py
-MOTORLAB_POLLICINO_ENROLLMENT=provider-secret-gated
+MOTORLAB_POLLICINO_ENROLLMENT=source-proof-e2e-verified
 MOTORLAB_REGRESSION_MAP=MusicLab-r16-bootstrap-profile
 
 PURPOSE
@@ -68,14 +68,14 @@ MANDATORY RULES
 21. Every newly verified Bruno-requested material MusicLab change and every successful restore is automatically written through to the central change registry when possible.
 22. UAB remains canonical for installable MusicLab APK/ZIP output; avoid redundant build/test phases that add no distinct verification value.
 23. Pollicino remains external MotorLab control-plane infrastructure: never inject liveness/breadcrumb code into MusicLab runtime/source.
-24. When the Codex executor has the provider-native Pollicino secret available, use the external sidecar for liveness/progress/terminal seals and precomputed RESUME_READY; otherwise degrade honestly without claiming enrollment.
+24. The external Codex sidecar self-enrolls through D1-gated source proof when the checkout SHA matches the registered project/active-operation SHA, receives only an ephemeral session token, and uses it for liveness/progress/terminal seals. Provider-native HMAC remains an optional stronger mode when already available. Never place secrets or session tokens in repository text.
 
 MOTORLAB_CODEX_BOOTSTRAP=required
 MOTORLAB_CODEX_HOOK=.codex/hooks.json
 MOTORLAB_LOCAL_RELEASE_TARGET=2026.10.05-r20
 
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.9
+MOTORLAB-PROJECT-HOOK-V1.10
 Established: 2026-09-29
 Revision 1.5: r8 pre-response gate + Project Continuity.
 Revision 1.6: r12 MusicLab risk-scaled FAST LAB + No-Spin durable handoff.
@@ -83,3 +83,5 @@ Revision 1.7: r13 semantic Change History registry, automatic verified change ca
 Revision 1.8: r16 adds mandatory Codex SessionStart bootstrap, local r16 satellite adoption and central multi-service/persistent-state routing.
 
 Revision 1.9: r20 adopts external Pollicino continuity/sidecar on MusicLab without application runtime coupling; real enrollment remains provider-secret gated.
+
+Revision 1.10: r20 Pollicino source-proof enrollment, ephemeral session tokens, stall/crash detection and preemptive RESUME_READY verified end-to-end; no MusicLab runtime coupling.
