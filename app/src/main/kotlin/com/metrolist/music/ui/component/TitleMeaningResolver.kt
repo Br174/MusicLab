@@ -24,6 +24,40 @@ internal object TitleMeaningResolver {
     ): Boolean = classify(targetTitle, value, artistAliases) != TitleMeaningMatch.DIFFERENT
 
     /**
+     * Extracts a conservative trailing performer hint such as
+     * "Balla balla ballerino (Lucio Dalla)". Technical/version labels are ignored.
+     */
+    fun trailingArtistHint(value: String): String? {
+        val match = TRAILING_PARENTHESIS.find(value.trim()) ?: return null
+        val raw = match.groupValues[1].trim()
+        val normalized = canonical(raw)
+        if (normalized.isBlank()) return null
+        val tokens = normalized.split(' ').filter(String::isNotBlank)
+        if (tokens.size !in 1..6) return null
+        if (tokens.any { it in ARTIST_HINT_BLOCKLIST || it.matches(Regex("(?:18|19|20)\\d{2}")) }) return null
+        if (raw.none(Char::isLetter)) return null
+        return raw
+    }
+
+    fun stripTrailingArtistHint(value: String): String =
+        if (trailingArtistHint(value) != null) {
+            value.replace(TRAILING_PARENTHESIS, "").trim()
+        } else {
+            value.trim()
+        }
+
+    fun sameArtist(left: String, right: String): Boolean {
+        val a = canonical(left).removePrefix("the ")
+        val b = canonical(right).removePrefix("the ")
+        if (a.isBlank() || b.isBlank()) return false
+        return a == b ||
+            a.startsWith("$b ") ||
+            a.endsWith(" $b") ||
+            b.startsWith("$a ") ||
+            b.endsWith(" $a")
+    }
+
+    /**
      * Lightweight relevance score used only for ordering search results.
      * It never filters: exact/decorated matches stay on top, lexical similarities
      * remain available below them for the normal endless-search experience.
@@ -172,6 +206,13 @@ internal object TitleMeaningResolver {
         "remix", "mix", "rework", "radio", "edit", "extended", "club", "acoustic",
         "unplugged", "studio", "mono", "stereo", "hd", "hq", "4k", "feat", "ft",
         "featuring", "duet", "duetto",
+    )
+
+    private val TRAILING_PARENTHESIS = Regex("""\s*\(([^()]*)\)\s*$""")
+    private val ARTIST_HINT_BLOCKLIST = setOf(
+        "live", "remix", "mix", "version", "versione", "cover", "official", "audio",
+        "video", "lyrics", "lyric", "remaster", "remastered", "acoustic", "unplugged",
+        "radio", "edit", "extended", "mono", "stereo", "instrumental", "karaoke",
     )
 
     private val CONTINUATION_WORDS = setOf(
