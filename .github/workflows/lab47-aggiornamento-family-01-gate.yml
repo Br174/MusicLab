@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: musiclab-lab47-aggiornamento-family-01
+  group: musiclab-lab47-final-gate-v2
   cancel-in-progress: true
 
 jobs:
@@ -289,6 +289,15 @@ jobs:
           SAFETY_ARTIFACT_DIGEST: ${{ needs.build-safety.outputs.artifact_digest }}
         run: |
           set -euo pipefail
+
+          # A superseded/cancelled run must never overwrite the canonical status.
+          git fetch origin uab-build/musiclab-lab47-aggiornamento-family-01
+          CURRENT_HEAD="$(git rev-parse origin/uab-build/musiclab-lab47-aggiornamento-family-01)"
+          if [[ "$CURRENT_HEAD" != "$GITHUB_SHA" ]]; then
+            echo "Skipping stale status write: current=$CURRENT_HEAD run=$GITHUB_SHA"
+            exit 0
+          fi
+
           cat > LAB47_BUILD_STATUS.txt <<EOF
           LAB=47
           SOURCE_SHA=$GITHUB_SHA
