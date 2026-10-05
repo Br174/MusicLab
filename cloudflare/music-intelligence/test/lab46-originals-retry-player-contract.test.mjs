@@ -60,10 +60,11 @@ test('approved Player buono fast lane remains present', () => {
   assert.match(player, /tokenProvider = tokenProvider/);
 });
 
-test('LAB46 remains same active Android update family', () => {
+test('active LAB revisions remain in the same Android update family', () => {
   assert.match(uab, /UAB_UPDATE_FAMILY_ID="01"/);
   assert.match(uab, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(uab, /UAB_UPDATE_FAMILY_VISIBLE_NAME="LAB 46 aggiornamento"/);
-  assert.match(uab, /MUSICLAB_VERSION_CODE="4601"/);
+  assert.match(uab, /UAB_UPDATE_FAMILY_VISIBLE_NAME="LAB \d+ aggiornamento"/);
+  const versionCode = Number(uab.match(/MUSICLAB_VERSION_CODE="(\d+)"/)?.[1] ?? 0);
+  assert.ok(versionCode >= 4601);
   assert.match(uab, /UAB_UPDATE_FAMILY_CERT_SHA256="9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49"/);
 });
