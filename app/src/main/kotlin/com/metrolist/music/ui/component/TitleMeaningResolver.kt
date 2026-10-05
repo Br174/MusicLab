@@ -45,6 +45,41 @@ internal object TitleMeaningResolver {
         } else {
             value.trim()
         }
+    /**
+     * Returns a conservative work-title anchor for fallback discovery only.
+     * The original user title must remain available for variant searches.
+     */
+    fun workAnchorTitle(value: String): String {
+        var result = stripTrailingArtistHint(value).trim()
+        if (result.isBlank()) return result
+
+        // Remove only trailing bracketed/version segments that are clearly technical.
+        var changed = true
+        while (changed) {
+            changed = false
+            val match = TRAILING_PARENTHESIS.find(result)
+            if (match != null && isTechnicalSegment(match.groupValues[1])) {
+                result = result.removeRange(match.range).trim()
+                changed = true
+            }
+        }
+
+        val separator = TRAILING_TECHNICAL_SUFFIX.find(result)
+        if (separator != null && isTechnicalSegment(separator.groupValues[1])) {
+            result = result.substring(0, separator.range.first).trim()
+        }
+        return result.ifBlank { stripTrailingArtistHint(value).trim() }
+    }
+
+    fun versionDescriptors(value: String): Set<String> {
+        val normalized = canonical(value)
+        return VERSION_DESCRIPTOR_GROUPS.mapNotNullTo(linkedSetOf()) { (name, tokens) ->
+            name.takeIf { tokens.any { token ->
+                normalized == token || normalized.startsWith("$token ") ||
+                    normalized.endsWith(" $token") || normalized.contains(" $token ")
+            } }
+        }
+    }
 
     fun sameArtist(left: String, right: String): Boolean {
         val a = canonical(left).removePrefix("the ")
@@ -192,6 +227,15 @@ internal object TitleMeaningResolver {
         }
     }
 
+    private fun isTechnicalSegment(value: String): Boolean {
+        val normalized = canonical(value)
+        if (normalized.isBlank()) return false
+        val tokens = normalized.split(' ').filter(String::isNotBlank)
+        return tokens.isNotEmpty() && tokens.all { token ->
+            token in TECHNICAL_TOKENS || token.matches(Regex("(?:18|19|20)\\d{2}"))
+        }
+    }
+
     private fun looksLikeLexicalContinuation(value: String): Boolean {
         val normalized = canonical(value)
         if (normalized.isBlank()) return false
@@ -209,6 +253,14 @@ internal object TitleMeaningResolver {
     )
 
     private val TRAILING_PARENTHESIS = Regex("""\s*\(([^()]*)\)\s*$""")
+    private val TRAILING_TECHNICAL_SUFFIX = Regex("""\s*[-–—:|·]\s*([^\n]+)$""")
+    private val VERSION_DESCRIPTOR_GROUPS = listOf(
+        "live" to setOf("live", "dal vivo", "concert", "concerto", "performance", "session", "festival"),
+        "remix" to setOf("remix", "mix", "rework", "club mix", "extended mix", "radio mix", "edit"),
+        "acoustic" to setOf("acoustic", "unplugged", "acustico", "acustica"),
+        "remaster" to setOf("remaster", "remastered", "rimasterizzato", "rimasterizzata"),
+        "duet" to setOf("duet", "duetto", "with", "feat", "featuring"),
+    )
     private val ARTIST_HINT_BLOCKLIST = setOf(
         "live", "remix", "mix", "version", "versione", "cover", "official", "audio",
         "video", "lyrics", "lyric", "remaster", "remastered", "acoustic", "unplugged",
