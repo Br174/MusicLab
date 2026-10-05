@@ -1431,18 +1431,18 @@ internal fun DiscogsDirectVersionBrowser(
                         )
                     }.getOrNull()
 
-                memory?.discovery?.versions.orEmpty()
-                    .asSequence()
-                    .filter { candidate ->
+                for (candidate in memory?.discovery?.versions.orEmpty()) {
+                    if (
                         TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) &&
-                            TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title)
+                        TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title) &&
+                        acceptVideo(
+                            candidate.playbackVideoId,
+                            candidate.playbackVideoSource ?: "Archivio MusicLab",
+                        )
+                    ) {
+                        break
                     }
-                    .mapNotNull { candidate ->
-                        candidate.playbackVideoId?.let { id ->
-                            Triple(id, candidate.playbackVideoSource ?: "Archivio MusicLab", candidate)
-                        }
-                    }
-                    .firstOrNull { (id, sourceName, _) -> acceptVideo(id, sourceName) }
+                }
             }
 
             // Lane 2: provider discovery (COVER.INFO / Spotify / iTunes / etc.) can
@@ -1458,18 +1458,18 @@ internal fun DiscogsDirectVersionBrowser(
                         )
                     }.getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
 
-                discovery.candidates
-                    .asSequence()
-                    .filter { candidate ->
+                for (candidate in discovery.candidates) {
+                    if (
                         TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) &&
-                            TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title)
+                        TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title) &&
+                        acceptVideo(
+                            candidate.playbackVideoId,
+                            candidate.playbackVideoSource ?: candidate.sources.joinToString(" + "),
+                        )
+                    ) {
+                        break
                     }
-                    .mapNotNull { candidate ->
-                        candidate.playbackVideoId?.let { id ->
-                            id to (candidate.playbackVideoSource ?: candidate.sources.joinToString(" + "))
-                        }
-                    }
-                    .firstOrNull { (id, sourceName) -> acceptVideo(id, sourceName) }
+                }
             }
 
             // Lane 3: full/deep YouTube resolver, only after internal/provider evidence.
