@@ -114,6 +114,22 @@ jobs:
           } > dist/uab/UPDATE_FAMILY.txt
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
 
+      # Fast handoff: publish the installable update before building its safety twin.
+      - name: Upload LAB 45 aggiornamento
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB45-aggiornamento
+          path: |
+            dist/uab/apk/MusicLab-LAB45-aggiornamento.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-LAB45-aggiornamento-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/UPDATE_FAMILY.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
+
+
       - name: Build LAB di sicurezza 45 from exact same source
         shell: bash
         run: |
@@ -177,20 +193,6 @@ jobs:
 
           printf '%s\n' "$GITHUB_SHA" > "$SAFETY_OUT/BUILD_SHA.txt"
           sha256sum "$APK" "$ZIP" > "$SAFETY_OUT/SAFETY_SHA256SUMS.txt"
-
-      - name: Upload LAB 45 aggiornamento
-        uses: actions/upload-artifact@v4
-        with:
-          name: MusicLab-LAB45-aggiornamento
-          path: |
-            dist/uab/apk/MusicLab-LAB45-aggiornamento.apk
-            dist/uab/apk/SHA256SUMS.txt
-            dist/uab/MusicLab-LAB45-aggiornamento-APK.zip
-            dist/uab/BUILD_SHA.txt
-            dist/uab/UPDATE_FAMILY.txt
-            dist/uab/logs/*.log
-          if-no-files-found: error
-          retention-days: 14
 
       - name: Upload LAB di sicurezza 45
         uses: actions/upload-artifact@v4
