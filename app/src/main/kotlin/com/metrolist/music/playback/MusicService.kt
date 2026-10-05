@@ -547,6 +547,7 @@ class MusicService :
     private var smartPreloadJob: Job? = null
     private var smartPreloadAnchorMediaId: String? = null
     private var playbackPriorityBurstJob: Job? = null
+    private var playerResolverPrewarmJob: Job? = null
     @Volatile private var playbackPriorityBurstActive: Boolean = false
 
     // Cached preferences to avoid runBlocking DataStore reads in hot paths
@@ -676,13 +677,28 @@ class MusicService :
         super.onCreate()
         isRunning = true
 
-        // Player Veloce 2: prepare the stream extraction runtime before the first tap.
-        // This is CPU/local-runtime preparation only; it does not fetch a song.
+        // LAB47 first-sound preparation. Build the local extraction runtime immediately,
+        // then warm the modern fallback shortly after startup while the app is idle.
+        // If Bruno taps Play, beginPlaybackPriorityBurst cancels this background warmup
+        // so it can never compete with the selected song.
         InnerTubeXPlayer.initialize(this)
-        scope.launch(Dispatchers.IO + SilentHandler) {
-            runCatching { InnerTubeXPlayer.prepare() }
-                .onFailure { Timber.tag(TAG).d(it, "Player Veloce 2 stream runtime prepare skipped") }
-        }
+        playerResolverPrewarmJob =
+            scope.launch(Dispatchers.IO + SilentHandler) {
+                runCatching { InnerTubeXPlayer.prepare() }
+                    .onFailure { Timber.tag(TAG).d(it, "LAB47 local stream runtime prepare skipped") }
+
+                delay(800)
+                if (!playbackPriorityBurstActive) {
+                    runCatching {
+                        withTimeout(6_000L) {
+                            InnerTubeXPlayer.prewarm()
+                        }
+                    }.onFailure { error ->
+                        if (error is CancellationException) throw error
+                        Timber.tag(TAG).d(error, "LAB47 modern stream fallback prewarm skipped")
+                    }
+                }
+            }
         shutdownDeferred = kotlinx.coroutines.CompletableDeferred<Unit>()
 
         setListener(
@@ -2240,6 +2256,10 @@ class MusicService :
      */
     fun beginPlaybackPriorityBurst(reason: String = "user-action") {
         playbackPriorityBurstActive = true
+
+        // Never let speculative resolver/WebView warmup delay the song the user chose.
+        playerResolverPrewarmJob?.cancel()
+        playerResolverPrewarmJob = null
 
         smartPreloadJob?.cancel()
         smartPreloadJob = null
