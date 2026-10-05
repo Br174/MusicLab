@@ -37,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -256,7 +257,7 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun buildCriteria(): DiscogsVersionSearchCriteria =
         DiscogsVersionSearchCriteria(
-            title = title.trim(),
+            title = TitleMeaningResolver.stripTrailingArtistHint(title),
             artist = null,
             releaseTitle = null,
             year = null,
@@ -295,11 +296,11 @@ internal fun DiscogsDirectVersionBrowser(
     fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
         val score =
             when (candidate.brainStatus) {
-                AiBrainDecisionStatus.APPROVED -> 10
-                AiBrainDecisionStatus.PROBABLE -> 8
-                AiBrainDecisionStatus.UNCERTAIN -> 4
+                AiBrainDecisionStatus.APPROVED -> 5
+                AiBrainDecisionStatus.PROBABLE -> 4
+                AiBrainDecisionStatus.UNCERTAIN -> 3
                 AiBrainDecisionStatus.REJECTED -> 1
-                null -> 4
+                null -> 3
             }
         val seed =
             DiscogsVersionSource.externalSeed(
@@ -314,6 +315,8 @@ internal fun DiscogsDirectVersionBrowser(
                     category = candidate.category,
                     evidenceScore = score,
                 ),
+                targetTitle = TitleMeaningResolver.stripTrailingArtistHint(title),
+                originalArtist = resolvedOriginalArtist,
             ).copy(
                 manuallyApproved = candidate.brainStatus == AiBrainDecisionStatus.APPROVED,
             )
@@ -417,8 +420,12 @@ internal fun DiscogsDirectVersionBrowser(
             DirectVersionSort.RELEVANCE ->
                 displayable.sortedWith(
                     compareByDescending<DiscogsVersionSeed> { it.confidenceScore }
-                        .thenBy { it.year ?: Int.MAX_VALUE }
-                        .thenBy { it.artist.lowercase() },
+                        .thenByDescending { it.originalWorkReference }
+                        .thenByDescending { it.sourceNames.distinct().size }
+                        .thenByDescending { it.track != null }
+                        .thenByDescending { !it.resolvedVideoId.isNullOrBlank() }
+                        .thenBy { it.artist.lowercase() }
+                        .thenBy { it.trackTitle.lowercase() },
                 )
             DirectVersionSort.OLDEST ->
                 displayable.sortedWith(
@@ -473,19 +480,31 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun replaceSeed(updated: DiscogsVersionSeed) {
+        var relevanceChanged = false
         results = results.map { current ->
             val same =
                 current.fingerprint == updated.fingerprint ||
                     (current.releaseId > 0 && current.releaseId == updated.releaseId) ||
                     DiscogsVersionSource.identityKey(current) == DiscogsVersionSource.identityKey(updated)
             if (same) {
-                DiscogsVersionSource.mergeEvidence(current, updated)
+                val merged = DiscogsVersionSource.mergeEvidence(current, updated)
+                if (
+                    merged.confidenceScore != current.confidenceScore ||
+                    merged.originalWorkReference != current.originalWorkReference
+                ) {
+                    relevanceChanged = true
+                }
+                merged
             } else {
                 current
             }
         }
         session.results = results
-        syncStableOrder()
+        if (sortMode == DirectVersionSort.RELEVANCE && relevanceChanged) {
+            rebuildStableOrder()
+        } else {
+            syncStableOrder()
+        }
     }
 
     fun playableTrack(seed: DiscogsVersionSeed): DiscogsTrack? =
@@ -523,63 +542,61 @@ internal fun DiscogsDirectVersionBrowser(
 
     suspend fun resolveVideoChunk(chunk: List<DiscogsVersionSeed>) = coroutineScope {
         if (chunk.isEmpty()) return@coroutineScope
-        val excludedSnapshot = session.usedVideoIds.toSet()
-        val attempts =
+        val jobs =
             chunk.map { seed ->
-                async {
+                launch {
                     val track = playableTrack(seed)
-                    seed.fingerprint to if (track == null) {
-                        null
-                    } else {
-                        CompilationTrackResolver.resolveTrack(
-                            track = track,
-                            discogsVideos = seed.videos,
+                    var resolved =
+                        if (track == null) {
+                            null
+                        } else {
+                            CompilationTrackResolver.resolveTrack(
+                                track = track,
+                                discogsVideos = seed.videos,
+                                fastFirst = true,
+                                excludedVideoIds = session.usedVideoIds.toSet(),
+                            )
+                        }
+
+                    val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: return@launch
+                    val currentTrack = playableTrack(current)
+                    if (
+                        resolved != null &&
+                        resolved.song.id in session.usedVideoIds &&
+                        currentTrack != null
+                    ) {
+                        resolved = CompilationTrackResolver.resolveTrack(
+                            track = currentTrack,
+                            discogsVideos = current.videos,
                             fastFirst = true,
-                            excludedVideoIds = excludedSnapshot,
+                            excludedVideoIds = session.usedVideoIds.toSet(),
                         )
                     }
+
+                    resolved?.song?.let { song ->
+                        session.preparedVideoSongs[song.id] = song
+                    }
+
+                    val updated =
+                        if (resolved == null || !session.usedVideoIds.add(resolved.song.id)) {
+                            DiscogsVersionSource.markVideoUnavailable(current)
+                        } else {
+                            DiscogsVersionSource.markVideoResolved(
+                                seed = current,
+                                videoId = resolved.song.id,
+                                videoTitle = resolved.song.title,
+                                source = resolved.source,
+                            )
+                        }
+                    // Update this card immediately; do not wait for the slowest sibling.
+                    replaceSeed(updated)
+                    if (!updated.resolvedVideoId.isNullOrBlank()) {
+                        persistCloudPlaybackBinding(updated)
+                    }
                 }
-            }.awaitAll()
-
-        attempts.forEach { (fingerprint, firstAttempt) ->
-            val current = results.firstOrNull { it.fingerprint == fingerprint } ?: return@forEach
-            val track = playableTrack(current)
-            var resolved = firstAttempt
-            if (
-                resolved != null &&
-                resolved.song.id in session.usedVideoIds &&
-                track != null
-            ) {
-                resolved = CompilationTrackResolver.resolveTrack(
-                    track = track,
-                    discogsVideos = current.videos,
-                    fastFirst = true,
-                    excludedVideoIds = session.usedVideoIds.toSet(),
-                )
             }
-
-            resolved?.song?.let { song ->
-                session.preparedVideoSongs[song.id] = song
-            }
-
-            val updated =
-                if (resolved == null || !session.usedVideoIds.add(resolved.song.id)) {
-                    DiscogsVersionSource.markVideoUnavailable(current)
-                } else {
-                    DiscogsVersionSource.markVideoResolved(
-                        seed = current,
-                        videoId = resolved.song.id,
-                        videoTitle = resolved.song.title,
-                        source = resolved.source,
-                    )
-                }
-            replaceSeed(updated)
-            if (!updated.resolvedVideoId.isNullOrBlank()) {
-                persistCloudPlaybackBinding(updated)
-            }
-        }
+        jobs.forEach { it.join() }
     }
-
     suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
         val ordered = orderedResults(results)
         val visibleFirst =
@@ -886,6 +903,10 @@ internal fun DiscogsDirectVersionBrowser(
         sortMode = requestedSort
         session.sortMode = requestedSort
         persistInputs()
+        val explicitArtistHint = TitleMeaningResolver.trailingArtistHint(title)
+        if (!explicitArtistHint.isNullOrBlank()) {
+            resolvedOriginalArtist = explicitArtistHint
+        }
         val criteria = buildCriteria()
         if (criteria.title.isBlank()) {
             error = "Inserisci il titolo del brano."
@@ -1063,8 +1084,22 @@ internal fun DiscogsDirectVersionBrowser(
                 runCatching { externalDeferred.await() }
                     .getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
 
+            if (explicitArtistHint.isNullOrBlank()) {
+                external.candidates
+                    .firstOrNull { it.originalWorkReference && it.artist.isNotBlank() }
+                    ?.artist
+                    ?.let { resolvedOriginalArtist = it }
+            }
+
             if (external.candidates.isNotEmpty()) {
-                val externalSeeds = external.candidates.map(DiscogsVersionSource::externalSeed)
+                val externalSeeds =
+                    external.candidates.map { candidate ->
+                        DiscogsVersionSource.externalSeed(
+                            candidate = candidate,
+                            targetTitle = criteria.title,
+                            originalArtist = resolvedOriginalArtist,
+                        )
+                    }
                 results = mergePage(results, externalSeeds, replace = false)
                 session.results = results
                 scheduleVideoPreload()
@@ -1919,14 +1954,21 @@ private fun DiscogsVersionCard(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(top = 4.dp),
                     ) {
+                        val videoReady = !seed.resolvedVideoId.isNullOrBlank()
                         Text(
                             when {
-                                !seed.resolvedVideoId.isNullOrBlank() -> "Tocca per riprodurre"
+                                videoReady -> "Tocca per riprodurre"
                                 seed.videoResolutionChecked -> "Video non trovato"
                                 else -> "Video in verifica…"
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            color =
+                                when {
+                                    videoReady -> Color(0xFF2E7D32)
+                                    seed.videoResolutionChecked -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            fontWeight = if (videoReady) FontWeight.SemiBold else FontWeight.Normal,
                             modifier = Modifier.weight(1f),
                         )
                         TextButton(onClick = onDetails) {
