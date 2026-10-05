@@ -860,7 +860,9 @@ internal object DiscogsVersionSource {
             formats = emptyList(),
             formatDescriptions = emptyList(),
             labels = emptyList(),
-            coverUrl = candidate.coverUrl,
+            coverUrl =
+                candidate.coverUrl
+                    ?: candidate.playbackVideoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
             durationSeconds = candidate.durationSeconds,
             fingerprint = fingerprint,
             track = null,
@@ -869,7 +871,16 @@ internal object DiscogsVersionSource {
             language = candidate.language,
             confidenceScore = candidate.evidenceScore.coerceIn(1, 10),
             confidenceReasons =
-                listOf("Trovata da: " + candidate.sources.joinToString(", ")),
+                buildList {
+                    add("Trovata da: " + candidate.sources.joinToString(", "))
+                    if (!candidate.playbackVideoId.isNullOrBlank()) {
+                        add("Video già associato dalla fonte: ${candidate.playbackVideoSource ?: "fonte esterna"}")
+                    }
+                },
+            resolvedVideoId = candidate.playbackVideoId,
+            resolvedVideoTitle = candidate.playbackVideoTitle,
+            resolvedVideoSource = candidate.playbackVideoSource,
+            videoResolutionChecked = !candidate.playbackVideoId.isNullOrBlank(),
             sourceNames = candidate.sources.distinct(),
             sourceUrl = candidate.sourceUrl,
             discogsVerificationChecked = true,
