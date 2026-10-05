@@ -33,11 +33,23 @@ test('family uses one stable test-only signing profile', () => {
   assert.match(builder, /UAB_FAMILY_SIGNING_KEY_B64_FILE/);
 });
 
-test('MotorLab r17 update-family lifecycle is active in MusicLab satellite', () => {
-  assert.match(localCore, /RELEASE=2026\.10\.05-r17/);
+test('MotorLab r18 update-family and paired safety lifecycle are active in MusicLab satellite', () => {
+  assert.match(localCore, /RELEASE=2026\.10\.05-r18/);
   assert.match(localCore, /UPDATE_FAMILY_LIFECYCLE=required/);
-  assert.match(sync, /LOCAL_RELEASE=2026\.10\.05-r17/);
+  assert.match(sync, /LOCAL_RELEASE=2026\.10\.05-r18/);
   assert.match(sync, /UPDATE_FAMILY_MODE=lab/);
   assert.match(sync, /UPDATE_FAMILY_ID=01/);
+  assert.match(sync, /PAIRED_SAFETY_LAB=required/);
   assert.match(hook, /MOTORLAB_UPDATE_FAMILY_LIFECYCLE_MODULE=MOTORLAB_UPDATE_FAMILY_LIFECYCLE_V1\.txt/);
+  assert.match(hook, /MOTORLAB_PAIRED_SAFETY_LAB=required/);
+});
+
+test('paired LAB di sicurezza 44 is built from same source with different family and certificate', () => {
+  const workflow = fs.readFileSync('.github/workflows/lab44-aggiornamento-family-01-gate.yml', 'utf8');
+  assert.match(workflow, /MusicLab-LAB-di-sicurezza-44/);
+  assert.match(workflow, /it\.verlezza\.musiclab\.safety44/);
+  assert.match(workflow, /musiclab_safety_44/);
+  assert.match(workflow, /apksigner/);
+  assert.match(workflow, /PAIRED_UPDATE_SHA=\$GITHUB_SHA/);
+  assert.match(workflow, /Upload LAB di sicurezza 44/);
 });
