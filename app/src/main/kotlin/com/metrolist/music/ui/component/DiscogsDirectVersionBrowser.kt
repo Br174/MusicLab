@@ -520,25 +520,43 @@ internal fun DiscogsDirectVersionBrowser(
         if (!replace) current.forEach(::rememberKnownVideoBinding)
 
         val merged = linkedMapOf<String, DiscogsVersionSeed>()
+        val bucketKeys = linkedMapOf<String, MutableList<String>>()
+
+        fun indexSeed(key: String, seed: DiscogsVersionSeed) {
+            val bucket = DiscogsVersionSource.crossSourceBucketKey(seed)
+            val keys = bucketKeys.getOrPut(bucket) { mutableListOf() }
+            if (key !in keys) keys += key
+        }
+
         if (!replace) {
             current.filterNot(::isRejected).forEach { seed ->
-                merged[DiscogsVersionSource.identityKey(seed)] = seed
+                val key = DiscogsVersionSource.identityKey(seed)
+                merged[key] = seed
+                indexSeed(key, seed)
             }
         }
+
         incoming.filterNot(::isRejected).forEach { seed ->
             val exactKey = DiscogsVersionSource.identityKey(seed)
-            val equivalentEntry =
-                merged.entries.firstOrNull { (_, existing) ->
-                    DiscogsVersionSource.sameCrossSourceVersion(existing, seed)
-                }
-            val key = equivalentEntry?.key ?: exactKey
-            val previous = equivalentEntry?.value ?: merged[exactKey]
-            merged[key] =
+            val bucket = DiscogsVersionSource.crossSourceBucketKey(seed)
+            val equivalentKey =
+                bucketKeys[bucket]
+                    .orEmpty()
+                    .firstOrNull { candidateKey ->
+                        merged[candidateKey]?.let { existing ->
+                            DiscogsVersionSource.sameCrossSourceVersion(existing, seed)
+                        } == true
+                    }
+            val key = equivalentKey ?: exactKey
+            val previous = merged[key]
+            val updated =
                 if (previous == null) {
                     seed
                 } else {
                     DiscogsVersionSource.mergeCrossSourceEvidence(previous, seed)
                 }
+            merged[key] = updated
+            indexSeed(key, updated)
         }
 
         val recordingDeduped = DiscogsVersionSource.dedupeVersions(merged.values.toList())
@@ -602,13 +620,16 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun orderedResults(source: List<DiscogsVersionSeed>): List<DiscogsVersionSeed> {
         val byId = source.associateBy { it.fingerprint }
+        val seen = HashSet<String>(source.size)
         val ordered =
             buildList {
                 session.stableOrder.forEach { fingerprint ->
-                    byId[fingerprint]?.let(::add)
+                    byId[fingerprint]?.let { seed ->
+                        if (seen.add(seed.fingerprint)) add(seed)
+                    }
                 }
                 source.forEach { seed ->
-                    if (none { it.fingerprint == seed.fingerprint }) add(seed)
+                    if (seen.add(seed.fingerprint)) add(seed)
                 }
             }.filter(DiscogsVersionSource::isDisplayableDirectSeed)
                 .filter(::modeAcceptsSeed)
