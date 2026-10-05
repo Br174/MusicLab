@@ -540,6 +540,7 @@ internal object CoverDiscoverySources {
 
         var searchDocument: org.jsoup.nodes.Document? = null
         var usedSearch = ""
+        var publicSearchReachable = false
         for (term in searchTerms) {
             val url =
                 "https://cover.info/en/search".toHttpUrl().newBuilder()
@@ -548,6 +549,7 @@ internal object CoverDiscoverySources {
                     .toString()
             val html = fetchHtml(url) ?: continue
             val parsed = runCatching { Jsoup.parse(html, "https://cover.info") }.getOrNull() ?: continue
+            publicSearchReachable = true
             if (parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty()) {
                 searchDocument = parsed
                 usedSearch = term
@@ -559,9 +561,14 @@ internal object CoverDiscoverySources {
             searchDocument
                 ?: return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
                     "COVER.INFO",
-                    false,
-                    0,
-                    "ricerca pubblica non disponibile",
+                    available = publicSearchReachable,
+                    found = 0,
+                    note =
+                        if (publicSearchReachable) {
+                            "raggiungibile · nessuna corrispondenza"
+                        } else {
+                            "ricerca pubblica non disponibile"
+                        },
                 )
 
         val searchSeeds = parseCoverInfoDocument(document)
