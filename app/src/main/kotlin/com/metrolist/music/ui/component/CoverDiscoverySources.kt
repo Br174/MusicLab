@@ -144,8 +144,32 @@ internal object CoverDiscoverySources {
             }
         }
 
+        // LRCLIB currently exposes title/artist/album/duration but no musical release date.
+        // Reuse publication evidence already fetched by the other music sources in this
+        // same discovery cycle. Never substitute a YouTube upload date.
+        val publicationYearByExactRecording =
+            lanes
+                .flatMap { it.first }
+                .filter { it.year != null }
+                .groupBy { candidate ->
+                    canonical(candidate.title) + "|" + canonicalArtist(candidate.artist)
+                }
+                .mapValues { (_, candidates) ->
+                    candidates.mapNotNull { it.year }.minOrNull()
+                }
+
+        val publicationEnriched =
+            merged.values.map { candidate ->
+                if (candidate.year == null && "LRCLIB" in candidate.sources) {
+                    val key = canonical(candidate.title) + "|" + canonicalArtist(candidate.artist)
+                    candidate.copy(year = publicationYearByExactRecording[key])
+                } else {
+                    candidate
+                }
+            }
+
         val ordered =
-            merged.values
+            publicationEnriched
                 .sortedWith(
                     compareByDescending<CoverSourceCandidate> { it.evidenceScore }
                         .thenBy { it.year ?: Int.MAX_VALUE }
@@ -460,7 +484,11 @@ internal object CoverDiscoverySources {
             "LRCLIB",
             true,
             candidates.size,
-            if (candidates.isEmpty()) "raggiungibile · nessuna corrispondenza" else "catalogo/testi senza chiave",
+            if (candidates.isEmpty()) {
+                "raggiungibile · nessuna corrispondenza"
+            } else {
+                "catalogo/testi senza chiave · data musicale arricchita da altre fonti quando disponibile"
+            },
         )
     }
 
