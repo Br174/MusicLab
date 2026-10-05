@@ -988,10 +988,21 @@ internal fun DiscogsDirectVersionBrowser(
                 memoryVersions
                     .filter { it.brainStatus == AiBrainDecisionStatus.APPROVED }
                     .map { candidate ->
+                        val categoryName =
+                            if (mode == DiscogsDirectMode.ORIGINAL) {
+                                when (candidate.category) {
+                                    AiCoverCategory.LIVE -> "live"
+                                    AiCoverCategory.REMIX -> "remix"
+                                    AiCoverCategory.FOREIGN -> "straniera"
+                                    AiCoverCategory.COVER -> "originale"
+                                }
+                            } else {
+                                candidate.category.cloudName
+                            }
                         CloudMusicDiscovery.memoryKey(
                             candidate.title,
                             candidate.artist,
-                            candidate.category.cloudName,
+                            categoryName,
                         )
                     },
             )
