@@ -80,6 +80,7 @@ internal data class DiscogsVersionSeed(
     val sourceUrl: String? = null,
     val discogsVerificationChecked: Boolean = false,
     val manuallyApproved: Boolean = false,
+    val originalWorkReference: Boolean = false,
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
@@ -186,6 +187,7 @@ internal object DiscogsVersionSource {
                     ).forEach { detailed ->
                         val scored = recalculateConfidence(
                             seed = detailed,
+                            targetTitle = targetTitle,
                             mode = mode,
                             originalArtist = originalArtist,
                         )
@@ -215,11 +217,8 @@ internal object DiscogsVersionSource {
         originalArtist: String,
     ): Boolean =
         when (mode) {
-            DiscogsDirectMode.COVER ->
-                !sameArtist(seed.artist, originalArtist) ||
-                    seed.kind != DiscogsVersionKind.STUDIO
-            DiscogsDirectMode.ORIGINAL ->
-                sameArtist(seed.artist, originalArtist)
+            DiscogsDirectMode.COVER -> true
+            DiscogsDirectMode.ORIGINAL -> sameArtist(seed.artist, originalArtist)
         }
 
     suspend fun loadOriginalWorkCredits(
@@ -336,6 +335,7 @@ internal object DiscogsVersionSource {
                         confidenceReasons = (seed.confidenceReasons + detailed.confidenceReasons).distinct(),
                         discogsVerificationChecked = true,
                     ),
+                    targetTitle = targetTitle,
                     mode = mode,
                     originalArtist = originalArtist,
                 )
@@ -831,6 +831,8 @@ internal object DiscogsVersionSource {
 
     internal fun externalSeed(
         candidate: CoverSourceCandidate,
+        targetTitle: String = candidate.title,
+        originalArtist: String = "",
     ): DiscogsVersionSeed {
         val kind =
             when (candidate.category) {
@@ -847,6 +849,32 @@ internal object DiscogsVersionSource {
                 canonicalArtist(candidate.artist),
                 kind.name.lowercase(),
             ).joinToString("|")
+        val titleMatch =
+            TitleMeaningResolver.classify(
+                targetTitle = targetTitle,
+                value = candidate.title,
+                artistAliases = setOf(originalArtist).filter(String::isNotBlank).toSet(),
+            )
+        val artistIsOriginal =
+            candidate.originalWorkReference ||
+                (originalArtist.isNotBlank() && sameArtist(candidate.artist, originalArtist))
+        val baseScore =
+            when {
+                candidate.originalWorkReference && titleMatch != TitleMeaningMatch.DIFFERENT -> 10
+                artistIsOriginal && titleMatch == TitleMeaningMatch.EXACT && kind == DiscogsVersionKind.STUDIO -> 10
+                artistIsOriginal && titleMatch != TitleMeaningMatch.DIFFERENT -> 9
+                candidate.workRelationConfirmed && titleMatch == TitleMeaningMatch.EXACT -> 8
+                titleMatch == TitleMeaningMatch.EXACT -> 7
+                candidate.workRelationConfirmed -> 7
+                titleMatch == TitleMeaningMatch.DECORATED -> 6
+                else -> candidate.evidenceScore.coerceIn(1, 5)
+            }
+        val sourceBonus =
+            if (candidate.sources.distinct().size >= 2 && baseScore in 5..8) 1 else 0
+        val externalScore =
+            (baseScore + sourceBonus)
+                .coerceAtMost(if (artistIsOriginal) 10 else 9)
+                .coerceIn(1, 10)
         return DiscogsVersionSeed(
             trackTitle = candidate.title,
             artist = candidate.artist,
@@ -869,10 +897,24 @@ internal object DiscogsVersionSource {
             videos = emptyList(),
             credits = emptyList(),
             language = candidate.language,
-            confidenceScore = candidate.evidenceScore.coerceIn(1, 10),
+            confidenceScore = externalScore,
             confidenceReasons =
                 buildList {
                     add("Trovata da: " + candidate.sources.joinToString(", "))
+                    when {
+                        candidate.originalWorkReference ->
+                            add("COVER.INFO: riferimento iniziale/originale dell’opera")
+                        artistIsOriginal && titleMatch == TitleMeaningMatch.EXACT ->
+                            add("Titolo esatto + interprete originale")
+                        artistIsOriginal ->
+                            add("Interprete originale + variante del titolo/versione")
+                        candidate.workRelationConfirmed ->
+                            add("Relazione diretta con l’opera confermata")
+                        titleMatch == TitleMeaningMatch.EXACT ->
+                            add("Titolo esatto")
+                        titleMatch == TitleMeaningMatch.DECORATED ->
+                            add("Titolo compatibile/decorato")
+                    }
                     if (!candidate.playbackVideoId.isNullOrBlank()) {
                         add("Video già associato dalla fonte: ${candidate.playbackVideoSource ?: "fonte esterna"}")
                     }
@@ -884,6 +926,7 @@ internal object DiscogsVersionSource {
             sourceNames = candidate.sources.distinct(),
             sourceUrl = candidate.sourceUrl,
             discogsVerificationChecked = true,
+            originalWorkReference = artistIsOriginal,
         )
     }
 
@@ -908,8 +951,11 @@ internal object DiscogsVersionSource {
 
         val base = if (incomingIsRicher) incoming else existing
         val other = if (incomingIsRicher) existing else incoming
+        val mergedOriginalReference =
+            existing.originalWorkReference || incoming.originalWorkReference
         val mergedScore =
             (maxOf(existing.confidenceScore, incoming.confidenceScore) + newlyIndependent)
+                .coerceAtMost(if (mergedOriginalReference) 10 else 9)
                 .coerceIn(1, 10)
 
         return base.copy(
@@ -943,6 +989,7 @@ internal object DiscogsVersionSource {
             discogsVerificationChecked =
                 existing.discogsVerificationChecked || incoming.discogsVerificationChecked,
             manuallyApproved = existing.manuallyApproved || incoming.manuallyApproved,
+            originalWorkReference = mergedOriginalReference,
         )
     }
 
@@ -1009,107 +1056,103 @@ internal object DiscogsVersionSource {
         hasMaster: Boolean,
     ): Pair<Int, List<String>> {
         var score = 1
-        val reasons = mutableListOf<String>()
+        val reasons = mutableListOf("Candidato Discogs: tracklist non ancora verificata")
         val genericArtist = isGenericArtist(artist)
 
         if (!genericArtist) {
-            score += 2
+            score += 1
             reasons += "Interprete nominativo"
+            if (sameArtist(artist, originalArtist)) {
+                score += 2
+                reasons += "Possibile interprete originale"
+            }
         } else {
-            reasons += "Interprete generico/Various: da verificare nella tracklist"
-        }
-
-        when (mode) {
-            DiscogsDirectMode.COVER -> {
-                if (!genericArtist && !sameArtist(artist, originalArtist)) {
-                    score += 3
-                    reasons += "Interprete diverso dall'originale"
-                } else if (!genericArtist && kind != DiscogsVersionKind.STUDIO) {
-                    score += 2
-                    reasons += "Stesso interprete ma variante esplicita"
-                }
-            }
-            DiscogsDirectMode.ORIGINAL -> {
-                if (!genericArtist && sameArtist(artist, originalArtist)) {
-                    score += 3
-                    reasons += "Interprete originale coincidente"
-                }
-            }
+            reasons += "Interprete generico/Various"
         }
 
         if (kind != DiscogsVersionKind.STUDIO) {
             score += 1
-            reasons += "Tipo di versione distinto: ${kind.name.lowercase()}"
+            reasons += "Variante esplicita: ${kind.name.lowercase()}"
         }
         if (hasMaster) {
             score += 1
             reasons += "Relazione Master Discogs"
         }
-        return score.coerceIn(1, 8) to reasons.distinct()
-    }
 
+        return score.coerceIn(1, 5) to reasons.distinct()
+    }
     private fun recalculateConfidence(
         seed: DiscogsVersionSeed,
+        targetTitle: String,
         mode: DiscogsDirectMode,
         originalArtist: String,
     ): DiscogsVersionSeed {
         if (seed.track == null) {
             return seed.copy(
-                confidenceScore = seed.confidenceScore.coerceIn(1, 10),
-                confidenceReasons = (seed.confidenceReasons + "Candidato non ancora confermato dalla tracklist").distinct(),
+                confidenceScore = seed.confidenceScore.coerceIn(1, 5),
+                confidenceReasons =
+                    (seed.confidenceReasons + "Candidato non ancora confermato dalla tracklist").distinct(),
             )
         }
 
-        var score = 5
-        val reasons = seed.confidenceReasons.toMutableList()
-        reasons += "Traccia esatta verificata nella release"
-
-        if (!isGenericArtist(seed.artist)) {
-            score += 1
-            reasons += "Interprete verificato nella tracklist"
-        }
-
-        when (mode) {
-            DiscogsDirectMode.COVER -> {
-                if (!isGenericArtist(seed.artist) && !sameArtist(seed.artist, originalArtist)) {
-                    score += 2
-                    reasons += "Cover: interprete realmente diverso"
-                } else if (
-                    !isGenericArtist(seed.artist) &&
-                    sameArtist(seed.artist, originalArtist) &&
-                    seed.kind != DiscogsVersionKind.STUDIO
-                ) {
-                    score += 1
-                    reasons += "Versione alternativa dell'interprete originale"
-                }
-            }
-            DiscogsDirectMode.ORIGINAL -> {
-                if (!isGenericArtist(seed.artist) && sameArtist(seed.artist, originalArtist)) {
-                    score += 2
-                    reasons += "Originali: interprete verificato nella tracklist"
-                }
-            }
-        }
-
-        if (seed.kind != DiscogsVersionKind.STUDIO) {
-            score += 1
-            reasons += "Tipo di versione distinto: ${seed.kind.name.lowercase()}"
-        }
-
+        val titleMatch =
+            TitleMeaningResolver.classify(
+                targetTitle = targetTitle,
+                value = seed.trackTitle,
+                artistAliases = setOf(originalArtist).filter(String::isNotBlank).toSet(),
+            )
+        val genericArtist = isGenericArtist(seed.artist)
+        val originalArtistMatch = !genericArtist && sameArtist(seed.artist, originalArtist)
         val strongCredit = seed.credits.any { credit ->
             CREDIT_IDENTITY_REGEX.containsMatchIn(credit.role.lowercase())
         }
-        if (strongCredit) {
-            score += 1
-            reasons += "Crediti autore/compositore/adattamento presenti"
-        }
+
+        var score =
+            when {
+                originalArtistMatch &&
+                    titleMatch == TitleMeaningMatch.EXACT &&
+                    seed.kind == DiscogsVersionKind.STUDIO -> 10
+
+                originalArtistMatch && titleMatch != TitleMeaningMatch.DIFFERENT -> 9
+                !genericArtist && titleMatch == TitleMeaningMatch.EXACT -> 8
+                !genericArtist && titleMatch == TitleMeaningMatch.DECORATED -> 7
+                titleMatch == TitleMeaningMatch.EXACT -> 6
+                titleMatch == TitleMeaningMatch.DECORATED -> 5
+                else -> 3
+            }
+
+        if (!originalArtistMatch && strongCredit && score in 4..8) score += 1
+        if (!originalArtistMatch && seed.masterId != null && score in 4..8) score += 1
+        score = score.coerceAtMost(if (originalArtistMatch) 10 else 9)
+
+        val reasons =
+            buildList {
+                add("Traccia verificata nella tracklist")
+                when (titleMatch) {
+                    TitleMeaningMatch.EXACT -> add("Titolo esatto")
+                    TitleMeaningMatch.DECORATED -> add("Titolo compatibile/decorato")
+                    TitleMeaningMatch.DIFFERENT -> add("Titolo solo parzialmente compatibile")
+                }
+                when {
+                    originalArtistMatch && seed.kind == DiscogsVersionKind.STUDIO ->
+                        add("Interprete originale + registrazione studio")
+                    originalArtistMatch ->
+                        add("Interprete originale + versione ${seed.kind.name.lowercase()}")
+                    !genericArtist ->
+                        add("Cover/adattamento con interprete verificato")
+                    else ->
+                        add("Interprete generico/Various")
+                }
+                if (strongCredit) add("Crediti autore/compositore/adattamento presenti")
+                if (seed.masterId != null) add("Relazione Master Discogs")
+            }
 
         return seed.copy(
             confidenceScore = score.coerceIn(1, 10),
-            confidenceReasons = reasons.distinct(),
+            confidenceReasons = (seed.confidenceReasons + reasons).distinct(),
+            originalWorkReference = originalArtistMatch,
         )
     }
-
     private fun isGenericArtist(value: String): Boolean {
         val normalized = canonical(value)
         return normalized.isBlank() ||
