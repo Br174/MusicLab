@@ -23,7 +23,11 @@ class PoTokenGenerator(context: Context) {
     private var webPoTokenStreamingPot: String? = null
     private var webPoTokenGenerator: PoTokenWebView? = null
 
-    suspend fun getWebClientPoToken(videoId: String, sessionId: String): PoTokenResult? {
+    suspend fun getWebClientPoToken(
+        videoId: String,
+        sessionId: String,
+        timeoutMs: Long = POTOKEN_TIMEOUT_MS,
+    ): PoTokenResult? {
         Timber.tag(TAG).d("WebView state: supported=$webViewSupported, badImpl=$webViewBadImpl")
         if (!webViewSupported || webViewBadImpl) {
             Timber.tag(TAG).d("WebView not available: supported=$webViewSupported, badImpl=$webViewBadImpl")
@@ -31,7 +35,7 @@ class PoTokenGenerator(context: Context) {
         }
 
         return try {
-            withTimeout(POTOKEN_TIMEOUT_MS) {
+            withTimeout(timeoutMs) {
                 getWebClientPoToken(videoId, sessionId, forceRecreate = false)
             }
         } catch (e: TimeoutCancellationException) {
@@ -39,7 +43,7 @@ class PoTokenGenerator(context: Context) {
             // memory, etc.) which leaves the PoToken WebView call hung indefinitely. Cap it so
             // playerResponseForPlayback can fall through to non-PoToken fallback clients (e.g.
             // ANDROID_VR) instead of blocking the entire playback path.
-            Timber.tag(TAG).w("poToken generation timed out after ${POTOKEN_TIMEOUT_MS}ms; proceeding without PoToken")
+            Timber.tag(TAG).w("poToken generation timed out after ${timeoutMs}ms; proceeding without PoToken")
             clearGenerator()
             null
         } catch (e: CancellationException) {
