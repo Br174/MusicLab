@@ -69,6 +69,20 @@ internal object TitleMeaningResolver {
             result = result.substring(0, separator.range.first).trim()
         }
         result = stripTrailingArtistHint(result)
+
+        // Some YouTube/provider metadata arrives as "Performer - Song" inside the
+        // title field while the separate artist/channel field points elsewhere.
+        // Keep the original decorated title for the first search lane, but expose
+        // a conservative work anchor for the fallback lane. Requiring a multi-word
+        // leading credit avoids rewriting ordinary one-word hyphenated song titles.
+        LEADING_ARTIST_CREDIT.matchEntire(result)?.let { match ->
+            val possibleArtist = match.groupValues[1].trim()
+            val possibleTitle = match.groupValues[2].trim()
+            if (looksLikeLeadingArtistCredit(possibleArtist, possibleTitle)) {
+                result = possibleTitle
+            }
+        }
+
         return result.ifBlank { stripTrailingArtistHint(value).trim() }
     }
 
@@ -228,6 +242,22 @@ internal object TitleMeaningResolver {
         }
     }
 
+    private fun looksLikeLeadingArtistCredit(
+        possibleArtist: String,
+        possibleTitle: String,
+    ): Boolean {
+        val artist = canonical(possibleArtist)
+        val title = canonical(possibleTitle)
+        if (artist.isBlank() || title.isBlank()) return false
+
+        val artistTokens = artist.split(' ').filter(String::isNotBlank)
+        val titleTokens = title.split(' ').filter(String::isNotBlank)
+        if (artistTokens.size !in 2..6 || titleTokens.size !in 1..12) return false
+        if (artistTokens.any { it in TECHNICAL_TOKENS || it.matches(Regex("(?:18|19|20)\\d{2}")) }) return false
+        if (titleTokens.all { it in TECHNICAL_TOKENS }) return false
+        return possibleArtist.any(Char::isLetter) && possibleTitle.any(Char::isLetter)
+    }
+
     private fun isTechnicalSegment(value: String): Boolean {
         val normalized = canonical(value)
         if (normalized.isBlank()) return false
@@ -253,6 +283,7 @@ internal object TitleMeaningResolver {
         "featuring", "duet", "duetto",
     )
 
+    private val LEADING_ARTIST_CREDIT = Regex("""^\s*(.{2,80}?)\s+[-–—]\s+(.{1,180})\s*$""")
     private val TRAILING_PARENTHESIS = Regex("""\s*\(([^()]*)\)\s*$""")
     private val TRAILING_TECHNICAL_SUFFIX = Regex("""\s*[-–—:|·]\s*([^\n]+)$""")
     private val VERSION_DESCRIPTOR_GROUPS = listOf(
