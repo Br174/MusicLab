@@ -19,6 +19,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -55,6 +56,8 @@ internal object CloudMusicDiscovery {
             .readTimeout(9, TimeUnit.SECONDS)
             .writeTimeout(4, TimeUnit.SECONDS)
             .build()
+
+    private val activeArchiveCalls = ConcurrentHashMap.newKeySet<okhttp3.Call>()
 
     private val json = Json { ignoreUnknownKeys = true }
     private val mediaType = "application/json; charset=utf-8".toMediaType()
@@ -296,7 +299,7 @@ internal object CloudMusicDiscovery {
                 .build()
 
         val root = runCatching {
-            executeCancellable(request).use { response ->
+            executeCancellable(request, trackArchive = true).use { response ->
                 if (!response.isSuccessful) return@use null
                 val text = response.body?.string() ?: return@use null
                 json.parseToJsonElement(text).jsonObject
@@ -468,19 +471,35 @@ internal object CloudMusicDiscovery {
      * Couples the OkHttp call to coroutine cancellation. Leaving the screen or
      * cancelling a Cover/Cloud job now aborts the actual HTTP call immediately.
      */
-    private suspend fun executeCancellable(request: Request): okhttp3.Response =
+    internal fun cancelArchiveRequests() {
+        activeArchiveCalls.toList().forEach { call ->
+            call.cancel()
+            activeArchiveCalls.remove(call)
+        }
+    }
+
+    private suspend fun executeCancellable(
+        request: Request,
+        trackArchive: Boolean = false,
+    ): okhttp3.Response =
         suspendCancellableCoroutine { continuation ->
             val call = client.newCall(request)
-            continuation.invokeOnCancellation { call.cancel() }
+            if (trackArchive) activeArchiveCalls.add(call)
+            continuation.invokeOnCancellation {
+                if (trackArchive) activeArchiveCalls.remove(call)
+                call.cancel()
+            }
             call.enqueue(
                 object : okhttp3.Callback {
                     override fun onFailure(call: okhttp3.Call, error: IOException) {
+                        if (trackArchive) activeArchiveCalls.remove(call)
                         if (continuation.isActive) {
                             continuation.resumeWith(Result.failure(error))
                         }
                     }
 
                     override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        if (trackArchive) activeArchiveCalls.remove(call)
                         if (continuation.isActive) {
                             continuation.resumeWith(Result.success(response))
                         } else {
