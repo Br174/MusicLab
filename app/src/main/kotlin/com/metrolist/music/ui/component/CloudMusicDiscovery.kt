@@ -1,6 +1,7 @@
 package com.metrolist.music.ui.component
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -17,6 +18,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -119,7 +121,7 @@ internal object CloudMusicDiscovery {
                 .build()
 
         val root = runCatching {
-            client.newCall(request).execute().use { response ->
+            executeCancellable(request).use { response ->
                 if (!response.isSuccessful) return@use null
                 val text = response.body?.string() ?: return@use null
                 json.parseToJsonElement(text).jsonObject
@@ -221,7 +223,7 @@ internal object CloudMusicDiscovery {
             .build()
 
         runCatching {
-            client.newCall(request).execute().use { response -> response.isSuccessful }
+            executeCancellable(request).use { response -> response.isSuccessful }
         }.getOrDefault(false)
     }
 
@@ -269,7 +271,7 @@ internal object CloudMusicDiscovery {
                 .build()
 
         runCatching {
-            client.newCall(request).execute().use { response -> response.isSuccessful }
+            executeCancellable(request).use { response -> response.isSuccessful }
         }.getOrDefault(false)
     }
 
@@ -294,7 +296,7 @@ internal object CloudMusicDiscovery {
                 .build()
 
         val root = runCatching {
-            client.newCall(request).execute().use { response ->
+            executeCancellable(request).use { response ->
                 if (!response.isSuccessful) return@use null
                 val text = response.body?.string() ?: return@use null
                 json.parseToJsonElement(text).jsonObject
@@ -409,7 +411,7 @@ internal object CloudMusicDiscovery {
         )
     }
 
-    private fun request(
+    private suspend fun request(
         title: String,
         artist: String,
         mode: String,
@@ -454,13 +456,40 @@ internal object CloudMusicDiscovery {
                 .post(body.toString().toRequestBody(mediaType))
                 .build()
         return runCatching {
-            client.newCall(request).execute().use { response ->
+            executeCancellable(request).use { response ->
                 if (!response.isSuccessful) return@use null
                 val text = response.body?.string() ?: return@use null
                 json.parseToJsonElement(text).jsonObject
             }
         }.getOrNull()
     }
+
+    /**
+     * Couples the OkHttp call to coroutine cancellation. Leaving the screen or
+     * cancelling a Cover/Cloud job now aborts the actual HTTP call immediately.
+     */
+    private suspend fun executeCancellable(request: Request): okhttp3.Response =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(
+                object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, error: IOException) {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(Result.failure(error))
+                        }
+                    }
+
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(Result.success(response))
+                        } else {
+                            response.close()
+                        }
+                    }
+                },
+            )
+        }
 
     private fun parseCover(root: JsonObject): AiCoverDiscoveryResult? {
         val originalObj = root["original"]?.runCatching { jsonObject }?.getOrNull()
