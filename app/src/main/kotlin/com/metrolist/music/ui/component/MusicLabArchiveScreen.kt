@@ -16,6 +16,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +57,12 @@ internal fun MusicLabArchiveScreen(
     var loading by remember { mutableStateOf(true) }
     var items by remember { mutableStateOf<List<CloudArchiveItem>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            CloudMusicDiscovery.cancelArchiveRequests()
+        }
+    }
 
     LaunchedEffect(query, endpoint) {
         delay(if (query.isBlank()) 0 else 280)
