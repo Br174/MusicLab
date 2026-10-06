@@ -1,4 +1,4 @@
-name: LAB49 Aggiornamento + Sicurezza 48 Gate
+name: LAB49 Aggiornamento + Sicurezza 49 Gate
 
 on:
   push:
@@ -42,7 +42,8 @@ jobs:
         run: |
           node --test cloudflare/music-intelligence/test/lab46-originals-retry-player-contract.test.mjs
           node --test cloudflare/music-intelligence/test/lab46-red-retry-originals-player-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab48-player-isolation-contract.test.mjs\n          node --test cloudflare/music-intelligence/test/lab49-cancellable-background-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab48-player-isolation-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab49-cancellable-background-contract.test.mjs
 
       - uses: actions/setup-java@v4
         with:
@@ -189,13 +190,13 @@ jobs:
           SAFETY_CONFIG="$RUNNER_TEMP/musiclab-safety-49.env"
           SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety49"
 
-          keytool -genkeypair             -keystore "$SAFETY_KEY"             -storepass android             -alias musiclab_safety_48             -keypass android             -dname "CN=MusicLab LAB di sicurezza 49,O=MotorLab Test,C=IT"             -keyalg RSA             -keysize 2048             -validity 36500             -noprompt
+          keytool -genkeypair             -keystore "$SAFETY_KEY"             -storepass android             -alias musiclab_safety_49             -keypass android             -dname "CN=MusicLab LAB di sicurezza 49,O=MotorLab Test,C=IT"             -keyalg RSA             -keysize 2048             -validity 36500             -noprompt
 
           cat > "$SAFETY_CONFIG" <<'EOF'
           UAB_TASK=":app:assembleFossDebug"
           UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
           UAB_FILE_VERSION="LAB_DI_SICUREZZA_49"
-          UAB_OUTPUT_NAME="MusicLab-LAB-di-sicurezza-48"
+          UAB_OUTPUT_NAME="MusicLab-LAB-di-sicurezza-49"
           UAB_GRADLE_ARGS="-x lint"
           UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
           UAB_PARALLEL_INSTALL="off"
@@ -206,15 +207,15 @@ jobs:
           export PULL_REQUEST="false"
           EOF
 
-          UAB_CONFIG_FILE="$SAFETY_CONFIG"           UAB_OUTPUT_DIR="$SAFETY_OUT"           METROLIST_DEBUG_KEYSTORE_PATH="$SAFETY_KEY"           METROLIST_DEBUG_KEYSTORE_PASSWORD="android"           METROLIST_DEBUG_KEY_ALIAS="musiclab_safety_48"           METROLIST_DEBUG_KEY_PASSWORD="android"           CRASH_REPORT_TOKEN="${{ secrets.CRASH_REPORT_TOKEN }}"           CRASH_REPORT_REPO="${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}"           bash tools/universal-apk-builder/build-apk.sh .
+          UAB_CONFIG_FILE="$SAFETY_CONFIG"           UAB_OUTPUT_DIR="$SAFETY_OUT"           METROLIST_DEBUG_KEYSTORE_PATH="$SAFETY_KEY"           METROLIST_DEBUG_KEYSTORE_PASSWORD="android"           METROLIST_DEBUG_KEY_ALIAS="musiclab_safety_49"           METROLIST_DEBUG_KEY_PASSWORD="android"           CRASH_REPORT_TOKEN="${{ secrets.CRASH_REPORT_TOKEN }}"           CRASH_REPORT_REPO="${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}"           bash tools/universal-apk-builder/build-apk.sh .
 
       - name: Verify LAB di sicurezza 49 isolation
         shell: bash
         run: |
           set -euo pipefail
           SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety49"
-          APK="$SAFETY_OUT/apk/MusicLab-LAB-di-sicurezza-48.apk"
-          ZIP="$SAFETY_OUT/MusicLab-LAB-di-sicurezza-48-APK.zip"
+          APK="$SAFETY_OUT/apk/MusicLab-LAB-di-sicurezza-49.apk"
+          ZIP="$SAFETY_OUT/MusicLab-LAB-di-sicurezza-49-APK.zip"
           test -s "$APK"
           test -s "$ZIP"
           unzip -tq "$ZIP"
@@ -249,11 +250,11 @@ jobs:
         id: upload_safety
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-di-sicurezza-48
+          name: MusicLab-LAB-di-sicurezza-49
           path: |
-            dist/safety49/apk/MusicLab-LAB-di-sicurezza-48.apk
+            dist/safety49/apk/MusicLab-LAB-di-sicurezza-49.apk
             dist/safety49/apk/SHA256SUMS.txt
-            dist/safety49/MusicLab-LAB-di-sicurezza-48-APK.zip
+            dist/safety49/MusicLab-LAB-di-sicurezza-49-APK.zip
             dist/safety49/BUILD_SHA.txt
             dist/safety49/SAFETY_49.txt
             dist/safety49/SAFETY_SHA256SUMS.txt
