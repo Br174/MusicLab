@@ -1,0 +1,71 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const read = (p) => fs.readFileSync(p, 'utf8');
+const discogs = read('app/src/main/kotlin/com/metrolist/music/discogs/DiscogsClient.kt');
+const cloud = read('app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt');
+const sources = read('app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt');
+const browser = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt');
+const archive = read('app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabArchiveScreen.kt');
+const player = read('app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt');
+
+test('LAB49 preserves the LAB41 Player buono core', () => {
+  assert.match(player, /LAB07_FAST_LANE_TIMEOUT_MS = 1_800L/);
+  assert.match(player, /tokenProvider = fastTokenProvider/);
+  assert.match(player, /tokenProvider = tokenProvider/);
+});
+
+test('Discogs retry and rate-limit path is fully coroutine-cancellable', () => {
+  assert.doesNotMatch(discogs, /Thread\.sleep\(/);
+  assert.doesNotMatch(discogs, /\.execute\(\)/);
+  assert.match(discogs, /suspendCancellableCoroutine/);
+  assert.match(discogs, /invokeOnCancellation \{ call\.cancel\(\) \}/);
+  assert.match(discogs, /delay\(retryMs\)/);
+  assert.match(discogs, /if \(waitMs > 0L\) delay\(waitMs\)/);
+});
+
+test('Cloud and COVER.INFO network lanes cancel their real OkHttp calls', () => {
+  for (const source of [cloud, sources]) {
+    assert.doesNotMatch(source, /Thread\.sleep\(/);
+    assert.doesNotMatch(source, /\.execute\(\)/);
+    assert.match(source, /suspendCancellableCoroutine/);
+    assert.match(source, /call\.cancel\(\)/);
+  }
+  assert.match(sources, /delay\(180\)/);
+});
+
+test('Cover background work does not restart while playback is active', () => {
+  const start = browser.indexOf('fun resumeCoverBackgroundAfterPlaybackBurst()');
+  const end = browser.indexOf('fun saveDecision(', start);
+  assert.ok(start >= 0 && end > start);
+  const resume = browser.slice(start, end);
+  assert.match(resume, /isEffectivelyPlaying\?\.value == true/);
+  assert.match(resume, /playbackState\?\.value == Player\.STATE_BUFFERING/);
+  const guard = resume.lastIndexOf('isEffectivelyPlaying?.value == true');
+  const restart = resume.indexOf('scheduleDiscogsVerification()');
+  assert.ok(guard >= 0 && restart > guard, 'provider work restarts before playback-idle guard');
+});
+
+test('one tapped row owns one playback coroutine and screen exit cancels all screen jobs', () => {
+  assert.match(browser, /playbackLaunchJob\?\.cancel\(\)/);
+  assert.match(browser, /playbackLaunchJob = scope\.launch/);
+  assert.match(browser, /DisposableEffect\(sessionKey\)/);
+  for (const job of [
+    'playbackLaunchJob',
+    'searchJob',
+    'paginationJob',
+    'verificationJob',
+    'videoPreloadJob',
+    'backgroundResumeJob',
+  ]) {
+    assert.match(browser, new RegExp(job + '\\\?\\\.cancel\\\(\\\)'));
+  }
+});
+
+test('leaving Archivio MusicLab hard-stops archive HTTP calls', () => {
+  assert.match(cloud, /internal fun cancelArchiveRequests\(\)/);
+  assert.match(cloud, /activeArchiveCalls/);
+  assert.match(archive, /DisposableEffect\(Unit\)/);
+  assert.match(archive, /CloudMusicDiscovery\.cancelArchiveRequests\(\)/);
+});
