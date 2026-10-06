@@ -30,6 +30,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -247,6 +248,7 @@ internal fun DiscogsDirectVersionBrowser(
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var backgroundResumeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    var playbackLaunchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
     var closeSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
 
@@ -254,6 +256,20 @@ internal fun DiscogsDirectVersionBrowser(
         initialFirstVisibleItemIndex = session.listIndex,
         initialFirstVisibleItemScrollOffset = session.listOffset,
     )
+
+    DisposableEffect(sessionKey) {
+        onDispose {
+            // LAB49 lifecycle barrier: leaving Cover/Originali must terminate every
+            // job owned by this screen. Underlying Discogs/Cloud/COVER.INFO calls are
+            // now coroutine-cancellable too, so this is a real network stop.
+            playbackLaunchJob?.cancel()
+            searchJob?.cancel()
+            paginationJob?.cancel()
+            verificationJob?.cancel()
+            videoPreloadJob?.cancel()
+            backgroundResumeJob?.cancel()
+        }
+    }
 
     fun persistInputs() {
         session.title = title
@@ -958,10 +974,25 @@ internal fun DiscogsDirectVersionBrowser(
         backgroundResumeJob?.cancel()
         backgroundResumeJob =
             scope.launch {
-                while (playerConnection?.isPlaybackPriorityBurstActive() == true) {
-                    delay(120)
+                // LAB49: never restart provider/discovery work merely because the
+                // first-sound burst ended. That LAB47 cycle could stack uncancelled
+                // blocking provider calls track after track. Background work resumes
+                // only after playback itself is no longer active.
+                while (
+                    playerConnection?.isPlaybackPriorityBurstActive() == true ||
+                    playerConnection?.isEffectivelyPlaying?.value == true ||
+                    playerConnection?.playbackState?.value == Player.STATE_BUFFERING
+                ) {
+                    delay(400)
                 }
-                delay(250)
+                delay(300)
+                if (
+                    playerConnection?.isPlaybackPriorityBurstActive() == true ||
+                    playerConnection?.isEffectivelyPlaying?.value == true ||
+                    playerConnection?.playbackState?.value == Player.STATE_BUFFERING
+                ) {
+                    return@launch
+                }
                 scheduleDiscogsVerification()
                 scheduleVideoPreload()
             }
@@ -1675,10 +1706,11 @@ internal fun DiscogsDirectVersionBrowser(
         // BEFORE any tapped-row lookup so resolver work, preload and list discovery
         // can never outrank first sound.
         playerConnection?.beginPlaybackPriorityBurst("musiclab-version")
+        playbackLaunchJob?.cancel()
         pauseCoverBackgroundForPlayback()
         backgroundResumeJob?.cancel()
 
-        scope.launch {
+        playbackLaunchJob = scope.launch {
             var currentSeed =
                 results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
 
