@@ -4,12 +4,15 @@ import com.metrolist.music.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
+import java.io.IOException
 import java.net.URLDecoder
 import java.text.Normalizer
 import java.util.concurrent.ConcurrentHashMap
@@ -230,7 +233,7 @@ internal object CoverDiscoverySources {
         )
     }
 
-    private fun discoverITunes(
+    private suspend fun discoverITunes(
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
@@ -285,7 +288,7 @@ internal object CoverDiscoverySources {
         return candidates to CoverSourceDiagnostic("Apple/iTunes", true, candidates.size, "catalogo senza chiave")
     }
 
-    private fun discoverLastFm(
+    private suspend fun discoverLastFm(
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
@@ -375,7 +378,7 @@ internal object CoverDiscoverySources {
         )
     }
 
-    private fun discoverLastFmPublic(
+    private suspend fun discoverLastFmPublic(
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
@@ -441,7 +444,7 @@ internal object CoverDiscoverySources {
             .replace(Regex("\\s+"), " ")
             .trim()
 
-    private fun discoverLrcLib(
+    private suspend fun discoverLrcLib(
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
@@ -559,7 +562,7 @@ internal object CoverDiscoverySources {
         }
     }
 
-    private fun discoverCoverInfo(
+    private suspend fun discoverCoverInfo(
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
@@ -839,7 +842,7 @@ internal object CoverDiscoverySources {
         )
     }
 
-    private fun fetchHtml(url: String): String? {
+    private suspend fun fetchHtml(url: String): String? {
         val request =
             Request.Builder()
                 .url(url)
@@ -847,26 +850,26 @@ internal object CoverDiscoverySources {
                 .header("Accept", "text/html,application/xhtml+xml")
                 .build()
         return runCatching {
-            client.newCall(request).execute().use { response ->
+            executeCancellable(request).use { response ->
                 if (!response.isSuccessful) return@use null
                 response.body?.string()?.takeIf(String::isNotBlank)
             }
         }.getOrNull()
     }
 
-    private fun fetchObject(url: String): JSONObject? =
+    private suspend fun fetchObject(url: String): JSONObject? =
         fetchText(url)?.let { runCatching { JSONObject(it) }.getOrNull() }
 
-    private fun fetchArray(url: String): JSONArray? =
+    private suspend fun fetchArray(url: String): JSONArray? =
         fetchText(url)?.let { runCatching { JSONArray(it) }.getOrNull() }
 
-    private fun fetchArrayWithRetry(url: String): JSONArray? {
+    private suspend fun fetchArrayWithRetry(url: String): JSONArray? {
         fetchArray(url)?.let { return it }
-        Thread.sleep(180)
+        delay(180)
         return fetchArray(url)
     }
 
-    private fun fetchText(url: String): String? {
+    private suspend fun fetchText(url: String): String? {
         val request =
             Request.Builder()
                 .url(url)
@@ -874,12 +877,35 @@ internal object CoverDiscoverySources {
                 .header("Accept", "application/json")
                 .build()
         return runCatching {
-            client.newCall(request).execute().use { response ->
+            executeCancellable(request).use { response ->
                 if (!response.isSuccessful) return@use null
                 response.body?.string()?.takeIf(String::isNotBlank)
             }
         }.getOrNull()
     }
+
+    private suspend fun executeCancellable(request: Request): okhttp3.Response =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(
+                object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, error: IOException) {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(Result.failure(error))
+                        }
+                    }
+
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(Result.success(response))
+                        } else {
+                            response.close()
+                        }
+                    }
+                },
+            )
+        }
 
     private fun modeAcceptsArtist(
         mode: DiscogsDirectMode,
