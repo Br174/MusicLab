@@ -10,6 +10,10 @@ MOTORLAB_PROJECT_STATE=MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt
 MOTORLAB_CHANGE_HISTORY_MODULE=MOTORLAB_CHANGE_HISTORY_REGISTRY_V1.txt
 MOTORLAB_CHANGE_REGISTRY=MOTORLAB_CHANGE_REGISTRY_MUSICLAB_V1.txt
 MOTORLAB_SATELLITE_SYNC_MODULE=MOTORLAB_SATELLITE_SYNC_V1.txt
+MOTORLAB_POLLICINO_MODULE=MOTORLAB_POLLICINO_CONTINUITY_V1.txt
+MOTORLAB_PERSISTENT_OPERATIONAL_STATE_MODULE=MOTORLAB_PERSISTENT_OPERATIONAL_STATE_V1.txt
+MOTORLAB_EXECUTION_FABRIC_MODULE=MOTORLAB_EXECUTION_FABRIC_V1.txt
+MOTORLAB_VELOCITY_LAYER_MODULE=MOTORLAB_VELOCITY_LAYER_V1.txt
 MOTORLAB_FAST_ITERATION_NO_SPIN_MODULE=MOTORLAB_FAST_ITERATION_NO_SPIN_V1.txt
 MOTORLAB_UPDATE_FAMILY_LIFECYCLE_MODULE=MOTORLAB_UPDATE_FAMILY_LIFECYCLE_V1.txt
 MOTORLAB_LOCAL_CORE=.motorlab/MOTORLAB_LOCAL_CORE.txt
@@ -29,6 +33,14 @@ MOTORLAB_SELECTIVE_EXACT_RESTORE=required
 MOTORLAB_PROJECT_CHAT_POLICY=promptless-cross-chat-continuity
 MOTORLAB_NATIVE_ENGINE_POLICY=coexist-preserve
 MOTORLAB_VISIBLE_ACTIVATION_PROOF=required
+MOTORLAB_DEFERRED_MATERIALIZATION=required
+MOTORLAB_EVENT_MEMORY=required
+MOTORLAB_DYNAMIC_PRUNING=required
+MOTORLAB_PROGRESSIVE_BRANCHING=required
+MOTORLAB_DYNAMIC_DAG=required
+MOTORLAB_CONTENT_ADDRESSED_REUSE=required
+MOTORLAB_WORK_ELIMINATION_FIRST=required
+MOTORLAB_LOCAL_EXECUTION_FABRIC=.motorlab/execution/motorlab_execution_fabric.mjs
 MOTORLAB_ITERATION_MODE=risk-scaled
 MOTORLAB_NO_SPIN_HANDOFF=required
 MOTORLAB_FOREGROUND_JOB_PROBES_MAX=2
@@ -71,8 +83,10 @@ MANDATORY RULES
 24. LAB -> CANDIDATA creates a new immutable family from the approved LAB state/method and must not mutate the LAB family. Approved CANDIDATA -> MADRE promotes that same candidate source/family identity.
 25. Every verified LAB NN aggiornamento must also produce LAB di sicurezza NN from the same functional source state, with a distinct package/family and unique test-only certificate. Safety is immutable and can seed a new active update family if later updates corrupt.
 
+MOTORLAB_LOCAL_RELEASE_TARGET=2026.10.06-r23
+
 VERSION
-MOTORLAB-PROJECT-HOOK-V1.10
+MOTORLAB-PROJECT-HOOK-V1.11
 Established: 2026-09-29
 Revision 1.5: r8 pre-response gate + Project Continuity.
 Revision 1.6: r12 MusicLab risk-scaled FAST LAB + No-Spin durable handoff.
@@ -82,3 +96,6 @@ Revision 1.8: r17 MusicLab update-family mode with stable LAB package/signing id
 Revision 1.9: r18 paired immutable LAB di sicurezza checkpoint for every LAB aggiornamento.
 
 Revision 1.10: r19 foundational Change Compatibility Pillar; every MusicLab change must preflight overlap/redundancy/conflict and preserve one active coordinator per responsibility.
+
+R23 ADOPTION
+MotorLab r23 is active on this working branch: eliminate reusable work first, recompute only invalidated deltas, prioritize the TTTA critical path, grow/prune the DAG dynamically, branch progressively, keep one integration lane and preserve material event memory. Project runtime/domain behavior is unchanged by this control-plane adoption.
