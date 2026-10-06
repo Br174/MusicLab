@@ -84,6 +84,7 @@ private const val DIRECT_VIDEO_BATCH_SIZE = 8
 private const val DIRECT_VIDEO_PARALLELISM = 3
 private const val DIRECT_BACKGROUND_PREFETCH_AHEAD = 4
 private const val DIRECT_PREPARED_VIDEO_CACHE_LIMIT = 48
+private const val DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 2_500L
 private val DirectCoverGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 
 private enum class DirectVersionCategory {
@@ -1670,8 +1671,10 @@ internal fun DiscogsDirectVersionBrowser(
         session.selectedFingerprint = seed.fingerprint
         resolvingFingerprint = seed.fingerprint
 
-        // The selected row owns the device now: stop list/network maintenance before
-        // resolving or starting audio. This prevents Cover from fighting the player.
+        // The selected row owns the device immediately. Activate playback priority
+        // BEFORE any tapped-row lookup so resolver work, preload and list discovery
+        // can never outrank first sound.
+        playerConnection?.beginPlaybackPriorityBurst("musiclab-version")
         pauseCoverBackgroundForPlayback()
         backgroundResumeJob?.cancel()
 
@@ -1683,15 +1686,17 @@ internal fun DiscogsDirectVersionBrowser(
                 currentSeed.resolvedVideoId.isNullOrBlank() &&
                 !currentSeed.videoResolutionChecked
             ) {
-                // Resolve only the tapped row. Never keep six/twenty-four sibling
-                // resolvers alive while Bruno is waiting for first sound.
-                resolveVideoChunk(listOf(currentSeed))
+                // Resolve only the tapped row and never allow a slow provider chain
+                // to hold the playback lane indefinitely. Background discovery can
+                // continue after the priority burst if this quick attempt times out.
+                withTimeoutOrNull(DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS) {
+                    resolveVideoChunk(listOf(currentSeed))
+                }
                 currentSeed =
                     results.firstOrNull { it.fingerprint == seed.fingerprint } ?: currentSeed
             }
 
             if (!currentSeed.resolvedVideoId.isNullOrBlank()) {
-                playerConnection?.beginPlaybackPriorityBurst("musiclab-version")
                 resolvingFingerprint = null
                 try {
                     playResolvedContext(currentSeed.fingerprint)
