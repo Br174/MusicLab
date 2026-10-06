@@ -1,6 +1,8 @@
 package com.metrolist.music.discogs
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -186,7 +188,7 @@ internal object DiscogsClient {
         }
     }
 
-    private fun parseRelease(
+    private suspend fun parseRelease(
         root: JSONObject,
         token: String,
         includeMasterVideos: Boolean = true,
@@ -219,7 +221,7 @@ internal object DiscogsClient {
         var videos = root.videoList()
         if (videos.isEmpty() && masterId != null && includeMasterVideos) {
             videos = runCatching {
-                requestJsonBlocking("$API_BASE/masters/$masterId", token).videoList()
+                requestJson("$API_BASE/masters/$masterId", token).videoList()
             }.getOrDefault(emptyList())
         }
 
@@ -257,14 +259,14 @@ internal object DiscogsClient {
         )
     }
 
-    private fun requestJson(url: String, token: String): JSONObject =
-        requestJsonBlocking(url, token)
-
-    private fun requestJsonBlocking(url: String, token: String): JSONObject {
+    private suspend fun requestJson(url: String, token: String): JSONObject {
         var attempt = 0
         var useAuthentication = token.isNotBlank()
         while (true) {
-            awaitRequestSlot(if (useAuthentication) DISCOGS_MIN_REQUEST_INTERVAL_MS else DISCOGS_PUBLIC_MIN_REQUEST_INTERVAL_MS)
+            awaitRequestSlot(
+                if (useAuthentication) DISCOGS_MIN_REQUEST_INTERVAL_MS
+                else DISCOGS_PUBLIC_MIN_REQUEST_INTERVAL_MS,
+            )
 
             val requestBuilder =
                 Request.Builder()
@@ -282,7 +284,7 @@ internal object DiscogsClient {
             var retryWithoutAuthentication = false
 
             try {
-                client.newCall(request).execute().use { response ->
+                executeCancellable(request).use { response ->
                     val remaining = response.header("X-Discogs-Ratelimit-Remaining")?.toIntOrNull()
                     if (remaining != null && remaining <= 3) {
                         extendRequestGate(DISCOGS_LOW_REMAINING_PAUSE_MS)
@@ -292,8 +294,6 @@ internal object DiscogsClient {
                         response.isSuccessful && body.isNotBlank() -> successBody = body
 
                         (response.code == 401 || response.code == 403) && useAuthentication -> {
-                            // A stale/invalid personal token must never make Discogs disappear.
-                            // Retry the same public catalogue request without Authorization.
                             retryWithoutAuthentication = true
                         }
 
@@ -310,13 +310,15 @@ internal object DiscogsClient {
                         }
 
                         !response.isSuccessful -> {
-                            val message = runCatching {
-                                JSONObject(body).optString("message")
-                            }.getOrNull().orEmpty()
-                            terminalError = IOException(
-                                "Discogs HTTP " + response.code +
-                                    message.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty(),
-                            )
+                            val message =
+                                runCatching { JSONObject(body).optString("message") }
+                                    .getOrNull()
+                                    .orEmpty()
+                            terminalError =
+                                IOException(
+                                    "Discogs HTTP " + response.code +
+                                        message.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty(),
+                                )
                         }
 
                         body.isBlank() -> terminalError = IOException("Risposta Discogs vuota")
@@ -339,19 +341,49 @@ internal object DiscogsClient {
             }
             terminalError?.let { throw it }
 
-            val delayMs = retryDelayMs ?: throw IOException("Errore Discogs")
+            val retryMs = retryDelayMs ?: throw IOException("Errore Discogs")
             attempt += 1
-            Thread.sleep(delayMs)
+            delay(retryMs)
         }
     }
-    private fun awaitRequestSlot(minIntervalMs: Long) {
-        synchronized(requestGate) {
-            val now = System.currentTimeMillis()
-            val waitMs = (nextAllowedRequestAtMs - now).coerceAtLeast(0L)
-            if (waitMs > 0L) Thread.sleep(waitMs)
-            nextAllowedRequestAtMs =
-                maxOf(nextAllowedRequestAtMs, System.currentTimeMillis()) + minIntervalMs
+
+    /**
+     * OkHttp Call legata alla coroutine chiamante: cancellare verification/search
+     * cancella anche il socket/retry reale invece di lasciare thread zombie.
+     */
+    private suspend fun executeCancellable(request: Request): okhttp3.Response =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(
+                object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, error: IOException) {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(Result.failure(error))
+                        }
+                    }
+
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(Result.success(response))
+                        } else {
+                            response.close()
+                        }
+                    }
+                },
+            )
         }
+
+    private suspend fun awaitRequestSlot(minIntervalMs: Long) {
+        val waitMs =
+            synchronized(requestGate) {
+                val now = System.currentTimeMillis()
+                val wait = (nextAllowedRequestAtMs - now).coerceAtLeast(0L)
+                nextAllowedRequestAtMs =
+                    maxOf(nextAllowedRequestAtMs, now) + minIntervalMs
+                wait
+            }
+        if (waitMs > 0L) delay(waitMs)
     }
 
     private fun extendRequestGate(extraMs: Long) {
