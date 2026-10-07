@@ -415,16 +415,18 @@ internal object CoverDiscoverySources {
                     val artist = decodeLastFmPath(match.groupValues[1])
                     val candidateTitle = decodeLastFmPath(match.groupValues[2])
                     if (artist.isBlank() || candidateTitle.isBlank()) return@mapNotNull null
-                    if (!sameBaseTitle(title, candidateTitle)) return@mapNotNull null
                     if (!modeAcceptsArtist(mode, artist, originalArtist)) return@mapNotNull null
 
+                    val titleMatches = sameBaseTitle(title, candidateTitle)
                     CoverSourceCandidate(
                         title = candidateTitle,
                         artist = artist,
                         sources = listOf("Last.fm"),
-                        category = categoryFromTitle(candidateTitle),
+                        category =
+                            if (titleMatches) categoryFromTitle(candidateTitle)
+                            else AiCoverCategory.FOREIGN,
                         sourceUrl = cleanUrl,
-                        evidenceScore = 2,
+                        evidenceScore = if (titleMatches) 2 else 1,
                     )
                 }
                 .distinctBy { identity(it.title, it.artist, it.category) }
