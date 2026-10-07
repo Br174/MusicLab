@@ -43,38 +43,40 @@ test('play path does not hydrate or append a delayed next item', () => {
   assert.doesNotMatch(playResolved, /while \(connection\.isPlaybackPriorityBurstActive\(\)\)/);
 });
 
-test('playback cancellation owns a persistent background barrier', () => {
+test('playback cancellation owns a short critical barrier without killing Cover discovery', () => {
   const pause = functionSlice(
     'fun pauseCoverBackgroundForPlayback()',
     'fun resumeCoverBackgroundAfterPlaybackBurst()',
   );
   assert.match(pause, /backgroundPausedForPlayback = true/);
-  for (const job of ['searchJob', 'paginationJob', 'verificationJob', 'videoPreloadJob', 'backgroundResumeJob']) {
+  for (const job of ['verificationJob', 'videoPreloadJob', 'backgroundResumeJob']) {
     assert.match(pause, new RegExp(job + '\\\?\\\.cancel\\\(\\\)'));
   }
+  assert.doesNotMatch(pause, /searchJob\?\.cancel\(\)/);
+  assert.doesNotMatch(pause, /paginationJob\?\.cancel\(\)/);
 
   const resume = functionSlice(
     'fun resumeCoverBackgroundAfterPlaybackBurst()',
     'fun saveDecision(',
   );
-  assert.match(resume, /isEffectivelyPlaying\?\.value == true/);
-  assert.match(resume, /playbackState\?\.value == Player\.STATE_BUFFERING/);
+  assert.match(resume, /while \(playbackIsCritical\(\)\)/);
   assert.match(resume, /backgroundPausedForPlayback = false/);
   assert.match(resume, /scheduleDiscogsVerification\(\)/);
   assert.match(resume, /scheduleVideoPreload\(\)/);
 });
 
-test('automatic preload verification and progressive pagination respect playback ownership', () => {
-  assert.match(browser, /fun backgroundWorkBlocked\(\): Boolean = backgroundPausedForPlayback \|\| playbackIsActive\(\)/);
+test('automatic preload and verification respect only the critical playback barrier', () => {
+  assert.match(browser, /fun backgroundWorkBlocked\(\): Boolean = backgroundPausedForPlayback \|\| playbackIsCritical\(\)/);
 
   const preload = functionSlice('fun scheduleVideoPreload()', 'fun scheduleDiscogsVerification()');
   assert.match(preload, /if \(backgroundWorkBlocked\(\)\) return/);
   assert.match(preload, /if \(backgroundWorkBlocked\(\)\) break/);
+  assert.match(preload, /DIRECT_COVER_PLAYBACK_BATCH_SIZE/);
 
   const verification = functionSlice('fun scheduleDiscogsVerification()', 'fun pauseCoverBackgroundForPlayback()');
   assert.match(verification, /if \(backgroundWorkBlocked\(\)\) return/);
   assert.match(verification, /if \(backgroundWorkBlocked\(\)\) break/);
 
   const pagination = functionSlice('fun loadNextPage()', 'fun retryMissingVideo(');
-  assert.match(pagination, /if \(backgroundWorkBlocked\(\)\) return/);
+  assert.match(pagination, /if \(backgroundWorkBlocked\(\) \|\| currentPage <= 0 \|\| currentPage >= totalPages\) return/);
 });
