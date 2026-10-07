@@ -35,16 +35,24 @@ test('Cloud and COVER.INFO network lanes cancel their real OkHttp calls', () => 
   assert.match(sources, /delay\(180\)/);
 });
 
-test('Cover background work does not restart while playback is active', () => {
+test('Cover background work stays blocked through playback critical start, then may resume during normal playback', () => {
+  const criticalStart = browser.indexOf('fun playbackIsCritical()');
+  const criticalEnd = browser.indexOf('fun backgroundWorkBlocked()', criticalStart);
+  assert.ok(criticalStart >= 0 && criticalEnd > criticalStart);
+  const critical = browser.slice(criticalStart, criticalEnd);
+  assert.match(critical, /isPlaybackPriorityBurstActive\(\) == true/);
+  assert.match(critical, /playbackState\?\.value == Player\.STATE_BUFFERING/);
+  assert.doesNotMatch(critical, /isEffectivelyPlaying/);
+
   const start = browser.indexOf('fun resumeCoverBackgroundAfterPlaybackBurst()');
   const end = browser.indexOf('fun saveDecision(', start);
   assert.ok(start >= 0 && end > start);
   const resume = browser.slice(start, end);
-  assert.match(resume, /isEffectivelyPlaying\?\.value == true/);
-  assert.match(resume, /playbackState\?\.value == Player\.STATE_BUFFERING/);
-  const guard = resume.lastIndexOf('isEffectivelyPlaying?.value == true');
+  assert.match(resume, /while \(playbackIsCritical\(\)\)/);
+  assert.match(resume, /backgroundPausedForPlayback = false/);
+  const guard = resume.lastIndexOf('playbackIsCritical()');
   const restart = resume.indexOf('scheduleDiscogsVerification()');
-  assert.ok(guard >= 0 && restart > guard, 'provider work restarts before playback-idle guard');
+  assert.ok(guard >= 0 && restart > guard, 'provider work restarts before critical-playback guard');
 });
 
 test('one tapped row owns one playback coroutine and screen exit cancels all screen jobs', () => {
