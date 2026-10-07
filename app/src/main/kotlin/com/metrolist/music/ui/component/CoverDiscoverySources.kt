@@ -830,7 +830,8 @@ internal object CoverDiscoverySources {
         val candidates =
             refs.mapNotNull { ref ->
                 if (ref.title.isBlank() || ref.artist.isBlank()) return@mapNotNull null
-                if (sameArtist(ref.artist, originalArtist)) return@mapNotNull null
+                val samePerformerAsOriginal =
+                    originalArtist.isNotBlank() && sameArtist(ref.artist, originalArtist)
                 CoverSourceCandidate(
                     title = ref.title,
                     artist = ref.artist,
@@ -839,7 +840,7 @@ internal object CoverDiscoverySources {
                     category =
                         if (ref.translatedOrAdaptedTitle) AiCoverCategory.FOREIGN
                         else categoryFromTitle(ref.title),
-                    evidenceScore = 2,
+                    evidenceScore = if (samePerformerAsOriginal) 1 else 2,
                 )
             }.distinctBy { identity(it.title, it.artist, it.category) }
         return candidates to CoverSourceDiagnostic(
