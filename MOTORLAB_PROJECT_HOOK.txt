@@ -10,12 +10,11 @@ MOTORLAB_PROJECT_STATE=MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt
 MOTORLAB_CHANGE_HISTORY_MODULE=MOTORLAB_CHANGE_HISTORY_REGISTRY_V1.txt
 MOTORLAB_CHANGE_REGISTRY=MOTORLAB_CHANGE_REGISTRY_MUSICLAB_V1.txt
 MOTORLAB_SATELLITE_SYNC_MODULE=MOTORLAB_SATELLITE_SYNC_V1.txt
-MOTORLAB_POLLICINO_MODULE=MOTORLAB_POLLICINO_CONTINUITY_V1.txt
 MOTORLAB_PERSISTENT_OPERATIONAL_STATE_MODULE=MOTORLAB_PERSISTENT_OPERATIONAL_STATE_V1.txt
 MOTORLAB_EXECUTION_FABRIC_MODULE=MOTORLAB_EXECUTION_FABRIC_V1.txt
 MOTORLAB_VELOCITY_LAYER_MODULE=MOTORLAB_VELOCITY_LAYER_V1.txt
 MOTORLAB_FAST_ITERATION_NO_SPIN_MODULE=MOTORLAB_FAST_ITERATION_NO_SPIN_V1.txt
-MOTORLAB_UPDATE_FAMILY_LIFECYCLE_MODULE=MOTORLAB_UPDATE_FAMILY_LIFECYCLE_V1.txt
+MOTORLAB_EXECUTION_CONTINUITY_MODULE=MOTORLAB_EXECUTION_CONTINUITY_V1.txt
 MOTORLAB_LOCAL_CORE=.motorlab/MOTORLAB_LOCAL_CORE.txt
 MOTORLAB_LOCAL_LAST_GOOD=.motorlab/MOTORLAB_LOCAL_CORE_LAST_GOOD.txt
 MOTORLAB_LOCAL_SYNC_STATE=.motorlab/MOTORLAB_SYNC_STATE.txt
@@ -24,6 +23,7 @@ MOTORLAB_GLOBAL_PERSISTENT_ACTIVATION_MODULE=MOTORLAB_GLOBAL_PERSISTENT_ACTIVATI
 MOTORLAB_SESSION_BOOT_BANNER_MODULE=MOTORLAB_SESSION_BOOT_BANNER_V1.txt
 MOTORLAB_WATCHDOG_MODULE=MOTORLAB_WATCHDOG_V1.txt
 MOTORLAB_RESUME_RECOVERY_MODULE=MOTORLAB_RESUME_RECOVERY_V1.txt
+MOTORLAB_POLLICINO_MODULE=MOTORLAB_POLLICINO_CONTINUITY_V1.txt
 MOTORLAB_ACTIVATION_MODE=implicit-persistent-local-first
 MOTORLAB_PRE_RESPONSE_BOOT_GATE=required
 MOTORLAB_PROJECT_CONTINUITY=required
@@ -33,6 +33,8 @@ MOTORLAB_SELECTIVE_EXACT_RESTORE=required
 MOTORLAB_PROJECT_CHAT_POLICY=promptless-cross-chat-continuity
 MOTORLAB_NATIVE_ENGINE_POLICY=coexist-preserve
 MOTORLAB_VISIBLE_ACTIVATION_PROOF=required
+MOTORLAB_VERSIONED_BOOT_BANNER=required
+MOTORLAB_ALL_PROJECTS_REQUIRED=required
 MOTORLAB_DEFERRED_MATERIALIZATION=required
 MOTORLAB_EVENT_MEMORY=required
 MOTORLAB_DYNAMIC_PRUNING=required
@@ -46,19 +48,18 @@ MOTORLAB_NO_SPIN_HANDOFF=required
 MOTORLAB_FOREGROUND_JOB_PROBES_MAX=2
 MOTORLAB_FULL_REGRESSION_AT=high-risk,candidate,madre
 MOTORLAB_FAST_LAB=conditional
-MOTORLAB_UPDATE_FAMILY_MODE=lab
-MOTORLAB_UPDATE_FAMILY_ID=01
-MOTORLAB_PAIRED_SAFETY_LAB=required
-MOTORLAB_CHANGE_COMPATIBILITY_PILLAR=required
 MOTORLAB_BACKGROUND_MODE=github-actions
-MOTORLAB_REGRESSION_MAP=MusicLab-r13-default-profile
+MOTORLAB_POLLICINO_MODE=external-control-plane
+MOTORLAB_POLLICINO_EXECUTOR_ADAPTER=.codex/hooks/motorlab_pollicino.py
+MOTORLAB_POLLICINO_ENROLLMENT=source-proof-e2e-verified
+MOTORLAB_REGRESSION_MAP=MusicLab-r16-bootstrap-profile
 
 PURPOSE
 Persistent MusicLab-side structural hook for MotorLab. Every recognizable MusicLab chat activates MotorLab first, loads the verified local satellite, reconciles central MusicLab continuity against live GitHub state, preserves native MusicLab engines, and continues the latest logical operation without a transfer prompt. r12 enforces risk-scaled iteration/No-Spin; r13 adds semantic historical change lookup and selective exact restore from immutable Git provenance.
 
 MANDATORY RULES
 1. MotorLab activates before substantive MusicLab response/tool/write/build work.
-2. First user-visible line is "⚙️ MotorLab attivo".
+2. First user-visible line is "⚙️ MotorLab rNN attivo", where rNN matches the pinned session release.
 3. Do not require Bruno to paste activation or transfer prompts.
 4. Load MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt and reconcile against live repo/ref/head/workflow/job/artifact evidence before choosing current starting point.
 5. Load MOTORLAB_CHANGE_REGISTRY_MUSICLAB_V1.txt for historical semantic lookup/restoration; it never overrides newer current-state evidence.
@@ -79,11 +80,12 @@ MANDATORY RULES
 20. If an older MusicLab change predates r13 and is not indexed, perform bounded verified Git/ledger backfill, persist the new record, then use it.
 21. Every newly verified Bruno-requested material MusicLab change and every successful restore is automatically written through to the central change registry when possible.
 22. UAB remains canonical for installable MusicLab APK/ZIP output; avoid redundant build/test phases that add no distinct verification value.
-23. For Bruno's active Android update family, preserve the same applicationId and signing certificate across LAB NN aggiornamento revisions, strictly increase versionCode, and continue from the immediately previous LAB aggiornamento head.
-24. LAB -> CANDIDATA creates a new immutable family from the approved LAB state/method and must not mutate the LAB family. Approved CANDIDATA -> MADRE promotes that same candidate source/family identity.
-25. Every verified LAB NN aggiornamento must also produce LAB di sicurezza NN from the same functional source state, with a distinct package/family and unique test-only certificate. Safety is immutable and can seed a new active update family if later updates corrupt.
+23. Pollicino remains external MotorLab control-plane infrastructure: never inject liveness/breadcrumb code into MusicLab runtime/source.
+24. The external Codex sidecar self-enrolls through D1-gated source proof using the verified stable satellite POLLICINO_PROOF_HEAD first, with current project/active-operation SHA as fallback; it receives only an ephemeral session token and uses it for liveness/progress/terminal seals. Provider-native HMAC remains an optional stronger mode when already available. Never place secrets or session tokens in repository text.
 
-MOTORLAB_LOCAL_RELEASE_TARGET=2026.10.06-r23
+MOTORLAB_CODEX_BOOTSTRAP=required
+MOTORLAB_CODEX_HOOK=.codex/hooks.json
+MOTORLAB_LOCAL_RELEASE_TARGET=2026.10.07-r29
 
 VERSION
 MOTORLAB-PROJECT-HOOK-V1.11
@@ -91,11 +93,11 @@ Established: 2026-09-29
 Revision 1.5: r8 pre-response gate + Project Continuity.
 Revision 1.6: r12 MusicLab risk-scaled FAST LAB + No-Spin durable handoff.
 Revision 1.7: r13 semantic Change History registry, automatic verified change capture and selective exact restore/backfill.
-Revision 1.8: r17 MusicLab update-family mode with stable LAB package/signing identity and Bruno-facing LAB aggiornamento naming.
+Revision 1.8: r16 adds mandatory Codex SessionStart bootstrap, local r16 satellite adoption and central multi-service/persistent-state routing.
 
-Revision 1.9: r18 paired immutable LAB di sicurezza checkpoint for every LAB aggiornamento.
+Revision 1.9: r20 adopts external Pollicino continuity/sidecar on MusicLab without application runtime coupling; real enrollment remains provider-secret gated.
 
-Revision 1.10: r19 foundational Change Compatibility Pillar; every MusicLab change must preflight overlap/redundancy/conflict and preserve one active coordinator per responsibility.
+Revision 1.10: r20 Pollicino source-proof enrollment, ephemeral session tokens, stall/crash detection and preemptive RESUME_READY verified end-to-end; no MusicLab runtime coupling.
+Revision: r23 incremental dynamic execution adopted; obsolete active satellite semantics are superseded while LAST_GOOD rollback remains preserved.
 
-R23 ADOPTION
-MotorLab r23 is active on this working branch: eliminate reusable work first, recompute only invalidated deltas, prioritize the TTTA critical path, grow/prune the DAG dynamically, branch progressively, keep one integration lane and preserve material event memory. Project runtime/domain behavior is unchanged by this control-plane adoption.
+Revision 1.12: r27 zero-idle dual-lane satellite adoption at verified safe boundary.
