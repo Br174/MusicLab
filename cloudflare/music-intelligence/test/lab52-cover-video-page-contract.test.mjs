@@ -19,7 +19,7 @@ test('LAB52 Cover publishes ten video-ready rows per page without changing Origi
   assert.match(browser, /DIRECT_COVER_PAGE_SIZE = 10/);
   assert.match(browser, /DIRECT_VERSION_PAGE_SIZE = 20/);
   assert.match(browser, /pageSize = if \(mode == DiscogsDirectMode\.COVER\) DIRECT_COVER_PAGE_SIZE else DIRECT_VERSION_PAGE_SIZE/);
-  assert.match(browser, /orderedPool\.filter \{ !it\.resolvedVideoId\.isNullOrBlank\(\) \}/);
+  assert.match(browser, /orderedPool\.filter \{ seed ->[\s\S]*!seed\.resolvedVideoId\.isNullOrBlank\(\)/);
   assert.match(browser, /val visibleResults = readyPool\.take\(visibleLimit\)/);
 });
 
@@ -36,12 +36,14 @@ test('LAB52 uses a wider source fetch so failed videos do not prevent a ten-vide
   assert.match(browser, /readyVideoCount\(\)/);
 });
 
-test('LAB52 Cover card shows only the resolved video thumbnail, never an album-art fallback', () => {
+test('LAB52 Cover card keeps resolved-video thumbnail as the Cover image without album-art fallback', () => {
   assert.match(browser, /showVideoPreview = mode == DiscogsDirectMode\.COVER/);
-  assert.match(browser, /LAB52 Cover rule: never substitute album artwork in the Cover list/);
   assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
   assert.match(browser, /contentDescription = seed\.resolvedVideoTitle \?: "Video cover"/);
-  assert.match(browser, /Text\(\s*"▶"/);
+  const coverPreviewStart = browser.indexOf('if (showVideoPreview) {');
+  const coverPreviewEnd = browser.indexOf('} else {', coverPreviewStart);
+  const coverPreview = browser.slice(coverPreviewStart, coverPreviewEnd);
+  assert.doesNotMatch(coverPreview, /model = seed\.coverUrl/);
 });
 
 test('LAB52 preserves COVER.INFO direct video bindings and explicit source priority', () => {
