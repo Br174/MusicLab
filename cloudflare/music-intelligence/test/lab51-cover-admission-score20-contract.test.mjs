@@ -45,6 +45,14 @@ test('LAB51 keeps COVER admission open while semantic weakness is ranked', () =>
   assert.match(versionSource, /DiscogsDirectMode\.COVER -> true/);
   assert.match(browser, /samePerformerAsOriginal/);
   assert.match(browser, /Stesso interprete dell'originale: mantenuta in fondo a 1\/20/);
+  assert.match(
+    browser,
+    /if \(mode == DiscogsDirectMode\.ORIGINAL && resolvedOriginalArtist\.isBlank\(\)\)/,
+  );
+  assert.doesNotMatch(
+    browser,
+    /if \(resolvedOriginalArtist\.isBlank\(\)\) \{\s*error = "Interprete originale di riferimento mancante\."/,
+  );
 });
 
 test('LAB51 preserves relevance ordering from strongest to weakest', () => {
