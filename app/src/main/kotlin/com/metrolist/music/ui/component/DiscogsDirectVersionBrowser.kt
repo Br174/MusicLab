@@ -106,6 +106,21 @@ private enum class DirectVersionSort {
     NEWEST,
 }
 
+private fun directDisplayCategory(seed: DiscogsVersionSeed): DirectVersionCategory {
+    val text = (seed.trackTitle + " " + seed.releaseTitle).lowercase()
+    val liveTitle =
+        Regex("""\b(live|dal vivo|concert|concerto)\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+    val remixTitle =
+        Regex("""\b(remix|mix|extended mix|radio mix|club mix|dance mix)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(text)
+    return when {
+        liveTitle || seed.kind == DiscogsVersionKind.LIVE -> DirectVersionCategory.LIVE
+        remixTitle || seed.kind == DiscogsVersionKind.REMIX -> DirectVersionCategory.REMIX
+        !seed.language.isNullOrBlank() -> DirectVersionCategory.FOREIGN
+        else -> DirectVersionCategory.STUDIO
+    }
+}
+
 private data class DirectVersionSession(
     var title: String,
     var artistFilter: String = "",
