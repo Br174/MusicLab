@@ -57,8 +57,8 @@ test('playback cancellation owns a persistent background barrier', () => {
     'fun resumeCoverBackgroundAfterPlaybackBurst()',
     'fun saveDecision(',
   );
-  assert.match(resume, /isEffectivelyPlaying\\?\\.value == true/);
-  assert.match(resume, /playbackState\\?\\.value == Player\\.STATE_BUFFERING/);
+  assert.match(resume, /isEffectivelyPlaying\?\.value == true/);
+  assert.match(resume, /playbackState\?\.value == Player\.STATE_BUFFERING/);
   assert.match(resume, /backgroundPausedForPlayback = false/);
   assert.match(resume, /scheduleDiscogsVerification\(\)/);
   assert.match(resume, /scheduleVideoPreload\(\)/);
