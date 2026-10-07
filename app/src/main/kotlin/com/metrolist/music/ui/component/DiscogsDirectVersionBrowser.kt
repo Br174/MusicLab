@@ -2118,6 +2118,7 @@ internal fun DiscogsDirectVersionBrowser(
                 val seed = visibleResults[index]
                 DiscogsVersionCard(
                     seed = seed,
+                    showVideoPreview = mode == DiscogsDirectMode.COVER,
                     selected = seed.fingerprint == selectedFingerprint,
                     resolving = seed.fingerprint == resolvingFingerprint,
                     onPlay = { play(seed) },
@@ -2462,6 +2463,7 @@ private fun DirectFilterField(
 @Composable
 private fun DiscogsVersionCard(
     seed: DiscogsVersionSeed,
+    showVideoPreview: Boolean,
     selected: Boolean,
     resolving: Boolean,
     onPlay: () -> Unit,
@@ -2486,7 +2488,10 @@ private fun DiscogsVersionCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val videoId = seed.resolvedVideoId?.trim().orEmpty()
-            if (videoId.isNotBlank()) {
+            if (showVideoPreview) {
+                // LAB52 Cover rule: never substitute album artwork in the Cover list.
+                // A Cover row is published only with a resolved video id, therefore
+                // this image is the thumbnail belonging to that exact video.
                 Box(
                     modifier =
                         Modifier
@@ -2496,7 +2501,8 @@ private fun DiscogsVersionCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     AsyncImage(
-                        model = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg",
+                        model = videoId.takeIf(String::isNotBlank)
+                            ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
                         contentDescription = seed.resolvedVideoTitle ?: "Video cover",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
