@@ -12,10 +12,7 @@ const worker = fs.readFileSync(
 );
 
 test('LAB53 Cover video thumbnail is large square and has no play overlay or play hint', () => {
-  const card = browser.slice(
-    browser.indexOf('private fun DiscogsVersionCard'),
-    browser.indexOf('private fun DiscogsVersionDetailsDialog'),
-  );
+  const card = browser.slice(browser.indexOf('private fun DiscogsVersionCard'));
   assert.match(card, /showVideoPreview/);
   assert.match(card, /\.size\(144\.dp\)/);
   assert.match(card, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
