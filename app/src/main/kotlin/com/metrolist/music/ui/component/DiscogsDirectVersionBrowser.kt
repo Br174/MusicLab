@@ -973,16 +973,18 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     if (pendingBefore == 0) break
 
+                    val readyBefore = readyVideoCount()
                     resolveNextVideoBatch()
                     warmResolvedVideoMetadata()
+                    val readyAfter = readyVideoCount()
 
-                    val pendingAfter =
-                        videoPriorityPool(results).count { seed ->
+                    val anyPending =
+                        videoPriorityPool(results).any { seed ->
                             DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                                 playableTrack(seed) != null &&
                                 !seed.videoResolutionChecked
                         }
-                    if (pendingAfter >= pendingBefore && readyVideoCount() < targetReady) break
+                    if (readyAfter == readyBefore && !anyPending) break
                     delay(120)
                 }
                 warmResolvedVideoMetadata(limit = pageSize)
