@@ -488,8 +488,16 @@ internal object DiscogsVersionSource {
             title = title,
             artistFilter = null,
             maxDetails = maxDetails,
-        ).filter { seed ->
-            !sameArtist(seed.artist, originalArtist)
+        ).map { seed ->
+            if (originalArtist.isNotBlank() && sameArtist(seed.artist, originalArtist)) {
+                seed.copy(
+                    confidenceScore = 1,
+                    confidenceReasons =
+                        (seed.confidenceReasons + "Stesso interprete dell'originale: mantenuta in fondo a 1/20").distinct(),
+                )
+            } else {
+                seed
+            }
         }
 
         cache[key] = CacheEntry(System.currentTimeMillis() + CACHE_TTL_MS, result)
