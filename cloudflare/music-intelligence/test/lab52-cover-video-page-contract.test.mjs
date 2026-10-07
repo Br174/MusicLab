@@ -36,8 +36,10 @@ test('LAB52 uses a wider source fetch so failed videos do not prevent a ten-vide
   assert.match(browser, /readyVideoCount\(\)/);
 });
 
-test('LAB52 Cover card shows resolved video preview instead of relying on album artwork', () => {
-  assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$videoId\/hqdefault\.jpg/);
+test('LAB52 Cover card shows only the resolved video thumbnail, never an album-art fallback', () => {
+  assert.match(browser, /showVideoPreview = mode == DiscogsDirectMode\.COVER/);
+  assert.match(browser, /LAB52 Cover rule: never substitute album artwork in the Cover list/);
+  assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
   assert.match(browser, /contentDescription = seed\.resolvedVideoTitle \?: "Video cover"/);
   assert.match(browser, /Text\(\s*"▶"/);
 });
