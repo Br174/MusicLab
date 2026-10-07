@@ -6,7 +6,6 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -332,6 +331,9 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun isApproved(seed: DiscogsVersionSeed): Boolean =
         seed.manuallyApproved || rejectionKey(seed) in session.approvedKeys
+
+    fun isHiddenForCurrentCover(seed: DiscogsVersionSeed): Boolean =
+        mode == DiscogsDirectMode.COVER && isRejected(seed)
 
     fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
         val score =
@@ -894,7 +896,9 @@ internal fun DiscogsDirectVersionBrowser(
         )
 
     fun readyVideoCount(): Int =
-        orderedResults(results).count { !it.resolvedVideoId.isNullOrBlank() }
+        orderedResults(results).count { seed ->
+            !isHiddenForCurrentCover(seed) && !seed.resolvedVideoId.isNullOrBlank()
+        }
 
     suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
         val targetReady = visibleLimit.coerceAtLeast(pageSize)
@@ -906,7 +910,8 @@ internal fun DiscogsDirectVersionBrowser(
         val batch =
             videoPriorityPool(results)
                 .filter { seed ->
-                    DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
+                    !isHiddenForCurrentCover(seed) &&
+                        DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                         playableTrack(seed) != null &&
                         !seed.videoResolutionChecked
                 }
@@ -1005,7 +1010,8 @@ internal fun DiscogsDirectVersionBrowser(
                                     .coerceAtMost(results.size),
                             )
                             .firstOrNull { seed ->
-                                seed.releaseId > 0 &&
+                                !isHiddenForCurrentCover(seed) &&
+                                    seed.releaseId > 0 &&
                                     seed.track == null &&
                                     !seed.discogsVerificationChecked
                             } ?: break
@@ -1107,19 +1113,19 @@ internal fun DiscogsDirectVersionBrowser(
             if (status == AiBrainDecisionStatus.REJECTED) {
                 session.approvedKeys -= rejectionKey(seed)
                 session.rejectedKeys += rejectionKey(seed)
-                val downgraded =
+                val hidden =
                     seed.copy(
-                        confidenceScore = 1,
                         confidenceReasons =
-                            (seed.confidenceReasons + "Disapprovata: mantenuta in fondo alla graduatoria").distinct(),
+                            (seed.confidenceReasons + "Disapprovata manualmente per questa specifica ricerca").distinct(),
                         manuallyApproved = false,
                     )
-                replaceSeed(downgraded)
-                detailSeed = results.firstOrNull { it.fingerprint == downgraded.fingerprint } ?: downgraded
+                replaceSeed(hidden)
+                detailSeed = null
                 rebuildStableOrder()
+                scheduleVideoPreload()
                 Toast.makeText(
                     context,
-                    "Disapprovata: resta disponibile in fondo con punteggio 1/20.",
+                    "Disapprovata: non comparirà più tra le cover di questa canzone.",
                     Toast.LENGTH_LONG,
                 ).show()
             } else if (status == AiBrainDecisionStatus.APPROVED) {
@@ -1134,7 +1140,7 @@ internal fun DiscogsDirectVersionBrowser(
                         manuallyApproved = true,
                     )
                 replaceSeed(approved)
-                detailSeed = results.firstOrNull { it.fingerprint == approved.fingerprint } ?: approved
+                detailSeed = null
                 Toast.makeText(
                     context,
                     "Approvata e salvata nell'Archivio MusicLab.",
@@ -1348,8 +1354,8 @@ internal fun DiscogsDirectVersionBrowser(
             session.rejectedKeys.addAll(memoryState?.rejectedKeys.orEmpty())
             session.approvedKeys.clear()
 
-            // LAB51: cloud memory is ranking evidence, never an admission gate.
-            // Rejected/weak candidates stay visible at the bottom with score 1/20.
+            // LAB53: weak/unconfirmed evidence remains ranking-only. A manual user
+            // rejection is different: it hides that candidate only for this work/search.
             val memoryVersions =
                 memoryState
                     ?.discovery
@@ -1405,7 +1411,7 @@ internal fun DiscogsDirectVersionBrowser(
                         if (session.rejectedKeys.isEmpty()) {
                             "cloud-first"
                         } else {
-                            "cloud-first · ${session.rejectedKeys.size} disapprovate mantenute a 1/20"
+                            "cloud-first · ${session.rejectedKeys.size} disapprovate nascoste per questa ricerca"
                         },
                 )
             sourceDiagnostics = listOf(memoryDiagnostic)
@@ -1833,7 +1839,9 @@ internal fun DiscogsDirectVersionBrowser(
     // in the internal evidence pool and are never discarded.
     val readyPool =
         if (mode == DiscogsDirectMode.COVER) {
-            orderedPool.filter { !it.resolvedVideoId.isNullOrBlank() }
+            orderedPool.filter { seed ->
+                !isHiddenForCurrentCover(seed) && !seed.resolvedVideoId.isNullOrBlank()
+            }
         } else {
             orderedPool
         }
@@ -1939,7 +1947,7 @@ internal fun DiscogsDirectVersionBrowser(
                         Text("Archivio")
                     }
                     TextButton(onClick = { navController.popBackStack() }) {
-                        Text("Chiudi")
+                        Text("×", style = MaterialTheme.typography.titleLarge)
                     }
                 }
 
@@ -2081,7 +2089,7 @@ internal fun DiscogsDirectVersionBrowser(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                top = 8.dp,
+                top = 0.dp,
                 bottom = DIRECT_VERSION_BOTTOM_SAFE_DP.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -2218,11 +2226,6 @@ private fun DiscogsVersionDetailsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Chiudi")
-            }
-        },
-        dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(
                     onClick = onApprove,
@@ -2244,7 +2247,18 @@ private fun DiscogsVersionDetailsDialog(
                 }
             }
         },
-        title = { Text("Dettagli versione") },
+        dismissButton = {},
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Dettagli versione", modifier = Modifier.weight(1f))
+                TextButton(onClick = onDismiss) {
+                    Text("×", style = MaterialTheme.typography.titleLarge)
+                }
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
@@ -2489,36 +2503,18 @@ private fun DiscogsVersionCard(
         ) {
             val videoId = seed.resolvedVideoId?.trim().orEmpty()
             if (showVideoPreview) {
-                // LAB52 Cover rule: never substitute album artwork in the Cover list.
-                // A Cover row is published only with a resolved video id, therefore
-                // this image is the thumbnail belonging to that exact video.
-                Box(
+                // LAB53 Cover rule: the video thumbnail itself is the play target.
+                // No separate album artwork and no play icon are layered on top.
+                AsyncImage(
+                    model = videoId.takeIf(String::isNotBlank)
+                        ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
+                    contentDescription = seed.resolvedVideoTitle ?: "Video cover",
                     modifier =
                         Modifier
-                            .width(124.dp)
-                            .height(70.dp)
+                            .size(144.dp)
                             .clickable(onClick = onPlay),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AsyncImage(
-                        model = videoId.takeIf(String::isNotBlank)
-                            ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
-                        contentDescription = seed.resolvedVideoTitle ?: "Video cover",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.68f),
-                        shape = RoundedCornerShape(18.dp),
-                    ) {
-                        Text(
-                            "▶",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        )
-                    }
-                }
+                    contentScale = ContentScale.Crop,
+                )
             } else {
                 AsyncImage(
                     model = seed.coverUrl,
@@ -2615,6 +2611,15 @@ private fun DiscogsVersionCard(
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
+                } else if (showVideoPreview) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = onDetails) {
+                            Text("Dettagli")
+                        }
+                    }
                 } else {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -2623,7 +2628,7 @@ private fun DiscogsVersionCard(
                         val videoReady = !seed.resolvedVideoId.isNullOrBlank()
                         Text(
                             when {
-                                videoReady -> "Tocca per riprodurre"
+                                videoReady -> "Video pronto"
                                 seed.videoResolutionChecked -> "Video non trovato · Tocca per cercare"
                                 else -> "Video in verifica…"
                             },
