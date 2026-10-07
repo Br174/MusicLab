@@ -570,16 +570,28 @@ internal fun DiscogsDirectVersionBrowser(
             if (key !in keys) keys += key
         }
 
-        fun rankedSeed(seed: DiscogsVersionSeed): DiscogsVersionSeed =
-            if (isRejected(seed)) {
+        fun rankedSeed(seed: DiscogsVersionSeed): DiscogsVersionSeed {
+            val samePerformerAsOriginal =
+                mode == DiscogsDirectMode.COVER &&
+                    resolvedOriginalArtist.isNotBlank() &&
+                    TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
+            return if (isRejected(seed) || samePerformerAsOriginal) {
                 seed.copy(
                     confidenceScore = 1,
                     confidenceReasons =
-                        (seed.confidenceReasons + "Filtro negativo: mantenuta in graduatoria a 1/20").distinct(),
+                        (
+                            seed.confidenceReasons +
+                                if (samePerformerAsOriginal) {
+                                    "Stesso interprete dell'originale: mantenuta in fondo a 1/20"
+                                } else {
+                                    "Filtro negativo: mantenuta in graduatoria a 1/20"
+                                }
+                            ).distinct(),
                 )
             } else {
                 seed
             }
+        }
 
         if (!replace) {
             current.forEach { rawSeed ->
@@ -2465,7 +2477,7 @@ private fun DiscogsVersionCard(
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    "Affidabilità: ${seed.confidenceScore}/10",
+                    "Affidabilità: ${seed.confidenceScore}/20",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
