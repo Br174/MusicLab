@@ -1,4 +1,4 @@
-name: LAB50 Aggiornamento + Sicurezza 49 Gate
+name: LAB50 Aggiornamento + Sicurezza 50 Gate
 
 on:
   push:
@@ -187,8 +187,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SAFETY_KEY="$RUNNER_TEMP/musiclab-safety-49.jks"
-          SAFETY_CONFIG="$RUNNER_TEMP/musiclab-safety-49.env"
+          SAFETY_KEY="$RUNNER_TEMP/musiclab-safety-50.jks"
+          SAFETY_CONFIG="$RUNNER_TEMP/musiclab-safety-50.env"
           SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety50"
 
           keytool -genkeypair             -keystore "$SAFETY_KEY"             -storepass android             -alias musiclab_safety_50             -keypass android             -dname "CN=MusicLab LAB di sicurezza 50,O=MotorLab Test,C=IT"             -keyalg RSA             -keysize 2048             -validity 36500             -noprompt
@@ -196,8 +196,8 @@ jobs:
           cat > "$SAFETY_CONFIG" <<'EOF'
           UAB_TASK=":app:assembleFossDebug"
           UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
-          UAB_FILE_VERSION="LAB_DI_SICUREZZA_49"
-          UAB_OUTPUT_NAME="MusicLab-LAB-di-sicurezza-49"
+          UAB_FILE_VERSION="LAB_DI_SICUREZZA_50"
+          UAB_OUTPUT_NAME="MusicLab-LAB-di-sicurezza-50"
           UAB_GRADLE_ARGS="-x lint"
           UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
           UAB_PARALLEL_INSTALL="off"
@@ -215,8 +215,8 @@ jobs:
         run: |
           set -euo pipefail
           SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety50"
-          APK="$SAFETY_OUT/apk/MusicLab-LAB-di-sicurezza-49.apk"
-          ZIP="$SAFETY_OUT/MusicLab-LAB-di-sicurezza-49-APK.zip"
+          APK="$SAFETY_OUT/apk/MusicLab-LAB-di-sicurezza-50.apk"
+          ZIP="$SAFETY_OUT/MusicLab-LAB-di-sicurezza-50-APK.zip"
           test -s "$APK"
           test -s "$ZIP"
           unzip -tq "$ZIP"
@@ -251,11 +251,11 @@ jobs:
         id: upload_safety
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-di-sicurezza-49
+          name: MusicLab-LAB-di-sicurezza-50
           path: |
-            dist/safety50/apk/MusicLab-LAB-di-sicurezza-49.apk
+            dist/safety50/apk/MusicLab-LAB-di-sicurezza-50.apk
             dist/safety50/apk/SHA256SUMS.txt
-            dist/safety50/MusicLab-LAB-di-sicurezza-49-APK.zip
+            dist/safety50/MusicLab-LAB-di-sicurezza-50-APK.zip
             dist/safety50/BUILD_SHA.txt
             dist/safety50/SAFETY_50.txt
             dist/safety50/SAFETY_SHA256SUMS.txt
@@ -301,7 +301,7 @@ jobs:
           fi
 
           cat > LAB50_BUILD_STATUS.txt <<EOF
-          LAB=49
+          LAB=50
           SOURCE_SHA=$GITHUB_SHA
           RUN_ID=$GITHUB_RUN_ID
           RUN_ATTEMPT=$GITHUB_RUN_ATTEMPT
