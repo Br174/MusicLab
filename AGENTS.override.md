@@ -12,3 +12,5 @@ This file is an explicit maintainer instruction for Codex sessions in MusicLab.
 8. If the local MotorLab files are missing or invalid, do not invent policy. Report the bootstrap defect and continue only with safe read-only inspection until a verified fallback is available.
 
 These instructions are MotorLab control-plane instructions only and do not authorize application/runtime/UI/package/signing/lifecycle changes by themselves.
+
+9. Unversioned MotorLab startup is invalid. If release identity is missing/unknown, treat it as a bootstrap defect and do not fabricate a version.
