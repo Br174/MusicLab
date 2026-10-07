@@ -58,3 +58,22 @@ test('LAB51 keeps COVER admission open while semantic weakness is ranked', () =>
 test('LAB51 preserves relevance ordering from strongest to weakest', () => {
   assert.match(browser, /compareByDescending<DiscogsVersionSeed> \{ it\.confidenceScore \}/);
 });
+
+test('LAB51 has no residual candidate-level same-performer drop gates', () => {
+  assert.doesNotMatch(
+    sources,
+    /if \(sameArtist\(ref\.artist, originalArtist\)\) return@mapNotNull null/,
+  );
+  assert.match(
+    sources,
+    /evidenceScore = if \(samePerformerAsOriginal\) 1 else 2/,
+  );
+  assert.doesNotMatch(
+    versionSource,
+    /discover\([\s\S]*?\)\.filter \{ seed ->\s*!sameArtist\(seed\.artist, originalArtist\)/,
+  );
+  assert.match(
+    versionSource,
+    /Stesso interprete dell'originale: mantenuta in fondo a 1\/20/,
+  );
+});
