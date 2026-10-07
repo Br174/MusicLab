@@ -121,7 +121,7 @@ internal object DiscogsVersionSource {
             ).getOrThrow()
 
             // LAB38A: no candidate is thrown away merely because detailed verification
-            // has not happened yet. Search summaries enter at low confidence (1/10)
+            // has not happened yet. Search summaries enter at low confidence (1/20)
             // and are verified later by the background Discogs verifier. Originali
             // remains strict about the performer when the search summary names one.
             val candidates =
@@ -209,7 +209,7 @@ internal object DiscogsVersionSource {
         seed.track != null && seed.confidenceScore > 0
 
     internal fun isDisplayableDirectSeed(seed: DiscogsVersionSeed): Boolean =
-        seed.confidenceScore in 1..10
+        seed.confidenceScore in 1..20
 
     private fun directModeAdmits(
         seed: DiscogsVersionSeed,
@@ -217,7 +217,8 @@ internal object DiscogsVersionSource {
         originalArtist: String,
     ): Boolean =
         when (mode) {
-            DiscogsDirectMode.COVER -> true
+            DiscogsDirectMode.COVER ->
+                originalArtist.isBlank() || !sameArtist(seed.artist, originalArtist)
             DiscogsDirectMode.ORIGINAL -> sameArtist(seed.artist, originalArtist)
         }
 
@@ -312,7 +313,7 @@ internal object DiscogsVersionSource {
             includeMasterVideos = false,
         ).getOrNull() ?: return seed.copy(
             discogsVerificationChecked = true,
-            confidenceScore = seed.confidenceScore.coerceIn(1, 10),
+            confidenceScore = seed.confidenceScore.coerceIn(1, 20),
             confidenceReasons = (seed.confidenceReasons + "Verifica Discogs temporaneamente non disponibile").distinct(),
         )
 
@@ -1049,21 +1050,22 @@ internal object DiscogsVersionSource {
                 (originalArtist.isNotBlank() && sameArtist(candidate.artist, originalArtist))
         val baseScore =
             when {
-                candidate.originalWorkReference && titleMatch != TitleMeaningMatch.DIFFERENT -> 10
-                artistIsOriginal && titleMatch == TitleMeaningMatch.EXACT && kind == DiscogsVersionKind.STUDIO -> 10
-                artistIsOriginal && titleMatch != TitleMeaningMatch.DIFFERENT -> 9
-                candidate.workRelationConfirmed && titleMatch == TitleMeaningMatch.EXACT -> 8
-                titleMatch == TitleMeaningMatch.EXACT -> 7
-                candidate.workRelationConfirmed -> 7
-                titleMatch == TitleMeaningMatch.DECORATED -> 6
-                else -> candidate.evidenceScore.coerceIn(1, 5)
+                candidate.originalWorkReference && titleMatch != TitleMeaningMatch.DIFFERENT -> 20
+                artistIsOriginal && titleMatch == TitleMeaningMatch.EXACT && kind == DiscogsVersionKind.STUDIO -> 20
+                artistIsOriginal && titleMatch != TitleMeaningMatch.DIFFERENT -> 18
+                candidate.workRelationConfirmed && titleMatch == TitleMeaningMatch.EXACT -> 18
+                candidate.workRelationConfirmed && titleMatch == TitleMeaningMatch.DECORATED -> 17
+                candidate.workRelationConfirmed -> 16
+                titleMatch == TitleMeaningMatch.EXACT -> 14
+                titleMatch == TitleMeaningMatch.DECORATED -> 12
+                else -> candidate.evidenceScore.coerceIn(1, 12)
             }
         val sourceBonus =
-            if (candidate.sources.distinct().size >= 2 && baseScore in 5..8) 1 else 0
+            ((candidate.sources.distinct().size - 1).coerceAtLeast(0) * 2)
+                .coerceAtMost(4)
         val externalScore =
             (baseScore + sourceBonus)
-                .coerceAtMost(if (artistIsOriginal) 10 else 9)
-                .coerceIn(1, 10)
+                .coerceIn(1, 20)
         return DiscogsVersionSeed(
             trackTitle = candidate.title,
             artist = candidate.artist,
@@ -1165,9 +1167,10 @@ internal object DiscogsVersionSource {
         val mergedOriginalReference =
             existing.originalWorkReference || incoming.originalWorkReference
         val mergedScore =
-            (maxOf(existing.confidenceScore, incoming.confidenceScore) + newlyIndependent)
-                .coerceAtMost(if (mergedOriginalReference) 10 else 9)
-                .coerceIn(1, 10)
+            (
+                maxOf(existing.confidenceScore, incoming.confidenceScore) +
+                    (newlyIndependent * 2)
+                ).coerceIn(1, 20)
 
         return base.copy(
             fingerprint = existing.fingerprint,
@@ -1227,8 +1230,7 @@ internal object DiscogsVersionSource {
         if (shared.isEmpty()) return seed
 
         return seed.copy(
-            // Evidence may become available after the row is already visible. Keep the
-            // score stable so background enrichment never makes the card jump position.
+            confidenceScore = (seed.confidenceScore + 2).coerceAtMost(20),
             confidenceReasons = (
                 seed.confidenceReasons +
                     "Crediti dell'opera coincidenti: " + shared.joinToString(", ")
@@ -1290,7 +1292,7 @@ internal object DiscogsVersionSource {
             reasons += "Relazione Master Discogs"
         }
 
-        return score.coerceIn(1, 5) to reasons.distinct()
+        return (score * 2).coerceIn(1, 20) to reasons.distinct()
     }
     private fun recalculateConfidence(
         seed: DiscogsVersionSeed,
@@ -1300,7 +1302,7 @@ internal object DiscogsVersionSource {
     ): DiscogsVersionSeed {
         if (seed.track == null) {
             return seed.copy(
-                confidenceScore = seed.confidenceScore.coerceIn(1, 5),
+                confidenceScore = seed.confidenceScore.coerceIn(1, 20),
                 confidenceReasons =
                     (seed.confidenceReasons + "Candidato non ancora confermato dalla tracklist").distinct(),
             )
@@ -1322,19 +1324,20 @@ internal object DiscogsVersionSource {
             when {
                 originalArtistMatch &&
                     titleMatch == TitleMeaningMatch.EXACT &&
-                    seed.kind == DiscogsVersionKind.STUDIO -> 10
+                    seed.kind == DiscogsVersionKind.STUDIO -> 20
 
-                originalArtistMatch && titleMatch != TitleMeaningMatch.DIFFERENT -> 9
-                !genericArtist && titleMatch == TitleMeaningMatch.EXACT -> 8
-                !genericArtist && titleMatch == TitleMeaningMatch.DECORATED -> 7
-                titleMatch == TitleMeaningMatch.EXACT -> 6
-                titleMatch == TitleMeaningMatch.DECORATED -> 5
-                else -> 3
+                originalArtistMatch && titleMatch != TitleMeaningMatch.DIFFERENT -> 18
+                !genericArtist && titleMatch == TitleMeaningMatch.EXACT -> 16
+                !genericArtist && titleMatch == TitleMeaningMatch.DECORATED -> 14
+                titleMatch == TitleMeaningMatch.EXACT -> 12
+                titleMatch == TitleMeaningMatch.DECORATED -> 10
+                else -> 4
             }
 
-        if (!originalArtistMatch && strongCredit && score in 4..8) score += 1
-        if (!originalArtistMatch && seed.masterId != null && score in 4..8) score += 1
-        score = score.coerceAtMost(if (originalArtistMatch) 10 else 9)
+        if (!originalArtistMatch && strongCredit) score += 2
+        if (!originalArtistMatch && seed.masterId != null) score += 1
+        if (!genericArtist && seed.kind != DiscogsVersionKind.STUDIO) score += 1
+        score = score.coerceIn(1, 20)
 
         val reasons =
             buildList {
@@ -1359,7 +1362,7 @@ internal object DiscogsVersionSource {
             }
 
         return seed.copy(
-            confidenceScore = score.coerceIn(1, 10),
+            confidenceScore = score.coerceIn(1, 20),
             confidenceReasons = (seed.confidenceReasons + reasons).distinct(),
             originalWorkReference = originalArtistMatch,
         )
