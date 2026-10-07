@@ -121,6 +121,24 @@ private fun directDisplayCategory(seed: DiscogsVersionSeed): DirectVersionCatego
     }
 }
 
+private fun primaryDiscoverySource(seed: DiscogsVersionSeed): String {
+    val preferred =
+        listOf(
+            "Discogs",
+            "COVER.INFO",
+            "Spotify",
+            "Apple/iTunes",
+            "Last.fm",
+            "MusicBrainz",
+            "LRCLIB",
+            "Wikidata",
+            "Archivio Cloud",
+        )
+    return preferred.firstOrNull { wanted ->
+        seed.sourceNames.any { source -> source.contains(wanted, ignoreCase = true) }
+    } ?: seed.sourceNames.firstOrNull()?.takeIf(String::isNotBlank) ?: "MusicLab"
+}
+
 private data class DirectVersionSession(
     var title: String,
     var artistFilter: String = "",
@@ -2246,6 +2264,7 @@ internal fun DiscogsDirectVersionBrowser(
                 DiscogsVersionCard(
                     seed = seed,
                     showVideoPreview = mode == DiscogsDirectMode.COVER,
+                    showConfidence = mode != DiscogsDirectMode.COVER || category == DirectVersionCategory.ALL,
                     selected = seed.fingerprint == selectedFingerprint,
                     resolving = seed.fingerprint == resolvingFingerprint,
                     onPlay = { play(seed) },
@@ -2410,81 +2429,44 @@ private fun DiscogsVersionDetailsDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    if (approved) "Stato: Approvata" else "Stato: Non approvata",
-                    color =
-                        if (approved) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    fontWeight = FontWeight.SemiBold,
-                )
+                fun creditNames(pattern: Regex): String =
+                    seed.credits
+                        .filter { pattern.containsMatchIn(it.role.lowercase()) }
+                        .map { it.name.trim() }
+                        .filter(String::isNotBlank)
+                        .distinct()
+                        .joinToString()
+                        .ifBlank { "non disponibile" }
+
+                val authors =
+                    creditNames(
+                        Regex("""\b(songwriter|writer|written|words|lyricist|lyrics|autore)\b"""),
+                    )
+                val composers =
+                    creditNames(
+                        Regex("""\b(composer|composed|music by|compositore)\b"""),
+                    )
+                val publicationDate =
+                    seed.releaseDate?.takeIf(String::isNotBlank)
+                        ?: seed.displayDate?.takeIf(String::isNotBlank)
+                        ?: "non disponibile"
+
                 Text(
                     "Titolo: ${seed.trackTitle}",
                     modifier = Modifier.clickable { onSearch(seed.trackTitle) },
                     color = MaterialTheme.colorScheme.primary,
                 )
+                Text("Data pubblicazione: $publicationDate")
+                Text("Autore: $authors")
                 Text(
                     "Interprete: ${seed.artist}",
                     modifier = Modifier.clickable { onSearch(seed.artist) },
                     color = MaterialTheme.colorScheme.primary,
                 )
-                Text(
-                    "Pubblicazione: ${seed.releaseTitle}",
-                    modifier =
-                        Modifier.clickable(enabled = seed.releaseTitle.isNotBlank()) {
-                            onSearch(seed.releaseTitle)
-                        },
-                )
-                Text("Tipo: ${seed.kind.name.lowercase()}")
-                Text("Affidabilità: ${seed.confidenceScore}/20")
-                Text("Data: ${seed.displayDate ?: "non disponibile"}")
-                Text("Paese: ${seed.country ?: "non disponibile"}")
-                Text("Formato: ${seed.formats.joinToString().ifBlank { "non disponibile" }}")
-                Text("Etichetta: ${seed.labels.joinToString().ifBlank { "non disponibile" }}")
-                Text("Lingua/adattamento: ${seed.language ?: "non disponibile"}")
-                Text("Fonti: ${seed.sourceNames.joinToString().ifBlank { "non disponibile" }}")
-                Text(
-                    "Stato evidenza: " +
-                        when {
-                            seed.track != null -> "tracklist Discogs verificata"
-                            seed.releaseId > 0 && seed.discogsVerificationChecked ->
-                                "Discogs controllato, corrispondenza non confermata"
-                            seed.releaseId > 0 -> "candidato Discogs in verifica"
-                            else -> "candidato da fonte esterna"
-                        },
-                )
-                if (seed.releaseId > 0) {
-                    Text("Discogs Release: ${seed.releaseId}")
-                    Text("Discogs Master: ${seed.masterId ?: "non disponibile"}")
+                Text("Compositore: $composers")
+                if (directDisplayCategory(seed) == DirectVersionCategory.FOREIGN) {
+                    Text("Paese d'origine: ${seed.country ?: "non disponibile"}")
                 }
-                Text("Video: ${seed.resolvedVideoTitle ?: "in verifica / non disponibile"}")
-                Text("Fonte video: ${seed.resolvedVideoSource ?: "non disponibile"}")
-
-                if (seed.credits.isEmpty()) {
-                    Text("Crediti: non disponibili")
-                } else {
-                    Text("Crediti:", fontWeight = FontWeight.SemiBold)
-                    seed.credits
-                        .distinctBy { "${it.name}|${it.role}" }
-                        .forEach { credit ->
-                            Text(
-                                "${credit.role}: ${credit.name}",
-                                modifier = Modifier.clickable { onSearch(credit.name) },
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                }
-
-                if (seed.confidenceReasons.isNotEmpty()) {
-                    Text("Motivi punteggio: " + seed.confidenceReasons.joinToString(" · "))
-                }
-                Text(
-                    "Tocca titolo, interprete, pubblicazione o un autore per cercarlo in MusicLab.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         },
     )
@@ -2497,12 +2479,18 @@ private fun SourceDiagnosticsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Chiudi")
+        confirmButton = {},
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Fonti della ricerca", modifier = Modifier.weight(1f))
+                TextButton(onClick = onDismiss) {
+                    Text("×", style = MaterialTheme.typography.titleLarge)
+                }
             }
         },
-        title = { Text("Fonti della ricerca") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 diagnostics.forEach { diagnostic ->
@@ -2529,14 +2517,10 @@ private fun DirectCategorySelector(
     results: List<DiscogsVersionSeed>,
     onSelected: (DirectVersionCategory) -> Unit,
 ) {
-    val studio =
-        results.count {
-            it.language.isNullOrBlank() &&
-                (it.kind == DiscogsVersionKind.STUDIO || it.kind == DiscogsVersionKind.ACOUSTIC)
-        }
-    val live = results.count { it.language.isNullOrBlank() && it.kind == DiscogsVersionKind.LIVE }
-    val remix = results.count { it.language.isNullOrBlank() && it.kind == DiscogsVersionKind.REMIX }
-    val foreign = results.count { !it.language.isNullOrBlank() }
+    val studio = results.count { directDisplayCategory(it) == DirectVersionCategory.STUDIO }
+    val live = results.count { directDisplayCategory(it) == DirectVersionCategory.LIVE }
+    val remix = results.count { directDisplayCategory(it) == DirectVersionCategory.REMIX }
+    val foreign = results.count { directDisplayCategory(it) == DirectVersionCategory.FOREIGN }
 
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -2551,7 +2535,7 @@ private fun DirectCategorySelector(
         DirectChip("Live · $live", selected == DirectVersionCategory.LIVE) {
             onSelected(DirectVersionCategory.LIVE)
         }
-        DirectChip("Mix · $remix", selected == DirectVersionCategory.REMIX) {
+        DirectChip("Mix/Remix · $remix", selected == DirectVersionCategory.REMIX) {
             onSelected(DirectVersionCategory.REMIX)
         }
         DirectChip("Straniere · $foreign", selected == DirectVersionCategory.FOREIGN) {
@@ -2627,6 +2611,7 @@ private fun DirectFilterField(
 private fun DiscogsVersionCard(
     seed: DiscogsVersionSeed,
     showVideoPreview: Boolean,
+    showConfidence: Boolean,
     selected: Boolean,
     resolving: Boolean,
     onPlay: () -> Unit,
@@ -2688,62 +2673,29 @@ private fun DiscogsVersionCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    seed.releaseTitle,
+                    "Fonte: ${primaryDiscoverySource(seed)}",
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    "Data pubblicazione: ${seed.displayDate ?: "non disponibile"}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    "Affidabilità: ${seed.confidenceScore}/20",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                seed.language?.takeIf(String::isNotBlank)?.let { language ->
+                if (showConfidence) {
                     Text(
-                        "Lingua/adattamento: $language",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                seed.resolvedVideoTitle?.takeIf(String::isNotBlank)?.let { videoTitle ->
-                    Text(
-                        "Video pronto: $videoTitle",
-                        style = MaterialTheme.typography.bodySmall,
+                        "Affidabilità: ${seed.confidenceScore}/20",
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
-
-                val details = buildList {
-                    add(
-                        when (seed.kind) {
-                            DiscogsVersionKind.STUDIO -> "Studio"
-                            DiscogsVersionKind.LIVE -> "Live"
-                            DiscogsVersionKind.REMIX -> "Remix"
-                            DiscogsVersionKind.ACOUSTIC -> "Acoustic"
-                        },
-                    )
-                    seed.country?.takeIf(String::isNotBlank)?.let(::add)
-                    seed.formats.firstOrNull()?.takeIf(String::isNotBlank)?.let(::add)
-                    seed.labels.firstOrNull()?.takeIf(String::isNotBlank)?.let(::add)
-                }.joinToString(" · ")
-
-                if (details.isNotBlank()) {
-                    Text(
-                        details,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                val publicationDate =
+                    seed.releaseDate?.takeIf(String::isNotBlank)
+                        ?: seed.displayDate?.takeIf(String::isNotBlank)
+                        ?: "non disponibile"
+                Text(
+                    "Data pubblicazione: $publicationDate",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 if (resolving) {
                     Row(
