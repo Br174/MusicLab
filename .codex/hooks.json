@@ -1,5 +1,5 @@
 {
-  "description": "Mandatory MotorLab project bootstrap for MusicLab",
+  "description": "Mandatory MotorLab bootstrap + Live Control + Pollicino external continuity for MusicLab",
   "hooks": {
     "SessionStart": [
       {
@@ -11,6 +11,91 @@
             "timeout": 3,
             "statusMessage": "Loading MotorLab bootstrap",
             "additionalContextLimit": 6000
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_live_control.py\"",
+            "timeout": 5,
+            "statusMessage": "Checking MotorLab Live Control",
+            "additionalContextLimit": 1500
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_pollicino.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_live_control.py\"",
+            "timeout": 5,
+            "statusMessage": "Checking MotorLab Live Control",
+            "additionalContextLimit": 1500
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_pollicino.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_pollicino.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_pollicino.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_pollicino.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/motorlab_pollicino.py\"",
+            "timeout": 5
           }
         ]
       }
