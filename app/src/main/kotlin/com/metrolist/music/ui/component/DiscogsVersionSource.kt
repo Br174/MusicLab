@@ -217,8 +217,7 @@ internal object DiscogsVersionSource {
         originalArtist: String,
     ): Boolean =
         when (mode) {
-            DiscogsDirectMode.COVER ->
-                originalArtist.isBlank() || !sameArtist(seed.artist, originalArtist)
+            DiscogsDirectMode.COVER -> true
             DiscogsDirectMode.ORIGINAL -> sameArtist(seed.artist, originalArtist)
         }
 
@@ -1322,6 +1321,7 @@ internal object DiscogsVersionSource {
 
         var score =
             when {
+                mode == DiscogsDirectMode.COVER && originalArtistMatch -> 1
                 originalArtistMatch &&
                     titleMatch == TitleMeaningMatch.EXACT &&
                     seed.kind == DiscogsVersionKind.STUDIO -> 20
