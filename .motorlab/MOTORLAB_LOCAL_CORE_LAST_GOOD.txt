@@ -1,5 +1,5 @@
 MOTORLAB SATELLITE BUNDLE
-RELEASE=2026.10.06-r23
+RELEASE=2026.10.07-r28
 CENTRAL_AUTHORITY=Br174/Chatgpt
 PROJECT_NATIVE_ENGINE_POLICY=coexist-preserve
 PRE_RESPONSE_BOOT_GATE=required
@@ -88,6 +88,11 @@ UPDATE_FAMILY_LIFECYCLE=required
 PAIRED_SAFETY_LAB=required
 EXECUTION_CONTINUITY=required
 NO_TIMED_CONTINUATION=required
+RELEASE_FANOUT=required
+SESSION_RELEASE_PIN=required
+SESSION_RELEASE_PIN_FULL_SNAPSHOT=required
+SESSION_RELEASE_PIN_RESUME_REUSE=required
+SAFE_BOUNDARY_AUTO_ADOPTION=required
 
 LOCAL FALLBACK CONTRACT
 - First user-visible line: ⚙️ MotorLab attivo
@@ -230,8 +235,66 @@ POLLICINO CONTINUITY - R20+
 - The same adopted proof is persisted locally in `.motorlab/MOTORLAB_SYNC_STATE.txt` (and optionally the project hook); the Codex sidecar uses it before mutable Git HEAD. Metadata-only commits do not rotate it.
 - Alive-but-stalled evidence may precompute `READY_STALL_SUSPECTED`; resumed progress supersedes it.
 
+R24 LATENCY BRANCH INHERITANCE
+LATENCY_BRANCH_TRIGGER=required
+LATENCY_BRANCH_GAIN_GATE=expected_gain_gt_overhead
+LATENCY_BRANCH_PARENT_EARLY_FINISH=cancel_trigger
+LATENCY_BRANCH_IMMEDIATE_WAKE=required
+LATENCY_BRANCH_IRREVERSIBLE_SIDE_EFFECT_RACE=forbidden
+LATENCY_BRANCH_SINGLE_WRITER=preserved
+LATENCY_BRANCH_PROOF=required
+FICTIONAL_COMPLETION_COUNTDOWN=forbidden
+
+R25 SEMANTIC + INTRINSIC SPEED INHERITANCE
+WORK_ELIMINATION_BEFORE_WORKGROUPS=required
+SEMANTIC_WORKGROUPS=required
+SEMANTIC_WORKGROUP_GAIN_GATE=expected_gain_gt_overhead
+SEMANTIC_WORKGROUP_LABELS=required
+SEMANTIC_WORKGROUP_SECOND_SCHEDULER=forbidden
+INTRINSIC_ENGINE_ACCELERATION=required
+STATIC_GRAPH_ANALYSIS_REUSE=required
+GRAPH_CACHE_INVALIDATE_ON_TOPOLOGY_CHANGE=required
+EVENT_NO_LISTENER_FAST_PATH=required
+EVENT_LISTENER_AWAIT_SEMANTICS=preserved
+R24_LATENCY_BRANCHING=preserved
+SINGLE_INTEGRATION_LANE=preserved
+
+R26 ADAPTIVE RUNTIME INHERITANCE
+ADAPTIVE_RUNTIME_GOVERNOR=required
+TRIPLE_FRESH_HEDGE=required
+FRESH_HEDGE_DEFAULT_TRIGGER_MS=10000
+FRESH_HEDGE_EARLY_STALL_TRIGGER=required
+FRESH_HEDGE_MAX_ATTEMPTS_PER_WAVE=3
+FRESH_HEDGE_MAX_WAVES=2
+FRESH_HEDGE_FIRST_VALID_WINS=required
+FRESH_HEDGE_WRITE_DUPLICATION=forbidden
+FRESH_HEDGE_EXTERNAL_PROVIDER_AUTH=required
+ADAPTIVE_LANE_POOL=required
+ADAPTIVE_LANE_AIMD=required
+ADAPTIVE_LANE_PROVIDER_GUARD=required
+R24_LATENCY_BRANCHING=preserved
+R25_ORDINARY_FAST_PATH=preserved
+SINGLE_WRITER=preserved
+SINGLE_INTEGRATION_LANE=preserved
+
+R27 ZERO-IDLE DUAL-LANE INHERITANCE
+- Compatible independent READY work starts immediately; no artificial wait is added before useful sidework.
+- Predeclared productive sidework may be spawned immediately when expected gain exceeds overhead.
+- Same-task recovery remains separate: default hard trigger 10000 ms for eligible work, with earlier action only on reliable stall evidence.
+- For controlled analysis/wait tasks marked replacePrimaryOnHardHedge, the stale primary attempt is cancelled or invalidated at the hard trigger and late results are ignored.
+- Visible updates report only work that actually started or completed.
+- Host-limited execution is reported honestly; opaque native ChatGPT thinking cannot be directly controlled without a host surface.
+
+R28 AUTOMATIC RELEASE FANOUT + SESSION PIN INHERITANCE
+- MotorLab release fanout is mandatory for every registered project.
+- Current project sessions pin their complete MotorLab snapshot and cannot switch release underneath active work.
+- A repository may receive the newer satellite while an old session is running; that session keeps its pinned snapshot.
+- New sessions adopt the newest verified local release automatically.
+- Busy write/build/test/promotion refs are queued as PENDING_SAFE_BOUNDARY instead of being force-switched.
+- LAST_GOOD remains the immediately previous verified release.
+
 VERSION
-MOTORLAB-SATELLITE-BUNDLE-V2.18
+MOTORLAB-SATELLITE-BUNDLE-V2.23
 Revision 2.6: r16 adds authority/data ownership, persistent operational state, MOTORLAB_OPERATION_ID, observability boundaries, service connection-status tracking and non-redundant auxiliary-tool routing.
 Revision 2.7: r17 adds Android update-family lifecycle fallback markers.
 
@@ -256,3 +319,11 @@ Revision 2.16: r21 adds Four-Pillar TTTA-first adaptive Velocity markers, critic
 Revision 2.17: r22 adds operational Execution Fabric markers, Fast Decision Gate, ready-queue/batched dispatch, observed Proof of Parallelism, host-limited truthfulness and grouped runner status.
 
 Revision 2.18: r23 adds work-elimination-first, content-addressed reuse, incremental delta execution, dynamic DAG growth/pruning, progressive branching, event memory and deferred materialization markers.
+
+Revision 2.20: r25 inherits Work-Elimination-first semantic workgroups and intrinsic dispatcher acceleration while preserving r24 latency branching and all project-native/safety boundaries.
+
+Revision 2.21: r26 inherits coordinated Triple Fresh Hedge, Adaptive Lane Pool and runtime feedback while preserving r24/r25 behavior and project-native authority.
+
+Revision 2.22: r27 inherits zero-idle immediate productive sidework plus separate same-task recovery and optional stale-primary replacement at the hard trigger.
+
+Revision 2.23: r28 inherits mandatory release fanout and full-snapshot per-session pinning with automatic safe-boundary adoption.
