@@ -1259,7 +1259,7 @@ internal fun DiscogsDirectVersionBrowser(
             error = "Inserisci il titolo del brano."
             return
         }
-        if (resolvedOriginalArtist.isBlank()) {
+        if (mode == DiscogsDirectMode.ORIGINAL && resolvedOriginalArtist.isBlank()) {
             error = "Interprete originale di riferimento mancante."
             return
         }
