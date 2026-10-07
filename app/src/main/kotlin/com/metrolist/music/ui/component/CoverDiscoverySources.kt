@@ -142,7 +142,7 @@ internal object CoverDiscoverySources {
                             previous.originalWorkReference || candidate.originalWorkReference,
                         evidenceScore =
                             (maxOf(previous.evidenceScore, candidate.evidenceScore) + extraSourceBonus)
-                                .coerceIn(1, 10),
+                                .coerceIn(1, 20),
                     )
             }
         }
@@ -222,7 +222,7 @@ internal object CoverDiscoverySources {
                     language =
                         if (sameBaseTitle(title, candidateTitle)) null else "titolo/adattamento alternativo",
                     sourceUrl = lookup.sourceUrl,
-                    evidenceScore = 5,
+                    evidenceScore = 10,
                 )
             }
         return candidates to CoverSourceDiagnostic(
@@ -260,8 +260,8 @@ internal object CoverDiscoverySources {
                 val candidateTitle = item.optString("trackName").trim()
                 val artist = item.optString("artistName").trim()
                 if (candidateTitle.isBlank() || artist.isBlank()) continue
-                if (!sameBaseTitle(title, candidateTitle)) continue
                 if (!modeAcceptsArtist(mode, artist, originalArtist)) continue
+                val titleMatches = sameBaseTitle(title, candidateTitle)
                 add(
                     CoverSourceCandidate(
                         title = candidateTitle,
@@ -278,9 +278,11 @@ internal object CoverDiscoverySources {
                                 .takeIf { it > 0L }
                                 ?.div(1000L)
                                 ?.toInt(),
-                        category = categoryFromTitle(candidateTitle),
+                        category =
+                            if (titleMatches) categoryFromTitle(candidateTitle)
+                            else AiCoverCategory.FOREIGN,
                         sourceUrl = item.optString("trackViewUrl").takeIf(String::isNotBlank),
-                        evidenceScore = 2,
+                        evidenceScore = if (titleMatches) 6 else 1,
                     ),
                 )
             }
@@ -342,8 +344,8 @@ internal object CoverDiscoverySources {
                 val candidateTitle = item.optString("name").trim()
                 val artist = item.optString("artist").trim()
                 if (candidateTitle.isBlank() || artist.isBlank()) continue
-                if (!sameBaseTitle(title, candidateTitle)) continue
                 if (!modeAcceptsArtist(mode, artist, originalArtist)) continue
+                val titleMatches = sameBaseTitle(title, candidateTitle)
                 val images = item.optJSONArray("image")
                 var cover: String? = null
                 if (images != null) {
@@ -358,9 +360,11 @@ internal object CoverDiscoverySources {
                         artist = artist,
                         sources = listOf("Last.fm"),
                         coverUrl = cover,
-                        category = categoryFromTitle(candidateTitle),
+                        category =
+                            if (titleMatches) categoryFromTitle(candidateTitle)
+                            else AiCoverCategory.FOREIGN,
                         sourceUrl = item.optString("url").takeIf(String::isNotBlank),
-                        evidenceScore = 2,
+                        evidenceScore = if (titleMatches) 6 else 1,
                     ),
                 )
             }
@@ -426,7 +430,7 @@ internal object CoverDiscoverySources {
                             if (titleMatches) categoryFromTitle(candidateTitle)
                             else AiCoverCategory.FOREIGN,
                         sourceUrl = cleanUrl,
-                        evidenceScore = if (titleMatches) 2 else 1,
+                        evidenceScore = if (titleMatches) 6 else 1,
                     )
                 }
                 .distinctBy { identity(it.title, it.artist, it.category) }
@@ -469,8 +473,8 @@ internal object CoverDiscoverySources {
                 val candidateTitle = item.optString("trackName").trim()
                 val artist = item.optString("artistName").trim()
                 if (candidateTitle.isBlank() || artist.isBlank()) continue
-                if (!sameBaseTitle(title, candidateTitle)) continue
                 if (!modeAcceptsArtist(mode, artist, originalArtist)) continue
+                val titleMatches = sameBaseTitle(title, candidateTitle)
                 add(
                     CoverSourceCandidate(
                         title = candidateTitle,
@@ -478,9 +482,11 @@ internal object CoverDiscoverySources {
                         sources = listOf("LRCLIB"),
                         album = item.optString("albumName").trim().takeIf(String::isNotBlank),
                         durationSeconds = item.optDouble("duration").takeIf { it > 0.0 }?.toInt(),
-                        category = categoryFromTitle(candidateTitle),
+                        category =
+                            if (titleMatches) categoryFromTitle(candidateTitle)
+                            else AiCoverCategory.FOREIGN,
                         sourceUrl = "https://lrclib.net",
-                        evidenceScore = 2,
+                        evidenceScore = if (titleMatches) 6 else 1,
                     ),
                 )
             }
@@ -527,7 +533,7 @@ internal object CoverDiscoverySources {
                             language = candidate.language,
                             category = candidate.category,
                             sourceUrl = candidate.spotifyTrackId?.let { "https://open.spotify.com/track/$it" },
-                            evidenceScore = 2,
+                            evidenceScore = 6,
                         )
                     }
                 candidates to CoverSourceDiagnostic(
@@ -552,7 +558,7 @@ internal object CoverDiscoverySources {
                         album = it.album,
                         durationSeconds = it.durationSec,
                         category = categoryFromTitle(it.title),
-                        evidenceScore = 2,
+                        evidenceScore = 6,
                     )
                 }
             candidates to CoverSourceDiagnostic(
@@ -676,10 +682,10 @@ internal object CoverDiscoverySources {
                     // especially for foreign/adapted titles that other sources miss.
                     evidenceScore =
                         when {
-                            seed.relationRole == CoverInfoRelationRole.INITIAL -> 9
-                            seed.directRelation -> 8
-                            sameTitle -> 7
-                            else -> 6
+                            seed.relationRole == CoverInfoRelationRole.INITIAL -> 20
+                            seed.directRelation -> 18
+                            sameTitle -> 15
+                            else -> 12
                         },
                 )
             }.distinctBy { identity(it.title, it.artist, it.category) }
@@ -833,7 +839,7 @@ internal object CoverDiscoverySources {
                     category =
                         if (ref.translatedOrAdaptedTitle) AiCoverCategory.FOREIGN
                         else categoryFromTitle(ref.title),
-                    evidenceScore = 1,
+                    evidenceScore = 2,
                 )
             }.distinctBy { identity(it.title, it.artist, it.category) }
         return candidates to CoverSourceDiagnostic(
@@ -915,7 +921,8 @@ internal object CoverDiscoverySources {
         originalArtist: String,
     ): Boolean =
         when (mode) {
-            DiscogsDirectMode.COVER -> true
+            DiscogsDirectMode.COVER ->
+                originalArtist.isBlank() || !sameArtist(artist, originalArtist)
             DiscogsDirectMode.ORIGINAL -> sameArtist(artist, originalArtist)
         }
 
