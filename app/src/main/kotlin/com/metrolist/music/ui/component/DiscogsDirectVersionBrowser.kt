@@ -994,11 +994,21 @@ internal fun DiscogsDirectVersionBrowser(
                 // first-sound burst ended. That LAB47 cycle could stack uncancelled
                 // blocking provider calls track after track. Background work resumes
                 // only after playback itself is no longer active.
-                while (playbackIsActive()) {
+                while (
+                    playerConnection?.isPlaybackPriorityBurstActive() == true ||
+                    playerConnection?.isEffectivelyPlaying?.value == true ||
+                    playerConnection?.playbackState?.value == Player.STATE_BUFFERING
+                ) {
                     delay(400)
                 }
                 delay(300)
-                if (playbackIsActive()) return@launch
+                if (
+                    playerConnection?.isPlaybackPriorityBurstActive() == true ||
+                    playerConnection?.isEffectivelyPlaying?.value == true ||
+                    playerConnection?.playbackState?.value == Player.STATE_BUFFERING
+                ) {
+                    return@launch
+                }
                 backgroundPausedForPlayback = false
                 scheduleDiscogsVerification()
                 scheduleVideoPreload()
