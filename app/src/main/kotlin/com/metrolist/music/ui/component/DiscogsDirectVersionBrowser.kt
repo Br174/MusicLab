@@ -1040,43 +1040,25 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun pauseCoverBackgroundForPlayback() {
-        // LAB50 persistent barrier: cancellation alone is insufficient because Compose
-        // effects can observe loading=false and immediately schedule progressive work
-        // again. Keep the barrier closed until playback is genuinely idle.
+        // LAB54: only the short playback-start critical lane owns the network.
+        // Discovery/pagination survive because Cover must remain usable while music plays.
         backgroundPausedForPlayback = true
-        searchJob?.cancel()
-        paginationJob?.cancel()
         verificationJob?.cancel()
         videoPreloadJob?.cancel()
         backgroundResumeJob?.cancel()
-        loading = false
-        loadingMore = false
-        sourceDiscoveryLoading = false
     }
 
     fun resumeCoverBackgroundAfterPlaybackBurst() {
         backgroundResumeJob?.cancel()
         backgroundResumeJob =
             scope.launch {
-                // LAB49: never restart provider/discovery work merely because the
-                // first-sound burst ended. That LAB47 cycle could stack uncancelled
-                // blocking provider calls track after track. Background work resumes
-                // only after playback itself is no longer active.
-                while (
-                    playerConnection?.isPlaybackPriorityBurstActive() == true ||
-                    playerConnection?.isEffectivelyPlaying?.value == true ||
-                    playerConnection?.playbackState?.value == Player.STATE_BUFFERING
-                ) {
-                    delay(400)
+                while (playbackIsCritical()) {
+                    delay(250)
                 }
-                delay(300)
-                if (
-                    playerConnection?.isPlaybackPriorityBurstActive() == true ||
-                    playerConnection?.isEffectivelyPlaying?.value == true ||
-                    playerConnection?.playbackState?.value == Player.STATE_BUFFERING
-                ) {
-                    return@launch
-                }
+                delay(180)
+                if (playbackIsCritical()) return@launch
+                // Normal playback is allowed. The Cover resolver restarts in its
+                // one-at-a-time playback lane instead of waiting for song end.
                 backgroundPausedForPlayback = false
                 scheduleDiscogsVerification()
                 scheduleVideoPreload()
