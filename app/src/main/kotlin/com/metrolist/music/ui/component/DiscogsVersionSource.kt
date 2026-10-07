@@ -843,7 +843,8 @@ internal object DiscogsVersionSource {
             listOf(existing, incoming)
                 .filter { !it.resolvedVideoId.isNullOrBlank() }
                 .maxWithOrNull(
-                    compareBy<DiscogsVersionSeed> { it.confidenceScore }
+                    compareBy<DiscogsVersionSeed> { directVideoSourcePriority(it) }
+                        .thenBy { it.confidenceScore }
                         .thenBy { it.videos.size }
                         .thenBy { it.sourceNames.distinct().size }
                         .thenBy { if (it.track != null) 1 else 0 },
@@ -856,6 +857,23 @@ internal object DiscogsVersionSource {
             resolvedVideoSource = preferredVideo.resolvedVideoSource,
             videoResolutionChecked = true,
         )
+    }
+
+    private fun directVideoSourcePriority(seed: DiscogsVersionSeed): Int {
+        val source =
+            buildString {
+                append(seed.resolvedVideoSource.orEmpty())
+                append(' ')
+                append(seed.sourceNames.joinToString(" "))
+            }.lowercase()
+        return when {
+            "archivio cloud" in source || "musiclab interno" in source || "musiclab" in source -> 50
+            "cover.info" in source -> 40
+            "discogs" in source -> 30
+            "youtube music" in source -> 20
+            "youtube" in source -> 10
+            else -> 0
+        }
     }
 
     internal fun recordingIdentityKey(seed: DiscogsVersionSeed): String = recordingFamilyKey(seed)
