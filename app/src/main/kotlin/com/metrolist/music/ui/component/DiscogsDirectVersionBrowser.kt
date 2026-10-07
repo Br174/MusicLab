@@ -1306,6 +1306,7 @@ internal fun DiscogsDirectVersionBrowser(
         activeCriteria = criteria
         selectedFingerprint = null
         visibleLimit = pageSize
+        resultPageIndex = 0
         sourceDiagnostics = emptyList()
         sourceDiscoveryLoading = true
 
@@ -1319,6 +1320,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.listOffset = 0
         session.stableOrder = emptyList()
         session.visibleLimit = pageSize
+        session.resultPageIndex = 0
         session.sourceDiagnostics = emptyList()
         session.sourceDiscoveryComplete = false
         session.usedVideoIds.clear()
@@ -1539,11 +1541,53 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
+    fun moveToResultPage(targetPage: Int) {
+        if (mode != DiscogsDirectMode.COVER) return
+        val poolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
+        val pageCount = if (poolSize == 0) 0 else (poolSize + pageSize - 1) / pageSize
+        if (targetPage !in 0 until pageCount) return
+        resultPageIndex = targetPage
+        session.resultPageIndex = targetPage
+        verificationJob?.cancel()
+        videoPreloadJob?.cancel()
+        scope.launch { listState.scrollToItem(0) }
+        scheduleDiscogsVerification()
+        scheduleVideoPreload()
+    }
+
     fun loadNextPage() {
         val criteria = activeCriteria ?: return
-        if (backgroundWorkBlocked()) return
         if (loading || loadingMore) return
 
+        if (mode == DiscogsDirectMode.COVER) {
+            val poolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
+            val pageCount = if (poolSize == 0) 0 else (poolSize + pageSize - 1) / pageSize
+            if (resultPageIndex + 1 < pageCount) {
+                moveToResultPage(resultPageIndex + 1)
+                return
+            }
+            if (backgroundWorkBlocked() || currentPage <= 0 || currentPage >= totalPages) return
+
+            loadingMore = true
+            paginationError = null
+            paginationJob?.cancel()
+            paginationJob =
+                scope.launch {
+                    try {
+                        val oldPoolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
+                        val loaded = loadPage(criteria, currentPage + 1, replace = false)
+                        if (loaded) {
+                            val newPoolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
+                            if (newPoolSize > oldPoolSize) moveToResultPage(resultPageIndex + 1)
+                        }
+                    } finally {
+                        loadingMore = false
+                    }
+                }
+            return
+        }
+
+        if (backgroundWorkBlocked()) return
         val target = visibleLimit + pageSize
         val currentlyAvailable = readyVideoCount()
         if (currentlyAvailable >= target) {
@@ -1583,6 +1627,12 @@ internal fun DiscogsDirectVersionBrowser(
                     loadingMore = false
                 }
             }
+    }
+
+    fun loadPreviousPage() {
+        if (mode == DiscogsDirectMode.COVER && resultPageIndex > 0) {
+            moveToResultPage(resultPageIndex - 1)
+        }
     }
 
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
@@ -2002,19 +2052,23 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                 }
 
-                DirectSortSelector(
-                    selected = sortMode,
-                    onSelected = { selected ->
-                        if (selected != sortMode) {
-                            sortMode = selected
-                            session.sortMode = selected
-                            rebuildStableOrder()
-                            visibleLimit = pageSize
-                            session.visibleLimit = visibleLimit
-                            scope.launch { listState.scrollToItem(0) }
-                        }
-                    },
-                )
+                if (mode != DiscogsDirectMode.COVER) {
+                    DirectSortSelector(
+                        selected = sortMode,
+                        onSelected = { selected ->
+                            if (selected != sortMode) {
+                                sortMode = selected
+                                session.sortMode = selected
+                                rebuildStableOrder()
+                                visibleLimit = pageSize
+                                session.visibleLimit = visibleLimit
+                                resultPageIndex = 0
+                                session.resultPageIndex = 0
+                                scope.launch { listState.scrollToItem(0) }
+                            }
+                        },
+                    )
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
