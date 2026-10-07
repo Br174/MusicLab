@@ -65,6 +65,7 @@ import com.metrolist.music.discogs.CompilationTrackResolver
 import com.metrolist.music.discogs.DiscogsCredit
 import com.metrolist.music.discogs.DiscogsTrack
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
@@ -249,6 +250,7 @@ internal fun DiscogsDirectVersionBrowser(
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var backgroundResumeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var playbackLaunchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    var backgroundPausedForPlayback by remember(sessionKey) { mutableStateOf(false) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
     var closeSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
 
@@ -879,16 +881,26 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
+    fun playbackIsActive(): Boolean =
+        playerConnection?.isPlaybackPriorityBurstActive() == true ||
+            playerConnection?.isEffectivelyPlaying?.value == true ||
+            playerConnection?.playbackState?.value == Player.STATE_BUFFERING
+
+    fun backgroundWorkBlocked(): Boolean = backgroundPausedForPlayback || playbackIsActive()
+
     fun scheduleVideoPreload() {
         if (videoPreloadJob?.isActive == true) return
-        if (playerConnection?.isPlaybackPriorityBurstActive() == true) return
+        if (backgroundWorkBlocked()) return
         videoPreloadJob =
             scope.launch {
-                // Keep automatic work bounded to the visible block plus a tiny look-ahead.
-                // Hundreds of off-screen candidates must never compete with playback or Compose.
+                // LAB50: this job is allowed to exist only while playback does not own
+                // the lane. Automatic effects may call the scheduler again after a
+                // cancellation, therefore the persistent barrier is checked both here
+                // and inside the loop.
+                if (backgroundWorkBlocked()) return@launch
                 warmResolvedVideoMetadata()
                 while (true) {
-                    if (playerConnection?.isPlaybackPriorityBurstActive() == true) break
+                    if (backgroundWorkBlocked()) break
                     val workWindow =
                         orderedResults(results).take(
                             (visibleLimit.coerceAtLeast(DIRECT_VERSION_PAGE_SIZE) + DIRECT_BACKGROUND_PREFETCH_AHEAD)
@@ -925,11 +937,11 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun scheduleDiscogsVerification() {
         if (verificationJob?.isActive == true) return
-        if (playerConnection?.isPlaybackPriorityBurstActive() == true) return
+        if (backgroundWorkBlocked()) return
         verificationJob =
             scope.launch {
                 while (true) {
-                    if (playerConnection?.isPlaybackPriorityBurstActive() == true) break
+                    if (backgroundWorkBlocked()) break
                     val pending =
                         orderedResults(results)
                             .take(
@@ -960,6 +972,10 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun pauseCoverBackgroundForPlayback() {
+        // LAB50 persistent barrier: cancellation alone is insufficient because Compose
+        // effects can observe loading=false and immediately schedule progressive work
+        // again. Keep the barrier closed until playback is genuinely idle.
+        backgroundPausedForPlayback = true
         searchJob?.cancel()
         paginationJob?.cancel()
         verificationJob?.cancel()
@@ -978,21 +994,12 @@ internal fun DiscogsDirectVersionBrowser(
                 // first-sound burst ended. That LAB47 cycle could stack uncancelled
                 // blocking provider calls track after track. Background work resumes
                 // only after playback itself is no longer active.
-                while (
-                    playerConnection?.isPlaybackPriorityBurstActive() == true ||
-                    playerConnection?.isEffectivelyPlaying?.value == true ||
-                    playerConnection?.playbackState?.value == Player.STATE_BUFFERING
-                ) {
+                while (playbackIsActive()) {
                     delay(400)
                 }
                 delay(300)
-                if (
-                    playerConnection?.isPlaybackPriorityBurstActive() == true ||
-                    playerConnection?.isEffectivelyPlaying?.value == true ||
-                    playerConnection?.playbackState?.value == Player.STATE_BUFFERING
-                ) {
-                    return@launch
-                }
+                if (playbackIsActive()) return@launch
+                backgroundPausedForPlayback = false
                 scheduleDiscogsVerification()
                 scheduleVideoPreload()
             }
@@ -1067,24 +1074,34 @@ internal fun DiscogsDirectVersionBrowser(
 
     suspend fun playResolvedContext(selectedFingerprint: String) {
         val connection = playerConnection ?: return
-        val readySeeds =
-            orderedResults(results).filter { seed ->
-                !seed.resolvedVideoId.isNullOrBlank()
-            }
-        val selectedIndex = readySeeds.indexOfFirst { it.fingerprint == selectedFingerprint }
-        if (selectedIndex < 0) return
-        val selectedSeed = readySeeds[selectedIndex]
-        val selectedId = selectedSeed.resolvedVideoId ?: return
-
-        // LAB40: first sound wins. If preload already resolved the SongItem there is
-        // no YouTube metadata request between tap and playQueue. Cloud-restored IDs
-        // get only one bounded single-ID hydration, never a whole-queue request.
-        val selectedSong =
-            session.preparedVideoSongs[selectedId]
-                ?: withTimeoutOrNull(2_500L) {
-                    YouTube.queue(videoIds = listOf(selectedId)).getOrNull()?.firstOrNull()
-                }?.also(::rememberPreparedVideoSong)
+        val selectedSeed =
+            orderedResults(results)
+                .firstOrNull { it.fingerprint == selectedFingerprint && !it.resolvedVideoId.isNullOrBlank() }
                 ?: return
+        val selectedId = selectedSeed.resolvedVideoId?.trim().orEmpty()
+        if (selectedId.isBlank()) return
+
+        // LAB50 fast lane: once the exact playable video id is already verified,
+        // tapping Play must not make another YouTube.queue metadata request. Reuse a
+        // prepared SongItem when available; otherwise build the minimum player
+        // metadata locally from the verified row. MusicService resolves the stream
+        // from mediaId, so the network work that matters starts in the Player lane.
+        val selectedItem =
+            session.preparedVideoSongs[selectedId]?.toMediaItem()
+                ?: MediaMetadata(
+                    id = selectedId,
+                    title = selectedSeed.resolvedVideoTitle?.takeIf(String::isNotBlank)
+                        ?: selectedSeed.trackTitle,
+                    artists =
+                        listOf(
+                            MediaMetadata.Artist(
+                                id = null,
+                                name = selectedSeed.artist,
+                            ),
+                        ),
+                    duration = selectedSeed.durationSeconds ?: -1,
+                    thumbnailUrl = selectedSeed.coverUrl,
+                ).toMediaItem()
 
         val queueTitle =
             if (mode == DiscogsDirectMode.COVER) {
@@ -1096,33 +1113,16 @@ internal fun DiscogsDirectVersionBrowser(
         connection.playQueue(
             ListQueue(
                 title = queueTitle,
-                items = listOf(selectedSong.toMediaItem()),
+                items = listOf(selectedItem),
                 startIndex = 0,
             ),
         )
 
-        // LAB47 playback-first gate: do not hydrate the rest of a 20/40/300 item
-        // result set while the selected stream is still being extracted/buffered.
-        // After first sound is stable, prepare exactly ONE following item.
-        while (connection.isPlaybackPriorityBurstActive()) {
-            delay(120)
-        }
-        if (connection.playbackState.value != Player.STATE_READY) return
-
-        val nextSeed =
-            (readySeeds.drop(selectedIndex + 1) + readySeeds.take(selectedIndex))
-                .distinctBy { it.resolvedVideoId }
-                .firstOrNull()
-                ?: return
-        val nextId = nextSeed.resolvedVideoId ?: return
-        val nextSong =
-            session.preparedVideoSongs[nextId]
-                ?: withTimeoutOrNull(2_500L) {
-                    YouTube.queue(videoIds = listOf(nextId)).getOrNull()?.firstOrNull()
-                }?.also(::rememberPreparedVideoSong)
-                ?: return
-
-        connection.addToQueue(listOf(nextSong.toMediaItem()))
+        // LAB50 deliberately ends here. The former delayed "prepare next item"
+        // hydration kept a second YouTube metadata request alive after every tap and
+        // could accumulate work across consecutive songs. The selected song is the
+        // only playback-critical item; later discovery resumes only after playback
+        // is genuinely idle.
     }
 
     suspend fun loadPage(
@@ -1481,6 +1481,7 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun loadNextPage() {
         val criteria = activeCriteria ?: return
+        if (backgroundWorkBlocked()) return
         if (loading || loadingMore) return
 
         val target = visibleLimit + DIRECT_VERSION_PAGE_SIZE
