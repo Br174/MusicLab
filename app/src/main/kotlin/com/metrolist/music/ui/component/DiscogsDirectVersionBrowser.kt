@@ -570,15 +570,28 @@ internal fun DiscogsDirectVersionBrowser(
             if (key !in keys) keys += key
         }
 
+        fun rankedSeed(seed: DiscogsVersionSeed): DiscogsVersionSeed =
+            if (isRejected(seed)) {
+                seed.copy(
+                    confidenceScore = 1,
+                    confidenceReasons =
+                        (seed.confidenceReasons + "Filtro negativo: mantenuta in graduatoria a 1/10").distinct(),
+                )
+            } else {
+                seed
+            }
+
         if (!replace) {
-            current.filterNot(::isRejected).forEach { seed ->
+            current.forEach { rawSeed ->
+                val seed = rankedSeed(rawSeed)
                 val key = DiscogsVersionSource.identityKey(seed)
                 merged[key] = seed
                 indexSeed(key, seed)
             }
         }
 
-        incoming.filterNot(::isRejected).forEach { seed ->
+        incoming.forEach { rawSeed ->
+            val seed = rankedSeed(rawSeed)
             val exactKey = DiscogsVersionSource.identityKey(seed)
             val bucket = DiscogsVersionSource.crossSourceBucketKey(seed)
             val equivalentKey =
@@ -1051,13 +1064,19 @@ internal fun DiscogsDirectVersionBrowser(
             if (status == AiBrainDecisionStatus.REJECTED) {
                 session.approvedKeys -= rejectionKey(seed)
                 session.rejectedKeys += rejectionKey(seed)
-                results = results.filterNot { rejectionKey(it) in session.rejectedKeys }
-                session.results = results
-                detailSeed = null
+                val downgraded =
+                    seed.copy(
+                        confidenceScore = 1,
+                        confidenceReasons =
+                            (seed.confidenceReasons + "Disapprovata: mantenuta in fondo alla graduatoria").distinct(),
+                        manuallyApproved = false,
+                    )
+                replaceSeed(downgraded)
+                detailSeed = results.firstOrNull { it.fingerprint == downgraded.fingerprint } ?: downgraded
                 rebuildStableOrder()
                 Toast.makeText(
                     context,
-                    "Disapprovata: memorizzata e nascosta dalle ricerche future.",
+                    "Disapprovata: resta disponibile in fondo con punteggio 1/10.",
                     Toast.LENGTH_LONG,
                 ).show()
             } else if (status == AiBrainDecisionStatus.APPROVED) {
@@ -1286,34 +1305,13 @@ internal fun DiscogsDirectVersionBrowser(
             session.rejectedKeys.addAll(memoryState?.rejectedKeys.orEmpty())
             session.approvedKeys.clear()
 
+            // LAB51: cloud memory is ranking evidence, never an admission gate.
+            // Rejected/weak candidates stay visible at the bottom with score 1/10.
             val memoryVersions =
                 memoryState
                     ?.discovery
                     ?.versions
                     .orEmpty()
-                    .filterNot { candidate ->
-                        val categoryName =
-                            if (mode == DiscogsDirectMode.ORIGINAL) {
-                                when (candidate.category) {
-                                    AiCoverCategory.LIVE -> "live"
-                                    AiCoverCategory.REMIX -> "remix"
-                                    AiCoverCategory.FOREIGN -> "straniera"
-                                    AiCoverCategory.COVER -> "originale"
-                                }
-                            } else {
-                                when (candidate.category) {
-                                    AiCoverCategory.LIVE -> "live"
-                                    AiCoverCategory.REMIX -> "remix"
-                                    AiCoverCategory.FOREIGN -> "straniera"
-                                    AiCoverCategory.COVER -> "cover"
-                                }
-                            }
-                        CloudMusicDiscovery.memoryKey(
-                            candidate.title,
-                            candidate.artist,
-                            categoryName,
-                        ) in session.rejectedKeys
-                    }
 
             session.approvedKeys.addAll(
                 memoryVersions
@@ -1364,7 +1362,7 @@ internal fun DiscogsDirectVersionBrowser(
                         if (session.rejectedKeys.isEmpty()) {
                             "cloud-first"
                         } else {
-                            "cloud-first · ${session.rejectedKeys.size} disapprovate escluse"
+                            "cloud-first · ${session.rejectedKeys.size} disapprovate mantenute a 1/10"
                         },
                 )
             sourceDiagnostics = listOf(memoryDiagnostic)
