@@ -14,7 +14,7 @@ const worker = fs.readFileSync(
 test('LAB53 Cover video thumbnail is large square and has no play overlay or play hint', () => {
   const card = browser.slice(
     browser.indexOf('private fun DiscogsVersionCard'),
-    browser.indexOf('@Composable\nprivate fun DiscogsVersionDetailsDialog'),
+    browser.indexOf('private fun DiscogsVersionDetailsDialog'),
   );
   assert.match(card, /showVideoPreview/);
   assert.match(card, /\.size\(144\.dp\)/);
@@ -49,7 +49,7 @@ test('LAB53 uses X close controls and removes Chiudi from the version-details di
   );
   assert.match(dialog, /Text\("×", style = MaterialTheme\.typography\.titleLarge\)/);
   assert.doesNotMatch(dialog, /Text\("Chiudi"\)/);
-  assert.match(dialog, /Text\("Approva"\)/);
+  assert.match(dialog, /else -> "Approva"/);
   assert.match(dialog, /Text\("Disapprova"\)/);
 });
 
