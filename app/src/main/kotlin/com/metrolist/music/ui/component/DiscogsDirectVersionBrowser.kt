@@ -937,13 +937,20 @@ internal fun DiscogsDirectVersionBrowser(
         return ranked.drop(start).take(pageSize)
     }
 
-    fun readyVideoCount(): Int =
+    fun currentPageReadyVideoCount(): Int =
         currentVideoPagePool().count { !it.resolvedVideoId.isNullOrBlank() }
+
+    fun readyVideoCount(): Int =
+        if (mode == DiscogsDirectMode.COVER) {
+            currentPageReadyVideoCount()
+        } else {
+            orderedResults(results).count { !it.resolvedVideoId.isNullOrBlank() }
+        }
 
     suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
         val pagePool = currentVideoPagePool()
         val targetReady = pagePool.size
-        val missingReady = (targetReady - readyVideoCount()).coerceAtLeast(0)
+        val missingReady = (targetReady - currentPageReadyVideoCount()).coerceAtLeast(0)
         if (missingReady == 0) return
 
         // LAB54: resolve exactly the current global-ranking page.
@@ -1005,7 +1012,7 @@ internal fun DiscogsDirectVersionBrowser(
                     if (backgroundWorkBlocked()) break
                     val workWindow = currentVideoPagePool()
                     val targetReady = workWindow.size
-                    if (targetReady == 0 || readyVideoCount() >= targetReady) break
+                    if (targetReady == 0 || currentPageReadyVideoCount() >= targetReady) break
 
                     val pendingBefore =
                         workWindow.count { seed ->
@@ -1015,7 +1022,7 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     if (pendingBefore == 0) break
 
-                    val readyBefore = readyVideoCount()
+                    val readyBefore = currentPageReadyVideoCount()
                     resolveNextVideoBatch(
                         limit = if (playbackIsNormallyPlaying()) {
                             DIRECT_COVER_PLAYBACK_BATCH_SIZE
@@ -1024,7 +1031,7 @@ internal fun DiscogsDirectVersionBrowser(
                         },
                     )
                     if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
-                    val readyAfter = readyVideoCount()
+                    val readyAfter = currentPageReadyVideoCount()
 
                     val anyPending =
                         currentVideoPagePool().any { seed ->
