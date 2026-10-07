@@ -3,7 +3,7 @@
 This file is an explicit maintainer instruction for Codex sessions in MusicLab.
 
 1. Activate MotorLab before any substantive response, tool use, write, build, test, recovery, or project decision.
-2. The first user-visible line must be exactly: `⚙️ MotorLab attivo`.
+2. The first user-visible line must be exactly: `⚙️ MotorLab rNN attivo`, where rNN matches the pinned MotorLab session release.
 3. Before substantive work, load and apply `MOTORLAB_PROJECT_HOOK.txt`, `.motorlab/MOTORLAB_SYNC_STATE.txt`, and `.motorlab/MOTORLAB_LOCAL_CORE.txt`.
 4. The verified local MotorLab satellite is the immediate fallback. Reconcile the central authority `Br174/Chatgpt` only at a safe boundary and never switch MotorLab release in the middle of an active write/build/test/promotion.
 5. MotorLab must coexist with and preserve the native MusicLab engine. It must never replace MusicLab playback/search/AI/domain behavior.
