@@ -921,8 +921,7 @@ internal object CoverDiscoverySources {
         originalArtist: String,
     ): Boolean =
         when (mode) {
-            DiscogsDirectMode.COVER ->
-                originalArtist.isBlank() || !sameArtist(artist, originalArtist)
+            DiscogsDirectMode.COVER -> true
             DiscogsDirectMode.ORIGINAL -> sameArtist(artist, originalArtist)
         }
 
