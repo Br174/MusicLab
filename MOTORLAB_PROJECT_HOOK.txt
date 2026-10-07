@@ -33,6 +33,8 @@ MOTORLAB_SELECTIVE_EXACT_RESTORE=required
 MOTORLAB_PROJECT_CHAT_POLICY=promptless-cross-chat-continuity
 MOTORLAB_NATIVE_ENGINE_POLICY=coexist-preserve
 MOTORLAB_VISIBLE_ACTIVATION_PROOF=required
+MOTORLAB_VERSIONED_BOOT_BANNER=required
+MOTORLAB_ALL_PROJECTS_REQUIRED=required
 MOTORLAB_DEFERRED_MATERIALIZATION=required
 MOTORLAB_EVENT_MEMORY=required
 MOTORLAB_DYNAMIC_PRUNING=required
@@ -57,7 +59,7 @@ Persistent MusicLab-side structural hook for MotorLab. Every recognizable MusicL
 
 MANDATORY RULES
 1. MotorLab activates before substantive MusicLab response/tool/write/build work.
-2. First user-visible line is "⚙️ MotorLab attivo".
+2. First user-visible line is "⚙️ MotorLab rNN attivo", where rNN matches the pinned session release.
 3. Do not require Bruno to paste activation or transfer prompts.
 4. Load MOTORLAB_PROJECT_STATE_MUSICLAB_V1.txt and reconcile against live repo/ref/head/workflow/job/artifact evidence before choosing current starting point.
 5. Load MOTORLAB_CHANGE_REGISTRY_MUSICLAB_V1.txt for historical semantic lookup/restoration; it never overrides newer current-state evidence.
@@ -83,7 +85,7 @@ MANDATORY RULES
 
 MOTORLAB_CODEX_BOOTSTRAP=required
 MOTORLAB_CODEX_HOOK=.codex/hooks.json
-MOTORLAB_LOCAL_RELEASE_TARGET=2026.10.07-r27
+MOTORLAB_LOCAL_RELEASE_TARGET=2026.10.07-r29
 
 VERSION
 MOTORLAB-PROJECT-HOOK-V1.11
