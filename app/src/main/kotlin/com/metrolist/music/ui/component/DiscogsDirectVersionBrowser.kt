@@ -330,11 +330,11 @@ internal fun DiscogsDirectVersionBrowser(
     fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
         val score =
             when (candidate.brainStatus) {
-                AiBrainDecisionStatus.APPROVED -> 5
-                AiBrainDecisionStatus.PROBABLE -> 4
-                AiBrainDecisionStatus.UNCERTAIN -> 3
+                AiBrainDecisionStatus.APPROVED -> 20
+                AiBrainDecisionStatus.PROBABLE -> 14
+                AiBrainDecisionStatus.UNCERTAIN -> 7
                 AiBrainDecisionStatus.REJECTED -> 1
-                null -> 3
+                null -> 5
             }
         val seed =
             DiscogsVersionSource.externalSeed(
@@ -384,9 +384,9 @@ internal fun DiscogsDirectVersionBrowser(
             }
         val evidenceStrength =
             when {
-                seed.confidenceScore >= 9 -> "very_strong"
-                seed.confidenceScore >= 7 -> "strong"
-                seed.confidenceScore >= 4 -> "medium"
+                seed.confidenceScore >= 18 -> "very_strong"
+                seed.confidenceScore >= 14 -> "strong"
+                seed.confidenceScore >= 8 -> "medium"
                 else -> "weak"
             }
         return AiCoverCandidate(
@@ -400,8 +400,8 @@ internal fun DiscogsDirectVersionBrowser(
             composers = creditNames(Regex("\\b(composer|composed|music by)\\b")),
             lyricists = creditNames(Regex("\\b(lyrics|lyricist)\\b")),
             label = seed.labels.firstOrNull(),
-            sameWorkScore = (seed.confidenceScore * 10).coerceIn(10, 100),
-            versionTypeScore = (seed.confidenceScore * 10).coerceIn(10, 100),
+            sameWorkScore = (seed.confidenceScore * 5).coerceIn(5, 100),
+            versionTypeScore = (seed.confidenceScore * 5).coerceIn(5, 100),
             brainStatus = AiBrainDecisionStatus.UNCERTAIN,
             brainAdmission = "lab38b_manual_review",
             brainSignals =
@@ -511,7 +511,7 @@ internal fun DiscogsDirectVersionBrowser(
         val strong =
             candidates.filter { candidate ->
                 candidate.artist.isNotBlank() &&
-                    (candidate.originalWorkReference || candidate.workRelationConfirmed || candidate.evidenceScore >= 7)
+                    (candidate.originalWorkReference || candidate.workRelationConfirmed || candidate.evidenceScore >= 14)
             }
         if (strong.isEmpty()) return null
 
@@ -575,7 +575,7 @@ internal fun DiscogsDirectVersionBrowser(
                 seed.copy(
                     confidenceScore = 1,
                     confidenceReasons =
-                        (seed.confidenceReasons + "Filtro negativo: mantenuta in graduatoria a 1/10").distinct(),
+                        (seed.confidenceReasons + "Filtro negativo: mantenuta in graduatoria a 1/20").distinct(),
                 )
             } else {
                 seed
@@ -604,12 +604,13 @@ internal fun DiscogsDirectVersionBrowser(
                     }
             val key = equivalentKey ?: exactKey
             val previous = merged[key]
-            val updated =
+            val mergedEvidence =
                 if (previous == null) {
                     seed
                 } else {
                     DiscogsVersionSource.mergeCrossSourceEvidence(previous, seed)
                 }
+            val updated = rankedSeed(mergedEvidence)
             merged[key] = updated
             indexSeed(key, updated)
         }
@@ -730,7 +731,18 @@ internal fun DiscogsDirectVersionBrowser(
         }
 
         val current = results[index]
-        val merged = DiscogsVersionSource.mergeEvidence(current, updated)
+        val mergedEvidence = DiscogsVersionSource.mergeEvidence(current, updated)
+        val merged =
+            if (isRejected(updated)) {
+                mergedEvidence.copy(
+                    confidenceScore = 1,
+                    confidenceReasons =
+                        (mergedEvidence.confidenceReasons + "Filtro negativo: mantenuta in graduatoria a 1/20").distinct(),
+                    manuallyApproved = false,
+                )
+            } else {
+                mergedEvidence
+            }
         val relevanceChanged =
             merged.confidenceScore != current.confidenceScore ||
                 merged.originalWorkReference != current.originalWorkReference
@@ -1076,7 +1088,7 @@ internal fun DiscogsDirectVersionBrowser(
                 rebuildStableOrder()
                 Toast.makeText(
                     context,
-                    "Disapprovata: resta disponibile in fondo con punteggio 1/10.",
+                    "Disapprovata: resta disponibile in fondo con punteggio 1/20.",
                     Toast.LENGTH_LONG,
                 ).show()
             } else if (status == AiBrainDecisionStatus.APPROVED) {
@@ -1084,7 +1096,7 @@ internal fun DiscogsDirectVersionBrowser(
                 session.approvedKeys += rejectionKey(seed)
                 val approved =
                     seed.copy(
-                        confidenceScore = 10,
+                        confidenceScore = 20,
                         confidenceReasons =
                             (seed.confidenceReasons + "Approvata manualmente e salvata nel cloud").distinct(),
                         sourceNames = (seed.sourceNames + "Archivio Cloud").distinct(),
@@ -1306,7 +1318,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.approvedKeys.clear()
 
             // LAB51: cloud memory is ranking evidence, never an admission gate.
-            // Rejected/weak candidates stay visible at the bottom with score 1/10.
+            // Rejected/weak candidates stay visible at the bottom with score 1/20.
             val memoryVersions =
                 memoryState
                     ?.discovery
@@ -1362,7 +1374,7 @@ internal fun DiscogsDirectVersionBrowser(
                         if (session.rejectedKeys.isEmpty()) {
                             "cloud-first"
                         } else {
-                            "cloud-first · ${session.rejectedKeys.size} disapprovate mantenute a 1/10"
+                            "cloud-first · ${session.rejectedKeys.size} disapprovate mantenute a 1/20"
                         },
                 )
             sourceDiagnostics = listOf(memoryDiagnostic)
@@ -2209,7 +2221,7 @@ private fun DiscogsVersionDetailsDialog(
                         },
                 )
                 Text("Tipo: ${seed.kind.name.lowercase()}")
-                Text("Affidabilità: ${seed.confidenceScore}/10")
+                Text("Affidabilità: ${seed.confidenceScore}/20")
                 Text("Data: ${seed.displayDate ?: "non disponibile"}")
                 Text("Paese: ${seed.country ?: "non disponibile"}")
                 Text("Formato: ${seed.formats.joinToString().ifBlank { "non disponibile" }}")
@@ -2346,7 +2358,7 @@ private fun DirectSortSelector(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        DirectChip("Punteggio 10→1", selected == DirectVersionSort.RELEVANCE) {
+        DirectChip("Punteggio 20→1", selected == DirectVersionSort.RELEVANCE) {
             onSelected(DirectVersionSort.RELEVANCE)
         }
         DirectChip("Più vecchi", selected == DirectVersionSort.OLDEST) {
