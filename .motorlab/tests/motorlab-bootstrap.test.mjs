@@ -32,6 +32,7 @@ test('bootstrap hook injects verified local MotorLab contract without network de
   await mkdir(join(temp, '.motorlab'), { recursive: true });
   await mkdir(join(temp, '.codex', 'hooks'), { recursive: true });
   await writeFile(join(temp, 'MOTORLAB_PROJECT_HOOK.txt'), 'PROJECT_NAME=MusicLab\nMOTORLAB_CONTROL_REPOSITORY=Br174/Chatgpt\n');
+  await writeFile(join(temp, '.motorlab', 'MOTORLAB_BOOT_CAPSULE.txt'), 'MOTORLAB CRITICAL BOOT CAPSULE V1\nNUMERIC_PROGRESS=required\nHARD_PROGRESS_VISIBILITY=required\nVISUAL_STATUS=required\nSESSION_RELEASE_PIN=required\n');
   await writeFile(join(temp, '.motorlab', 'MOTORLAB_LOCAL_CORE.txt'), 'MOTORLAB SATELLITE BUNDLE\nRELEASE=2026.09.30-r16\nVERSIONED_BOOT_BANNER=required\nHIGH_PRESENCE_NUMERIC_PROGRESS=required\n');
   await writeFile(join(temp, '.motorlab', 'MOTORLAB_SYNC_STATE.txt'), 'PROJECT=MusicLab\nSTATE=VERIFIED\n');
   await copyFile(join(repo, '.codex', 'hooks', 'motorlab_boot.py'), join(temp, '.codex', 'hooks', 'motorlab_boot.py'));
@@ -45,7 +46,7 @@ test('bootstrap hook injects verified local MotorLab contract without network de
   const out = JSON.parse(run.stdout);
   assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
   assert.match(out.hookSpecificOutput.additionalContext, /⚙️ MotorLab r16 attivo/);
-  assert.match(out.hookSpecificOutput.additionalContext, /RELEASE=2026\.09\.30-r16/);
-  assert.match(out.hookSpecificOutput.additionalContext, /HIGH_PRESENCE_NUMERIC_PROGRESS=required/);
+  assert.match(out.hookSpecificOutput.additionalContext, /SESSION_RELEASE_PIN=2026\.09\.30-r16/);
+  assert.match(out.hookSpecificOutput.additionalContext, /NUMERIC_PROGRESS=required/);
   assert.doesNotMatch(run.stdout, /"continue"\s*:\s*false/);
 });
