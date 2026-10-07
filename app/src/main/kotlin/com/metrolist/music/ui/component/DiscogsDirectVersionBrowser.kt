@@ -2210,10 +2210,24 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
 
-            if (!loading && activeCriteria != null && visibleResults.isEmpty() && currentPage >= totalPages && currentPage > 0) {
+            if (!loading && activeCriteria != null && navigablePool.isEmpty() && !sourceDiscoveryLoading) {
                 item(key = "discogs_direct_no_results_${mode.name}") {
                     Text(
-                        "Nessun candidato disponibile con questo filtro. Provo le altre pagine/fonti quando disponibili.",
+                        "Nessun candidato disponibile con questo filtro.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
+            } else if (
+                mode == DiscogsDirectMode.COVER &&
+                activeCriteria != null &&
+                resultPagePool.isNotEmpty() &&
+                visibleResults.isEmpty()
+            ) {
+                item(key = "discogs_direct_preparing_${safeResultPageIndex}") {
+                    Text(
+                        "Preparo i video di questa pagina mentre continui ad ascoltare la musica…",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -2240,12 +2254,65 @@ internal fun DiscogsDirectVersionBrowser(
                 )
             }
 
-            if (
-                loadingMore ||
+            if (mode == DiscogsDirectMode.COVER && activeCriteria != null && resultPageCount > 0) {
+                item(key = "discogs_direct_cover_pager_${safeResultPageIndex}") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        if (loadingMore) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            TextButton(
+                                onClick = ::loadPreviousPage,
+                                enabled = safeResultPageIndex > 0 && !loadingMore,
+                            ) {
+                                Text("‹ Precedenti")
+                            }
+                            Text(
+                                "Pagina ${safeResultPageIndex + 1}/$resultPageCount",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            TextButton(
+                                onClick = ::loadNextPage,
+                                enabled =
+                                    !loadingMore &&
+                                        (
+                                            safeResultPageIndex + 1 < resultPageCount ||
+                                                (currentPage > 0 && currentPage < totalPages)
+                                        ),
+                            ) {
+                                Text("Successivi ›")
+                            }
+                        }
+                        paginationError?.let {
+                            Text(
+                                it,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            } else if (
+                mode != DiscogsDirectMode.COVER &&
                 (
-                    activeCriteria != null &&
-                        currentPage > 0 &&
-                        (readyPool.size > visibleLimit || currentPage < totalPages)
+                    loadingMore ||
+                        (
+                            activeCriteria != null &&
+                                currentPage > 0 &&
+                                (readyPool.size > visibleLimit || currentPage < totalPages)
+                            )
                     )
             ) {
                 item(key = "discogs_direct_more_${mode.name}_${currentPage + 1}") {
@@ -2259,36 +2326,13 @@ internal fun DiscogsDirectVersionBrowser(
                                 strokeWidth = 2.dp,
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("Preparo il prossimo blocco da $pageSize video…")
+                            Text("Preparo il prossimo blocco da $pageSize risultati…")
                         } else {
                             TextButton(onClick = ::loadNextPage) {
                                 Text("Carica i prossimi $pageSize")
                             }
                         }
-                        paginationError?.let {
-                            Text(
-                                it,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
                     }
-                }
-            } else if (
-                activeCriteria != null &&
-                currentPage > 0 &&
-                currentPage >= totalPages &&
-                readyPool.size <= visibleLimit &&
-                !loading &&
-                !loadingMore
-            ) {
-                item(key = "discogs_direct_end_${mode.name}") {
-                    Text(
-                        "Fine dei risultati attualmente raccolti. Nessun candidato è stato eliminato automaticamente.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth().padding(20.dp),
-                    )
                 }
             }
         }
