@@ -30,7 +30,8 @@ test('LAB57 prepares the frozen ranking in contiguous play-ready batches', () =>
   assert.match(browser, /compareByDescending<DiscogsVersionSeed> \{ it\.confidenceScore \}/);
   assert.match(browser, /suspend fun publishReadyBatches\(\)/);
   assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE,[\s\S]*visibleLimit - publishedCoverSnapshots\.size/);
-  assert.match(browser, /Blocco corrente 5\+5: \$\{readyPool\.size\}\/\$\{visibleMembershipPool\.size\} play-ready/);
+  assert.match(browser, /Video identificati:/);
+  assert.match(browser, /Video da associare:/);
 });
 
 test('LAB52 uses a wider source fetch so failed videos do not prevent a ten-video page', () => {
