@@ -71,7 +71,7 @@ test('playback cancellation owns a short critical barrier without killing Cover 
 test('LAB59 automatic preload stops during playback, protecting audio from source probing', () => {
   assert.match(browser, /fun backgroundWorkBlocked\(\): Boolean = backgroundPausedForPlayback \|\| playbackIsCritical\(\)/);
 
-  const preload = functionSlice('fun scheduleVideoPreload()', 'fun scheduleDiscogsVerification()');
+  const preload = functionSlice('fun scheduleVideoPreload()', 'fun pauseCoverBackgroundForPlayback()');
   assert.match(preload, /if \(backgroundWorkBlocked\(\)\) return/);
   assert.match(preload, /if \(backgroundWorkBlocked\(\) \|\| playbackIsNormallyPlaying\(\)\) break/);
   assert.match(preload, /DIRECT_COVER_PLAYBACK_BATCH_SIZE/);
