@@ -59,7 +59,12 @@ async function enrichExpansionWithStructuredEvidence(request, env, ctx, input) {
     artist,
     env,
     fetchImpl: globalThis.fetch,
-    options: { deep: shouldUseDeepLane(input) },
+    // LAB60 Pollicino: Cover must not spend Worker CPU/network on Last.fm or Wikidata.
+    options: {
+      deep: shouldUseDeepLane(input),
+      disableLastFm: input?.mode === 'cover',
+      disableWikidata: input?.mode === 'cover',
+    },
   }).catch(() => []);
   const evidenceFocus = formatSourceEvidenceForBrain(evidence);
   if (!evidenceFocus) return request;
