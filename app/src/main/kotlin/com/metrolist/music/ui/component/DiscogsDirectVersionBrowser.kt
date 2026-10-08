@@ -1981,7 +1981,8 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode == DiscogsDirectMode.COVER) {
             val poolSize = coverCandidatePool().size
             val target = visibleLimit + pageSize
-            if (poolSize >= target) {
+            if (poolSize >= target || currentPage <= 0 || currentPage >= totalPages) {
+                if (poolSize <= publishedCoverSnapshots.size) return
                 visibleLimit = target
                 session.visibleLimit = visibleLimit
                 verificationJob?.cancel()
@@ -2002,8 +2003,7 @@ internal fun DiscogsDirectVersionBrowser(
                     try {
                         val loaded = loadPage(criteria, currentPage + 1, replace = false)
                         if (loaded) {
-                            visibleLimit =
-                                (visibleLimit + pageSize).coerceAtMost(coverCandidatePool().size)
+                            visibleLimit = visibleLimit + pageSize
                             session.visibleLimit = visibleLimit
                             verificationJob?.cancel()
                             videoPreloadJob?.cancel()
@@ -2543,6 +2543,10 @@ internal fun DiscogsDirectVersionBrowser(
                             session.visibleLimit = visibleLimit
                             publishedReadyLimit = 0
                             session.publishedReadyLimit = 0
+                            publishedOriginalSnapshots = emptyList()
+                            publishedCoverSnapshots = emptyList()
+                            session.publishedOriginalSnapshots = emptyList()
+                            session.publishedCoverSnapshots = emptyList()
                             resultPageIndex = 0
                             session.resultPageIndex = 0
                             verificationJob?.cancel()
@@ -2585,6 +2589,10 @@ internal fun DiscogsDirectVersionBrowser(
                             session.rankingFrozen = rankingFrozen
                             publishedReadyLimit = 0
                             session.publishedReadyLimit = 0
+                            publishedOriginalSnapshots = emptyList()
+                            publishedCoverSnapshots = emptyList()
+                            session.publishedOriginalSnapshots = emptyList()
+                            session.publishedCoverSnapshots = emptyList()
                             visibleLimit = pageSize
                             session.visibleLimit = visibleLimit
                             resultPageIndex = 0
