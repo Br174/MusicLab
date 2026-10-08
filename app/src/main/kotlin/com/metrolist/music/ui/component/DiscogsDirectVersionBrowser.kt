@@ -292,6 +292,7 @@ internal fun DiscogsDirectVersionBrowser(
     var backgroundResumeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var playbackLaunchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var backgroundPausedForPlayback by remember(sessionKey) { mutableStateOf(false) }
+    var sourcePrefetchedForVisibleLimit by remember(sessionKey) { mutableStateOf(-1) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
     var closeSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
 
@@ -1329,7 +1330,11 @@ internal fun DiscogsDirectVersionBrowser(
         session.totalDiscogsResults = totalDiscogsResults
         session.activeCriteria = activeCriteria
         session.initialized = true
-        syncStableOrder()
+        if (mode == DiscogsDirectMode.COVER) {
+            rebuildStableOrder()
+        } else {
+            syncStableOrder()
+        }
 
         val discogsFound = results.count { "Discogs" in it.sourceNames }
         val discogsDiagnostic =
@@ -1379,6 +1384,7 @@ internal fun DiscogsDirectVersionBrowser(
         selectedFingerprint = null
         visibleLimit = pageSize
         resultPageIndex = 0
+        sourcePrefetchedForVisibleLimit = -1
         sourceDiagnostics = emptyList()
         sourceDiscoveryLoading = true
 
@@ -1979,6 +1985,10 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode == DiscogsDirectMode.COVER) readyPool else readyPool.take(visibleLimit)
     val nextBlockReady =
         nextBlockPool.count { !it.resolvedVideoId.isNullOrBlank() }
+    val visibleOriginalVersions =
+        if (mode == DiscogsDirectMode.COVER) visibleResults.filter(::isOriginalPerformerVersion) else emptyList()
+    val visibleTrueCovers =
+        if (mode == DiscogsDirectMode.COVER) visibleResults.filterNot(::isOriginalPerformerVersion) else emptyList()
 
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -2031,6 +2041,40 @@ internal fun DiscogsDirectVersionBrowser(
         ) {
             delay(250)
             loadNextPage()
+        }
+    }
+
+    LaunchedEffect(
+        visibleLimit,
+        navigablePool.size,
+        activeCriteria,
+        currentPage,
+        totalPages,
+        loading,
+        loadingMore,
+    ) {
+        val criteria = activeCriteria ?: return@LaunchedEffect
+        if (
+            mode == DiscogsDirectMode.COVER &&
+            navigablePool.size < visibleLimit + pageSize &&
+            currentPage > 0 &&
+            currentPage < totalPages &&
+            !loading &&
+            !loadingMore &&
+            paginationJob?.isActive != true &&
+            sourcePrefetchedForVisibleLimit != visibleLimit &&
+            !backgroundWorkBlocked()
+        ) {
+            sourcePrefetchedForVisibleLimit = visibleLimit
+            delay(220)
+            paginationJob =
+                scope.launch {
+                    runCatching {
+                        loadPage(criteria, currentPage + 1, replace = false)
+                    }
+                    scheduleDiscogsVerification()
+                    scheduleVideoPreload()
+                }
         }
     }
 
@@ -2289,24 +2333,73 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
 
-            items(
-                count = visibleResults.size,
-                key = { index ->
-                    val seed = visibleResults[index]
-                    "discogs_direct_${mode.name}_${seed.fingerprint}"
-                },
-            ) { index ->
-                val seed = visibleResults[index]
-                DiscogsVersionCard(
-                    seed = seed,
-                    showVideoPreview = mode == DiscogsDirectMode.COVER,
-                    showConfidence = mode != DiscogsDirectMode.COVER || category == DirectVersionCategory.ALL,
-                    selected = seed.fingerprint == selectedFingerprint,
-                    resolving = seed.fingerprint == resolvingFingerprint,
-                    onPlay = { play(seed) },
-                    onRetryVideo = { retryMissingVideo(seed) },
-                    onDetails = { detailSeed = seed },
-                )
+            if (mode == DiscogsDirectMode.COVER) {
+                if (visibleOriginalVersions.isNotEmpty()) {
+                    item(key = "discogs_direct_original_versions_header") {
+                        Text(
+                            "Versioni di ${resolvedOriginalArtist.ifBlank { "interprete originale" }}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
+                    }
+                    items(
+                        items = visibleOriginalVersions,
+                        key = { seed -> "discogs_direct_original_${seed.fingerprint}" },
+                    ) { seed ->
+                        DiscogsVersionCard(
+                            seed = seed,
+                            showVideoPreview = true,
+                            showConfidence = category == DirectVersionCategory.ALL,
+                            selected = seed.fingerprint == selectedFingerprint,
+                            resolving = seed.fingerprint == resolvingFingerprint,
+                            onPlay = { play(seed) },
+                            onRetryVideo = { retryMissingVideo(seed) },
+                            onDetails = { detailSeed = seed },
+                        )
+                    }
+                }
+                if (visibleTrueCovers.isNotEmpty()) {
+                    item(key = "discogs_direct_true_covers_header") {
+                        Text(
+                            "Cover di altri interpreti",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
+                    }
+                    items(
+                        items = visibleTrueCovers,
+                        key = { seed -> "discogs_direct_cover_${seed.fingerprint}" },
+                    ) { seed ->
+                        DiscogsVersionCard(
+                            seed = seed,
+                            showVideoPreview = true,
+                            showConfidence = category == DirectVersionCategory.ALL,
+                            selected = seed.fingerprint == selectedFingerprint,
+                            resolving = seed.fingerprint == resolvingFingerprint,
+                            onPlay = { play(seed) },
+                            onRetryVideo = { retryMissingVideo(seed) },
+                            onDetails = { detailSeed = seed },
+                        )
+                    }
+                }
+            } else {
+                items(
+                    items = visibleResults,
+                    key = { seed -> "discogs_direct_originals_${seed.fingerprint}" },
+                ) { seed ->
+                    DiscogsVersionCard(
+                        seed = seed,
+                        showVideoPreview = false,
+                        showConfidence = true,
+                        selected = seed.fingerprint == selectedFingerprint,
+                        resolving = seed.fingerprint == resolvingFingerprint,
+                        onPlay = { play(seed) },
+                        onRetryVideo = { retryMissingVideo(seed) },
+                        onDetails = { detailSeed = seed },
+                    )
+                }
             }
 
             if (
