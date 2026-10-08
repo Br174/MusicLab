@@ -999,7 +999,12 @@ internal fun DiscogsDirectVersionBrowser(
                         }
 
                     replaceSeed(updated)
-                    if (!updated.resolvedVideoId.isNullOrBlank() && isPlayReady(updated)) {
+                    val readyId = updated.resolvedVideoId?.trim().orEmpty()
+                    if (
+                        readyId.isNotBlank() &&
+                        readyId in session.playReadyVideoIds &&
+                        session.preparedVideoSongs.containsKey(readyId)
+                    ) {
                         persistCloudPlaybackBinding(updated)
                     }
                 }
