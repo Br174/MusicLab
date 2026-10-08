@@ -43,7 +43,7 @@ test('LAB61 snapshot refreshes the same ranked card when video ID arrives', () =
   assert.match(visible, /if \(sortMode == DirectVersionSort\.RELEVANCE\) page/);
   assert.doesNotMatch(visible, /filter\(::hasVideoPreview\)/);
   const card = browser.slice(browser.indexOf('private fun DiscogsVersionCard('));
-  assert.match(card, /videoId\.takeIf\(String::isNotBlank\)/);
+  assert.match(card, /model = stableArtworkUrl/);
   assert.match(card, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
   assert.doesNotMatch(card.slice(card.indexOf('if (showVideoPreview)'), card.indexOf('} else {', card.indexOf('if (showVideoPreview)'))), /seed\.coverUrl/);
 });
@@ -78,7 +78,7 @@ test('LAB61 diagnostics do not describe an unverified stream as play-ready', () 
 });
 
 test('LAB61 version 6101 updates family 01 without changing app identity', () => {
-  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6201"/);
+  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6301"/);
   assert.match(env, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
   assert.match(env, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
