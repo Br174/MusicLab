@@ -1512,6 +1512,13 @@ internal fun DiscogsDirectVersionBrowser(
                 startIndex = 0,
             ),
         )
+        // Swipe navigation is exclusive to COVER performer rows, not the
+        // original performer, the standalone player, or another app screen.
+        if (mode == DiscogsDirectMode.COVER && !isOriginalPerformerVersion(selectedSeed)) {
+            CoverSwipeBridge.activate(sessionKey, selectedId)
+        } else {
+            CoverSwipeBridge.stop(sessionKey)
+        }
         // A compatible YouTube ID is not a verified playable stream.
         // Persist the winning ID only once Media3 is READY and this exact track
         // is really playing. Never pin a failed or stalled candidate.
@@ -2163,6 +2170,7 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun play(seed: DiscogsVersionSeed) {
+        CoverSwipeBridge.stop(sessionKey)
         session.listIndex = listState.firstVisibleItemIndex
         session.listOffset = listState.firstVisibleItemScrollOffset
         selectedFingerprint = seed.fingerprint
@@ -2234,6 +2242,50 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
+    // LAB64: the Cover player can swipe through the full ranked result pool,
+    // not only the 10 songs currently published in the list. The list itself
+    // still expands solely when the user taps "Carica altre 10".
+    fun swipeCover(direction: Int, playingId: String) {
+        if (mode != DiscogsDirectMode.COVER || coverSwipeJob?.isActive == true ||
+            playerConnection?.mediaMetadata?.value?.id != playingId) return
+        coverSwipeJob = scope.launch {
+            var ranked = orderedResults(results)
+                .filterNot(::isOriginalPerformerVersion)
+                .filterNot(::isHiddenForCurrentCover)
+            var position = ranked.indexOfFirst { it.fingerprint == selectedFingerprint }
+            if (position < 0) return@launch
+            var next = ranked.getOrNull(position + direction)
+            if (next == null && direction > 0 && currentPage > 0 && currentPage < totalPages) {
+                // Extra metadata fetch only on explicit Cover swipe; do not
+                // advance the visible Cover list's manual page boundary.
+                val criteria = activeCriteria
+                if (criteria != null) {
+                    withTimeoutOrNull(4_000L) {
+                        loadPage(criteria, currentPage + 1, replace = false)
+                    }
+                    ranked = orderedResults(results)
+                        .filterNot(::isOriginalPerformerVersion)
+                        .filterNot(::isHiddenForCurrentCover)
+                    position = ranked.indexOfFirst { it.fingerprint == selectedFingerprint }
+                    next = ranked.getOrNull(position + direction)
+                }
+            }
+            if (next != null) {
+                play(next)
+            } else {
+                Toast.makeText(context, "Nessun'altra cover disponibile in questa direzione.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    SideEffect {
+        if (mode == DiscogsDirectMode.COVER) {
+            CoverSwipeBridge.bind(sessionKey) { direction, playingId ->
+                swipeCover(direction, playingId)
+            }
+        }
+    }
+
     LaunchedEffect(
         title,
         artistFilter,
@@ -2291,6 +2343,23 @@ internal fun DiscogsDirectVersionBrowser(
         } else {
             visibleMembershipPool
         }
+    // LAB64 Pollicino: show an original only after its video is found (or
+    // all bounded attempts fail), and never insert newly ready originals above
+    // a Cover row the user is currently viewing. The screen is anchored by
+    // stable LazyColumn item keys; late originals wait for a safe top boundary.
+    val originalNow = publishedOriginalSnapshots.mapNotNull { snapshot ->
+        navigablePool.firstOrNull { it.fingerprint == snapshot.fingerprint }
+    }
+    val eligibleOriginalIds = originalNow.filter { seed ->
+        hasVideoPreview(seed) ||
+            (session.automaticVideoAttempts[seed.fingerprint] ?: 0) >= autoVideoAttemptBudget(seed)
+    }.map { it.fingerprint }
+    LaunchedEffect(sessionKey, eligibleOriginalIds, listState.firstVisibleItemIndex, listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress && listState.firstVisibleItemIndex <= 2) {
+            shownOriginalIds = shownOriginalIds + eligibleOriginalIds
+        }
+    }
+
     // The published snapshots are immutable, so an unavailable late result or
     // new year/credit cannot reorder any video already seen on screen.
     val visibleOriginalVersions =
@@ -2298,6 +2367,7 @@ internal fun DiscogsDirectVersionBrowser(
             // LAB61: existing rows read their updated video IDs from live results.
             val originalsById = navigablePool.associateBy { it.fingerprint }
             val originalRows = publishedOriginalSnapshots.mapNotNull { originalsById[it.fingerprint] }
+                .filter { it.fingerprint in shownOriginalIds }
             if (sortMode == DirectVersionSort.RELEVANCE) originalRows else sortGroup(originalRows, sortMode)
         } else emptyList()
     val visibleTrueCovers =
