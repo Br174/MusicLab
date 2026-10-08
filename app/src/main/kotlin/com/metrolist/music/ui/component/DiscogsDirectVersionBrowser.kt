@@ -916,65 +916,88 @@ internal fun DiscogsDirectVersionBrowser(
 
     suspend fun resolveVideoChunk(chunk: List<DiscogsVersionSeed>) = coroutineScope {
         if (chunk.isEmpty()) return@coroutineScope
+        val connection = playerConnection ?: return@coroutineScope
+
         val jobs =
             chunk.map { seed ->
                 launch {
-                    val track = playableTrack(seed)
-                    val internal =
-                        if (track == null) null else knownMusicLabVideo(seed, track)
+                    val current =
+                        results.firstOrNull { it.fingerprint == seed.fingerprint }
+                            ?: return@launch
+                    val track = playableTrack(current) ?: return@launch
 
-                    var resolvedSong = internal?.first
-                    var resolvedSource = internal?.second
+                    suspend fun verifyCandidateSong(
+                        song: SongItem?,
+                        source: String?,
+                    ): Pair<SongItem, String>? {
+                        val candidate = song ?: return null
+                        if (!CompilationTrackResolver.isHardCompatible(track, candidate)) return null
+                        val streamPlayable =
+                            withTimeoutOrNull(3_500L) {
+                                connection.service.getStreamUrl(candidate.id)
+                            } != null
+                        if (!streamPlayable) return null
+                        rememberPreparedVideoSong(candidate)
+                        session.playReadyVideoIds += candidate.id
+                        return candidate to (source ?: "MusicLab")
+                    }
 
-                    if (resolvedSong == null && track != null) {
-                        val external =
+                    var verified: Pair<SongItem, String>? = null
+                    val existingId = current.resolvedVideoId?.trim().orEmpty()
+
+                    if (existingId.isNotBlank()) {
+                        val existingSong =
+                            session.preparedVideoSongs[existingId]
+                                ?: withTimeoutOrNull(2_200L) {
+                                    YouTube.queue(videoIds = listOf(existingId)).getOrNull()?.firstOrNull()
+                                }
+                        verified = verifyCandidateSong(existingSong, current.resolvedVideoSource)
+                        if (verified == null) session.playReadyVideoIds.remove(existingId)
+                    }
+
+                    if (verified == null) {
+                        val excluded =
+                            session.usedVideoIds
+                                .filterNot { it == existingId }
+                                .toSet()
+                        val resolved =
                             CompilationTrackResolver.resolveTrack(
                                 track = track,
-                                discogsVideos = seed.videos,
-                                fastFirst = true,
-                                excludedVideoIds = session.usedVideoIds.toSet(),
-                            )
-                        resolvedSong = external?.song
-                        resolvedSource = external?.source
-                    }
-
-                    val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: return@launch
-                    val currentTrack = playableTrack(current)
-                    if (
-                        resolvedSong != null &&
-                        resolvedSong!!.id in session.usedVideoIds &&
-                        currentTrack != null
-                    ) {
-                        val retry =
-                            CompilationTrackResolver.resolveTrack(
-                                track = currentTrack,
                                 discogsVideos = current.videos,
                                 fastFirst = true,
-                                excludedVideoIds = session.usedVideoIds.toSet(),
+                                excludedVideoIds = excluded,
                             )
-                        resolvedSong = retry?.song
-                        resolvedSource = retry?.source
+                        verified = verifyCandidateSong(resolved?.song, resolved?.source)
                     }
 
-                    resolvedSong?.let(::rememberPreparedVideoSong)
-
+                    val latest =
+                        results.firstOrNull { it.fingerprint == current.fingerprint }
+                            ?: current
                     val updated =
-                        if (resolvedSong == null || !session.usedVideoIds.add(resolvedSong!!.id)) {
-                            DiscogsVersionSource.markVideoUnavailable(current)
+                        if (verified == null) {
+                            if (existingId.isNotBlank()) session.playReadyVideoIds.remove(existingId)
+                            DiscogsVersionSource.markVideoUnavailable(latest)
                         } else {
+                            val song = verified!!.first
+                            val source = verified!!.second
+                            session.usedVideoIds += song.id
                             DiscogsVersionSource.markVideoResolved(
-                                seed = current,
-                                videoId = resolvedSong!!.id,
-                                videoTitle = resolvedSong!!.title,
-                                source = resolvedSource ?: "MusicLab",
+                                seed = latest,
+                                videoId = song.id,
+                                videoTitle = song.title,
+                                source = source,
                             )
                         }
+
                     replaceSeed(updated)
-                    if (!updated.resolvedVideoId.isNullOrBlank()) persistCloudPlaybackBinding(updated)
+                    if (!updated.resolvedVideoId.isNullOrBlank() && isPlayReady(updated)) {
+                        persistCloudPlaybackBinding(updated)
+                    }
                 }
             }
         jobs.forEach { it.join() }
     }
+
     fun videoPriorityPool(source: List<DiscogsVersionSeed>): List<DiscogsVersionSeed> =
         orderedResults(source).sortedWith(
             compareByDescending<DiscogsVersionSeed> { it.confidenceScore }
@@ -985,50 +1008,80 @@ internal fun DiscogsDirectVersionBrowser(
                 .thenBy { it.trackTitle.lowercase() },
         )
 
-    fun visibleCoverPool(): List<DiscogsVersionSeed> =
+    fun isPlayReady(seed: DiscogsVersionSeed): Boolean {
+        val id = seed.resolvedVideoId?.trim().orEmpty()
+        return id.isNotBlank() &&
+            id in session.playReadyVideoIds &&
+            session.preparedVideoSongs.containsKey(id)
+    }
+
+    fun coverCandidatePool(): List<DiscogsVersionSeed> =
         orderedResults(results)
             .filterNot(::isHiddenForCurrentCover)
-            .take(visibleLimit.coerceAtLeast(pageSize))
+            .filterNot { seed ->
+                seed.videoResolutionChecked &&
+                    seed.resolvedVideoId.isNullOrBlank()
+            }
+
+    fun visibleCoverPool(): List<DiscogsVersionSeed> =
+        coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
 
     fun videoPreparationPool(): List<DiscogsVersionSeed> {
-        val ranked = orderedResults(results).filterNot(::isHiddenForCurrentCover)
+        val ranked =
+            if (mode == DiscogsDirectMode.COVER) {
+                coverCandidatePool()
+            } else {
+                orderedResults(results)
+            }
         if (mode != DiscogsDirectMode.COVER) {
             return ranked.take(visibleLimit.coerceAtLeast(pageSize))
         }
-        // LAB55: prepare exactly one future block while Bruno is viewing the current list.
         val target = visibleLimit.coerceAtLeast(pageSize) + pageSize
         return ranked.take(target)
     }
 
     fun preparationReadyVideoCount(): Int =
-        videoPreparationPool().count { !it.resolvedVideoId.isNullOrBlank() }
+        videoPreparationPool().count(::isPlayReady)
 
     fun readyVideoCount(): Int =
         if (mode == DiscogsDirectMode.COVER) {
-            visibleCoverPool().count { !it.resolvedVideoId.isNullOrBlank() }
+            visibleCoverPool().count(::isPlayReady)
         } else {
             orderedResults(results).count { !it.resolvedVideoId.isNullOrBlank() }
         }
 
-    suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
-        val preparationPool = videoPreparationPool()
-        val targetReady = preparationPool.size
-        val missingReady = (targetReady - preparationReadyVideoCount()).coerceAtLeast(0)
-        if (missingReady == 0) return
+    suspend fun publishReadyBatches() {
+        if (mode != DiscogsDirectMode.COVER || !rankingFrozen) return
+        while (true) {
+            val pool = coverCandidatePool()
+            val desired = minOf(visibleLimit.coerceAtLeast(pageSize), pool.size)
+            if (publishedReadyLimit >= desired) break
 
+            val nextLimit = minOf(publishedReadyLimit + DIRECT_VIDEO_BATCH_SIZE, desired)
+            val nextSlice = pool.take(nextLimit)
+            if (nextSlice.size < nextLimit || nextSlice.any { !isPlayReady(it) }) break
+
+            publishedReadyLimit = nextLimit
+            session.publishedReadyLimit = nextLimit
+            delay(80)
+        }
+    }
+
+    suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
         val batch =
-            preparationPool
+            videoPreparationPool()
                 .filter { seed ->
                     DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                         playableTrack(seed) != null &&
-                        !seed.videoResolutionChecked
+                        !isPlayReady(seed)
                 }
-                .take(limit.coerceAtMost(missingReady.coerceAtLeast(1)))
+                .take(limit)
         if (batch.isEmpty()) return
 
         batch.chunked(DIRECT_VIDEO_PARALLELISM).forEach { chunk ->
             resolveVideoChunk(chunk)
         }
+        publishReadyBatches()
     }
 
     suspend fun warmResolvedVideoMetadata(limit: Int = 12) {
@@ -1062,49 +1115,54 @@ internal fun DiscogsDirectVersionBrowser(
     fun scheduleVideoPreload() {
         if (videoPreloadJob?.isActive == true) return
         if (backgroundWorkBlocked()) return
+        if (mode == DiscogsDirectMode.COVER && !rankingFrozen) return
+
         videoPreloadJob =
             scope.launch {
-                // LAB50: this job is allowed to exist only while playback does not own
-                // the lane. Automatic effects may call the scheduler again after a
-                // cancellation, therefore the persistent barrier is checked both here
-                // and inside the loop.
-                if (backgroundWorkBlocked()) return@launch
-                if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
-                while (true) {
-                    if (backgroundWorkBlocked()) break
-                    val workWindow = videoPreparationPool()
-                    val targetReady = workWindow.size
-                    if (targetReady == 0 || preparationReadyVideoCount() >= targetReady) break
-
-                    val pendingBefore =
-                        workWindow.count { seed ->
-                            DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
-                                playableTrack(seed) != null &&
-                                !seed.videoResolutionChecked
-                        }
-                    if (pendingBefore == 0) break
-
-                    val readyBefore = preparationReadyVideoCount()
-                    resolveNextVideoBatch(
-                        limit = if (playbackIsNormallyPlaying()) {
-                            DIRECT_COVER_PLAYBACK_BATCH_SIZE
-                        } else {
-                            DIRECT_VIDEO_BATCH_SIZE
-                        },
-                    )
-                    if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
-                    val readyAfter = preparationReadyVideoCount()
-
-                    val anyPending =
-                        videoPreparationPool().any { seed ->
-                            DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
-                                playableTrack(seed) != null &&
-                                !seed.videoResolutionChecked
-                        }
-                    if (readyAfter == readyBefore && !anyPending) break
-                    delay(if (playbackIsNormallyPlaying()) 260 else 120)
+                if (mode == DiscogsDirectMode.COVER) {
+                    playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
                 }
-                if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata(limit = pageSize)
+                try {
+                    if (backgroundWorkBlocked()) return@launch
+                    if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
+
+                    while (true) {
+                        if (backgroundWorkBlocked()) break
+                        val workWindow = videoPreparationPool()
+                        if (workWindow.isEmpty()) break
+                        if (workWindow.all(::isPlayReady)) break
+
+                        val readyBefore = preparationReadyVideoCount()
+                        resolveNextVideoBatch(
+                            limit =
+                                if (playbackIsNormallyPlaying()) {
+                                    DIRECT_COVER_PLAYBACK_BATCH_SIZE
+                                } else {
+                                    DIRECT_VIDEO_BATCH_SIZE
+                                },
+                        )
+                        if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
+                        val readyAfter = preparationReadyVideoCount()
+
+                        val anyPending =
+                            videoPreparationPool().any { seed ->
+                                DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
+                                    playableTrack(seed) != null &&
+                                    !isPlayReady(seed)
+                            }
+                        if (readyAfter == readyBefore && !anyPending) break
+                        delay(if (playbackIsNormallyPlaying()) 260 else 120)
+                    }
+
+                    if (!playbackIsNormallyPlaying()) {
+                        warmResolvedVideoMetadata(limit = pageSize)
+                    }
+                    publishReadyBatches()
+                } finally {
+                    if (mode == DiscogsDirectMode.COVER) {
+                        playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
+                    }
+                }
             }
     }
 
@@ -1252,12 +1310,17 @@ internal fun DiscogsDirectVersionBrowser(
         var selectedSong = session.preparedVideoSongs[selectedId]
         val track = playableTrack(selectedSeed)
         val sourceHint = selectedSeed.resolvedVideoSource.orEmpty().lowercase()
+        val alreadyPlayReady =
+            selectedId in session.playReadyVideoIds && selectedSong != null
         val needsDirectStreamProbe =
-            selectedSong == null ||
-                "archivio" in sourceHint ||
-                "cloud" in sourceHint ||
-                "cover.info" in sourceHint ||
-                "discogs" in sourceHint
+            !alreadyPlayReady &&
+                (
+                    selectedSong == null ||
+                        "archivio" in sourceHint ||
+                        "cloud" in sourceHint ||
+                        "cover.info" in sourceHint ||
+                        "discogs" in sourceHint
+                    )
 
         // LAB55: metadata presence is not enough for inherited/direct bindings.
         // Probe the actual stream before handing a stale Cloud/COVER.INFO/Discogs id
