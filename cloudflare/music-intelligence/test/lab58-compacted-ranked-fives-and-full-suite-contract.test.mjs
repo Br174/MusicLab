@@ -36,14 +36,14 @@ test('LAB58 replaces failed candidates without consuming their score or one of t
   assert.match(browser, /val committed = publishedCoverSnapshots\.mapTo/);
   assert.match(browser, /return coverCandidatePool\(\)\.filterNot/);
   assert.match(browser, /val pending = remainingCoverPool\(\)/);
-  assert.match(browser, /if \(group\.any \{ !isPlayReady\(it\) \}\) break/);
+  assert.match(browser, /val group = pending\.filter\(::hasVideoPreview\)\.take\(requested\)/);
   assert.match(browser, /publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
   assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE = 5/);
   assert.match(browser, /DIRECT_COVER_PAGE_SIZE = 10/);
 });
 
 test('LAB58 only enables another ten Cover slots when current ten have been published', () => {
-  assert.match(browser, /publishedCoverSnapshots\.size >= visibleLimit/);
+  assert.match(browser, /visibleTrueCovers\.size >= visibleLimit/);
   assert.match(browser, /Text\("Carica altri \$pageSize"\)/);
   assert.match(browser, /visibleLimit = visibleLimit \+ pageSize/);
   assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
