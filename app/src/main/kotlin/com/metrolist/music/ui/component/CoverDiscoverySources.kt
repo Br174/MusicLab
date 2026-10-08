@@ -171,17 +171,45 @@ internal object CoverDiscoverySources {
                 }
             }
 
+        val identityAccepted =
+            publicationEnriched.filter { candidate ->
+                val strictTitleMatch = sameBaseTitle(cleanTitle, candidate.title)
+                val aiTrusted = candidate.sources.any { it.equals("AI Scout", ignoreCase = true) }
+                val explicitRelation =
+                    candidate.workRelationConfirmed || candidate.originalWorkReference
+                val independentSourceConsensus = candidate.sources.distinct().size >= 2
+
+                // LAB56 Opera Identity Gate:
+                // - same-language title must preserve the work meaning;
+                // - AI Scout is trusted for foreign/adapted-title admission;
+                // - traditional services need a second proof or explicit work relation.
+                strictTitleMatch ||
+                    aiTrusted ||
+                    explicitRelation ||
+                    independentSourceConsensus
+            }
+
         val ordered =
-            publicationEnriched
+            identityAccepted
                 .sortedWith(
                     compareByDescending<CoverSourceCandidate> { it.evidenceScore }
                         .thenBy { it.year ?: Int.MAX_VALUE }
                         .thenBy { canonical(it.artist) },
                 )
 
+        val identityGateDiagnostic =
+            CoverSourceDiagnostic(
+                name = "Opera Identity Gate",
+                available = true,
+                found = ordered.size,
+                note =
+                    "ammessi ${ordered.size}/${publicationEnriched.size} · " +
+                        "titolo rigoroso; AI straniera fidata; servizi con doppia prova",
+            )
+
         val outcome = CoverSourceOutcome(
             candidates = ordered,
-            diagnostics = lanes.map { it.second },
+            diagnostics = lanes.map { it.second } + identityGateDiagnostic,
         )
         cache[key] = CacheEntry(now + CACHE_TTL_MS, outcome)
         outcome
@@ -222,6 +250,7 @@ internal object CoverDiscoverySources {
                     language =
                         if (sameBaseTitle(title, candidateTitle)) null else "titolo/adattamento alternativo",
                     sourceUrl = lookup.sourceUrl,
+                    workRelationConfirmed = true,
                     evidenceScore = 10,
                 )
             }
@@ -832,22 +861,27 @@ internal object CoverDiscoverySources {
                 if (ref.title.isBlank() || ref.artist.isBlank()) return@mapNotNull null
                 val samePerformerAsOriginal =
                     originalArtist.isNotBlank() && sameArtist(ref.artist, originalArtist)
+                val foreignOrAdapted =
+                    ref.translatedOrAdaptedTitle || !sameBaseTitle(title, ref.title)
                 CoverSourceCandidate(
                     title = ref.title,
                     artist = ref.artist,
                     sources = listOf("AI Scout"),
-                    language = if (ref.translatedOrAdaptedTitle) "straniera / adattamento" else null,
+                    language = if (foreignOrAdapted) "straniera / adattamento AI" else null,
                     category =
-                        if (ref.translatedOrAdaptedTitle) AiCoverCategory.FOREIGN
+                        if (foreignOrAdapted) AiCoverCategory.FOREIGN
                         else categoryFromTitle(ref.title),
-                    evidenceScore = if (samePerformerAsOriginal) 1 else 2,
+                    // Bruno explicitly accepts AI Scout same-work discovery as an
+                    // admission signal. Ranking stays separate and intentionally low.
+                    workRelationConfirmed = true,
+                    evidenceScore = if (samePerformerAsOriginal) 2 else 4,
                 )
             }.distinctBy { identity(it.title, it.artist, it.category) }
         return candidates to CoverSourceDiagnostic(
             "AI Scout",
             available = true,
             found = candidates.size,
-            note = "propone soltanto; non giudica",
+            note = "AI Scout ammessa come prova identità per cover/adattamenti stranieri; punteggio separato",
         )
     }
 
