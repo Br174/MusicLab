@@ -977,12 +977,14 @@ internal fun DiscogsDirectVersionBrowser(
                                 .toSet()
                         val resolved =
                             withTimeoutOrNull(10_000L) {
-                                CompilationTrackResolver.resolveTrack(
-                                    track = track,
-                                    discogsVideos = current.videos,
-                                    fastFirst = true,
-                                    excludedVideoIds = excluded,
-                                )
+                                runCatching {
+                                    CompilationTrackResolver.resolveTrack(
+                                        track = track,
+                                        discogsVideos = current.videos,
+                                        fastFirst = true,
+                                        excludedVideoIds = excluded,
+                                    )
+                                }.getOrNull()
                             }
                         verified = verifyCandidateSong(resolved?.song, resolved?.source)
                     }
