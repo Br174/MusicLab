@@ -176,6 +176,7 @@ private data class DirectVersionSession(
     var publishedReadyLimit: Int = 0,
     var publishedOriginalSnapshots: List<DiscogsVersionSeed> = emptyList(),
     var publishedCoverSnapshots: List<DiscogsVersionSeed> = emptyList(),
+    var originalSectionFrozen: Boolean = false,
     val rejectedKeys: MutableSet<String> = linkedSetOf(),
     val approvedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
@@ -300,6 +301,7 @@ internal fun DiscogsDirectVersionBrowser(
     var publishedReadyLimit by remember(sessionKey) { mutableStateOf(session.publishedReadyLimit) }
     var publishedOriginalSnapshots by remember(sessionKey) { mutableStateOf(session.publishedOriginalSnapshots) }
     var publishedCoverSnapshots by remember(sessionKey) { mutableStateOf(session.publishedCoverSnapshots) }
+    var originalSectionFrozen by remember(sessionKey) { mutableStateOf(session.originalSectionFrozen) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -1086,13 +1088,13 @@ internal fun DiscogsDirectVersionBrowser(
 
         // Freeze ALL playable original-performer rows before publishing Covers.
         // The original section and its count never count against ten Covers.
-        if (publishedOriginalSnapshots.isEmpty()) {
+        if (!originalSectionFrozen) {
             val originals = originalCandidatePool()
             if (originals.any { !isPlayReady(it) }) return
-            if (originals.isNotEmpty()) {
-                publishedOriginalSnapshots = originals.toList()
-                session.publishedOriginalSnapshots = publishedOriginalSnapshots
-            }
+            publishedOriginalSnapshots = originals.toList()
+            session.publishedOriginalSnapshots = publishedOriginalSnapshots
+            originalSectionFrozen = true
+            session.originalSectionFrozen = true
         }
 
         while (publishedCoverSnapshots.size < visibleLimit) {
@@ -1173,6 +1175,7 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun scheduleVideoPreload() {
         if (videoPreloadJob?.isActive == true) return
+        if (playerConnection == null) return
         if (backgroundWorkBlocked()) return
         if (mode == DiscogsDirectMode.COVER && !rankingFrozen) return
 
@@ -1639,6 +1642,7 @@ internal fun DiscogsDirectVersionBrowser(
         publishedReadyLimit = 0
         publishedOriginalSnapshots = emptyList()
         publishedCoverSnapshots = emptyList()
+        originalSectionFrozen = false
         if (mode == DiscogsDirectMode.COVER) {
             playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
         }
@@ -1661,6 +1665,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.publishedReadyLimit = 0
         session.publishedOriginalSnapshots = emptyList()
         session.publishedCoverSnapshots = emptyList()
+        session.originalSectionFrozen = false
         session.usedVideoIds.clear()
         session.knownVideoBindings.clear()
         session.preparedVideoSongs.clear()
@@ -2545,6 +2550,8 @@ internal fun DiscogsDirectVersionBrowser(
                             publishedCoverSnapshots = emptyList()
                             session.publishedOriginalSnapshots = emptyList()
                             session.publishedCoverSnapshots = emptyList()
+                            originalSectionFrozen = false
+                            session.originalSectionFrozen = false
                             resultPageIndex = 0
                             session.resultPageIndex = 0
                             verificationJob?.cancel()
