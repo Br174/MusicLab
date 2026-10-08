@@ -1425,94 +1425,18 @@ internal fun DiscogsDirectVersionBrowser(
         var selectedId = selectedSeed.resolvedVideoId?.trim().orEmpty()
         if (selectedId.isBlank()) return
 
-        var selectedSong = session.preparedVideoSongs[selectedId]
+        // LAB59: the selected video already has a trusted source binding.
+        // Get lightweight metadata from cache (or one short queue lookup), then
+        // pass it straight to the native player.  A second synchronous stream
+        // probe here caused many seconds of tap-to-play latency and doubled
+        // network contention with ExoPlayer's own stream request.
         val track = playableTrack(selectedSeed)
-        val sourceHint = selectedSeed.resolvedVideoSource.orEmpty().lowercase()
-        val alreadyPlayReady =
-            selectedId in session.playReadyVideoIds && selectedSong != null
-        val needsDirectStreamProbe =
-            !alreadyPlayReady &&
-                (
-                    selectedSong == null ||
-                        "archivio" in sourceHint ||
-                        "cloud" in sourceHint ||
-                        "cover.info" in sourceHint ||
-                        "discogs" in sourceHint
-                    )
-
-        // LAB55: metadata presence is not enough for inherited/direct bindings.
-        // Probe the actual stream before handing a stale Cloud/COVER.INFO/Discogs id
-        // to Player; resolver-produced YT Music ids retain the LAB50 fast lane.
-        var inheritedStreamPlayable = true
-        if (needsDirectStreamProbe) {
-            if (selectedSong == null) {
-                selectedSong =
-                    withTimeoutOrNull(1_800L) {
-                        YouTube.queue(videoIds = listOf(selectedId)).getOrNull()?.firstOrNull()
-                    }?.takeIf { song ->
-                        track == null || CompilationTrackResolver.isHardCompatible(track, song)
-                    }?.also(::rememberPreparedVideoSong)
-            }
-            inheritedStreamPlayable =
-                selectedSong != null &&
-                    withTimeoutOrNull(3_500L) {
-                        connection.service.getStreamUrl(selectedId)
-                    } != null
-        }
-
-        if (!inheritedStreamPlayable && track != null) {
-            session.usedVideoIds += selectedId
-            session.knownVideoBindings.remove(DiscogsVersionSource.recordingIdentityKey(selectedSeed))
-            val stale =
-                DiscogsVersionSource.markVideoUnavailable(selectedSeed).copy(
-                    videoResolutionChecked = false,
-                )
-            replaceSeed(stale)
-
-            val alternate =
-                CompilationTrackResolver.resolveTrack(
-                    track = track,
-                    discogsVideos = selectedSeed.videos,
-                    fastFirst = true,
-                    excludedVideoIds = session.usedVideoIds.toSet(),
-                )
-            val alternateSong = alternate?.song
-            val alternatePlayable =
-                alternateSong != null &&
-                    withTimeoutOrNull(3_500L) {
-                        connection.service.getStreamUrl(alternateSong.id)
-                    } != null
-
-            if (alternateSong != null && alternatePlayable && session.usedVideoIds.add(alternateSong.id)) {
-                rememberPreparedVideoSong(alternateSong)
-                val refreshed =
-                    DiscogsVersionSource.markVideoResolved(
-                        seed = results.firstOrNull { it.fingerprint == selectedFingerprint } ?: stale,
-                        videoId = alternateSong.id,
-                        videoTitle = alternateSong.title,
-                        source = alternate.source,
-                    )
-                replaceSeed(refreshed)
-                rememberKnownVideoBinding(refreshed)
-                selectedSeed = refreshed
-                selectedId = alternateSong.id
-                selectedSong = alternateSong
-            } else {
-                Toast.makeText(
-                    context,
-                    "Sorgente non riproducibile: cerco automaticamente un altro video.",
-                    Toast.LENGTH_SHORT,
-                ).show()
-                scheduleVideoPreload()
-                return
-            }
-        } else if (selectedSong == null && track != null) {
-            selectedSong =
-                withTimeoutOrNull(1_800L) {
-                    YouTube.queue(videoIds = listOf(selectedId)).getOrNull()?.firstOrNull()
-                }?.takeIf { song -> CompilationTrackResolver.isHardCompatible(track, song) }
-                    ?.also(::rememberPreparedVideoSong)
-        }
+        val selectedSong = session.preparedVideoSongs[selectedId]
+            ?: withTimeoutOrNull(900L) {
+                YouTube.queue(videoIds = listOf(selectedId)).getOrNull()?.firstOrNull()
+            }?.takeIf { candidate ->
+                track == null || CompilationTrackResolver.isHardCompatible(track, candidate)
+            }?.also(::rememberPreparedVideoSong)
 
         val selectedItem =
             selectedSong?.toMediaItem()
@@ -1689,7 +1613,11 @@ internal fun DiscogsDirectVersionBrowser(
         publishedCoverSnapshots = emptyList()
         originalSectionFrozen = false
         if (mode == DiscogsDirectMode.COVER) {
-            playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
+            // LAB59: searching must not downgrade or compete with active audio.
+            playerConnection?.service?.setCoverPerformanceLoad(
+                active = true,
+                heavy = !playbackIsNormallyPlaying(),
+            )
         }
 
         session.results = retainedResults
