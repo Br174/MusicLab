@@ -13,13 +13,12 @@ test('failed red rows are appended after playable or pending rows', () => {
   assert.match(browser, /return usableOrPending \+ failedVideo/);
 });
 
-test('red label launches deep retry without creating a global blacklist', () => {
+test('LAB63 red label launches bounded retry with recording-scoped exclusions', () => {
   assert.match(browser, /Video non trovato · Tocca per cercare/);
   assert.match(browser, /fun retryMissingVideo/);
-  assert.match(browser, /discoverMemoryState/);
-  assert.match(browser, /CoverDiscoverySources\.discover/);
-  assert.match(browser, /fastFirst = false/);
-  assert.match(browser, /excludedVideoIds = session\.usedVideoIds\.toSet\(\)/);
+  assert.match(browser, /withTimeoutOrNull\(DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS\)/);
+  assert.match(browser, /CoverPlaybackMemory\.rejectedVideoIds\(context, current\.fingerprint\)/);
+  assert.doesNotMatch(browser, /fastFirst = false/);
 });
 
 test('cross-provider duplicates use one merge coordinator', () => {
