@@ -7,6 +7,8 @@
 
 package com.metrolist.music.ui.player
 
+import com.metrolist.music.playback.CoverPlaybackMemory
+
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -200,7 +202,11 @@ private fun NewMiniPlayer(
 
     // Player states - only collect what's needed at this level
     val playbackState by playerConnection.playbackState.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val nativeMediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    // LAB63: all compact/expanded player artwork follows the pinned Cover preview.
+    val mediaMetadata = nativeMediaMetadata?.let {
+        CoverPlaybackMemory.stablePlayerMetadata(androidx.compose.ui.platform.LocalContext.current, it)
+    }
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
 
@@ -699,7 +705,11 @@ private fun LegacyMiniPlayer(
     val pureBlack by rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
 
     val playbackState by playerConnection.playbackState.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val nativeMediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    // LAB63: all compact/expanded player artwork follows the pinned Cover preview.
+    val mediaMetadata = nativeMediaMetadata?.let {
+        CoverPlaybackMemory.stablePlayerMetadata(androidx.compose.ui.platform.LocalContext.current, it)
+    }
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
 
