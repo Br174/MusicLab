@@ -37,7 +37,7 @@ test('LAB57 resolves the musical Work before recording fallback and keeps work m
 });
 
 test('LAB57 bounds source fanout and prevents one service from self-awarding a top score', () => {
-  assert.match(sources, /val sourceGate = Semaphore\(4\)/);
+  assert.match(sources, /val sourceGate = Semaphore\(3\)/);
   assert.match(sources, /sourceGate\.withPermit/);
   assert.match(sources, /seed\.relationRole == CoverInfoRelationRole\.INITIAL -> 8/);
   assert.match(sources, /seed\.directRelation -> 7/);
@@ -67,7 +67,7 @@ test('LAB57 publishes Cover rows 5+5 only after metadata and real stream readine
   assert.match(browser, /val playReadyVideoIds: MutableSet<String>/);
   assert.match(browser, /suspend fun publishReadyBatches\(\)/);
   assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE,[\s\S]*visibleLimit - publishedCoverSnapshots\.size/);
-  assert.match(browser, /connection\.service\.getStreamUrl\(candidate\.id\)/);
+  assert.doesNotMatch(browser, /connection\.service\.getStreamUrl\(candidate\.id\)/);
   assert.match(browser, /session\.playReadyVideoIds \+= candidate\.id/);
   assert.match(browser, /visibleOriginalVersions \+ visibleTrueCovers/);
 });
