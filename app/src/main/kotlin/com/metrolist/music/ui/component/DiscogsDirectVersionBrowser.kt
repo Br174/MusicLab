@@ -1063,7 +1063,7 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode != DiscogsDirectMode.COVER) {
             return orderedResults(results).take(visibleLimit.coerceAtLeast(pageSize))
         }
-        // LAB58 Pollicino: originals never consume ten-Cover page capacity.
+        // LAB58: originals never consume ten-Cover page capacity.
         // Pending covers extend into the NEXT page for ranked replacements.
         val committedOriginals = publishedOriginalSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
         val pendingOriginals = originalCandidatePool().filterNot { it.fingerprint in committedOriginals }
@@ -1639,6 +1639,8 @@ internal fun DiscogsDirectVersionBrowser(
         sourceDiscoveryLoading = true
         rankingFrozen = false
         publishedReadyLimit = 0
+        publishedOriginalSnapshots = emptyList()
+        publishedCoverSnapshots = emptyList()
         if (mode == DiscogsDirectMode.COVER) {
             playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
         }
@@ -1659,6 +1661,8 @@ internal fun DiscogsDirectVersionBrowser(
         session.originalYear = null
         session.rankingFrozen = false
         session.publishedReadyLimit = 0
+        session.publishedOriginalSnapshots = emptyList()
+        session.publishedCoverSnapshots = emptyList()
         session.usedVideoIds.clear()
         session.knownVideoBindings.clear()
         session.preparedVideoSongs.clear()
@@ -1820,6 +1824,23 @@ internal fun DiscogsDirectVersionBrowser(
                         replace = false,
                         requestedSort = requestedSort,
                     )
+                }
+            }
+
+            // LAB58: collect a bounded Discogs search horizon BEFORE the
+            // global ranking is certified and frozen. All collected candidates
+            // are scored together before any Cover video card is published.
+            if (mode == DiscogsDirectMode.COVER && firstPageLoaded) {
+                var rankPagesFetched = 1
+                while (
+                    currentPage > 0 &&
+                    currentPage < totalPages &&
+                    rankPagesFetched < DIRECT_COVER_RANK_MAX_SOURCE_PAGES &&
+                    results.size < DIRECT_COVER_RANK_TARGET &&
+                    !backgroundWorkBlocked()
+                ) {
+                    if (!loadPage(criteria, currentPage + 1, replace = false)) break
+                    rankPagesFetched++
                 }
             }
 
