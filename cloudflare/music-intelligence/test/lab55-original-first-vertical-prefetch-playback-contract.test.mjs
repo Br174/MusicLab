@@ -33,12 +33,11 @@ test('LAB55 appends ten results vertically and preloads exactly one future block
   assert.match(browser, /sourcePrefetchedForVisibleLimit != visibleLimit/);
 });
 
-test('LAB55 stale direct video ids are stream-probed and replaced before Player', () => {
-  assert.match(browser, /needsDirectStreamProbe/);
-  assert.match(browser, /connection\.service\.getStreamUrl\(selectedId\)/);
-  assert.match(browser, /session\.knownVideoBindings\.remove\(DiscogsVersionSource\.recordingIdentityKey\(selectedSeed\)\)/);
-  assert.match(browser, /excludedVideoIds = session\.usedVideoIds\.toSet\(\)/);
-  assert.match(browser, /connection\.service\.getStreamUrl\(alternateSong\.id\)/);
+test('LAB59 selected video fast lane reaches native Player without duplicate stream preflight', () => {
+  assert.match(browser, /withTimeoutOrNull\(900L\)/);
+  assert.match(browser, /connection\.playQueue\(/);
+  assert.doesNotMatch(browser, /needsDirectStreamProbe/);
+  assert.match(browser, /fun pauseCoverBackgroundForPlayback\(/);
 });
 
 test('LAB55 keeps normal playback Cover lane lightweight and one-at-a-time', () => {
