@@ -66,6 +66,8 @@ import com.metrolist.music.discogs.DiscogsCredit
 import com.metrolist.music.discogs.DiscogsTrack
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.playback.CoverPlaybackMemory
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
@@ -94,7 +96,8 @@ private const val DIRECT_VIDEO_PARALLELISM = 2
 private const val DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12
 private const val DIRECT_BACKGROUND_PREFETCH_AHEAD = 20
 private const val DIRECT_PREPARED_VIDEO_CACHE_LIMIT = 48
-private const val DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 2_500L
+// LAB63: a tap or Retry may wait at most 3 seconds for a VIDEO ID, never for audio.
+private const val DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 3_000L
 private val DirectCoverGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
 
 private enum class DirectVersionCategory {
@@ -972,12 +975,17 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                         if (existingSong == null) transientTimeout = true
                         verified = verifyCandidateSong(existingSong, current.resolvedVideoSource)
-                        if (verified == null) session.playReadyVideoIds.remove(existingId)
+                        if (verified == null) {
+                            session.playReadyVideoIds.remove(existingId)
+                            if (existingSong != null) {
+                                CoverPlaybackMemory.rejectVideo(context, current.fingerprint, existingId)
+                            }
+                        }
                     }
 
                     if (verified == null) {
                         val excluded =
-                            session.usedVideoIds
+                            (session.usedVideoIds + CoverPlaybackMemory.rejectedVideoIds(context, current.fingerprint))
                                 .filterNot { it == existingId }
                                 .toSet()
                         val resolved =
@@ -988,6 +996,8 @@ internal fun DiscogsDirectVersionBrowser(
                                         discogsVideos = current.videos,
                                         fastFirst = true,
                                         excludedVideoIds = excluded,
+                                        searchRound = CoverPlaybackMemory.nextSearchRound(context, current.fingerprint),
+                                        preferLive = current.kind == DiscogsVersionKind.LIVE,
                                     )
                                 } catch (cancel: CancellationException) {
                                     throw cancel
@@ -998,6 +1008,9 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                         if (resolved == null) transientTimeout = true
                         verified = verifyCandidateSong(resolved?.song, resolved?.source)
+                        if (resolved?.song != null && verified == null) {
+                            CoverPlaybackMemory.rejectVideo(context, current.fingerprint, resolved.song.id)
+                        }
                     }
 
                     val latest =
@@ -1400,6 +1413,15 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
+    // LAB63 Pollicino: lock the very first visible artwork per ranked recording.
+    // It is not changed when video searches discover an alternative URL.
+    fun stableArtworkFor(seed: DiscogsVersionSeed): String? {
+        val candidate = seed.coverUrl?.takeIf(String::isNotBlank)
+            ?: seed.resolvedVideoId?.takeIf(String::isNotBlank)
+                ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+        return CoverPlaybackMemory.stableArtwork(context, seed.fingerprint, candidate)
+    }
+
     suspend fun playResolvedContext(selectedFingerprint: String) {
         val connection = playerConnection ?: return
         var selectedSeed =
@@ -1418,8 +1440,13 @@ internal fun DiscogsDirectVersionBrowser(
         // A known YouTube ID can go straight into the native player metadata item.
         val selectedSong = session.preparedVideoSongs[selectedId]
 
+        val selectedArtwork = stableArtworkFor(selectedSeed)
+        if (!selectedArtwork.isNullOrBlank()) {
+            CoverPlaybackMemory.pinVideoArtwork(context, selectedId, selectedArtwork)
+        }
         val selectedItem =
-            selectedSong?.toMediaItem()
+            selectedSong?.toMediaMetadata()?.copy(thumbnailUrl = selectedArtwork ?: selectedSong.thumbnail)
+                ?.toMediaItem()
                 ?: MediaMetadata(
                     id = selectedId,
                     title = selectedSeed.resolvedVideoTitle?.takeIf(String::isNotBlank)
@@ -1432,7 +1459,7 @@ internal fun DiscogsDirectVersionBrowser(
                             ),
                         ),
                     duration = selectedSeed.durationSeconds ?: -1,
-                    thumbnailUrl = selectedSeed.coverUrl,
+                    thumbnailUrl = selectedArtwork,
                 ).toMediaItem()
 
         val queueTitle =
@@ -1445,6 +1472,21 @@ internal fun DiscogsDirectVersionBrowser(
                 startIndex = 0,
             ),
         )
+        // A compatible YouTube ID is not a verified playable stream.
+        // Persist the winning ID only once Media3 is READY and this exact track
+        // is really playing. Never pin a failed or stalled candidate.
+        scope.launch {
+            repeat(50) {
+                delay(180)
+                if (connection.mediaMetadata.value?.id == selectedId &&
+                    connection.playbackState.value == Player.STATE_READY &&
+                    connection.isEffectivelyPlaying.value
+                ) {
+                    CoverPlaybackMemory.saveVerifiedVideo(context, selectedFingerprint, selectedId, selectedArtwork)
+                    return@launch
+                }
+            }
+        }
     }
 
     suspend fun loadPage(
@@ -2053,177 +2095,28 @@ internal fun DiscogsDirectVersionBrowser(
             }
     }
 
+    // LAB63 Pollicino: Retry shares the same hard 3-second cap as tapping
+    // a missing Cover video. No unbounded cloud/COVER.INFO/YouTube chain on UI.
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
+        if (resolvingFingerprint == seed.fingerprint) return
         val track = playableTrack(seed)
         if (track == null) {
             Toast.makeText(context, "Dati versione insufficienti per la ricerca video.", Toast.LENGTH_SHORT).show()
             return
         }
-
         resolvingFingerprint = seed.fingerprint
-        results =
-            results.map { current ->
-                if (current.fingerprint == seed.fingerprint) {
-                    current.copy(videoResolutionChecked = false)
-                } else {
-                    current
-                }
-            }
-        session.results = results
-
         scope.launch {
-            var foundSong: SongItem? = null
-            var foundSource: String? = null
-            var providerTrackHint: DiscogsTrack? = null
-            val excluded = session.usedVideoIds.toSet()
-
-            suspend fun acceptVideo(
-                videoId: String?,
-                sourceName: String,
-                compatibilityTrack: DiscogsTrack = track,
-            ): Boolean {
-                val id = videoId?.trim().orEmpty()
-                if (id.isBlank() || id in excluded) return false
-                val song =
-                    session.preparedVideoSongs[id]
-                        ?: withTimeoutOrNull(2_500L) {
-                            YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
-                        }?.also(::rememberPreparedVideoSong)
-                        ?: return false
-                if (!CompilationTrackResolver.isHardCompatible(compatibilityTrack, song)) return false
-                foundSong = song
-                foundSource = sourceName
-                return true
-            }
-
-            // Lane 1: MusicLab cloud/internal memory for this exact musical version.
-            foreignScoutConfig?.let { config ->
-                val memory =
-                    runCatching {
-                        CloudMusicDiscovery.discoverMemoryState(
-                            title = TitleMeaningResolver.workAnchorTitle(title),
-                            artist = resolvedOriginalArtist,
-                            config = config,
-                            mode = if (mode == DiscogsDirectMode.ORIGINAL) "originals" else "cover",
-                            limit = 150,
-                        )
-                    }.getOrNull()
-
-                for (candidate in memory?.discovery?.versions.orEmpty()) {
-                    if (
-                        !TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) ||
-                        !TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title)
-                    ) {
-                        continue
-                    }
-                    if (acceptVideo(candidate.playbackVideoId, candidate.playbackVideoSource ?: "Archivio MusicLab")) {
-                        break
-                    }
+            try {
+                val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
+                withTimeoutOrNull(DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS) {
+                    resolveVideoChunk(listOf(current.copy(videoResolutionChecked = false)))
                 }
-            }
-
-            // Lane 2: COVER.INFO / Spotify / iTunes / other music sources can either
-            // provide a direct binding or a better exact-version query for the video lane.
-            if (foundSong == null) {
-                val discovery =
-                    runCatching {
-                        CoverDiscoverySources.discover(
-                            title = seed.trackTitle,
-                            originalArtist = resolvedOriginalArtist,
-                            mode = mode,
-                            aiConfig = foreignScoutConfig,
-                        )
-                    }.getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
-
-                val matching =
-                    discovery.candidates
-                        .filter { candidate ->
-                            TitleMeaningResolver.sameArtist(candidate.artist, seed.artist) &&
-                                TitleMeaningResolver.matchesBaseTitle(seed.trackTitle, candidate.title)
-                        }
-                        .sortedWith(
-                            compareByDescending<CoverSourceCandidate> { it.evidenceScore }
-                                .thenByDescending { it.sources.distinct().size }
-                                .thenByDescending { it.durationSeconds != null },
-                        )
-
-                for (candidate in matching) {
-                    val hintedTrack =
-                        DiscogsTrack(
-                            position = "",
-                            title = candidate.title,
-                            artists = listOf(candidate.artist),
-                            durationText = null,
-                            durationSeconds = candidate.durationSeconds ?: seed.durationSeconds,
-                        )
-                    if (
-                        acceptVideo(
-                            candidate.playbackVideoId,
-                            candidate.playbackVideoSource ?: candidate.sources.joinToString(" + "),
-                            hintedTrack,
-                        )
-                    ) {
-                        break
-                    }
-                    if (providerTrackHint == null) providerTrackHint = hintedTrack
-                }
-            }
-
-            // Lane 3: deep YouTube lookup. If Spotify/iTunes/etc. clarified the exact
-            // version, use that query first, then fall back to the original row metadata.
-            if (foundSong == null) {
-                val deepTracks =
-                    listOfNotNull(providerTrackHint, track)
-                        .distinctBy { candidateTrack ->
-                            candidateTrack.title.lowercase() + "|" +
-                                candidateTrack.artists.joinToString("|").lowercase()
-                        }
-
-                for ((index, deepTrack) in deepTracks.withIndex()) {
-                    val deep =
-                        CompilationTrackResolver.resolveTrack(
-                            track = deepTrack,
-                            discogsVideos = seed.videos,
-                            fastFirst = false,
-                            excludedVideoIds = session.usedVideoIds.toSet(),
-                        )
-                    if (deep != null) {
-                        foundSong = deep.song
-                        foundSource =
-                            if (index == 0 && providerTrackHint != null) {
-                                "Ricerca approfondita da fonti musicali · ${deep.source}"
-                            } else {
-                                "Ricerca approfondita · ${deep.source}"
-                            }
-                        break
-                    }
-                }
-            }
-
-            val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
-            val updated =
-                if (foundSong != null && session.usedVideoIds.add(foundSong!!.id)) {
-                    rememberPreparedVideoSong(foundSong!!)
-                    DiscogsVersionSource.markVideoResolved(
-                        seed = current,
-                        videoId = foundSong!!.id,
-                        videoTitle = foundSong!!.title,
-                        source = foundSource ?: "Ricerca MusicLab",
-                    )
-                } else {
-                    DiscogsVersionSource.markVideoUnavailable(current)
-                }
-
-            replaceSeed(updated)
-            resolvingFingerprint = null
-            if (!updated.resolvedVideoId.isNullOrBlank()) {
-                persistCloudPlaybackBinding(updated)
-                Toast.makeText(context, "Video trovato.", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Nessun video compatibile trovato.", Toast.LENGTH_SHORT).show()
+            } finally {
+                resolvingFingerprint = null
             }
         }
     }
+
     fun play(seed: DiscogsVersionSeed) {
         session.listIndex = listState.firstVisibleItemIndex
         session.listOffset = listState.firstVisibleItemScrollOffset
@@ -2243,6 +2136,18 @@ internal fun DiscogsDirectVersionBrowser(
             var currentSeed =
                 results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
 
+            if (currentSeed.resolvedVideoId.isNullOrBlank()) {
+                // LAB63: a previously verified recording starts immediately,
+                // even when the current catalog page has no fresh video ID.
+                CoverPlaybackMemory.verifiedVideo(context, currentSeed.fingerprint)
+                    ?.takeIf { it !in CoverPlaybackMemory.rejectedVideoIds(context, currentSeed.fingerprint) }
+                    ?.let { savedId ->
+                        currentSeed = DiscogsVersionSource.markVideoResolved(
+                            currentSeed, savedId, currentSeed.trackTitle, "MusicLab locale verificato",
+                        )
+                        replaceSeed(currentSeed)
+                    }
+            }
             if (currentSeed.resolvedVideoId.isNullOrBlank()) {
                 // LAB61: even a previous timeout must not make a ranked row
                 // permanently unplayable. Retry the chosen row on tap only.
@@ -2754,6 +2659,7 @@ internal fun DiscogsDirectVersionBrowser(
                         DiscogsVersionCard(
                             seed = seed,
                             showVideoPreview = true,
+                            stableArtworkUrl = stableArtworkFor(seed),
                             showConfidence = category == DirectVersionCategory.ALL,
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
@@ -2779,6 +2685,7 @@ internal fun DiscogsDirectVersionBrowser(
                         DiscogsVersionCard(
                             seed = seed,
                             showVideoPreview = true,
+                            stableArtworkUrl = stableArtworkFor(seed),
                             showConfidence = category == DirectVersionCategory.ALL,
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
@@ -3130,6 +3037,7 @@ private fun DirectFilterField(
 private fun DiscogsVersionCard(
     seed: DiscogsVersionSeed,
     showVideoPreview: Boolean,
+    stableArtworkUrl: String?,
     showConfidence: Boolean,
     selected: Boolean,
     resolving: Boolean,
@@ -3162,9 +3070,7 @@ private fun DiscogsVersionCard(
                 // While video matching is pending, a verified release image
                 // temporarily fills the SAME slot; never create a second poster.
                 AsyncImage(
-                    model = videoId.takeIf(String::isNotBlank)
-                        ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
-                        ?: seed.coverUrl?.takeIf(String::isNotBlank),
+                    model = stableArtworkUrl,
                     contentDescription = seed.resolvedVideoTitle ?: "Anteprima versione musicale",
                     modifier =
                         Modifier
@@ -3174,7 +3080,7 @@ private fun DiscogsVersionCard(
                 )
             } else {
                 AsyncImage(
-                    model = seed.coverUrl,
+                    model = stableArtworkUrl,
                     contentDescription = null,
                     modifier = Modifier.size(76.dp),
                     contentScale = ContentScale.Crop,
