@@ -66,7 +66,7 @@ test('LAB51 has no residual candidate-level same-performer drop gates', () => {
   );
   assert.match(
     sources,
-    /evidenceScore = if \(samePerformerAsOriginal\) 1 else 2/,
+    /evidenceScore = if \(samePerformerAsOriginal\) 2 else 4/,
   );
   assert.doesNotMatch(
     versionSource,
@@ -76,4 +76,13 @@ test('LAB51 has no residual candidate-level same-performer drop gates', () => {
     browser,
     /samePerformerAsOriginal[\s\S]*confidenceScore = 1/,
   );
+});
+
+
+test('LAB56 explicitly separates weak evidence from wrong-work identity', () => {
+  assert.match(sources, /LAB56 Opera Identity Gate/);
+  assert.match(browser, /LAB56 Opera Identity Gate/);
+  assert.match(browser, /seed\.workRelationConfirmed/);
+  assert.match(browser, /independentServices >= 2/);
+  assert.match(browser, /sharedWorkCreditNames/);
 });
