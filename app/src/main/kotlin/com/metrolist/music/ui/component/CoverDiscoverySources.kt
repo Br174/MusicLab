@@ -848,7 +848,8 @@ internal object CoverDiscoverySources {
                 "solo discovery Cover",
             )
         }
-        val refs =
+
+        val directRefs =
             runCatching {
                 GeminiCoverVerification.discover(
                     originalTitle = title,
@@ -856,8 +857,9 @@ internal object CoverDiscoverySources {
                     config = config,
                 )
             }.getOrDefault(emptyList())
-        val candidates =
-            refs.mapNotNull { ref ->
+
+        val directCandidates =
+            directRefs.mapNotNull { ref ->
                 if (ref.title.isBlank() || ref.artist.isBlank()) return@mapNotNull null
                 val samePerformerAsOriginal =
                     originalArtist.isNotBlank() && sameArtist(ref.artist, originalArtist)
@@ -871,17 +873,64 @@ internal object CoverDiscoverySources {
                     category =
                         if (foreignOrAdapted) AiCoverCategory.FOREIGN
                         else categoryFromTitle(ref.title),
-                    // Bruno explicitly accepts AI Scout same-work discovery as an
-                    // admission signal. Ranking stays separate and intentionally low.
                     workRelationConfirmed = true,
                     evidenceScore = if (samePerformerAsOriginal) 2 else 4,
                 )
-            }.distinctBy { identity(it.title, it.artist, it.category) }
+            }
+
+        val cloudCandidates =
+            if (config.cloudEndpoint.isNotBlank()) {
+                runCatching {
+                    CloudMusicDiscovery.discoverCover(
+                        title = title,
+                        artist = originalArtist,
+                        config = config,
+                        phase = "initial",
+                        focus =
+                            "Trova anche tutte le cover straniere/adattamenti della stessa composizione, " +
+                                "inclusi titoli completamente diversi dalla traduzione letterale.",
+                    )
+                }.getOrNull()
+                    ?.versions
+                    .orEmpty()
+                    .mapNotNull { candidate ->
+                        if (candidate.title.isBlank() || candidate.artist.isBlank()) return@mapNotNull null
+                        val foreignOrAdapted =
+                            candidate.category == AiCoverCategory.FOREIGN ||
+                                !sameBaseTitle(title, candidate.title)
+                        CoverSourceCandidate(
+                            title = candidate.title,
+                            artist = candidate.artist,
+                            sources = listOf("AI Scout"),
+                            year = candidate.year,
+                            album = candidate.album,
+                            coverUrl = candidate.coverUrl,
+                            language =
+                                candidate.language
+                                    ?: if (foreignOrAdapted) "straniera / adattamento AI" else null,
+                            category =
+                                if (foreignOrAdapted) AiCoverCategory.FOREIGN
+                                else categoryFromTitle(candidate.title),
+                            playbackVideoId = candidate.playbackVideoId,
+                            playbackVideoTitle = candidate.playbackVideoTitle,
+                            playbackVideoSource = candidate.playbackVideoSource,
+                            workRelationConfirmed = true,
+                            evidenceScore = 4,
+                        )
+                    }
+            } else {
+                emptyList()
+            }
+
+        val candidates =
+            (directCandidates + cloudCandidates)
+                .distinctBy { identity(it.title, it.artist, it.category) }
+
         return candidates to CoverSourceDiagnostic(
             "AI Scout",
-            available = true,
+            available = directRefs.isNotEmpty() || config.cloudEndpoint.isNotBlank(),
             found = candidates.size,
-            note = "AI Scout ammessa come prova identità per cover/adattamenti stranieri; punteggio separato",
+            note = "AI ammessa per identità opera/cover straniere; punteggio separato",
         )
     }
 
