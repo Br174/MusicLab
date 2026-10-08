@@ -151,6 +151,7 @@ private data class DirectVersionSession(
     var style: String = "",
     var catalogNumber: String = "",
     var filtersExpanded: Boolean = false,
+    var headerExpanded: Boolean = false,
     var category: DirectVersionCategory = DirectVersionCategory.ALL,
     var sortMode: DirectVersionSort = DirectVersionSort.RELEVANCE,
     var results: List<DiscogsVersionSeed> = emptyList(),
@@ -262,6 +263,7 @@ internal fun DiscogsDirectVersionBrowser(
     var style by remember(sessionKey) { mutableStateOf(session.style) }
     var catalogNumber by remember(sessionKey) { mutableStateOf(session.catalogNumber) }
     var filtersExpanded by remember(sessionKey) { mutableStateOf(session.filtersExpanded) }
+    var headerExpanded by remember(sessionKey) { mutableStateOf(session.headerExpanded) }
     var category by remember(sessionKey) { mutableStateOf(session.category) }
     var sortMode by remember(sessionKey) { mutableStateOf(session.sortMode) }
 
@@ -294,7 +296,7 @@ internal fun DiscogsDirectVersionBrowser(
     var backgroundPausedForPlayback by remember(sessionKey) { mutableStateOf(false) }
     var sourcePrefetchedForVisibleLimit by remember(sessionKey) { mutableStateOf(-1) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
-    var closeSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
+    var headerSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
 
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = session.listIndex,
@@ -327,6 +329,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.style = style
         session.catalogNumber = catalogNumber
         session.filtersExpanded = filtersExpanded
+        session.headerExpanded = headerExpanded
         session.category = category
         session.sortMode = sortMode
     }
@@ -671,7 +674,10 @@ internal fun DiscogsDirectVersionBrowser(
                 TitleMeaningResolver.matchesBaseTitle(
                     targetTitle = workTitle,
                     value = seed.trackTitle,
-                    artistAliases = setOf(resolvedOriginalArtist).filter(String::isNotBlank).toSet(),
+                    artistAliases =
+                        setOf(resolvedOriginalArtist, seed.artist)
+                            .filter(String::isNotBlank)
+                            .toSet(),
                 )
 
         if (mode == DiscogsDirectMode.COVER) {
@@ -1439,6 +1445,8 @@ internal fun DiscogsDirectVersionBrowser(
         selectedFingerprint = null
         visibleLimit = pageSize
         resultPageIndex = 0
+        headerExpanded = false
+        session.headerExpanded = false
         sourcePrefetchedForVisibleLimit = -1
         sourceDiagnostics = emptyList()
         sourceDiscoveryLoading = true
@@ -2079,9 +2087,20 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode == DiscogsDirectMode.COVER) visibleResults.filterNot(::isOriginalPerformerVersion) else emptyList()
 
     LaunchedEffect(listState) {
+        var previousIndex = listState.firstVisibleItemIndex
+        var previousOffset = listState.firstVisibleItemScrollOffset
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
         }.collectLatest { (index, offset) ->
+            val movingForward =
+                index > previousIndex ||
+                    (index == previousIndex && offset > previousOffset + 8)
+            if (movingForward) {
+                headerExpanded = false
+                session.headerExpanded = false
+            }
+            previousIndex = index
+            previousOffset = offset
             session.listIndex = index
             session.listOffset = offset
         }
@@ -2182,79 +2201,63 @@ internal fun DiscogsDirectVersionBrowser(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .pointerInput(sessionKey) {
+                    .pointerInput(sessionKey, headerExpanded) {
                         detectVerticalDragGestures(
                             onVerticalDrag = { _, dragAmount ->
-                                closeSwipeDistance =
-                                    (closeSwipeDistance + dragAmount).coerceAtLeast(0f)
+                                headerSwipeDistance += dragAmount
                             },
                             onDragEnd = {
-                                if (closeSwipeDistance >= 110f) navController.popBackStack()
-                                closeSwipeDistance = 0f
+                                when {
+                                    headerSwipeDistance >= 70f -> headerExpanded = true
+                                    headerSwipeDistance <= -70f -> headerExpanded = false
+                                }
+                                session.headerExpanded = headerExpanded
+                                headerSwipeDistance = 0f
                             },
-                            onDragCancel = { closeSwipeDistance = 0f },
+                            onDragCancel = { headerSwipeDistance = 0f },
                         )
                     },
             tonalElevation = 2.dp,
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (mode == DiscogsDirectMode.COVER) "Cover · MusicLab" else "Originali · MusicLab",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        onClick = { navController.navigate(MusicLabArchiveNavigationBridge.ROUTE) },
+                if (headerExpanded) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Archivio")
+                        Text(
+                            text = if (mode == DiscogsDirectMode.COVER) "Cover · MusicLab" else "Originali · MusicLab",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = { navController.navigate(MusicLabArchiveNavigationBridge.ROUTE) },
+                        ) {
+                            Text("Archivio")
+                        }
+                        TextButton(onClick = { navController.popBackStack() }) {
+                            Text("×", style = MaterialTheme.typography.titleLarge)
+                        }
                     }
-                    TextButton(onClick = { navController.popBackStack() }) {
-                        Text("×", style = MaterialTheme.typography.titleLarge)
+
+                    if (mode == DiscogsDirectMode.ORIGINAL) {
+                        Text(
+                            text = "Artista fisso: $resolvedOriginalArtist",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    } else if (resolvedOriginalArtist.isNotBlank()) {
+                        Text(
+                            text = "Interprete originale di riferimento: $resolvedOriginalArtist",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                }
 
-                if (mode == DiscogsDirectMode.ORIGINAL) {
-                    Text(
-                        text = "Artista fisso: $resolvedOriginalArtist",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                } else if (resolvedOriginalArtist.isNotBlank()) {
-                    Text(
-                        text = "Interprete originale di riferimento: $resolvedOriginalArtist",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedTextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        label = { Text("Titolo brano") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedButton(
-                        onClick = { filtersExpanded = !filtersExpanded },
-                    ) {
-                        Text(if (filtersExpanded) "⌃" else "⌄")
-                    }
-                }
-
-                if (filtersExpanded) {
                     DirectCategorySelector(
                         selected = category,
                         results = results,
@@ -2272,6 +2275,26 @@ internal fun DiscogsDirectVersionBrowser(
                             scheduleVideoPreload()
                         },
                     )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Titolo brano") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = { runSearch() },
+                        enabled = !loading,
+                    ) {
+                        Text(if (loading) "…" else "Cerca")
+                    }
                 }
 
                 DirectSortSelector(
@@ -2294,85 +2317,86 @@ internal fun DiscogsDirectVersionBrowser(
                     },
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Button(
-                        onClick = { runSearch() },
-                        enabled = !loading,
-                        modifier = Modifier.weight(1f),
+                if (headerExpanded) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(if (loading) "Ricerca…" else "Cerca versioni")
-                    }
-                    OutlinedButton(
-                        onClick = { showSourceDiagnostics = true },
-                        enabled = sourceDiagnostics.isNotEmpty(),
-                    ) {
-                        Text("Fonti")
-                    }
-                }
-
-                error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                }
-
-                if (activeCriteria != null && (currentPage > 0 || results.isNotEmpty())) {
-                    if (mode == DiscogsDirectMode.COVER) {
-                        Text(
-                            text =
-                                "Risultati raccolti: ${navigablePool.size} · " +
-                                    "Mostrati: ${visibleMembershipPool.size}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        if (readyPool.size < visibleMembershipPool.size) {
-                            Text(
-                                "Preparo i video visibili: ${readyPool.size}/${visibleMembershipPool.size} pronti",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        OutlinedButton(
+                            onClick = { showSourceDiagnostics = true },
+                            enabled = sourceDiagnostics.isNotEmpty(),
+                        ) {
+                            Text("Fonti")
                         }
-                        if (nextBlockPool.isNotEmpty()) {
-                            Text(
-                                "Prossimi ${nextBlockPool.size} in background: $nextBlockReady/${nextBlockPool.size} pronti",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    } else {
-                        Text(
-                            text =
-                                "Risultati raccolti: ${results.size} · Mostrati: ${visibleResults.size} · " +
-                                    "Release Discogs disponibili: $totalDiscogsResults",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
                     }
-                    if (sourceDiscoveryLoading) {
-                        Text(
-                            "Interrogo in parallelo le fonti di scoperta e raccolgo candidati…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else if (verificationJob?.isActive == true) {
-                        val pending =
-                            results.count {
-                                it.releaseId > 0 &&
-                                    it.track == null &&
-                                    !it.discogsVerificationChecked
+
+                    error?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+
+                    if (activeCriteria != null && (currentPage > 0 || results.isNotEmpty())) {
+                        if (mode == DiscogsDirectMode.COVER) {
+                            Text(
+                                text =
+                                    "Risultati raccolti: ${navigablePool.size} · " +
+                                        "Mostrati: ${visibleMembershipPool.size}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            if (readyPool.size < visibleMembershipPool.size) {
+                                Text(
+                                    "Preparo i video visibili: ${readyPool.size}/${visibleMembershipPool.size} pronti",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                        if (pending > 0) {
+                            if (nextBlockPool.isNotEmpty()) {
+                                Text(
+                                    "Prossimi ${nextBlockPool.size} in background: $nextBlockReady/${nextBlockPool.size} pronti",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
                             Text(
-                                "Verifica Discogs in background: $pending candidati ancora da controllare",
+                                text =
+                                    "Risultati raccolti: ${results.size} · Mostrati: ${visibleResults.size} · " +
+                                        "Release Discogs disponibili: $totalDiscogsResults",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        if (sourceDiscoveryLoading) {
+                            Text(
+                                "Interrogo in parallelo le fonti di scoperta e raccolgo candidati…",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        } else if (verificationJob?.isActive == true) {
+                            val pending =
+                                results.count {
+                                    it.releaseId > 0 &&
+                                        it.track == null &&
+                                        !it.discogsVerificationChecked
+                                }
+                            if (pending > 0) {
+                                Text(
+                                    "Verifica Discogs in background: $pending candidati ancora da controllare",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
+                } else if (error != null) {
+                    Text(
+                        error.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }
