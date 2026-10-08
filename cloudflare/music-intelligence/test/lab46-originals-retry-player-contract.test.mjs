@@ -55,10 +55,10 @@ test('Cover consensus cannot rewrite the Originali artist anchor', () => {
   assert.match(browser, /mode == DiscogsDirectMode\.COVER && explicitArtistHint\.isNullOrBlank\(\)/);
 });
 
-test('approved Player buono fast lane remains present', () => {
-  assert.match(player, /LAB07_FAST_LANE_TIMEOUT_MS = 1_800L/);
-  assert.match(player, /withTimeoutOrNull\(LAB07_FAST_LANE_TIMEOUT_MS\)/);
-  assert.match(player, /tokenProvider = fastTokenProvider/);
+test('LAB62 restores the current upstream Meld player, not Player buono LAB41', () => {
+  assert.doesNotMatch(player, /LAB07_FAST_LANE_TIMEOUT_MS/);
+  assert.doesNotMatch(player, /withTimeoutOrNull\(LAB07_FAST_LANE_TIMEOUT_MS\)/);
+  assert.doesNotMatch(player, /tokenProvider = fastTokenProvider/);
   assert.match(player, /tokenProvider = tokenProvider/);
 });
 
