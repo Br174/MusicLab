@@ -67,17 +67,18 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run retained LAB46+ behavioral contracts
+      - name: Run retained LAB46+ behavioral contracts in one Node process
         run: |
-          node --test cloudflare/music-intelligence/test/lab46-originals-retry-player-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab46-red-retry-originals-player-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab48-player-isolation-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab49-cancellable-background-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab50-direct-play-background-barrier-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab51-cover-admission-score20-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab52-cover-video-page-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab53-cover-card-decisions-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab54-cover-playback-pagination-card-contract.test.mjs
+          node --test \
+            cloudflare/music-intelligence/test/lab46-originals-retry-player-contract.test.mjs \
+            cloudflare/music-intelligence/test/lab46-red-retry-originals-player-contract.test.mjs \
+            cloudflare/music-intelligence/test/lab48-player-isolation-contract.test.mjs \
+            cloudflare/music-intelligence/test/lab49-cancellable-background-contract.test.mjs \
+            cloudflare/music-intelligence/test/lab50-direct-play-background-barrier-contract.test.mjs \
+            cloudflare/music-intelligence/test/lab51-cover-admission-score20-contract.test.mjs \
+            cloudflare/music-intelligence/test/lab52-cover-video-page-contract.test.mjs \
+            cloudflare/music-intelligence/test/lab53-cover-card-decisions-contract.test.mjs \
+            cloudflare/music-intelligence/test/lab54-cover-playback-pagination-card-contract.test.mjs
 
       - uses: actions/setup-java@v4
         with:
@@ -88,6 +89,11 @@ jobs:
         with:
           cache-cleanup: on-success
           cache-read-only: false
+          cache-overwrite-existing: true
+          # Optional but safe: when the secret exists, configuration-cache data
+          # persists encrypted between runs. When absent, setup-gradle simply
+          # skips cross-run configuration-cache storage.
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
       - name: Set up Protobuf
         uses: ./.github/actions/setup-protobuf
@@ -173,7 +179,7 @@ jobs:
           } > dist/uab/UPDATE_FAMILY.txt
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
 
-      - name: Upload update artifact immediately
+      - name: Upload update artifact immediately without recompressing APK/ZIP
         id: upload_update
         uses: actions/upload-artifact@v4
         with:
@@ -185,9 +191,19 @@ jobs:
             dist/uab/BUILD_SHA.txt
             dist/uab/BUILD_TIMING.txt
             dist/uab/UPDATE_FAMILY.txt
-            dist/uab/logs/*.log
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
+
+      - name: Upload diagnostics separately after primary artifact is ready
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.output_name }}-diagnostics
+          path: dist/uab/logs/*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   snapshot-safety-source:
     name: snapshot-safety-source-no-apk
