@@ -97,6 +97,22 @@ internal object DiscogsVersionSource {
     )
 
     private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private const val MAX_DISCOVERY_CACHE_ENTRIES = 24
+
+    // LAB60 Pollicino: stop long browsing sessions accumulating full release sets.
+    private fun rememberDiscovery(key: String, value: List<DiscogsVersionSeed>) {
+        val now = System.currentTimeMillis()
+        synchronized(cache) {
+            cache.entries.toList().forEach { (existingKey, entry) ->
+                if (entry.expiresAtMs <= now) cache.remove(existingKey)
+            }
+            while (cache.size >= MAX_DISCOVERY_CACHE_ENTRIES && !cache.containsKey(key)) {
+                val oldest = cache.entries.minByOrNull { it.value.expiresAtMs }?.key ?: break
+                cache.remove(oldest)
+            }
+            cache[key] = CacheEntry(now + CACHE_TTL_MS, value)
+        }
+    }
 
     suspend fun loadVersionPage(
         token: String,
@@ -591,7 +607,7 @@ internal object DiscogsVersionSource {
             }
         }
 
-        cache[key] = CacheEntry(System.currentTimeMillis() + CACHE_TTL_MS, result)
+        rememberDiscovery(key, result)
         return result
     }
 
@@ -614,7 +630,7 @@ internal object DiscogsVersionSource {
             sameArtist(seed.artist, originalArtist)
         }
 
-        cache[key] = CacheEntry(System.currentTimeMillis() + CACHE_TTL_MS, result)
+        rememberDiscovery(key, result)
         return result
     }
 
@@ -633,7 +649,7 @@ internal object DiscogsVersionSource {
             artistFilter = null,
             maxDetails = maxDetails,
         )
-        cache[key] = CacheEntry(System.currentTimeMillis() + CACHE_TTL_MS, result)
+        rememberDiscovery(key, result)
         return result
     }
 
