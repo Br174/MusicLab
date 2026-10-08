@@ -62,3 +62,17 @@ test('compaction example preserves scores and full ten-slot page across 5+5', ()
   assert.equal(first[3].score,ranked[4].score);
   assert.deepEqual([first.slice(0,5).length,first.slice(5,10).length],[5,5]);
 });
+
+test('LAB58 network timeout retry is bounded before candidate rejection', () => {
+  assert.match(browser, /transientVideoRetries: MutableMap<String, Int>/);
+  assert.match(browser, /if \(streamProbe == null\) transientTimeout = true/);
+  assert.match(browser, /if \(resolverProbe == null\) transientTimeout = true/);
+  assert.match(browser, /if \(transientTimeout && retries < 1\)/);
+  assert.match(browser, /DiscogsVersionSource\.markVideoUnavailable\(latest\)/);
+});
+
+test('LAB58 first original section becomes stable even when empty', () => {
+  assert.match(browser, /originalSectionFrozen: Boolean = false/);
+  assert.match(browser, /if \(!originalSectionFrozen\)/);
+  assert.match(browser, /originalSectionFrozen = true/);
+});
