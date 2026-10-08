@@ -40,7 +40,8 @@ test('LAB54 Live and Mix Remix categories are derived from title or metadata wit
   assert.match(browser, /live\|dal vivo\|concert\|concerto/);
   assert.match(browser, /remix\|mix\|extended mix\|radio mix\|club mix\|dance mix/);
   assert.match(browser, /DirectChip\("Mix\/Remix · \$remix"/);
-  assert.match(browser, /showConfidence = mode != DiscogsDirectMode\.COVER \|\| category == DirectVersionCategory\.ALL/);
+  assert.match(browser, /showConfidence = category == DirectVersionCategory\.ALL/);
+  assert.match(browser, /showConfidence = true/);
 });
 
 test('LAB54 main Cover card contains only essential musical metadata plus details action', () => {
