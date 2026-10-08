@@ -284,6 +284,7 @@ internal object MusicBrainzCoverSource {
                     "&limit=100&offset=$offset&inc=artist-credits"
             lastBrowseUrl = browseUrl
             val browse = fetchXml(browseUrl) ?: return null
+            val rawPageSize = browse.select("recording-list > recording").size
             val page =
                 parseBrowseRecordingsInternal(
                     document = browse,
@@ -291,7 +292,7 @@ internal object MusicBrainzCoverSource {
                     workId = workId,
                 )
             allRecordings += page
-            if (page.size < 100) break
+            if (rawPageSize < 100) break
             offset += 100
         }
 
