@@ -359,7 +359,11 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun buildCriteria(): DiscogsVersionSearchCriteria =
         DiscogsVersionSearchCriteria(
-            title = TitleMeaningResolver.stripTrailingArtistHint(title),
+            // LAB59: metadata such as "(Remastered in 192 KHz)" is not
+            // part of the musical work's title; keep live/remix variants intact.
+            title = TitleMeaningResolver.stripTrailingArtistHint(title)
+                .replace(Regex("""\s*\([^)]*\b(?:remaster(?:ed)?|\d+\s*k(?:h)?z|hi[- ]?res)\b[^)]*\)\s*$""", RegexOption.IGNORE_CASE), "")
+                .trim(),
             artist = null,
             releaseTitle = null,
             year = null,
@@ -1654,6 +1658,9 @@ internal fun DiscogsDirectVersionBrowser(
             error = "Interprete originale di riferimento mancante."
             return
         }
+        val repeatSameWork = activeCriteria?.title?.equals(criteria.title, ignoreCase = true) == true
+        val retainedResults = if (repeatSameWork) results else emptyList()
+        val retainedOrder = if (repeatSameWork) session.stableOrder else emptyList()
         searchJob?.cancel()
         paginationJob?.cancel()
         verificationJob?.cancel()
@@ -1662,7 +1669,8 @@ internal fun DiscogsDirectVersionBrowser(
         loadingMore = false
         error = null
         paginationError = null
-        results = emptyList()
+        // LAB59 instant cache replay: a repeat search must not flash an empty list.
+        results = retainedResults
         currentPage = 0
         totalPages = 0
         totalDiscogsResults = 0
@@ -1684,7 +1692,7 @@ internal fun DiscogsDirectVersionBrowser(
             playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
         }
 
-        session.results = emptyList()
+        session.results = retainedResults
         session.currentPage = 0
         session.totalPages = 0
         session.totalDiscogsResults = 0
@@ -1692,7 +1700,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.selectedFingerprint = null
         session.listIndex = 0
         session.listOffset = 0
-        session.stableOrder = emptyList()
+        session.stableOrder = retainedOrder
         session.visibleLimit = pageSize
         session.resultPageIndex = 0
         session.sourceDiagnostics = emptyList()
@@ -1703,18 +1711,30 @@ internal fun DiscogsDirectVersionBrowser(
         session.publishedOriginalSnapshots = emptyList()
         session.publishedCoverSnapshots = emptyList()
         session.originalSectionFrozen = false
-        session.usedVideoIds.clear()
-        session.knownVideoBindings.clear()
-        session.preparedVideoSongs.clear()
-        session.playReadyVideoIds.clear()
-        session.transientVideoRetries.clear()
+        if (!repeatSameWork) {
+            session.usedVideoIds.clear()
+            session.knownVideoBindings.clear()
+            session.preparedVideoSongs.clear()
+            session.playReadyVideoIds.clear()
+            session.transientVideoRetries.clear()
+        }
         session.originalWorkCredits = emptyList()
 
         searchJob =
             scope.launch {
                 listState.scrollToItem(0)
 
-            val memoryState =
+            // LAB59: three independent discovery lanes start immediately.
+            // Previously a slow cloud lookup blocked even the FIRST Discogs page.
+            val firstPageDeferred = async {
+                loadPage(
+                    criteria = criteria,
+                    page = 1,
+                    replace = false,
+                    requestedSort = requestedSort,
+                )
+            }
+            val memoryDeferred = async(kotlinx.coroutines.Dispatchers.IO) {
                 foreignScoutConfig?.let { config ->
                     runCatching {
                         CloudMusicDiscovery.discoverMemoryState(
@@ -1726,6 +1746,18 @@ internal fun DiscogsDirectVersionBrowser(
                         )
                     }.getOrNull()
                 }
+            }
+            val externalDeferred =
+                async(kotlinx.coroutines.Dispatchers.IO) {
+                    CoverDiscoverySources.discover(
+                        title = criteria.title,
+                        originalArtist = resolvedOriginalArtist,
+                        mode = mode,
+                        aiConfig = foreignScoutConfig,
+                    )
+                }
+
+            val memoryState = memoryDeferred.await()
 
             if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                 memoryState
@@ -1803,23 +1835,7 @@ internal fun DiscogsDirectVersionBrowser(
             sourceDiagnostics = listOf(memoryDiagnostic)
             session.sourceDiagnostics = sourceDiagnostics
 
-            val externalDeferred =
-                async(kotlinx.coroutines.Dispatchers.IO) {
-                    CoverDiscoverySources.discover(
-                        title = criteria.title,
-                        originalArtist = resolvedOriginalArtist,
-                        mode = mode,
-                        aiConfig = foreignScoutConfig,
-                    )
-                }
-
-            val firstPageLoaded =
-                loadPage(
-                    criteria = criteria,
-                    page = 1,
-                    replace = false,
-                    requestedSort = requestedSort,
-                )
+            val firstPageLoaded = firstPageDeferred.await()
 
             var external =
                 runCatching { externalDeferred.await() }
