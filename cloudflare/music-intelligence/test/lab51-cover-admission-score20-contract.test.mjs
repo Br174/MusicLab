@@ -43,8 +43,8 @@ test('LAB51 turns title filters into score evidence for broad discovery lanes', 
 test('LAB51 keeps COVER admission open while semantic weakness is ranked', () => {
   assert.match(sources, /DiscogsDirectMode\.COVER -> true/);
   assert.match(versionSource, /DiscogsDirectMode\.COVER -> true/);
-  assert.match(browser, /samePerformerAsOriginal/);
-  assert.match(browser, /Stesso interprete dell'originale: mantenuta in fondo a 1\/20/);
+  assert.match(browser, /fun isOriginalPerformerVersion\(seed: DiscogsVersionSeed\)/);
+  assert.doesNotMatch(browser, /Stesso interprete dell'originale: mantenuta in fondo a 1\/20/);
   assert.match(
     browser,
     /if \(mode == DiscogsDirectMode\.ORIGINAL && resolvedOriginalArtist\.isBlank\(\)\)/,
@@ -72,8 +72,8 @@ test('LAB51 has no residual candidate-level same-performer drop gates', () => {
     versionSource,
     /discover\([\s\S]*?\)\.filter \{ seed ->\s*!sameArtist\(seed\.artist, originalArtist\)/,
   );
-  assert.match(
-    versionSource,
-    /Stesso interprete dell'originale: mantenuta in fondo a 1\/20/,
+  assert.doesNotMatch(
+    browser,
+    /samePerformerAsOriginal[\s\S]*confidenceScore = 1/,
   );
 });
