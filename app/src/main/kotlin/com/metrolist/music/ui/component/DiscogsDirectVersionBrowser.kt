@@ -183,6 +183,7 @@ private data class DirectVersionSession(
     val knownVideoBindings: MutableMap<String, Triple<String, String, String>> = linkedMapOf(),
     val preparedVideoSongs: MutableMap<String, SongItem> = ConcurrentHashMap(),
     val playReadyVideoIds: MutableSet<String> = ConcurrentHashMap.newKeySet(),
+    val transientVideoRetries: MutableMap<String, Int> = ConcurrentHashMap(),
 )
 
 private object DirectVersionSessionStore {
@@ -199,6 +200,7 @@ private object DirectVersionSessionStore {
                     stale.knownVideoBindings.clear()
                     stale.usedVideoIds.clear()
                     stale.playReadyVideoIds.clear()
+                    stale.transientVideoRetries.clear()
                 }
             }
         }
@@ -940,6 +942,7 @@ internal fun DiscogsDirectVersionBrowser(
                         results.firstOrNull { it.fingerprint == seed.fingerprint }
                             ?: return@launch
                     val track = playableTrack(current) ?: return@launch
+                    var transientTimeout = false
 
                     suspend fun verifyCandidateSong(
                         song: SongItem?,
@@ -947,11 +950,12 @@ internal fun DiscogsDirectVersionBrowser(
                     ): Pair<SongItem, String>? {
                         val candidate = song ?: return null
                         if (!CompilationTrackResolver.isHardCompatible(track, candidate)) return null
-                        val streamPlayable =
+                        val streamProbe =
                             withTimeoutOrNull(6_000L) {
-                                runCatching { connection.service.getStreamUrl(candidate.id) }.getOrNull()
-                            } != null
-                        if (!streamPlayable) return null
+                                runCatching { connection.service.getStreamUrl(candidate.id) }
+                            }
+                        if (streamProbe == null) transientTimeout = true
+                        if (streamProbe?.getOrNull() == null) return null
                         rememberPreparedVideoSong(candidate)
                         session.playReadyVideoIds += candidate.id
                         return candidate to (source ?: "MusicLab")
@@ -975,7 +979,7 @@ internal fun DiscogsDirectVersionBrowser(
                             session.usedVideoIds
                                 .filterNot { it == existingId }
                                 .toSet()
-                        val resolved =
+                        val resolverProbe =
                             withTimeoutOrNull(10_000L) {
                                 runCatching {
                                     CompilationTrackResolver.resolveTrack(
@@ -984,8 +988,10 @@ internal fun DiscogsDirectVersionBrowser(
                                         fastFirst = true,
                                         excludedVideoIds = excluded,
                                     )
-                                }.getOrNull()
+                                }
                             }
+                        if (resolverProbe == null) transientTimeout = true
+                        val resolved = resolverProbe?.getOrNull()
                         verified = verifyCandidateSong(resolved?.song, resolved?.source)
                     }
 
@@ -995,8 +1001,18 @@ internal fun DiscogsDirectVersionBrowser(
                     val updated =
                         if (verified == null) {
                             if (existingId.isNotBlank()) session.playReadyVideoIds.remove(existingId)
-                            DiscogsVersionSource.markVideoUnavailable(latest)
+                            val retries = session.transientVideoRetries[current.fingerprint] ?: 0
+                            if (transientTimeout && retries < 1) {
+                                // LAB58: one bounded retry for a REAL network timeout.
+                                // Keep ranking position pending, do not discard as unavailable.
+                                session.transientVideoRetries[current.fingerprint] = retries + 1
+                                latest
+                            } else {
+                                session.transientVideoRetries.remove(current.fingerprint)
+                                DiscogsVersionSource.markVideoUnavailable(latest)
+                            }
                         } else {
+                            session.transientVideoRetries.remove(current.fingerprint)
                             val song = verified!!.first
                             val source = verified!!.second
                             session.usedVideoIds += song.id
@@ -1672,6 +1688,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.knownVideoBindings.clear()
         session.preparedVideoSongs.clear()
         session.playReadyVideoIds.clear()
+        session.transientVideoRetries.clear()
         session.originalWorkCredits = emptyList()
 
         searchJob =
