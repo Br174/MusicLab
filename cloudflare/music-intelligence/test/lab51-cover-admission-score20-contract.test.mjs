@@ -34,10 +34,11 @@ test('LAB51 uses the complete 1..20 confidence scale end-to-end', () => {
   assert.doesNotMatch(browser, /Affidabilità: \$\{seed\.confidenceScore\}\/10/);
 });
 
-test('LAB51 turns title filters into score evidence for broad discovery lanes', () => {
+test('LAB51 broad discovery is preserved before the LAB56 Opera Identity Gate', () => {
   assert.doesNotMatch(sources, /if \(!sameBaseTitle\(title, candidateTitle\)\) continue/);
   assert.doesNotMatch(sources, /if \(!sameBaseTitle\(title, candidateTitle\)\) return@mapNotNull null/);
-  assert.match(sources, /evidenceScore = if \(titleMatches\) 6 else 1/);
+  assert.match(sources, /val identityAccepted =/);
+  assert.match(sources, /strictTitleMatch \|\|[\s\S]*aiTrusted \|\|[\s\S]*explicitRelation \|\|[\s\S]*independentSourceConsensus/);
 });
 
 test('LAB51 keeps COVER admission open while semantic weakness is ranked', () => {
