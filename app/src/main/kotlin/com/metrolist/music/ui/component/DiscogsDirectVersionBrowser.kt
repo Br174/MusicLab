@@ -169,11 +169,15 @@ private data class DirectVersionSession(
     var resultPageIndex: Int = 0,
     var sourceDiagnostics: List<CoverSourceDiagnostic> = emptyList(),
     var sourceDiscoveryComplete: Boolean = false,
+    var originalYear: Int? = null,
+    var rankingFrozen: Boolean = false,
+    var publishedReadyLimit: Int = 0,
     val rejectedKeys: MutableSet<String> = linkedSetOf(),
     val approvedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
     val knownVideoBindings: MutableMap<String, Triple<String, String, String>> = linkedMapOf(),
     val preparedVideoSongs: MutableMap<String, SongItem> = ConcurrentHashMap(),
+    val playReadyVideoIds: MutableSet<String> = ConcurrentHashMap.newKeySet(),
 )
 
 private object DirectVersionSessionStore {
@@ -189,6 +193,7 @@ private object DirectVersionSessionStore {
                     stale.preparedVideoSongs.clear()
                     stale.knownVideoBindings.clear()
                     stale.usedVideoIds.clear()
+                    stale.playReadyVideoIds.clear()
                 }
             }
         }
@@ -287,6 +292,8 @@ internal fun DiscogsDirectVersionBrowser(
         mutableStateOf(session.visibleLimit.coerceAtLeast(pageSize))
     }
     var resultPageIndex by remember(sessionKey) { mutableStateOf(session.resultPageIndex) }
+    var rankingFrozen by remember(sessionKey) { mutableStateOf(session.rankingFrozen) }
+    var publishedReadyLimit by remember(sessionKey) { mutableStateOf(session.publishedReadyLimit) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -304,16 +311,21 @@ internal fun DiscogsDirectVersionBrowser(
     )
 
     DisposableEffect(sessionKey) {
+        if (mode == DiscogsDirectMode.COVER) {
+            playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
+        }
         onDispose {
-            // LAB49 lifecycle barrier: leaving Cover/Originali must terminate every
-            // job owned by this screen. Underlying Discogs/Cloud/COVER.INFO calls are
-            // now coroutine-cancellable too, so this is a real network stop.
+            // LAB57 hard Cover lifecycle barrier: leaving this screen cancels every
+            // owned coroutine and releases the playback-quality governor.
             playbackLaunchJob?.cancel()
             searchJob?.cancel()
             paginationJob?.cancel()
             verificationJob?.cancel()
             videoPreloadJob?.cancel()
             backgroundResumeJob?.cancel()
+            if (mode == DiscogsDirectMode.COVER) {
+                playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
+            }
         }
     }
 
@@ -599,7 +611,17 @@ internal fun DiscogsDirectVersionBrowser(
                         note = notes.joinToString(" · "),
                     )
                 }
-        return CoverSourceOutcome(candidates, diagnostics)
+        return CoverSourceOutcome(
+            candidates = candidates,
+            diagnostics = diagnostics,
+            originalYear = listOfNotNull(primary.originalYear, fallback.originalYear).minOrNull(),
+            workId = primary.workId ?: fallback.workId,
+            workCredits =
+                (primary.workCredits + fallback.workCredits)
+                    .distinctBy { credit ->
+                        credit.name.lowercase() + "|" + credit.role.lowercase()
+                    },
+        )
     }
     fun mergePage(
         current: List<DiscogsVersionSeed>,
@@ -852,7 +874,7 @@ internal fun DiscogsDirectVersionBrowser(
             }
 
         session.results = results
-        if (sortMode == DirectVersionSort.RELEVANCE && relevanceChanged) {
+        if (!rankingFrozen && sortMode == DirectVersionSort.RELEVANCE && relevanceChanged) {
             rebuildStableOrder()
         } else {
             syncStableOrder()
@@ -1377,7 +1399,33 @@ internal fun DiscogsDirectVersionBrowser(
             return false
         }
 
-        results = mergePage(results, pageResult.items, replace)
+        val incomingItems =
+            if (mode == DiscogsDirectMode.COVER && rankingFrozen) {
+                val enriched =
+                    DiscogsVersionSource.enrichSeedsForRanking(
+                        token = discogsToken,
+                        seeds = pageResult.items,
+                        targetTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
+                        mode = mode,
+                        originalArtist = resolvedOriginalArtist,
+                    )
+                enriched.map { seed ->
+                    DiscogsVersionSource.certifyForFrozenRanking(
+                        seed = DiscogsVersionSource.applySharedWorkCreditEvidence(
+                            seed,
+                            session.originalWorkCredits,
+                        ),
+                        targetTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
+                        originalArtist = resolvedOriginalArtist,
+                        originalYear = session.originalYear,
+                        originalCredits = session.originalWorkCredits,
+                    )
+                }
+            } else {
+                pageResult.items
+            }
+
+        results = mergePage(results, incomingItems, replace)
         currentPage = pageResult.page
         totalPages = pageResult.pages
         totalDiscogsResults = pageResult.totalDiscogsResults
@@ -1392,7 +1440,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.activeCriteria = activeCriteria
         session.initialized = true
         if (mode == DiscogsDirectMode.COVER) {
-            rebuildStableOrder()
+            if (rankingFrozen) syncStableOrder() else rebuildStableOrder()
         } else {
             syncStableOrder()
         }
@@ -1450,6 +1498,11 @@ internal fun DiscogsDirectVersionBrowser(
         sourcePrefetchedForVisibleLimit = -1
         sourceDiagnostics = emptyList()
         sourceDiscoveryLoading = true
+        rankingFrozen = false
+        publishedReadyLimit = 0
+        if (mode == DiscogsDirectMode.COVER) {
+            playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
+        }
 
         session.results = emptyList()
         session.currentPage = 0
@@ -1464,9 +1517,13 @@ internal fun DiscogsDirectVersionBrowser(
         session.resultPageIndex = 0
         session.sourceDiagnostics = emptyList()
         session.sourceDiscoveryComplete = false
+        session.originalYear = null
+        session.rankingFrozen = false
+        session.publishedReadyLimit = 0
         session.usedVideoIds.clear()
         session.knownVideoBindings.clear()
         session.preparedVideoSongs.clear()
+        session.playReadyVideoIds.clear()
         session.originalWorkCredits = emptyList()
 
         searchJob =
@@ -1544,9 +1601,8 @@ internal fun DiscogsDirectVersionBrowser(
                         replace = true,
                     )
                 session.results = results
-                rebuildStableOrder()
-                // Cloud-first playback must not wait for Discogs pagination.
-                scheduleVideoPreload()
+                // LAB57: keep cloud candidates internal until metadata
+                // certification is complete and the rank is frozen.
             }
             val memoryDiagnostic =
                 CoverSourceDiagnostic(
@@ -1562,8 +1618,6 @@ internal fun DiscogsDirectVersionBrowser(
                 )
             sourceDiagnostics = listOf(memoryDiagnostic)
             session.sourceDiagnostics = sourceDiagnostics
-
-            loading = false
 
             val externalDeferred =
                 async(kotlinx.coroutines.Dispatchers.IO) {
@@ -1641,7 +1695,6 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                 results = mergePage(results, externalSeeds, replace = false)
                 session.results = results
-                scheduleVideoPreload()
             }
             val identityDiagnostic =
                 CoverSourceDiagnostic(
@@ -1665,46 +1718,92 @@ internal fun DiscogsDirectVersionBrowser(
             session.sourceDiscoveryComplete = true
             sourceDiscoveryLoading = false
 
-            if (
-                mode == DiscogsDirectMode.COVER &&
-                discogsToken.isNotBlank() &&
-                resolvedOriginalArtist.isNotBlank() &&
-                session.originalWorkCredits.isEmpty()
-            ) {
-                val creditLookupTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
-                launch {
-                    val credits =
-                        withTimeoutOrNull(4_000L) {
+            if (mode == DiscogsDirectMode.COVER) {
+                val workTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
+
+                val discogsCredits =
+                    if (discogsToken.isNotBlank() && resolvedOriginalArtist.isNotBlank()) {
+                        withTimeoutOrNull(5_500L) {
                             DiscogsVersionSource.loadOriginalWorkCredits(
                                 token = discogsToken,
-                                title = creditLookupTitle,
+                                title = workTitle,
                                 originalArtist = resolvedOriginalArtist,
                             )
                         }.orEmpty()
-                    if (
-                        credits.isNotEmpty() &&
-                        activeCriteria?.title == criteria.title
-                    ) {
-                        session.originalWorkCredits = credits
-                        results =
-                            results.map { seed ->
-                                DiscogsVersionSource.applySharedWorkCreditEvidence(seed, credits)
-                            }
-                        session.results = results
-                        rebuildStableOrder()
-                        scheduleDiscogsVerification()
-                        scheduleVideoPreload()
+                    } else {
+                        emptyList()
                     }
-                }
+
+                session.originalWorkCredits =
+                    (external.workCredits + discogsCredits)
+                        .distinctBy { credit ->
+                            credit.name.lowercase() + "|" + credit.role.lowercase()
+                        }
+
+                val rankingEnriched =
+                    if (discogsToken.isNotBlank()) {
+                        withTimeoutOrNull(11_000L) {
+                            DiscogsVersionSource.enrichSeedsForRanking(
+                                token = discogsToken,
+                                seeds = results,
+                                targetTitle = workTitle,
+                                mode = mode,
+                                originalArtist = resolvedOriginalArtist,
+                            )
+                        } ?: results
+                    } else {
+                        results
+                    }
+
+                session.originalYear =
+                    external.originalYear
+                        ?: rankingEnriched
+                            .filter { seed ->
+                                resolvedOriginalArtist.isNotBlank() &&
+                                    TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist) &&
+                                    TitleMeaningResolver.matchesBaseTitle(workTitle, seed.trackTitle)
+                            }
+                            .mapNotNull { it.year }
+                            .minOrNull()
+
+                results =
+                    rankingEnriched.map { seed ->
+                        val withCredits =
+                            DiscogsVersionSource.applySharedWorkCreditEvidence(
+                                seed,
+                                session.originalWorkCredits,
+                            )
+                        DiscogsVersionSource.certifyForFrozenRanking(
+                            seed = withCredits,
+                            targetTitle = workTitle,
+                            originalArtist = resolvedOriginalArtist,
+                            originalYear = session.originalYear,
+                            originalCredits = session.originalWorkCredits,
+                        )
+                    }
+                session.results = results
+                rebuildStableOrder()
+
+                rankingFrozen = true
+                session.rankingFrozen = true
+                publishedReadyLimit = 0
+                session.publishedReadyLimit = 0
+            } else {
+                rebuildStableOrder()
             }
 
-            rebuildStableOrder()
             session.visibleLimit = visibleLimit
+            session.sourceDiscoveryComplete = true
+            sourceDiscoveryLoading = false
+            loading = false
+
+            if (mode == DiscogsDirectMode.COVER) {
+                playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
+            }
 
             if (firstPageLoaded) {
                 scheduleDiscogsVerification()
             }
-            // Provider/cloud video resolution is independent from Discogs page success.
             scheduleVideoPreload()
         }
         searchJob?.invokeOnCompletion {
