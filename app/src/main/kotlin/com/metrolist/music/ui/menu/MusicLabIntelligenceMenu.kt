@@ -39,8 +39,6 @@ import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
-import com.metrolist.music.ui.component.OriginalVersionNavigationBridge
-import com.metrolist.music.ui.component.OriginalVersionRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -166,40 +164,7 @@ internal fun MusicLabIntelligenceActions(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         val quickActions = buildList {
-            if (settings.originals) {
-                add(
-                    NewAction(
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.album),
-                                contentDescription = null,
-                                modifier = Modifier.size(30.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        text = "Originali",
-                        onClick = {
-                            // Originali deve aprirsi subito: l'identificazione AI avviene
-                            // all'interno della schermata e non deve bloccare la navigazione.
-                            collapsePlayerToMiniNow()
-                            val opened = OriginalVersionNavigationBridge.open(
-                                OriginalVersionRequest(
-                                    title = mediaMetadata.title,
-                                    artist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
-                                    durationSec = mediaMetadata.duration,
-                                    currentYouTubeId = mediaMetadata.id,
-                                ),
-                            )
-                            if (opened) {
-                                collapsePlayerToMiniNow()
-                                onDismiss()
-                            } else {
-                                Toast.makeText(context, "Originali non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    ),
-                )
-            }
+            // LAB64: Originali are integrated above the covers; no duplicate standalone action.
             if (settings.cover) {
                 add(
                     NewAction(
