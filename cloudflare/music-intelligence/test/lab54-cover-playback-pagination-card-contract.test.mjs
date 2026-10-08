@@ -21,19 +21,16 @@ test('LAB54 normal playback no longer blocks Cover preparation', () => {
   assert.match(resume, /while \(playbackIsCritical\(\)\)/);
 });
 
-test('LAB54 Cover pagination slices one global 20-to-1 ranking into real pages of ten', () => {
+test('LAB54 ten-result foundation is preserved while LAB55 appends blocks vertically', () => {
   assert.match(browser, /DIRECT_COVER_PAGE_SIZE = 10/);
-  assert.match(browser, /var resultPageIndex: Int = 0/);
-  assert.match(browser, /val resultPageStart = safeResultPageIndex \* pageSize/);
-  assert.match(browser, /navigablePool\.drop\(resultPageStart\)\.take\(pageSize\)/);
-  assert.match(browser, /Pagina \$\{safeResultPageIndex \+ 1\}\/\$\{resultPageCount\.coerceAtLeast\(1\)\}/);
-  assert.match(browser, /Text\("‹ Precedenti"\)/);
-  assert.match(browser, /Text\("Successivi ›"\)/);
-  assert.doesNotMatch(browser, /val visibleResults = readyPool\.take\(visibleLimit\)/);
+  assert.match(browser, /visibleMembershipPool[\s\S]*take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
+  assert.match(browser, /Text\("Carica altri \$pageSize"\)/);
+  assert.doesNotMatch(browser, /Text\("‹ Precedenti"\)/);
+  assert.doesNotMatch(browser, /Text\("Successivi ›"\)/);
 });
 
-test('LAB54 keeps global score ordering before page slicing', () => {
-  assert.match(browser, /if \(mode == DiscogsDirectMode\.COVER\) DirectVersionSort\.RELEVANCE else sortMode/);
+test('LAB54 global ranking foundation remains available for score ordering', () => {
+  assert.match(browser, /DirectVersionSort\.RELEVANCE/);
   assert.match(browser, /compareByDescending<DiscogsVersionSeed> \{ it\.confidenceScore \}/);
   assert.match(browser, /if \(mode == DiscogsDirectMode\.COVER\) return categoryFiltered/);
 });
