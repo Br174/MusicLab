@@ -128,7 +128,11 @@ internal object CoverDiscoverySources {
         // LAB59: prioritize cover.info direct videos over auxiliary metadata.
         // Each lane still runs; slow services never gate early thumbnail emission.
         val coverInfo = async(Dispatchers.IO) {
-            val lane = sourceLane { discoverCoverInfo(cleanTitle, cleanArtist, mode) }
+            val lane = sourceLane {
+                discoverCoverInfo(cleanTitle, cleanArtist, mode) { quick ->
+                    onEarlyVideoCandidates(quick)
+                }
+            }
             onEarlyVideoCandidates(
                 lane.first.filter { candidate ->
                     !candidate.playbackVideoId.isNullOrBlank() &&
@@ -790,6 +794,7 @@ internal object CoverDiscoverySources {
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
+        onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
         val cleanTitle = title.replace('"', ' ').trim()
         val cleanArtist = originalArtist.replace('"', ' ').trim()
@@ -820,6 +825,16 @@ internal object CoverDiscoverySources {
             publicSearchReachable = true
             if (parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty()) {
                 searchDocuments += term to parsed
+                // LAB60 Pollicino: publish embedded video thumbnails as soon as the
+                // first search page arrives, BEFORE expanding related-song pages.
+                val quickVideos = parseCoverInfoDocument(parsed)
+                    .filter { seed ->
+                        sameBaseTitle(title, seed.title) &&
+                            modeAcceptsArtist(mode, seed.artist, originalArtist) &&
+                            !seed.playbackVideoId.isNullOrBlank()
+                    }
+                    .map { seed -> toCoverInfoCandidate(seed, title) }
+                if (quickVideos.isNotEmpty()) onEarlyVideoCandidates(quickVideos)
             }
         }
 
@@ -856,11 +871,21 @@ internal object CoverDiscoverySources {
                 }
                 .take(COVER_INFO_RELATION_ROOT_LIMIT)
 
+        // LAB60 Pollicino: preserve all relationship roots, but issue their
+        // HTTP requests in at most two concurrent lanes instead of one long chain.
         val related = mutableListOf<CoverInfoSeed>()
-        relationRoots.forEach { root ->
-            val html = fetchHtml(root.url) ?: return@forEach
-            val page = runCatching { Jsoup.parse(html, "https://cover.info") }.getOrNull() ?: return@forEach
-            related += parseCoverInfoDocument(page).map { it.copy(directRelation = true) }
+        for (roots in relationRoots.chunked(2)) {
+            val batch = coroutineScope {
+                roots.map { root ->
+                    async(Dispatchers.IO) {
+                        val html = fetchHtml(root.url) ?: return@async emptyList<CoverInfoSeed>()
+                        val page = runCatching { Jsoup.parse(html, "https://cover.info") }
+                            .getOrNull() ?: return@async emptyList<CoverInfoSeed>()
+                        parseCoverInfoDocument(page).map { it.copy(directRelation = true) }
+                    }
+                }.map { it.await() }.flatten()
+            }
+            related += batch
         }
 
         val mergedSeeds =
@@ -872,11 +897,24 @@ internal object CoverDiscoverySources {
                         modeAcceptsArtist(mode, seed.artist, originalArtist)
                 }
 
-        val candidates =
-            mergedSeeds.map { seed ->
-                val sameTitle = sameBaseTitle(title, seed.title)
-                CoverSourceCandidate(
-                    title = seed.title,
+        val candidates = mergedSeeds.map { seed -> toCoverInfoCandidate(seed, title) }
+            .distinctBy { identity(it.title, it.artist, it.category) }
+
+        return candidates to CoverSourceDiagnostic(
+            name = "COVER.INFO",
+            available = true,
+            found = candidates.size,
+            note =
+                "fonte documentaria · query precise ${searchDocuments.size}/${searchTerms.size}" +
+                    " · video diretti ${candidates.count { !it.playbackVideoId.isNullOrBlank() }}" +
+                    " · $usedSearch",
+        )
+    }
+
+    // LAB60 Pollicino: same evidence conversion for early previews and final ranking.
+    private fun toCoverInfoCandidate(seed: CoverInfoSeed, title: String): CoverSourceCandidate {
+        val sameTitle = sameBaseTitle(title, seed.title)
+        return CoverSourceCandidate(                    title = seed.title,
                     artist = seed.artist,
                     sources = listOf("COVER.INFO"),
                     year = seed.year,
@@ -902,17 +940,6 @@ internal object CoverDiscoverySources {
                             sameTitle -> 6
                             else -> 2
                         },
-                )
-            }.distinctBy { identity(it.title, it.artist, it.category) }
-
-        return candidates to CoverSourceDiagnostic(
-            name = "COVER.INFO",
-            available = true,
-            found = candidates.size,
-            note =
-                "fonte documentaria · query precise ${searchDocuments.size}/${searchTerms.size}" +
-                    " · video diretti ${candidates.count { !it.playbackVideoId.isNullOrBlank() }}" +
-                    " · $usedSearch",
         )
     }
 
