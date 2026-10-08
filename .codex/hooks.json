@@ -1,5 +1,5 @@
 {
-  "description": "Mandatory MotorLab bootstrap + Live Control + Pollicino external continuity for MusicLab",
+  "description": "Mandatory MotorLab bootstrap/re-entry + Live Control + Pollicino external continuity for MusicLab",
   "hooks": {
     "SessionStart": [
       {
