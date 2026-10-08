@@ -5,6 +5,8 @@
 
 package com.metrolist.music.ui.player
 
+import com.metrolist.music.playback.CoverPlaybackMemory
+
 import androidx.activity.compose.BackHandler
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -318,7 +320,11 @@ fun BottomSheetPlayer(
         }
 
     val playbackState by playerConnection.playbackState.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val nativeMediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    // LAB63: all compact/expanded player artwork follows the pinned Cover preview.
+    val mediaMetadata = nativeMediaMetadata?.let {
+        CoverPlaybackMemory.stablePlayerMetadata(androidx.compose.ui.platform.LocalContext.current, it)
+    }
     val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
     val automix by playerConnection.service.automixItems.collectAsStateWithLifecycle()
     val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
