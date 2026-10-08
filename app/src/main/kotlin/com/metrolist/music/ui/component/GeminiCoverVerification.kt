@@ -88,12 +88,16 @@ Original recording:
 Title: ${originalTitle.trim()}
 Artist: ${originalArtist.trim()}
 
-Use Google Search. Return only versions performed by a different artist when possible. A translated/adapted title is valid only when it is the same underlying composition. Exclude same-title unrelated songs, remasters, karaoke, backing tracks, tutorials, reactions, mashups and medleys.
+Use Google Search. Return only versions performed by a different artist when possible.
+Actively look for foreign-language covers and adaptations of the same composition, including cases where the foreign title is COMPLETELY DIFFERENT and is not a literal translation of the original title.
+Set adapted_title=true whenever the candidate uses a translated, localized or otherwise changed title.
+A translated/adapted title is valid only when it is the same underlying composition.
+Exclude same-title unrelated songs, remasters, karaoke, backing tracks, tutorials, reactions, mashups and medleys.
 
 Return ONLY valid JSON with this shape:
 {"covers":[{"title":"exact candidate title","artist":"candidate artist","adapted_title":false}]}
 
-Return up to 30 plausible documented candidates, including weak-but-real leads that can be ranked later by MusicLab. Do not invent unrelated songs merely to fill the list."""
+Return up to 30 plausible documented candidates, including foreign adaptations with non-literal titles and weak-but-real leads that can be ranked later by MusicLab. Do not invent unrelated songs merely to fill the list."""
 
         val responseBody =
             executeGroundedRequest(
