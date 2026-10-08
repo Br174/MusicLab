@@ -360,6 +360,96 @@ internal object DiscogsVersionSource {
         }
     }
 
+    suspend fun enrichSeedsForRanking(
+        token: String,
+        seeds: List<DiscogsVersionSeed>,
+        targetTitle: String,
+        mode: DiscogsDirectMode,
+        originalArtist: String,
+    ): List<DiscogsVersionSeed> = coroutineScope {
+        if (token.isBlank() || seeds.isEmpty()) return@coroutineScope seeds
+
+        seeds
+            .chunked(DIRECT_VERIFY_BATCH_SIZE)
+            .flatMap { chunk ->
+                chunk.map { seed ->
+                    async(Dispatchers.IO) {
+                        if (seed.releaseId > 0 && !seed.discogsVerificationChecked) {
+                            enrichSeedMetadata(
+                                token = token,
+                                seed = seed,
+                                targetTitle = targetTitle,
+                                mode = mode,
+                                originalArtist = originalArtist,
+                            )
+                        } else {
+                            seed
+                        }
+                    }
+                }.awaitAll()
+            }
+    }
+
+    internal fun certifyForFrozenRanking(
+        seed: DiscogsVersionSeed,
+        targetTitle: String,
+        originalArtist: String,
+        originalYear: Int?,
+        originalCredits: List<DiscogsCredit>,
+    ): DiscogsVersionSeed {
+        val titleMatch =
+            TitleMeaningResolver.classify(
+                targetTitle = targetTitle,
+                value = seed.trackTitle,
+                artistAliases = setOf(originalArtist).filter(String::isNotBlank).toSet(),
+            )
+        val sourceCount = seed.sourceNames.distinct().size
+        val sameOriginalArtist =
+            originalArtist.isNotBlank() && sameArtist(seed.artist, originalArtist)
+        val sharedCredits = sharedWorkCreditNames(seed, originalCredits)
+        val knownYear = seed.year
+        val chronologicallyPossible =
+            originalYear == null || knownYear == null || knownYear >= originalYear
+
+        var score = 1
+        score += when (titleMatch) {
+            TitleMeaningMatch.EXACT -> 6
+            TitleMeaningMatch.DECORATED -> 5
+            TitleMeaningMatch.DIFFERENT -> 0
+        }
+        if (seed.workRelationConfirmed) score += 4
+        if (seed.originalWorkReference || sameOriginalArtist) score += 3
+        if (sharedCredits.isNotEmpty()) score += 3
+        if (knownYear != null) score += 2
+        score += ((sourceCount - 1).coerceAtLeast(0) * 2).coerceAtMost(4)
+
+        val sourceText = seed.sourceNames.joinToString(" ").lowercase()
+        if (sourceCount == 1 && "cover.info" in sourceText) score = score.coerceAtMost(13)
+        if (sourceCount == 1 && "ai scout" in sourceText) score = score.coerceAtMost(12)
+        if (knownYear == null) score = score.coerceAtMost(11)
+        if (!chronologicallyPossible) score = 1
+        if (seed.manuallyApproved) score = 20
+
+        val reasons =
+            buildList {
+                addAll(seed.confidenceReasons)
+                if (knownYear != null) add("Data musicale verificata: $knownYear")
+                else add("Data musicale non reperita: candidato mantenuto con affidabilità limitata")
+                originalYear?.let { add("Opera originale: $it") }
+                if (sharedCredits.isNotEmpty()) {
+                    add("Crediti opera coincidenti: " + sharedCredits.joinToString { it.name })
+                }
+                if (sourceCount >= 2) add("Conferme indipendenti: $sourceCount fonti")
+                if (!chronologicallyPossible) add("Cronologia impossibile rispetto all'opera originale")
+            }.distinct()
+
+        return seed.copy(
+            confidenceScore = score.coerceIn(1, 20),
+            confidenceReasons = reasons,
+            workRelationConfirmed = seed.workRelationConfirmed || sharedCredits.isNotEmpty(),
+        )
+    }
+
     suspend fun resolveSeedForPlayback(
         token: String,
         seed: DiscogsVersionSeed,
@@ -1074,24 +1164,9 @@ internal object DiscogsVersionSource {
         val artistIsOriginal =
             candidate.originalWorkReference ||
                 (originalArtist.isNotBlank() && sameArtist(candidate.artist, originalArtist))
-        val baseScore =
-            when {
-                candidate.originalWorkReference && titleMatch != TitleMeaningMatch.DIFFERENT -> 20
-                artistIsOriginal && titleMatch == TitleMeaningMatch.EXACT && kind == DiscogsVersionKind.STUDIO -> 20
-                artistIsOriginal && titleMatch != TitleMeaningMatch.DIFFERENT -> 18
-                candidate.workRelationConfirmed && titleMatch == TitleMeaningMatch.EXACT -> 18
-                candidate.workRelationConfirmed && titleMatch == TitleMeaningMatch.DECORATED -> 17
-                candidate.workRelationConfirmed -> 16
-                titleMatch == TitleMeaningMatch.EXACT -> 14
-                titleMatch == TitleMeaningMatch.DECORATED -> 12
-                else -> candidate.evidenceScore.coerceIn(1, 12)
-            }
-        val sourceBonus =
-            ((candidate.sources.distinct().size - 1).coerceAtLeast(0) * 2)
-                .coerceAtMost(4)
-        val externalScore =
-            (baseScore + sourceBonus)
-                .coerceIn(1, 20)
+        // LAB57: CoverDiscoverySources is the single confidence certifier.
+        // Do not inflate a source-native relation again while adapting it to a UI seed.
+        val externalScore = candidate.evidenceScore.coerceIn(1, 20)
         return DiscogsVersionSeed(
             trackTitle = candidate.title,
             artist = candidate.artist,
@@ -1112,7 +1187,7 @@ internal object DiscogsVersionSource {
             fingerprint = fingerprint,
             track = null,
             videos = emptyList(),
-            credits = emptyList(),
+            credits = candidate.credits,
             language = candidate.language,
             confidenceScore = externalScore,
             confidenceReasons =
@@ -1120,7 +1195,7 @@ internal object DiscogsVersionSource {
                     add("Trovata da: " + candidate.sources.joinToString(", "))
                     when {
                         candidate.originalWorkReference ->
-                            add("COVER.INFO: riferimento iniziale/originale dell’opera")
+                            add("Riferimento all’interprete/originale dell’opera")
                         artistIsOriginal && titleMatch == TitleMeaningMatch.EXACT ->
                             add("Titolo esatto + interprete originale")
                         artistIsOriginal ->
