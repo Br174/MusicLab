@@ -1754,6 +1754,25 @@ internal fun DiscogsDirectVersionBrowser(
                         originalArtist = resolvedOriginalArtist,
                         mode = mode,
                         aiConfig = foreignScoutConfig,
+                        onEarlyVideoCandidates = { early ->
+                            // LAB59: COVER.INFO can supply direct YouTube video IDs
+                            // before the entire multi-provider search has returned.
+                            // Only the currently active search may publish them.
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                if (activeCriteria?.title == criteria.title && early.isNotEmpty()) {
+                                    val videoSeeds = early.map { candidate ->
+                                        DiscogsVersionSource.externalSeed(
+                                            candidate = candidate,
+                                            targetTitle = criteria.title,
+                                            originalArtist = resolvedOriginalArtist,
+                                        )
+                                    }
+                                    results = mergePage(results, videoSeeds, replace = false)
+                                    session.results = results
+                                    if (!rankingFrozen) rebuildStableOrder() else syncStableOrder()
+                                }
+                            }
+                        },
                     )
                 }
 
