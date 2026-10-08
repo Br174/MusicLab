@@ -5,6 +5,8 @@
 
 package com.metrolist.music.ui.player
 
+import com.metrolist.music.playback.CoverPlaybackMemory
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -218,7 +220,11 @@ fun Thumbnail(
     val layoutDirection = LocalLayoutDirection.current
 
     // Collect states
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val nativeMediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    // LAB63: all compact/expanded player artwork follows the pinned Cover preview.
+    val mediaMetadata = nativeMediaMetadata?.let {
+        CoverPlaybackMemory.stablePlayerMetadata(androidx.compose.ui.platform.LocalContext.current, it)
+    }
     val error by playerConnection.error.collectAsState()
     val queueTitle by playerConnection.queueTitle.collectAsState()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
