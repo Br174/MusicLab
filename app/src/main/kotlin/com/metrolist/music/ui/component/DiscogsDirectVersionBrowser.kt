@@ -85,6 +85,8 @@ private const val DIRECT_VERSION_SOURCE_FETCH_SIZE = 30
 private const val DIRECT_VERSION_PREFETCH_DISTANCE = 2
 private const val DIRECT_VERSION_BOTTOM_SAFE_DP = 260
 private const val DIRECT_VIDEO_BATCH_SIZE = 5
+private const val DIRECT_COVER_RANK_MAX_SOURCE_PAGES = 5
+private const val DIRECT_COVER_RANK_TARGET = 120
 private const val DIRECT_COVER_PLAYBACK_BATCH_SIZE = 1
 private const val DIRECT_VIDEO_PARALLELISM = 3
 private const val DIRECT_BACKGROUND_PREFETCH_AHEAD = 20
@@ -172,6 +174,8 @@ private data class DirectVersionSession(
     var originalYear: Int? = null,
     var rankingFrozen: Boolean = false,
     var publishedReadyLimit: Int = 0,
+    var publishedOriginalSnapshots: List<DiscogsVersionSeed> = emptyList(),
+    var publishedCoverSnapshots: List<DiscogsVersionSeed> = emptyList(),
     val rejectedKeys: MutableSet<String> = linkedSetOf(),
     val approvedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
@@ -294,6 +298,8 @@ internal fun DiscogsDirectVersionBrowser(
     var resultPageIndex by remember(sessionKey) { mutableStateOf(session.resultPageIndex) }
     var rankingFrozen by remember(sessionKey) { mutableStateOf(session.rankingFrozen) }
     var publishedReadyLimit by remember(sessionKey) { mutableStateOf(session.publishedReadyLimit) }
+    var publishedOriginalSnapshots by remember(sessionKey) { mutableStateOf(session.publishedOriginalSnapshots) }
+    var publishedCoverSnapshots by remember(sessionKey) { mutableStateOf(session.publishedCoverSnapshots) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -794,7 +800,8 @@ internal fun DiscogsDirectVersionBrowser(
         val currentIds = results.mapTo(linkedSetOf()) { it.fingerprint }
         val kept = session.stableOrder.filter { it in currentIds }
         val known = kept.toHashSet()
-        val appended = results.map { it.fingerprint }.filter { known.add(it) }
+        // LAB58: append late candidates in their scored order without moving committed cards.
+        val appended = sortedPool(results).map { it.fingerprint }.filter { known.add(it) }
         session.stableOrder = kept + appended
     }
 
@@ -892,7 +899,7 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun playableTrack(seed: DiscogsVersionSeed): DiscogsTrack? =
         seed.track ?: if (
-            seed.releaseId <= 0 &&
+            // Some Discogs releases never expose a matched track; do not stall a group.
             seed.trackTitle.isNotBlank() &&
             seed.artist.isNotBlank()
         ) {
@@ -942,8 +949,8 @@ internal fun DiscogsDirectVersionBrowser(
                         val candidate = song ?: return null
                         if (!CompilationTrackResolver.isHardCompatible(track, candidate)) return null
                         val streamPlayable =
-                            withTimeoutOrNull(3_500L) {
-                                connection.service.getStreamUrl(candidate.id)
+                            withTimeoutOrNull(6_000L) {
+                                runCatching { connection.service.getStreamUrl(candidate.id) }.getOrNull()
                             } != null
                         if (!streamPlayable) return null
                         rememberPreparedVideoSong(candidate)
@@ -970,12 +977,14 @@ internal fun DiscogsDirectVersionBrowser(
                                 .filterNot { it == existingId }
                                 .toSet()
                         val resolved =
-                            CompilationTrackResolver.resolveTrack(
-                                track = track,
-                                discogsVideos = current.videos,
-                                fastFirst = true,
-                                excludedVideoIds = excluded,
-                            )
+                            withTimeoutOrNull(10_000L) {
+                                CompilationTrackResolver.resolveTrack(
+                                    track = track,
+                                    discogsVideos = current.videos,
+                                    fastFirst = true,
+                                    excludedVideoIds = excluded,
+                                )
+                            }
                         verified = verifyCandidateSong(resolved?.song, resolved?.source)
                     }
 
