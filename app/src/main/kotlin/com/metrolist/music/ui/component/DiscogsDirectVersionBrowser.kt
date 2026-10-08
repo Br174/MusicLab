@@ -702,6 +702,12 @@ internal fun DiscogsDirectVersionBrowser(
                             .toSet(),
                 )
 
+        val chronologyOk =
+            session.originalYear == null ||
+                seed.year == null ||
+                seed.year!! >= session.originalYear!!
+        if (!chronologyOk && !isApproved(seed)) return false
+
         if (mode == DiscogsDirectMode.COVER) {
             if (titleOk) return true
             if (isApproved(seed)) return true
@@ -713,7 +719,11 @@ internal fun DiscogsDirectVersionBrowser(
             val independentServices =
                 seed.sourceNames
                     .map { it.trim().lowercase() }
-                    .filter { it.isNotBlank() && it != "archivio cloud" && it != "musiclab interno" }
+                    .filter {
+                        it.isNotBlank() &&
+                            it != "archivio cloud" &&
+                            it != "musiclab interno"
+                    }
                     .distinct()
                     .size
             val sharedCredits =
@@ -722,12 +732,11 @@ internal fun DiscogsDirectVersionBrowser(
                     originalCredits = session.originalWorkCredits,
                 ).isNotEmpty()
 
-            // LAB56 Opera Identity Gate. Different-title candidates do not enter the
-            // visible Cover pool unless the foreign/adapted identity has a trusted
-            // AI signal or extra service/credit evidence.
-            return seed.workRelationConfirmed ||
-                independentServices >= 2 ||
-                sharedCredits
+            // LAB57 foreign-service gate:
+            // changed-title service candidates need either independent cross-source
+            // confirmation or a structural work relation backed by matching credits.
+            return independentServices >= 2 ||
+                (seed.workRelationConfirmed && sharedCredits)
         }
 
         val originalArtistOk =
@@ -1182,7 +1191,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     !seed.discogsVerificationChecked
                             } ?: break
 
-                    val updated =
+                    val enriched =
                         DiscogsVersionSource.enrichSeedMetadata(
                             token = discogsToken,
                             seed = pending,
@@ -1190,6 +1199,21 @@ internal fun DiscogsDirectVersionBrowser(
                             mode = mode,
                             originalArtist = resolvedOriginalArtist,
                         )
+                    val updated =
+                        if (mode == DiscogsDirectMode.COVER && rankingFrozen) {
+                            DiscogsVersionSource.certifyForFrozenRanking(
+                                seed = DiscogsVersionSource.applySharedWorkCreditEvidence(
+                                    enriched,
+                                    session.originalWorkCredits,
+                                ),
+                                targetTitle = TitleMeaningResolver.workAnchorTitle(title),
+                                originalArtist = resolvedOriginalArtist,
+                                originalYear = session.originalYear,
+                                originalCredits = session.originalWorkCredits,
+                            )
+                        } else {
+                            enriched
+                        }
                     replaceSeed(updated)
                     if (updated.track != null) {
                         scheduleVideoPreload()
