@@ -50,7 +50,7 @@ test('LAB57 keeps AI foreign trust but traditional changed-title services requir
   assert.match(browser, /return independentServices >= 2 \|\|\s*\(seed\.workRelationConfirmed && sharedCredits\)/);
   assert.match(sources, /val crossVerifiedRelation =\s*candidate\.workRelationConfirmed && independentSourceConsensus/);
   assert.match(sources, /val sharedCreditEvidence =/);
-  assert.match(browser, /if \(!chronologyOk && !isApproved\(seed\)\) return false/);
+  assert.match(browser, /LAB59: the year is evidence for ranking/);
 });
 
 test('LAB57 freezes ranking before video work and appends later pages without reshuffling', () => {
