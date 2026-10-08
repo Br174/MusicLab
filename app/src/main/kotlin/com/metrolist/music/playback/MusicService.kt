@@ -397,6 +397,31 @@ class MusicService :
     val currentStreamClient = MutableStateFlow<String?>(null)
 
     private lateinit var audioQuality: com.metrolist.music.constants.AudioQuality
+    @Volatile private var coverSectionActive: Boolean = false
+    @Volatile private var coverHeavyLoad: Boolean = false
+
+    /**
+     * LAB57 Cover performance governor. This never changes the user's stored
+     * AudioQuality preference and never reloads the stream already playing.
+     * It only influences a future stream resolution while Cover is genuinely busy.
+     */
+    fun setCoverPerformanceLoad(active: Boolean, heavy: Boolean) {
+        coverSectionActive = active
+        coverHeavyLoad = active && heavy
+        Timber.tag(TAG).d(
+            "LAB57 COVER LOAD: active=%s heavy=%s effective=%s",
+            coverSectionActive,
+            coverHeavyLoad,
+            effectiveAudioQuality(),
+        )
+    }
+
+    private fun effectiveAudioQuality(): com.metrolist.music.constants.AudioQuality =
+        if (coverSectionActive && coverHeavyLoad) {
+            com.metrolist.music.constants.AudioQuality.LOW
+        } else {
+            audioQuality
+        }
 
     private var currentQueue: Queue = EmptyQueue
     var queueTitle: String? = null
@@ -4248,7 +4273,7 @@ class MusicService :
                 withTimeout(8_000L) {
                     InnerTubeXPlayer.playerResponseForPlayback(
                         resolveYouTubePlaybackId(mediaId),
-                        audioQuality = audioQuality,
+                        audioQuality = effectiveAudioQuality(),
                         connectivityManager = connectivityManager,
                         contentHints = ContentHints(
                             isExplicit = song?.explicit,
@@ -4426,7 +4451,7 @@ class MusicService :
                         val song = database.songEntity(mediaId)
                         val playbackData = InnerTubeXPlayer.playerResponseForPlayback(
                             resolveYouTubePlaybackId(mediaId),
-                            audioQuality = audioQuality,
+                            audioQuality = effectiveAudioQuality(),
                             connectivityManager = connectivityManager,
                             contentHints = ContentHints(
                                 isExplicit = song?.explicit,
@@ -5170,14 +5195,14 @@ class MusicService :
 
             val cacheGeneration = songUrlCache.generation(mediaId)
             Timber.tag(TAG).i(
-                "FETCHING STREAM: $mediaId | quality=$audioQuality | priorityBurst=$playbackPriorityBurstActive"
+                "FETCHING STREAM: $mediaId | quality=${effectiveAudioQuality()} userQuality=$audioQuality | priorityBurst=$playbackPriorityBurstActive"
             )
             val playbackData =
                 runBlocking(Dispatchers.IO) {
                     val song = database.songEntity(mediaId)
                     InnerTubeXPlayer.playerResponseForPlayback(
                         resolveYouTubePlaybackId(mediaId),
-                        audioQuality = audioQuality,
+                        audioQuality = effectiveAudioQuality(),
                         connectivityManager = connectivityManager,
                         contentHints = ContentHints(
                             isExplicit = song?.explicit,
@@ -6236,7 +6261,7 @@ class MusicService :
                     InnerTubeXPlayer
                         .playerResponseForPlayback(
                             videoId = resolveYouTubePlaybackId(mediaId),
-                            audioQuality = audioQuality,
+                            audioQuality = effectiveAudioQuality(),
                             connectivityManager = connectivityManager,
                             contentHints = ContentHints(
                                 isExplicit = song?.explicit,
