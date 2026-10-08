@@ -26,10 +26,10 @@ const ai = fs.readFileSync(
 test('LAB56 makes title identity a pre-ranking Cover gate', () => {
   assert.match(browser, /fun modeAcceptsSeed\(seed: DiscogsVersionSeed\)/);
   assert.match(browser, /TitleMeaningResolver\.matchesBaseTitle/);
-  assert.match(browser, /return seed\.workRelationConfirmed \|\|\s*independentServices >= 2 \|\|\s*sharedCredits/);
+  assert.match(browser, /return independentServices >= 2 \|\|\s*\(seed\.workRelationConfirmed && sharedCredits\)/);
   assert.match(browser, /sharedWorkCreditNames/);
   assert.match(sources, /val identityAccepted =/);
-  assert.match(sources, /strictTitleMatch \|\|\s*aiTrusted \|\|\s*explicitRelation \|\|\s*independentSourceConsensus/);
+  assert.match(sources, /strictTitleMatch \|\|\s*aiTrusted \|\|\s*musicBrainzWork \|\|\s*crossVerifiedRelation \|\|\s*independentSourceConsensus/);
 });
 
 test('LAB56 accepts only technical decorations around a same-language base title', () => {
@@ -54,8 +54,8 @@ test('LAB56 trusts AI Scout for foreign non-literal adaptations while ranking re
 
 test('LAB56 traditional foreign-title services need second evidence', () => {
   assert.match(sources, /val independentSourceConsensus = candidate\.sources\.distinct\(\)\.size >= 2/);
-  assert.match(sources, /candidate\.workRelationConfirmed \|\| candidate\.originalWorkReference/);
-  assert.match(sources, /workRelationConfirmed = true,[\s\S]*evidenceScore = 10/);
+  assert.match(sources, /val crossVerifiedRelation =\s*candidate\.workRelationConfirmed && independentSourceConsensus/);
+  assert.match(sources, /val sharedCreditEvidence =/);
   assert.match(versionSource, /val workRelationConfirmed: Boolean = false/);
   assert.match(versionSource, /workRelationConfirmed = mergedWorkRelation/);
   assert.match(versionSource, /workRelationConfirmed = true/);
