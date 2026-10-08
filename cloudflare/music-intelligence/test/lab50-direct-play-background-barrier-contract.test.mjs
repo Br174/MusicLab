@@ -29,7 +29,7 @@ test('LAB59 verified video goes direct to native Player without duplicate prefli
   assert.doesNotMatch(playResolved, /needsDirectStreamProbe/);
   assert.doesNotMatch(playResolved, /YouTube\.queue\(videoIds = listOf\(selectedId\)\)/);
   assert.doesNotMatch(playResolved, /connection\.service\.getStreamUrl\(selectedId\)/);
-  assert.match(playResolved, /selectedSong\?\.toMediaItem\(\)/);
+  assert.match(playResolved, /selectedSong\?\.toMediaMetadata\(\)\?\.copy\(thumbnailUrl = selectedArtwork/);
   assert.match(playResolved, /MediaMetadata\(/);
   assert.match(playResolved, /id = selectedId/);
   assert.match(playResolved, /connection\.playQueue\(/);
