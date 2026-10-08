@@ -573,6 +573,9 @@ class MusicService :
     private var smartPreloadAnchorMediaId: String? = null
     private var playbackPriorityBurstJob: Job? = null
     @Volatile private var playbackPriorityBurstActive: Boolean = false
+    // LAB62 Pollicino: read-only, lightweight audio diagnostics (no network calls).
+    @Volatile private var lab62PlaybackStartAtMs: Long = 0L
+    @Volatile private var lab62BufferingCount: Int = 0
 
     // Cached preferences to avoid runBlocking DataStore reads in hot paths
     @Volatile
@@ -2285,6 +2288,8 @@ class MusicService :
      * re-prepared; Media3 starts resolving the new item immediately.
      */
     fun beginPlaybackPriorityBurst(reason: String = "user-action") {
+        lab62PlaybackStartAtMs = android.os.SystemClock.elapsedRealtime()
+        lab62BufferingCount = 0
         playbackPriorityBurstActive = true
 
         smartPreloadJob?.cancel()
@@ -3041,6 +3046,28 @@ class MusicService :
     override fun onPlaybackStateChanged(
         @Player.State playbackState: Int,
     ) {
+        // LAB62: diagnose delay to Media3 READY and repeated buffering.
+        // READY != audible first sample; this deliberately reports player readiness only.
+        val now = android.os.SystemClock.elapsedRealtime()
+        when (playbackState) {
+            Player.STATE_BUFFERING -> {
+                lab62BufferingCount++
+                Timber.tag("MusicLabLAB62Audio").d(
+                    "buffering_count=%d priority=%b",
+                    lab62BufferingCount, playbackPriorityBurstActive,
+                )
+            }
+            Player.STATE_READY -> {
+                val started = lab62PlaybackStartAtMs
+                if (started > 0L) {
+                    Timber.tag("MusicLabLAB62Audio").d(
+                        "ready_elapsed_ms=%d buffering_count=%d",
+                        now - started, lab62BufferingCount,
+                    )
+                    lab62PlaybackStartAtMs = 0L
+                }
+            }
+        }
         updateInitialBufferRecovery(playbackState)
 
         when (playbackState) {
