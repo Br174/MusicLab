@@ -1186,6 +1186,8 @@ internal fun DiscogsDirectVersionBrowser(
         if (backgroundWorkBlocked()) return
         if (mode == DiscogsDirectMode.COVER && !rankingFrozen) return
 
+        // LAB61: active Discogs verification yields to video-ID discovery.
+        verificationJob?.cancel()
         videoPreloadJob =
             scope.launch {
                 if (mode == DiscogsDirectMode.COVER) {
@@ -1314,8 +1316,8 @@ internal fun DiscogsDirectVersionBrowser(
                 // not compete with an actively playing song.
                 backgroundPausedForPlayback = false
                 if (!playbackIsNormallyPlaying()) {
-                    scheduleDiscogsVerification()
                     scheduleVideoPreload()
+                    scheduleDiscogsVerification()
                 }
             }
     }
@@ -1947,10 +1949,10 @@ internal fun DiscogsDirectVersionBrowser(
                 playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
             }
 
+            scheduleVideoPreload()
             if (firstPageLoaded) {
                 scheduleDiscogsVerification()
             }
-            scheduleVideoPreload()
         }
         searchJob?.invokeOnCompletion {
             scope.launch {
@@ -1974,8 +1976,8 @@ internal fun DiscogsDirectVersionBrowser(
                 verificationJob?.cancel()
                 videoPreloadJob?.cancel()
                 scope.launch { publishReadyBatches() }
-                scheduleDiscogsVerification()
                 scheduleVideoPreload()
+                scheduleDiscogsVerification()
                 return
             }
 
@@ -1994,8 +1996,8 @@ internal fun DiscogsDirectVersionBrowser(
                             verificationJob?.cancel()
                             videoPreloadJob?.cancel()
                             publishReadyBatches()
-                            scheduleDiscogsVerification()
                             scheduleVideoPreload()
+                            scheduleDiscogsVerification()
                         }
                     } finally {
                         loadingMore = false
@@ -2010,15 +2012,15 @@ internal fun DiscogsDirectVersionBrowser(
         if (currentlyAvailable >= target) {
             visibleLimit = target
             session.visibleLimit = visibleLimit
-            scheduleDiscogsVerification()
             scheduleVideoPreload()
+            scheduleDiscogsVerification()
             return
         }
         if (currentPage <= 0 || currentPage >= totalPages) {
             visibleLimit = target
             session.visibleLimit = visibleLimit
-            scheduleDiscogsVerification()
             scheduleVideoPreload()
+            scheduleDiscogsVerification()
             return
         }
 
@@ -2038,8 +2040,8 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     visibleLimit = target
                     session.visibleLimit = visibleLimit
-                    scheduleDiscogsVerification()
                     scheduleVideoPreload()
+                    scheduleDiscogsVerification()
                 } finally {
                     loadingMore = false
                 }
@@ -2457,8 +2459,8 @@ internal fun DiscogsDirectVersionBrowser(
                     try {
                         loadPage(criteria, currentPage + 1, replace = false)
                     } finally {
-                        scheduleDiscogsVerification()
                         scheduleVideoPreload()
+                        scheduleDiscogsVerification()
                     }
                 }
         }
@@ -2557,8 +2559,8 @@ internal fun DiscogsDirectVersionBrowser(
                             verificationJob?.cancel()
                             videoPreloadJob?.cancel()
                             scope.launch { listState.scrollToItem(0) }
-                            scheduleDiscogsVerification()
                             scheduleVideoPreload()
+                            scheduleDiscogsVerification()
                         },
                     )
                 }
@@ -3222,7 +3224,7 @@ private fun DiscogsVersionCard(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "Cerco l'audio…",
+                            "Cerco il collegamento video…",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
