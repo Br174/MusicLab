@@ -1,0 +1,258 @@
+name: MusicLab Family 01 Fastlane
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-family-01-fastlane
+    paths-ignore:
+      - LAB*_BUILD_STATUS.txt
+      - .motorlab/**
+      - MOTORLAB_PROJECT_HOOK.txt
+      - .codex/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-family-01-fastlane
+  cancel-in-progress: true
+
+jobs:
+  build-update:
+    name: build-update-family-01
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload_update.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_update.outputs.artifact-digest }}
+      output_name: ${{ steps.meta.outputs.output_name }}
+      visible_name: ${{ steps.meta.outputs.visible_name }}
+      application_id: ${{ steps.meta.outputs.application_id }}
+      version_code: ${{ steps.meta.outputs.version_code }}
+      cert_sha256: ${{ steps.meta.outputs.cert_sha256 }}
+      safety_label: ${{ steps.meta.outputs.safety_label }}
+      safety_ref: ${{ steps.meta.outputs.safety_ref }}
+      safety_application_id: ${{ steps.meta.outputs.safety_application_id }}
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact family source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Load update-family metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source ./uab-project.env
+          {
+            echo "output_name=$UAB_OUTPUT_NAME"
+            echo "visible_name=$UAB_UPDATE_FAMILY_VISIBLE_NAME"
+            echo "application_id=$UAB_UPDATE_FAMILY_APPLICATION_ID"
+            echo "version_code=$UAB_UPDATE_FAMILY_VERSION_CODE"
+            echo "cert_sha256=$UAB_UPDATE_FAMILY_CERT_SHA256"
+            echo "safety_label=$UAB_SAFETY_LABEL"
+            echo "safety_ref=$UAB_SAFETY_SOURCE_REF"
+            echo "safety_application_id=$UAB_SAFETY_APPLICATION_ID"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run retained LAB46+ behavioral contracts
+        run: |
+          node --test cloudflare/music-intelligence/test/lab46-originals-retry-player-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab46-red-retry-originals-player-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab48-player-isolation-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab49-cancellable-background-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab50-direct-play-background-barrier-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab51-cover-admission-score20-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab52-cover-video-page-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab53-cover-card-decisions-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab54-cover-playback-pagination-card-contract.test.mjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-cleanup: on-success
+          cache-read-only: false
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK and Last.fm inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          fi
+
+      - name: Prove Player buono LAB41 is byte-identical
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOOD_SHA="329e663061d46928dc4d58a946c0d3d2f88881b3"
+          PLAYER_PATH="app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt"
+          git fetch --no-tags --depth=1 origin "$GOOD_SHA"
+          git show "$GOOD_SHA:$PLAYER_PATH" > /tmp/player-buono.kt
+          cmp /tmp/player-buono.kt "$PLAYER_PATH"
+          grep -F 'LAB07_FAST_LANE_TIMEOUT_MS = 1_800L' "$PLAYER_PATH"
+
+      - name: UAB preflight diagnostics
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build update artifact once
+        id: build_update
+        shell: bash
+        run: |
+          set -euo pipefail
+          START="$(date +%s)"
+          bash tools/universal-apk-builder/build-apk.sh .
+          END="$(date +%s)"
+          ELAPSED="$((END-START))"
+          printf 'UAB_BUILD_SECONDS=%s\n' "$ELAPSED" > dist/uab/BUILD_TIMING.txt
+          echo "elapsed_seconds=$ELAPSED" >> "$GITHUB_OUTPUT"
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verify update identity
+        shell: bash
+        env:
+          OUTPUT_NAME: ${{ steps.meta.outputs.output_name }}
+          VISIBLE_NAME: ${{ steps.meta.outputs.visible_name }}
+          APPLICATION_ID: ${{ steps.meta.outputs.application_id }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          EXPECTED_CERT: ${{ steps.meta.outputs.cert_sha256 }}
+          SAFETY_LABEL: ${{ steps.meta.outputs.safety_label }}
+        run: |
+          set -euo pipefail
+          APK="dist/uab/apk/$OUTPUT_NAME.apk"
+          ZIP="dist/uab/$OUTPUT_NAME-APK.zip"
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='$APPLICATION_ID'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='$VERSION_CODE'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab $VISIBLE_NAME'"
+
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          APK_CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$APK_CERT" = "$EXPECTED"
+
+          {
+            echo "UPDATE_FAMILY_ID=01"
+            echo "APPLICATION_ID=$APPLICATION_ID"
+            echo "VERSION_CODE=$VERSION_CODE"
+            echo "SIGNING_CERT_SHA256=$APK_CERT"
+            echo "PLAYER_BUONO_SOURCE_SHA=329e663061d46928dc4d58a946c0d3d2f88881b3"
+            echo "PAIRED_SAFETY=$SAFETY_LABEL"
+            echo "PAIRED_SAFETY_MODE=SOURCE_ONLY_DEFERRED_APK"
+          } > dist/uab/UPDATE_FAMILY.txt
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Upload update artifact immediately
+        id: upload_update
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.output_name }}
+          path: |
+            dist/uab/apk/${{ steps.meta.outputs.output_name }}.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/${{ steps.meta.outputs.output_name }}-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/BUILD_TIMING.txt
+            dist/uab/UPDATE_FAMILY.txt
+            dist/uab/logs/*.log
+          if-no-files-found: error
+          retention-days: 14
+
+  snapshot-safety-source:
+    name: snapshot-safety-source-no-apk
+    needs: build-update
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository control surface
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download exact update build identity
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-update.outputs.output_name }}
+          path: .safety-source
+
+      - name: Preserve immutable safety source checkpoint
+        shell: bash
+        env:
+          REF_NAME: ${{ needs.build-update.outputs.safety_ref }}
+          SAFETY_LABEL: ${{ needs.build-update.outputs.safety_label }}
+          SAFETY_APPLICATION_ID: ${{ needs.build-update.outputs.safety_application_id }}
+          VERSION_CODE: ${{ needs.build-update.outputs.version_code }}
+          PAIRED_UPDATE_LABEL: ${{ needs.build-update.outputs.visible_name }}
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(tr -d '[:space:]' < .safety-source/BUILD_SHA.txt)"
+          test -n "$SOURCE_SHA"
+          test -n "$REF_NAME"
+
+          EXISTING="$(git ls-remote --heads origin "refs/heads/$REF_NAME" | awk '{print $1}')"
+          if [[ -n "$EXISTING" && "$EXISTING" != "$SOURCE_SHA" ]]; then
+            echo "Safety source ref already exists at a different SHA: $EXISTING" >&2
+            exit 1
+          fi
+
+          if [[ -z "$EXISTING" ]]; then
+            if ! git cat-file -e "$SOURCE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+            fi
+            git push origin "$SOURCE_SHA:refs/heads/$REF_NAME"
+          fi
+
+          {
+            echo "SAFETY_LABEL=$SAFETY_LABEL"
+            echo "MODE=SOURCE_ONLY_DEFERRED_APK"
+            echo "SOURCE_REF=$REF_NAME"
+            echo "SOURCE_SHA=$SOURCE_SHA"
+            echo "PAIRED_UPDATE_LABEL=$PAIRED_UPDATE_LABEL"
+            echo "FUTURE_APPLICATION_ID=$SAFETY_APPLICATION_ID"
+            echo "VERSION_CODE=$VERSION_CODE"
+            echo "SIGNING_POLICY=distinct_ephemeral_test_key_on_materialization"
+            echo "MATERIALIZE_APK=on_demand"
+            echo "BUILD_RECIPE=UAB :app:assembleFossDebug from exact source checkpoint"
+          } > SAFETY_SOURCE_CHECKPOINT.txt
+
+      - name: Upload lightweight safety checkpoint manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.build-update.outputs.output_name }}-safety-source-checkpoint
+          path: SAFETY_SOURCE_CHECKPOINT.txt
+          if-no-files-found: error
+          retention-days: 30
