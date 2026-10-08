@@ -1181,7 +1181,7 @@ internal fun DiscogsDirectVersionBrowser(
     fun scheduleVideoPreload() {
         if (videoPreloadJob?.isActive == true) return
         if (playerConnection == null) return
-        // LAB59: no background streaming probes compete with music playback.
+        // LAB61: no background media preloading competes with playback.
         if (playbackIsNormallyPlaying()) return
         if (backgroundWorkBlocked()) return
         if (mode == DiscogsDirectMode.COVER && !rankingFrozen) return
@@ -1231,11 +1231,23 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                 }
             }
+        // LAB61: only after video discovery has finished, resume Discogs details.
+        videoPreloadJob?.invokeOnCompletion { cause ->
+            if (cause == null) {
+                scope.launch {
+                    if (!backgroundWorkBlocked() && !playbackIsNormallyPlaying()) {
+                        scheduleDiscogsVerification()
+                    }
+                }
+            }
+        }
     }
 
     fun scheduleDiscogsVerification() {
         if (verificationJob?.isActive == true) return
         if (backgroundWorkBlocked()) return
+        // LAB61: avoid racing heavy Discogs details against video-ID discovery.
+        if (videoPreloadJob?.isActive == true) return
         verificationJob =
             scope.launch {
                 while (true) {
@@ -1273,9 +1285,8 @@ internal fun DiscogsDirectVersionBrowser(
                             enriched
                         }
                     replaceSeed(updated)
-                    if (updated.track != null) {
-                        scheduleVideoPreload()
-                    }
+                    // LAB61: do not restart parallel YouTube lookup on every
+                    // Discogs metadata update; let the caller's next window own it.
                     delay(if (playbackIsNormallyPlaying()) 300 else 120)
                 }
             }
@@ -1920,6 +1931,9 @@ internal fun DiscogsDirectVersionBrowser(
                 session.rankingFrozen = true
                 publishedReadyLimit = 0
                 session.publishedReadyLimit = 0
+                // LAB61 Pollicino: publish ranked slots even when audio is playing.
+                // Video resolution is an optional follow-up, never a display gate.
+                publishReadyBatches()
             } else {
                 rebuildStableOrder()
             }
@@ -2222,10 +2236,13 @@ internal fun DiscogsDirectVersionBrowser(
             var currentSeed =
                 results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
 
-            if (
-                currentSeed.resolvedVideoId.isNullOrBlank() &&
-                !currentSeed.videoResolutionChecked
-            ) {
+            if (currentSeed.resolvedVideoId.isNullOrBlank()) {
+                // LAB61: even a previous timeout must not make a ranked row
+                // permanently unplayable. Retry the chosen row on tap only.
+                if (currentSeed.videoResolutionChecked) {
+                    currentSeed = currentSeed.copy(videoResolutionChecked = false)
+                    replaceSeed(currentSeed)
+                }
                 // Resolve only the tapped row and never allow a slow provider chain
                 // to hold the playback lane indefinitely. Background discovery can
                 // continue after the priority burst if this quick attempt times out.
