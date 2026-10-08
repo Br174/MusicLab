@@ -19,14 +19,17 @@ test('LAB50 keeps the LAB41 Player buono core untouched', () => {
   assert.match(player, /tokenProvider = tokenProvider/);
 });
 
-test('verified cover play has no YouTube metadata hydration before playQueue', () => {
+test('verified session video keeps fast lane while stale inherited ids are revalidated before playQueue', () => {
   const playResolved = functionSlice(
     'suspend fun playResolvedContext(selectedFingerprint: String)',
     'suspend fun loadPage(',
   );
-  assert.doesNotMatch(playResolved, /YouTube\.queue\(/);
-  assert.doesNotMatch(playResolved, /withTimeoutOrNull\(/);
-  assert.match(playResolved, /session\.preparedVideoSongs\[selectedId\]\?\.toMediaItem\(\)/);
+  assert.match(playResolved, /var selectedSong = session\.preparedVideoSongs\[selectedId\]/);
+  assert.match(playResolved, /val needsDirectStreamProbe =/);
+  assert.match(playResolved, /selectedSong == null \|\|/);
+  assert.match(playResolved, /YouTube\.queue\(videoIds = listOf\(selectedId\)\)/);
+  assert.match(playResolved, /connection\.service\.getStreamUrl\(selectedId\)/);
+  assert.match(playResolved, /selectedSong\?\.toMediaItem\(\)/);
   assert.match(playResolved, /MediaMetadata\(/);
   assert.match(playResolved, /id = selectedId/);
   assert.match(playResolved, /connection\.playQueue\(/);
