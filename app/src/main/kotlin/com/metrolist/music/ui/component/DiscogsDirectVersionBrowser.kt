@@ -89,7 +89,9 @@ private const val DIRECT_VIDEO_BATCH_SIZE = 5
 private const val DIRECT_COVER_RANK_MAX_SOURCE_PAGES = 5
 private const val DIRECT_COVER_RANK_TARGET = 120
 private const val DIRECT_COVER_PLAYBACK_BATCH_SIZE = 1
-private const val DIRECT_VIDEO_PARALLELISM = 3
+private const val DIRECT_VIDEO_PARALLELISM = 2
+// LAB60 Pollicino: cap costly up-front Discogs details, keep discovered candidates.
+private const val DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12
 private const val DIRECT_BACKGROUND_PREFETCH_AHEAD = 20
 private const val DIRECT_PREPARED_VIDEO_CACHE_LIMIT = 48
 private const val DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 2_500L
@@ -934,8 +936,7 @@ internal fun DiscogsDirectVersionBrowser(
 
     suspend fun resolveVideoChunk(chunk: List<DiscogsVersionSeed>) = coroutineScope {
         if (chunk.isEmpty()) return@coroutineScope
-        val connection = playerConnection ?: return@coroutineScope
-
+        // LAB60 Pollicino: discovery never requests playback stream URLs.
         val jobs =
             chunk.map { seed ->
                 launch {
@@ -951,19 +952,8 @@ internal fun DiscogsDirectVersionBrowser(
                     ): Pair<SongItem, String>? {
                         val candidate = song ?: return null
                         if (!CompilationTrackResolver.isHardCompatible(track, candidate)) return null
-                        val streamProbe =
-                            withTimeoutOrNull(6_000L) {
-                                try {
-                                    connection.service.getStreamUrl(candidate.id)
-                                } catch (cancel: CancellationException) {
-                                    throw cancel // LAB58: exit Cloud/Cover must cancel active requests.
-                                } catch (_: Exception) {
-                                    transientTimeout = true
-                                    null
-                                }
-                            }
-                        if (streamProbe == null) transientTimeout = true
-                        if (streamProbe == null) return null
+                        // LAB60: compatible video ID is enough. The native player
+                        // alone obtains stream URLs when the user taps a result.
                         rememberPreparedVideoSong(candidate)
                         session.playReadyVideoIds += candidate.id
                         return candidate to (source ?: "MusicLab")
@@ -978,6 +968,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 ?: withTimeoutOrNull(2_200L) {
                                     YouTube.queue(videoIds = listOf(existingId)).getOrNull()?.firstOrNull()
                                 }
+                        if (existingSong == null) transientTimeout = true
                         verified = verifyCandidateSong(existingSong, current.resolvedVideoSource)
                         if (verified == null) session.playReadyVideoIds.remove(existingId)
                     }
@@ -1225,7 +1216,7 @@ internal fun DiscogsDirectVersionBrowser(
                 }
                 try {
                     if (backgroundWorkBlocked()) return@launch
-                    if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
+                    // LAB60: do not warm unselected media metadata or streams.
 
                     while (true) {
                         if (backgroundWorkBlocked() || playbackIsNormallyPlaying()) break
@@ -1242,7 +1233,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     DIRECT_VIDEO_BATCH_SIZE
                                 },
                         )
-                        if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
+                        // LAB60: do not warm unselected media metadata or streams.
                         val readyAfter = preparationReadyVideoCount()
 
                         val anyPending =
@@ -1255,9 +1246,7 @@ internal fun DiscogsDirectVersionBrowser(
                         delay(if (playbackIsNormallyPlaying()) 260 else 120)
                     }
 
-                    if (!playbackIsNormallyPlaying()) {
-                        warmResolvedVideoMetadata(limit = pageSize)
-                    }
+                    // LAB60: no whole-page playback pre-warming.
                     publishReadyBatches()
                 } finally {
                     if (mode == DiscogsDirectMode.COVER) {
@@ -1506,15 +1495,9 @@ internal fun DiscogsDirectVersionBrowser(
 
         val incomingItems =
             if (mode == DiscogsDirectMode.COVER && rankingFrozen) {
-                val enriched =
-                    DiscogsVersionSource.enrichSeedsForRanking(
-                        token = discogsToken,
-                        seeds = pageResult.items,
-                        targetTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
-                        mode = mode,
-                        originalArtist = resolvedOriginalArtist,
-                    )
-                enriched.map { seed ->
+                // LAB60: on-demand pages fetch summaries only; detailed releases
+                // are certified by the existing per-visible-row verification job.
+                pageResult.items.map { seed ->
                     DiscogsVersionSource.certifyForFrozenRanking(
                         seed = DiscogsVersionSource.applySharedWorkCreditEvidence(
                             seed,
@@ -1909,17 +1892,24 @@ internal fun DiscogsDirectVersionBrowser(
                             credit.name.lowercase() + "|" + credit.role.lowercase()
                         }
 
+                // LAB60 Pollicino: 4,000 Discogs catalog hits are a count,
+                // not 4,000 release-detail requests. Certify only a bounded
+                // up-front batch and preserve every other discovered candidate.
                 val rankingEnriched =
                     if (discogsToken.isNotBlank()) {
-                        withTimeoutOrNull(11_000L) {
+                        val detailSeeds = results.filter { seed ->
+                            seed.releaseId > 0 && !seed.discogsVerificationChecked
+                        }.take(DIRECT_COVER_INITIAL_DETAIL_BUDGET)
+                        val verified = withTimeoutOrNull(4_500L) {
                             DiscogsVersionSource.enrichSeedsForRanking(
                                 token = discogsToken,
-                                seeds = results,
+                                seeds = detailSeeds,
                                 targetTitle = workTitle,
                                 mode = mode,
                                 originalArtist = resolvedOriginalArtist,
                             )
-                        } ?: results
+                        }.orEmpty()
+                        mergePage(results, verified, replace = false)
                     } else {
                         results
                     }
@@ -2002,13 +1992,13 @@ internal fun DiscogsDirectVersionBrowser(
                 return
             }
 
-            if (backgroundWorkBlocked() || currentPage <= 0 || currentPage >= totalPages) return
+            // LAB60: manual paging never silently exits because a song buffers.
+            if (currentPage <= 0 || currentPage >= totalPages) return
             loadingMore = true
             paginationError = null
             paginationJob?.cancel()
             paginationJob =
                 scope.launch {
-                    playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
                     try {
                         val loaded = loadPage(criteria, currentPage + 1, replace = false)
                         if (loaded) {
@@ -2022,7 +2012,6 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     } finally {
                         loadingMore = false
-                        playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
                     }
                 }
             return
@@ -2470,7 +2459,8 @@ internal fun DiscogsDirectVersionBrowser(
             !loadingMore &&
             paginationJob?.isActive != true &&
             sourcePrefetchedForVisibleLimit != visibleLimit &&
-            !backgroundWorkBlocked()
+            !backgroundWorkBlocked() &&
+            !playbackIsNormallyPlaying()
         ) {
             sourcePrefetchedForVisibleLimit = visibleLimit
             delay(220)
@@ -2823,7 +2813,7 @@ internal fun DiscogsDirectVersionBrowser(
             if (
                 mode == DiscogsDirectMode.COVER &&
                 activeCriteria != null &&
-                visibleTrueCovers.size >= visibleLimit &&
+                !loading &&
                 (
                     publishPool.size > visibleLimit ||
                         (currentPage > 0 && currentPage < totalPages)
