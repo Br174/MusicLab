@@ -1255,8 +1255,11 @@ internal fun DiscogsDirectVersionBrowser(
                 while (true) {
                     if (backgroundWorkBlocked()) break
                     val pending =
-                        videoPreparationPool()
-                            .firstOrNull { seed ->
+                        (if (mode == DiscogsDirectMode.COVER) {
+                            coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
+                        } else {
+                            videoPreparationPool()
+                        }).firstOrNull { seed ->
                                 !isHiddenForCurrentCover(seed) &&
                                     seed.releaseId > 0 &&
                                     seed.track == null &&
@@ -1974,7 +1977,8 @@ internal fun DiscogsDirectVersionBrowser(
                 visibleLimit = target
                 session.visibleLimit = visibleLimit
                 verificationJob?.cancel()
-                videoPreloadJob?.cancel()
+                // LAB61: the existing bounded video job sees the enlarged page;
+                // avoid cancellation/restart races while a row is being resolved.
                 scope.launch { publishReadyBatches() }
                 scheduleVideoPreload()
                 scheduleDiscogsVerification()
@@ -1994,7 +1998,6 @@ internal fun DiscogsDirectVersionBrowser(
                             visibleLimit = visibleLimit + pageSize
                             session.visibleLimit = visibleLimit
                             verificationJob?.cancel()
-                            videoPreloadJob?.cancel()
                             publishReadyBatches()
                             scheduleVideoPreload()
                             scheduleDiscogsVerification()
