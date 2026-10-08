@@ -86,5 +86,5 @@ test('LAB57 explicitly separates weak evidence from wrong-work identity', () => 
   assert.match(browser, /seed\.workRelationConfirmed/);
   assert.match(browser, /independentServices >= 2/);
   assert.match(browser, /sharedWorkCreditNames/);
-  assert.match(browser, /if \(!chronologyOk && !isApproved\(seed\)\) return false/);
+  assert.match(browser, /LAB59: the year is evidence for ranking/);
 });
