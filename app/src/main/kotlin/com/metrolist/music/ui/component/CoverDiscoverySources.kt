@@ -1,11 +1,14 @@
 package com.metrolist.music.ui.component
 
 import com.metrolist.music.BuildConfig
+import com.metrolist.music.discogs.DiscogsCredit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -42,6 +45,7 @@ internal data class CoverSourceCandidate(
     val playbackVideoSource: String? = null,
     val workRelationConfirmed: Boolean = false,
     val originalWorkReference: Boolean = false,
+    val credits: List<DiscogsCredit> = emptyList(),
     val evidenceScore: Int = 1,
 )
 
@@ -55,6 +59,9 @@ internal data class CoverSourceDiagnostic(
 internal data class CoverSourceOutcome(
     val candidates: List<CoverSourceCandidate>,
     val diagnostics: List<CoverSourceDiagnostic>,
+    val originalYear: Int? = null,
+    val workId: String? = null,
+    val workCredits: List<DiscogsCredit> = emptyList(),
 )
 
 internal object CoverDiscoverySources {
@@ -93,19 +100,32 @@ internal object CoverDiscoverySources {
         val now = System.currentTimeMillis()
         cache[key]?.takeIf { it.expiresAtMs > now }?.let { return@coroutineScope it.outcome }
 
-        val musicBrainz = async(Dispatchers.IO) { discoverMusicBrainz(cleanTitle, cleanArtist, mode) }
-        val iTunes = async(Dispatchers.IO) { discoverITunes(cleanTitle, cleanArtist, mode) }
-        val lastFm = async(Dispatchers.IO) { discoverLastFm(cleanTitle, cleanArtist, mode) }
-        val lrcLib = async(Dispatchers.IO) { discoverLrcLib(cleanTitle, cleanArtist, mode) }
-        val spotify = async(Dispatchers.IO) { discoverSpotify(cleanTitle, cleanArtist, mode) }
-        val coverInfo = async(Dispatchers.IO) { discoverCoverInfo(cleanTitle, cleanArtist, mode) }
-        val wikidata = async(Dispatchers.IO) { discoverWikidata(cleanTitle, cleanArtist) }
-        val ai = async(Dispatchers.IO) { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) }
+        // LAB57: bounded fan-out. All sources still participate, but a Cover
+        // search must not create an unbounded network/CPU burst beside playback.
+        val sourceGate = Semaphore(4)
+        suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
 
+        val musicBrainzLookup =
+            async(Dispatchers.IO) {
+                sourceLane {
+                    runCatching { MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist) }
+                        .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) }
+                }
+            }
+        val iTunes = async(Dispatchers.IO) { sourceLane { discoverITunes(cleanTitle, cleanArtist, mode) } }
+        val lastFm = async(Dispatchers.IO) { sourceLane { discoverLastFm(cleanTitle, cleanArtist, mode) } }
+        val lrcLib = async(Dispatchers.IO) { sourceLane { discoverLrcLib(cleanTitle, cleanArtist, mode) } }
+        val spotify = async(Dispatchers.IO) { sourceLane { discoverSpotify(cleanTitle, cleanArtist, mode) } }
+        val coverInfo = async(Dispatchers.IO) { sourceLane { discoverCoverInfo(cleanTitle, cleanArtist, mode) } }
+        val wikidata = async(Dispatchers.IO) { sourceLane { discoverWikidata(cleanTitle, cleanArtist) } }
+        val ai = async(Dispatchers.IO) { sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) } }
+
+        val resolvedMusicBrainz = musicBrainzLookup.await()
+        val musicBrainz = discoverMusicBrainz(cleanTitle, mode, resolvedMusicBrainz)
         val lanes =
             listOf(
                 coverInfo.await(),
-                musicBrainz.await(),
+                musicBrainz,
                 iTunes.await(),
                 lastFm.await(),
                 lrcLib.await(),
@@ -113,6 +133,13 @@ internal object CoverDiscoverySources {
                 wikidata.await(),
                 ai.await(),
             )
+
+        val workCredits =
+            resolvedMusicBrainz.work
+                ?.credits
+                .orEmpty()
+                .map { credit -> DiscogsCredit(name = credit.name, role = credit.role) }
+        val musicBrainzOriginalYear = resolvedMusicBrainz.work?.originalYear
 
         val merged = linkedMapOf<String, CoverSourceCandidate>()
         lanes.flatMap { it.first }.forEach { candidate ->
@@ -140,6 +167,11 @@ internal object CoverDiscoverySources {
                             previous.workRelationConfirmed || candidate.workRelationConfirmed,
                         originalWorkReference =
                             previous.originalWorkReference || candidate.originalWorkReference,
+                        credits =
+                            (previous.credits + candidate.credits)
+                                .distinctBy { credit ->
+                                    credit.name.lowercase() + "|" + credit.role.lowercase()
+                                },
                         evidenceScore =
                             (maxOf(previous.evidenceScore, candidate.evidenceScore) + extraSourceBonus)
                                 .coerceIn(1, 20),
@@ -147,9 +179,8 @@ internal object CoverDiscoverySources {
             }
         }
 
-        // LRCLIB currently exposes title/artist/album/duration but no musical release date.
-        // Reuse publication evidence already fetched by the other music sources in this
-        // same discovery cycle. Never substitute a YouTube upload date.
+        // LAB57: reuse any exact-recording musical publication date learned by
+        // another source. Never use a YouTube/social upload date as publication.
         val publicationYearByExactRecording =
             lanes
                 .flatMap { it.first }
@@ -163,39 +194,126 @@ internal object CoverDiscoverySources {
 
         val publicationEnriched =
             merged.values.map { candidate ->
-                if (candidate.year == null && "LRCLIB" in candidate.sources) {
-                    val key = canonical(candidate.title) + "|" + canonicalArtist(candidate.artist)
-                    candidate.copy(year = publicationYearByExactRecording[key])
+                val recordingKey =
+                    canonical(candidate.title) + "|" + canonicalArtist(candidate.artist)
+                if (candidate.year == null) {
+                    candidate.copy(year = publicationYearByExactRecording[recordingKey])
                 } else {
                     candidate
                 }
             }
 
+        val fallbackOriginalYear =
+            publicationEnriched
+                .filter { candidate ->
+                    candidate.originalWorkReference ||
+                        (
+                            cleanArtist.isNotBlank() &&
+                                sameArtist(candidate.artist, cleanArtist) &&
+                                sameBaseTitle(cleanTitle, candidate.title)
+                            )
+                }
+                .mapNotNull { it.year }
+                .minOrNull()
+        val originalYear = musicBrainzOriginalYear ?: fallbackOriginalYear
+
         val identityAccepted =
             publicationEnriched.filter { candidate ->
                 val strictTitleMatch = sameBaseTitle(cleanTitle, candidate.title)
                 val aiTrusted = candidate.sources.any { it.equals("AI Scout", ignoreCase = true) }
-                val explicitRelation =
-                    candidate.workRelationConfirmed || candidate.originalWorkReference
+                val musicBrainzWork =
+                    candidate.workRelationConfirmed &&
+                        candidate.sources.any { it.equals("MusicBrainz", ignoreCase = true) }
                 val independentSourceConsensus = candidate.sources.distinct().size >= 2
+                val crossVerifiedRelation =
+                    candidate.workRelationConfirmed && independentSourceConsensus
 
-                // LAB56 Opera Identity Gate:
-                // - same-language title must preserve the work meaning;
-                // - AI Scout is trusted for foreign/adapted-title admission;
-                // - traditional services need a second proof or explicit work relation.
                 strictTitleMatch ||
                     aiTrusted ||
-                    explicitRelation ||
+                    musicBrainzWork ||
+                    crossVerifiedRelation ||
                     independentSourceConsensus
             }
 
-        val ordered =
-            identityAccepted
-                .sortedWith(
-                    compareByDescending<CoverSourceCandidate> { it.evidenceScore }
-                        .thenBy { it.year ?: Int.MAX_VALUE }
-                        .thenBy { canonical(it.artist) },
+        val chronologicallyPossible =
+            identityAccepted.filter { candidate ->
+                val year = candidate.year
+                originalYear == null || year == null || year >= originalYear
+            }
+
+        fun certifiedScore(candidate: CoverSourceCandidate): Int {
+            val titleMatch =
+                TitleMeaningResolver.classify(
+                    targetTitle = cleanTitle,
+                    value = candidate.title,
+                    artistAliases = setOf(cleanArtist).filter(String::isNotBlank).toSet(),
                 )
+            val sourceCount = candidate.sources.distinct().size
+            val aiOnly =
+                sourceCount == 1 &&
+                    candidate.sources.any { it.equals("AI Scout", ignoreCase = true) }
+            val coverInfoOnly =
+                sourceCount == 1 &&
+                    candidate.sources.any { it.equals("COVER.INFO", ignoreCase = true) }
+            val musicBrainzWork =
+                candidate.workRelationConfirmed &&
+                    candidate.sources.any { it.equals("MusicBrainz", ignoreCase = true) }
+
+            var score = 1
+            score += when (titleMatch) {
+                TitleMeaningMatch.EXACT -> 6
+                TitleMeaningMatch.DECORATED -> 5
+                TitleMeaningMatch.DIFFERENT -> 0
+            }
+            if (candidate.workRelationConfirmed) score += 4
+            if (musicBrainzWork) score += 2
+            if (candidate.originalWorkReference) score += 3
+            if (candidate.year != null) score += 2
+            if (workCredits.isNotEmpty() && candidate.workRelationConfirmed) score += 2
+            score += ((sourceCount - 1).coerceAtLeast(0) * 2).coerceAtMost(4)
+
+            // AI foreign admission is trusted by Bruno, but trust-to-admit is not
+            // the same as 20/20 documentary confidence.
+            if (aiOnly) score = score.coerceAtMost(12)
+            // COVER.INFO remains valuable discovery/documentation, but a single
+            // source can no longer manufacture a 16/20 or 18/20 score by itself.
+            if (coverInfoOnly) score = score.coerceAtMost(13)
+            // A missing musical publication date survives, but cannot rank as if
+            // that fundamental piece of evidence had been certified.
+            if (candidate.year == null) score = score.coerceAtMost(11)
+
+            return score.coerceIn(1, 20)
+        }
+
+        val certified =
+            chronologicallyPossible.map { candidate ->
+                val sameWorkCredits =
+                    if (
+                        workCredits.isNotEmpty() &&
+                        (
+                            candidate.workRelationConfirmed ||
+                                sameBaseTitle(cleanTitle, candidate.title)
+                            )
+                    ) {
+                        (candidate.credits + workCredits)
+                            .distinctBy { credit ->
+                                credit.name.lowercase() + "|" + credit.role.lowercase()
+                            }
+                    } else {
+                        candidate.credits
+                    }
+                candidate.copy(
+                    credits = sameWorkCredits,
+                    evidenceScore = certifiedScore(candidate),
+                )
+            }
+
+        val ordered =
+            certified.sortedWith(
+                compareByDescending<CoverSourceCandidate> { it.evidenceScore }
+                    .thenBy { it.year ?: Int.MAX_VALUE }
+                    .thenBy { canonical(it.artist) },
+            )
 
         val identityGateDiagnostic =
             CoverSourceDiagnostic(
@@ -210,6 +328,9 @@ internal object CoverDiscoverySources {
         val outcome = CoverSourceOutcome(
             candidates = ordered,
             diagnostics = lanes.map { it.second } + identityGateDiagnostic,
+            originalYear = originalYear,
+            workId = resolvedMusicBrainz.work?.id,
+            workCredits = workCredits,
         )
         cache[key] = CacheEntry(now + CACHE_TTL_MS, outcome)
         outcome
@@ -217,48 +338,73 @@ internal object CoverDiscoverySources {
 
     private fun discoverMusicBrainz(
         title: String,
-        originalArtist: String,
         mode: DiscogsDirectMode,
+        lookup: MusicBrainzLookup,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
-        if (mode == DiscogsDirectMode.ORIGINAL) {
-            return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
-                name = "MusicBrainz",
-                available = true,
-                found = 0,
-                note = "usato come Work resolver; nessuna cover in Originali",
-            )
-        }
-        val lookup =
-            runCatching { MusicBrainzCoverSource.lookup(title, originalArtist) }
-                .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) }
-        val candidates =
-            lookup.covers.mapNotNull { cover ->
-                val artist = cover.artist.trim()
-                val candidateTitle = cover.title.trim()
+        val originalVersions =
+            lookup.originalVersions.mapNotNull { version ->
+                val artist = version.artist.trim()
+                val candidateTitle = version.title.trim()
                 if (artist.isBlank() || candidateTitle.isBlank()) return@mapNotNull null
                 CoverSourceCandidate(
                     title = candidateTitle,
                     artist = artist,
                     sources = listOf("MusicBrainz"),
-                    year = cover.year,
-                    category =
-                        if (sameBaseTitle(title, candidateTitle)) {
-                            categoryFromTitle(candidateTitle)
-                        } else {
-                            AiCoverCategory.FOREIGN
-                        },
-                    language =
-                        if (sameBaseTitle(title, candidateTitle)) null else "titolo/adattamento alternativo",
+                    year = version.year,
+                    category = categoryFromTitle(candidateTitle),
                     sourceUrl = lookup.sourceUrl,
                     workRelationConfirmed = true,
-                    evidenceScore = 10,
+                    originalWorkReference = true,
+                    evidenceScore = 8,
                 )
             }
+
+        val covers =
+            if (mode == DiscogsDirectMode.ORIGINAL) {
+                emptyList()
+            } else {
+                lookup.covers.mapNotNull { cover ->
+                    val artist = cover.artist.trim()
+                    val candidateTitle = cover.title.trim()
+                    if (artist.isBlank() || candidateTitle.isBlank()) return@mapNotNull null
+                    CoverSourceCandidate(
+                        title = candidateTitle,
+                        artist = artist,
+                        sources = listOf("MusicBrainz"),
+                        year = cover.year,
+                        category =
+                            if (sameBaseTitle(title, candidateTitle)) {
+                                categoryFromTitle(candidateTitle)
+                            } else {
+                                AiCoverCategory.FOREIGN
+                            },
+                        language =
+                            if (sameBaseTitle(title, candidateTitle)) null
+                            else "titolo/adattamento alternativo",
+                        sourceUrl = lookup.sourceUrl,
+                        workRelationConfirmed = true,
+                        evidenceScore = 8,
+                    )
+                }
+            }
+
+        val candidates =
+            (originalVersions + covers)
+                .distinctBy { identity(it.title, it.artist, it.category) }
+
         return candidates to CoverSourceDiagnostic(
             name = "MusicBrainz",
             available = lookup.status != MusicBrainzStatus.NETWORK_ERROR,
             found = candidates.size,
-            note = lookup.status.name.lowercase(),
+            note =
+                buildString {
+                    append(lookup.status.name.lowercase())
+                    lookup.work?.let { work ->
+                        append(" · Work ")
+                        append(work.id.take(8))
+                        work.originalYear?.let { append(" · originale ").append(it) }
+                    }
+                },
         )
     }
 
@@ -614,7 +760,6 @@ internal object CoverDiscoverySources {
                     null
                 },
                 """song="$cleanTitle"""",
-                cleanTitle,
             ).distinct()
 
         val searchDocuments = mutableListOf<Pair<String, org.jsoup.nodes.Document>>()
@@ -661,13 +806,13 @@ internal object CoverDiscoverySources {
         val usedSearch = searchDocuments.joinToString(" + ") { it.first }
         val relationRoots =
             searchSeeds
-                .sortedWith(
-                    compareByDescending<CoverInfoSeed> {
-                        sameBaseTitle(title, it.title) && sameArtist(originalArtist, it.artist)
-                    }.thenByDescending {
-                        sameBaseTitle(title, it.title)
-                    },
-                )
+                .filter { seed ->
+                    sameBaseTitle(title, seed.title) &&
+                        (
+                            originalArtist.isBlank() ||
+                                sameArtist(originalArtist, seed.artist)
+                            )
+                }
                 .take(COVER_INFO_RELATION_ROOT_LIMIT)
 
         val related = mutableListOf<CoverInfoSeed>()
@@ -678,7 +823,7 @@ internal object CoverDiscoverySources {
         }
 
         val mergedSeeds =
-            (related + searchSeeds)
+            (related + searchSeeds.filter { seed -> sameBaseTitle(title, seed.title) })
                 .distinctBy { it.songId }
                 .filter { seed ->
                     seed.title.isNotBlank() &&
@@ -707,14 +852,14 @@ internal object CoverDiscoverySources {
                         seed.directRelation || seed.relationRole != CoverInfoRelationRole.NONE,
                     originalWorkReference =
                         seed.relationRole == CoverInfoRelationRole.INITIAL,
-                    // Direct relationship pages are COVER.INFO's strongest signal,
-                    // especially for foreign/adapted titles that other sources miss.
+                    // LAB57: source-native evidence is deliberately modest.
+                    // Final 1..20 confidence is assigned only by the global certifier.
                     evidenceScore =
                         when {
-                            seed.relationRole == CoverInfoRelationRole.INITIAL -> 20
-                            seed.directRelation -> 18
-                            sameTitle -> 15
-                            else -> 12
+                            seed.relationRole == CoverInfoRelationRole.INITIAL -> 8
+                            seed.directRelation -> 7
+                            sameTitle -> 6
+                            else -> 2
                         },
                 )
             }.distinctBy { identity(it.title, it.artist, it.category) }
@@ -724,7 +869,7 @@ internal object CoverDiscoverySources {
             available = true,
             found = candidates.size,
             note =
-                "fonte primaria · query fuse ${searchDocuments.size}/${searchTerms.size}" +
+                "fonte documentaria · query precise ${searchDocuments.size}/${searchTerms.size}" +
                     " · video diretti ${candidates.count { !it.playbackVideoId.isNullOrBlank() }}" +
                     " · $usedSearch",
         )
