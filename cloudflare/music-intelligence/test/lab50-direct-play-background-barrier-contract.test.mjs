@@ -19,16 +19,16 @@ test('LAB50 keeps the LAB41 Player buono core untouched', () => {
   assert.match(player, /tokenProvider = tokenProvider/);
 });
 
-test('verified session video keeps fast lane while stale inherited ids are revalidated before playQueue', () => {
+test('LAB59 verified video goes direct to native Player without duplicate preflight', () => {
   const playResolved = functionSlice(
     'suspend fun playResolvedContext(selectedFingerprint: String)',
     'suspend fun loadPage(',
   );
-  assert.match(playResolved, /var selectedSong = session\.preparedVideoSongs\[selectedId\]/);
-  assert.match(playResolved, /val needsDirectStreamProbe =/);
-  assert.match(playResolved, /selectedSong == null \|\|/);
+  assert.match(playResolved, /val selectedSong = session\.preparedVideoSongs\[selectedId\]/);
+  assert.match(playResolved, /withTimeoutOrNull\(900L\)/);
+  assert.doesNotMatch(playResolved, /needsDirectStreamProbe/);
   assert.match(playResolved, /YouTube\.queue\(videoIds = listOf\(selectedId\)\)/);
-  assert.match(playResolved, /connection\.service\.getStreamUrl\(selectedId\)/);
+  assert.doesNotMatch(playResolved, /connection\.service\.getStreamUrl\(selectedId\)/);
   assert.match(playResolved, /selectedSong\?\.toMediaItem\(\)/);
   assert.match(playResolved, /MediaMetadata\(/);
   assert.match(playResolved, /id = selectedId/);
@@ -68,12 +68,12 @@ test('playback cancellation owns a short critical barrier without killing Cover 
   assert.match(resume, /scheduleVideoPreload\(\)/);
 });
 
-test('automatic preload and verification respect only the critical playback barrier', () => {
+test('LAB59 automatic preload stops during playback, protecting audio from source probing', () => {
   assert.match(browser, /fun backgroundWorkBlocked\(\): Boolean = backgroundPausedForPlayback \|\| playbackIsCritical\(\)/);
 
   const preload = functionSlice('fun scheduleVideoPreload()', 'fun scheduleDiscogsVerification()');
   assert.match(preload, /if \(backgroundWorkBlocked\(\)\) return/);
-  assert.match(preload, /if \(backgroundWorkBlocked\(\)\) break/);
+  assert.match(preload, /if \(backgroundWorkBlocked\(\) \|\| playbackIsNormallyPlaying\(\)\) break/);
   assert.match(preload, /DIRECT_COVER_PLAYBACK_BATCH_SIZE/);
 
   const verification = functionSlice('fun scheduleDiscogsVerification()', 'fun pauseCoverBackgroundForPlayback()');
