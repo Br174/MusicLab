@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: actions/setup-node@v4
         with:
@@ -55,9 +55,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           cache-cleanup: on-success
+          cache-read-only: false
 
       - name: Set up Protobuf
         uses: ./.github/actions/setup-protobuf
@@ -80,6 +81,7 @@ jobs:
           set -euo pipefail
           GOOD_SHA="329e663061d46928dc4d58a946c0d3d2f88881b3"
           PLAYER_PATH="app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt"
+          git fetch --no-tags --depth=1 origin "$GOOD_SHA"
           git show "$GOOD_SHA:$PLAYER_PATH" > /tmp/player-buono.kt
           cmp /tmp/player-buono.kt "$PLAYER_PATH"
           grep -F 'LAB07_FAST_LANE_TIMEOUT_MS = 1_800L' "$PLAYER_PATH"
@@ -141,126 +143,63 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  build-safety:
-    name: build-safety-after-update
+  snapshot-safety-source:
+    name: save-safety-source-no-apk
     needs: build-update
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    outputs:
-      artifact_id: ${{ steps.upload_safety.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload_safety.outputs.artifact-digest }}
-    env:
-      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
-      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout exact same LAB54 source
+      - name: Checkout repository control surface
         uses: actions/checkout@v4
         with:
-          submodules: recursive
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - uses: actions/setup-java@v4
+      - name: Download exact update build identity
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: '21'
+          name: MusicLab-LAB54-aggiornamento
+          path: .safety-source
 
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-cleanup: on-success
-
-      - name: Set up Protobuf
-        uses: ./.github/actions/setup-protobuf
-
-      - name: Configure Android SDK and Last.fm inputs
+      - name: Preserve immutable Safety 54 source checkpoint
         shell: bash
         run: |
           set -euo pipefail
-          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
-          if [[ -n "$LASTFM_API_KEY" ]]; then
-            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
-          fi
-          if [[ -n "$LASTFM_SECRET" ]]; then
-            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          SOURCE_SHA="$(tr -d '[:space:]' < .safety-source/BUILD_SHA.txt)"
+          test -n "$SOURCE_SHA"
+
+          REF_NAME="safety-source-musiclab-lab54"
+          EXISTING="$(git ls-remote --heads origin "refs/heads/$REF_NAME" | awk '{print $1}')"
+
+          if [[ -n "$EXISTING" && "$EXISTING" != "$SOURCE_SHA" ]]; then
+            echo "Safety source ref already exists at a different SHA: $EXISTING" >&2
+            exit 1
           fi
 
-      - name: Build LAB di sicurezza 54 from exact same source
-        shell: bash
-        run: |
-          set -euo pipefail
-          SAFETY_KEY="$RUNNER_TEMP/musiclab-safety-54.jks"
-          SAFETY_CONFIG="$RUNNER_TEMP/musiclab-safety-54.env"
-          SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety54"
-
-          keytool -genkeypair             -keystore "$SAFETY_KEY"             -storepass android             -alias musiclab_safety_54             -keypass android             -dname "CN=MusicLab LAB di sicurezza 54,O=MotorLab Test,C=IT"             -keyalg RSA             -keysize 2048             -validity 36500             -noprompt
-
-          cat > "$SAFETY_CONFIG" <<'EOF'
-          UAB_TASK=":app:assembleFossDebug"
-          UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
-          UAB_FILE_VERSION="LAB_DI_SICUREZZA_54"
-          UAB_OUTPUT_NAME="MusicLab-LAB-di-sicurezza-54"
-          UAB_GRADLE_ARGS="-x lint"
-          UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
-          UAB_PARALLEL_INSTALL="off"
-          export METROLIST_APPLICATION_ID="it.verlezza.musiclab.safety54"
-          export METROLIST_APP_NAME="MusicLab LAB di sicurezza 54"
-          export MUSICLAB_VERSION_CODE="5401"
-          export MUSICLAB_VERSION_NAME="0.9.5-safety54"
-          export PULL_REQUEST="false"
-          EOF
-
-          UAB_CONFIG_FILE="$SAFETY_CONFIG"           UAB_OUTPUT_DIR="$SAFETY_OUT"           METROLIST_DEBUG_KEYSTORE_PATH="$SAFETY_KEY"           METROLIST_DEBUG_KEYSTORE_PASSWORD="android"           METROLIST_DEBUG_KEY_ALIAS="musiclab_safety_54"           METROLIST_DEBUG_KEY_PASSWORD="android"           CRASH_REPORT_TOKEN="${{ secrets.CRASH_REPORT_TOKEN }}"           CRASH_REPORT_REPO="${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}"           bash tools/universal-apk-builder/build-apk.sh .
-
-      - name: Verify LAB di sicurezza 54 isolation
-        shell: bash
-        run: |
-          set -euo pipefail
-          SAFETY_OUT="$GITHUB_WORKSPACE/dist/safety54"
-          APK="$SAFETY_OUT/apk/MusicLab-LAB-di-sicurezza-54.apk"
-          ZIP="$SAFETY_OUT/MusicLab-LAB-di-sicurezza-54-APK.zip"
-          test -s "$APK"
-          test -s "$ZIP"
-          unzip -tq "$ZIP"
-
-          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
-          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          BADGING="$("$AAPT" dump badging "$APK")"
-          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.safety54'"
-          printf '%s\n' "$BADGING" | grep -F "versionCode='5401'"
-          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab LAB di sicurezza 54'"
-
-          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
-          SAFETY_CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
-          MAIN_CERT="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
-          test -n "$SAFETY_CERT"
-          test "$SAFETY_CERT" != "$MAIN_CERT"
+          if [[ -z "$EXISTING" ]]; then
+            git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+            git push origin "$SOURCE_SHA:refs/heads/$REF_NAME"
+          fi
 
           {
             echo "SAFETY_LABEL=LAB di sicurezza 54"
+            echo "MODE=SOURCE_ONLY_DEFERRED_APK"
+            echo "SOURCE_REF=$REF_NAME"
+            echo "SOURCE_SHA=$SOURCE_SHA"
             echo "PAIRED_UPDATE_LABEL=LAB 54 aggiornamento"
-            echo "PAIRED_UPDATE_SHA=$GITHUB_SHA"
-            echo "APPLICATION_ID=it.verlezza.musiclab.safety54"
+            echo "FUTURE_APPLICATION_ID=it.verlezza.musiclab.safety54"
             echo "VERSION_CODE=5401"
-            echo "SIGNING_CERT_SHA256=$SAFETY_CERT"
-            echo "IMMUTABLE=yes"
-          } > "$SAFETY_OUT/SAFETY_54.txt"
+            echo "SIGNING_POLICY=distinct_ephemeral_test_key_on_materialization"
+            echo "MATERIALIZE_APK=on_demand"
+            echo "BUILD_RECIPE=UAB :app:assembleFossDebug from exact source checkpoint"
+          } > SAFETY_SOURCE_54.txt
 
-          printf '%s\n' "$GITHUB_SHA" > "$SAFETY_OUT/BUILD_SHA.txt"
-          sha256sum "$APK" "$ZIP" > "$SAFETY_OUT/SAFETY_SHA256SUMS.txt"
-
-      - name: Upload LAB di sicurezza 54
-        id: upload_safety
+      - name: Upload lightweight Safety 54 checkpoint manifest
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-LAB-di-sicurezza-54
-          path: |
-            dist/safety54/apk/MusicLab-LAB-di-sicurezza-54.apk
-            dist/safety54/apk/SHA256SUMS.txt
-            dist/safety54/MusicLab-LAB-di-sicurezza-54-APK.zip
-            dist/safety54/BUILD_SHA.txt
-            dist/safety54/SAFETY_54.txt
-            dist/safety54/SAFETY_SHA256SUMS.txt
-            dist/safety54/logs/*.log
+          name: MusicLab-LAB-di-sicurezza-54-source-checkpoint
+          path: SAFETY_SOURCE_54.txt
           if-no-files-found: error
           retention-days: 30
-
