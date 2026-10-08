@@ -7,14 +7,14 @@ const service = read('app/src/main/kotlin/com/metrolist/music/playback/MusicServ
 const browser = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt');
 const player = read('app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt');
 
-test('LAB41 Player buono core remains untouched', () => {
-  assert.match(player, /LAB07_FAST_LANE_TIMEOUT_MS = 1_800L/);
-  assert.match(player, /tokenProvider = fastTokenProvider/);
+test('LAB62 upstream Meld playback core is selectively restored', () => {
+  assert.doesNotMatch(player, /LAB07_FAST_LANE_TIMEOUT_MS/);
+  assert.doesNotMatch(player, /tokenProvider = fastTokenProvider/);
   assert.match(player, /tokenProvider = tokenProvider/);
 });
 
 test('LAB48 removes speculative modern resolver prewarm from MusicService', () => {
-  assert.match(service, /InnerTubeXPlayer\.prepare\(\)/);
+  assert.doesNotMatch(service, /InnerTubeXPlayer\.prepare\(\)/);
   assert.doesNotMatch(service, /InnerTubeXPlayer\.prewarm\(\)/);
   assert.doesNotMatch(service, /playerResolverPrewarmJob/);
   assert.doesNotMatch(service, /modern stream fallback prewarm/);
