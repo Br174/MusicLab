@@ -1180,6 +1180,58 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun backgroundWorkBlocked(): Boolean = backgroundPausedForPlayback || playbackIsCritical()
 
+    fun scheduleDiscogsVerification() {
+        if (verificationJob?.isActive == true) return
+        if (backgroundWorkBlocked()) return
+        // LAB61: avoid racing heavy Discogs details against video-ID discovery.
+        if (videoPreloadJob?.isActive == true) return
+        verificationJob =
+            scope.launch {
+                while (true) {
+                    if (backgroundWorkBlocked()) break
+                    val pending =
+                        (if (mode == DiscogsDirectMode.COVER) {
+                            coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
+                        } else {
+                            videoPreparationPool()
+                        }).firstOrNull { seed ->
+                                !isHiddenForCurrentCover(seed) &&
+                                    seed.releaseId > 0 &&
+                                    seed.track == null &&
+                                    !seed.discogsVerificationChecked
+                            } ?: break
+
+                    val enriched =
+                        DiscogsVersionSource.enrichSeedMetadata(
+                            token = discogsToken,
+                            seed = pending,
+                            targetTitle = title,
+                            mode = mode,
+                            originalArtist = resolvedOriginalArtist,
+                        )
+                    val updated =
+                        if (mode == DiscogsDirectMode.COVER && rankingFrozen) {
+                            DiscogsVersionSource.certifyForFrozenRanking(
+                                seed = DiscogsVersionSource.applySharedWorkCreditEvidence(
+                                    enriched,
+                                    session.originalWorkCredits,
+                                ),
+                                targetTitle = TitleMeaningResolver.workAnchorTitle(title),
+                                originalArtist = resolvedOriginalArtist,
+                                originalYear = session.originalYear,
+                                originalCredits = session.originalWorkCredits,
+                            )
+                        } else {
+                            enriched
+                        }
+                    replaceSeed(updated)
+                    // LAB61: do not restart parallel YouTube lookup on every
+                    // Discogs metadata update; let the caller's next window own it.
+                    delay(if (playbackIsNormallyPlaying()) 300 else 120)
+                }
+            }
+    }
+
     fun scheduleVideoPreload() {
         if (videoPreloadJob?.isActive == true) return
         if (playerConnection == null) return
@@ -1245,58 +1297,6 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
         }
-    }
-
-    fun scheduleDiscogsVerification() {
-        if (verificationJob?.isActive == true) return
-        if (backgroundWorkBlocked()) return
-        // LAB61: avoid racing heavy Discogs details against video-ID discovery.
-        if (videoPreloadJob?.isActive == true) return
-        verificationJob =
-            scope.launch {
-                while (true) {
-                    if (backgroundWorkBlocked()) break
-                    val pending =
-                        (if (mode == DiscogsDirectMode.COVER) {
-                            coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
-                        } else {
-                            videoPreparationPool()
-                        }).firstOrNull { seed ->
-                                !isHiddenForCurrentCover(seed) &&
-                                    seed.releaseId > 0 &&
-                                    seed.track == null &&
-                                    !seed.discogsVerificationChecked
-                            } ?: break
-
-                    val enriched =
-                        DiscogsVersionSource.enrichSeedMetadata(
-                            token = discogsToken,
-                            seed = pending,
-                            targetTitle = title,
-                            mode = mode,
-                            originalArtist = resolvedOriginalArtist,
-                        )
-                    val updated =
-                        if (mode == DiscogsDirectMode.COVER && rankingFrozen) {
-                            DiscogsVersionSource.certifyForFrozenRanking(
-                                seed = DiscogsVersionSource.applySharedWorkCreditEvidence(
-                                    enriched,
-                                    session.originalWorkCredits,
-                                ),
-                                targetTitle = TitleMeaningResolver.workAnchorTitle(title),
-                                originalArtist = resolvedOriginalArtist,
-                                originalYear = session.originalYear,
-                                originalCredits = session.originalWorkCredits,
-                            )
-                        } else {
-                            enriched
-                        }
-                    replaceSeed(updated)
-                    // LAB61: do not restart parallel YouTube lookup on every
-                    // Discogs metadata update; let the caller's next window own it.
-                    delay(if (playbackIsNormallyPlaying()) 300 else 120)
-                }
-            }
     }
 
     fun pauseCoverBackgroundForPlayback() {
