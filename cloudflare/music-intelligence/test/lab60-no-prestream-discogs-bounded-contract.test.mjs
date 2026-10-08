@@ -14,26 +14,26 @@ test('LAB60 discovery does not request audio stream URL before user tap', () => 
   const end = browser.indexOf('fun videoPriorityPool(');
   assert.ok(start > 0 && end > start);
   const scan = browser.slice(start, end);
-  assert.doesNotMatch(scan, /getStreamUrl\\(/);
-  assert.match(scan, /CompilationTrackResolver\\.isHardCompatible/);
+  assert.doesNotMatch(scan, /getStreamUrl\(/);
+  assert.match(scan, /CompilationTrackResolver\.isHardCompatible/);
   assert.match(scan, /The native player/);
   const tap = browser.slice(browser.indexOf('suspend fun playResolvedContext('), browser.indexOf('suspend fun loadPage('));
-  assert.match(tap, /connection\\.playQueue\\(/);
-  assert.doesNotMatch(tap, /getStreamUrl\\(/);
+  assert.match(tap, /connection\.playQueue\(/);
+  assert.doesNotMatch(tap, /getStreamUrl\(/);
 });
 
 test('LAB60 provider savings: Last.fm and Wikidata do not run from Android Cover discovery', () => {
   const scan = sources.slice(sources.indexOf('suspend fun discover('), sources.indexOf('private fun discoverMusicBrainz('));
-  assert.doesNotMatch(scan, /sourceLane \\{ discoverLastFm/);
-  assert.doesNotMatch(scan, /sourceLane \\{ discoverWikidata/);
-  assert.match(scan, /CoverSourceDiagnostic\\("Last\\.fm", false, 0/);
-  assert.match(scan, /CoverSourceDiagnostic\\("Wikidata", false, 0/);
-  assert.match(scan, /val sourceGate = Semaphore\\(3\\)/);
+  assert.doesNotMatch(scan, /sourceLane \{ discoverLastFm/);
+  assert.doesNotMatch(scan, /sourceLane \{ discoverWikidata/);
+  assert.match(scan, /CoverSourceDiagnostic\("Last\.fm", false, 0/);
+  assert.match(scan, /CoverSourceDiagnostic\("Wikidata", false, 0/);
+  assert.match(scan, /val sourceGate = Semaphore\(3\)/);
 });
 
 test('LAB60 Cloudflare Cover expansion keeps disabling slow/duplicated services', () => {
-  assert.match(worker, /disableLastFm: input\\?\\.mode === 'cover'/);
-  assert.match(worker, /disableWikidata: input\\?\\.mode === 'cover'/);
+  assert.match(worker, /disableLastFm: input\?\.mode === 'cover'/);
+  assert.match(worker, /disableWikidata: input\?\.mode === 'cover'/);
 });
 
 test('LAB60 Cloudflare source router performs no Last.fm or Wikidata network calls when disabled', async () => {
@@ -58,12 +58,12 @@ test('LAB60 Discogs is bounded but preserves catalog candidates, and paging cann
   assert.match(browser, /DIRECT_VERSION_SOURCE_FETCH_SIZE = 30/);
   assert.match(browser, /DIRECT_COVER_RANK_MAX_SOURCE_PAGES = 5/);
   assert.match(browser, /DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12/);
-  assert.match(browser, /take\\(DIRECT_COVER_INITIAL_DETAIL_BUDGET\\)/);
-  assert.match(browser, /mergePage\\(results, verified, replace = false\\)/);
+  assert.match(browser, /take\(DIRECT_COVER_INITIAL_DETAIL_BUDGET\)/);
+  assert.match(browser, /mergePage\(results, verified, replace = false\)/);
   const next = browser.slice(browser.indexOf('fun loadNextPage()'), browser.indexOf('fun retryMissingVideo('));
   const coverBranch = next.slice(0, next.indexOf('if (backgroundWorkBlocked()) return'));
-  assert.doesNotMatch(coverBranch, /if \\(backgroundWorkBlocked\\(\\) \\|\\| currentPage/);
-  assert.match(browser, /pageResult\\.items\\.map \\{ seed ->/);
+  assert.doesNotMatch(coverBranch, /if \(backgroundWorkBlocked\(\) \|\| currentPage/);
+  assert.match(browser, /pageResult\.items\.map \{ seed ->/);
   assert.match(discogs, /MAX_DISCOVERY_CACHE_ENTRIES = 24/);
   assert.match(sources, /MAX_CACHED_DISCOVERIES = 24/);
 });
@@ -75,11 +75,11 @@ test('LAB60 COVER.INFO publishes thumbnail candidates before following slow rela
   const early = scan.indexOf('if (quickVideos.isNotEmpty()) onEarlyVideoCandidates(quickVideos)');
   const relation = scan.indexOf('relationRoots.chunked(2)');
   assert.ok(early > 0 && relation > early);
-  assert.match(scan, /toCoverInfoCandidate\\(seed, title\\)/);
+  assert.match(scan, /toCoverInfoCandidate\(seed, title\)/);
 });
 
 test('LAB60 uses same update family signature and a higher version code', () => {
-  assert.match(updateFamily, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\\.verlezza\\.musiclab\\.labupdate01"/);
+  assert.match(updateFamily, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
   assert.match(updateFamily, /UAB_UPDATE_FAMILY_VERSION_CODE="6001"/);
   assert.match(updateFamily, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
