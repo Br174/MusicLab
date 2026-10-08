@@ -70,7 +70,7 @@ internal object CoverPlaybackMemory {
 
     fun rejectVideo(context: Context, fingerprint: String, videoId: String) {
         val id = videoId.trim().takeIf(String::isNotBlank) ?: return
-        val next = (rejectedVideoIds(context, fingerprint) + id).takeLast(MAX_REJECTED)
+        val next = (rejectedVideoIds(context, fingerprint).toList() + id).takeLast(MAX_REJECTED)
         put(context, "rejected:" + key(fingerprint), next.joinToString(","))
     }
 
