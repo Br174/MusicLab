@@ -15,20 +15,22 @@ const coverSources = fs.readFileSync(
   'utf8',
 );
 
-test('LAB52 Cover publishes ten video-ready rows per page without changing Originali page size', () => {
+test('LAB57 keeps ten-result Cover requests but publishes them in play-ready 5+5 blocks', () => {
   assert.match(browser, /DIRECT_COVER_PAGE_SIZE = 10/);
   assert.match(browser, /DIRECT_VERSION_PAGE_SIZE = 20/);
+  assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE = 5/);
   assert.match(browser, /pageSize = if \(mode == DiscogsDirectMode\.COVER\) DIRECT_COVER_PAGE_SIZE else DIRECT_VERSION_PAGE_SIZE/);
-  assert.match(browser, /visibleMembershipPool[\s\S]*navigablePool\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
-  assert.match(browser, /visibleMembershipPool\.filter \{ !it\.resolvedVideoId\.isNullOrBlank\(\) \}/);
-  assert.match(browser, /if \(mode == DiscogsDirectMode\.COVER\) readyPool else readyPool\.take\(visibleLimit\)/);
+  assert.match(browser, /visibleMembershipPool[\s\S]*publishPool\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
+  assert.match(browser, /visibleMembershipPool\.filter\(::isPlayReady\)/);
+  assert.match(browser, /publishPool\.take\(publishedReadyLimit\.coerceAtMost\(visibleLimit\)\)/);
 });
 
-test('LAB52 prepares video candidates by evidence score from 20 down to 1', () => {
+test('LAB57 prepares the frozen ranking in contiguous play-ready batches', () => {
   assert.match(browser, /fun videoPriorityPool/);
   assert.match(browser, /compareByDescending<DiscogsVersionSeed> \{ it\.confidenceScore \}/);
-  assert.match(browser, /val missingReady = \(targetReady - preparationReadyVideoCount\(\)\)/);
-  assert.match(browser, /Preparo i video visibili: \$\{readyPool\.size\}\/\$\{visibleMembershipPool\.size\} pronti/);
+  assert.match(browser, /suspend fun publishReadyBatches\(\)/);
+  assert.match(browser, /publishedReadyLimit \+ DIRECT_VIDEO_BATCH_SIZE/);
+  assert.match(browser, /Blocco corrente 5\+5: \$\{readyPool\.size\}\/\$\{visibleMembershipPool\.size\} play-ready/);
 });
 
 test('LAB52 uses a wider source fetch so failed videos do not prevent a ten-video page', () => {
@@ -56,9 +58,14 @@ test('LAB52 preserves COVER.INFO direct video bindings and explicit source prior
   assert.match(versionSource, /"youtube" in source -> 10/);
 });
 
-test('LAB52 keeps MusicLab known-video lane ahead of external resolver', () => {
-  const internalIndex = browser.indexOf('knownMusicLabVideo(seed, track)');
-  const externalIndex = browser.indexOf('CompilationTrackResolver.resolveTrack(');
-  assert.ok(internalIndex >= 0, 'MusicLab internal video lane missing');
-  assert.ok(externalIndex > internalIndex, 'external resolver must run after MusicLab internal video lane');
+test('LAB57 verifies an existing MusicLab/direct binding before the external resolver', () => {
+  const resolverStart = browser.indexOf('suspend fun resolveVideoChunk');
+  const resolverEnd = browser.indexOf('fun videoPriorityPool', resolverStart);
+  const chunk = browser.slice(resolverStart, resolverEnd);
+  const existingIndex = chunk.indexOf('val existingId = current.resolvedVideoId');
+  const streamProbeIndex = chunk.indexOf('connection.service.getStreamUrl(candidate.id)');
+  const externalIndex = chunk.indexOf('CompilationTrackResolver.resolveTrack(');
+  assert.ok(existingIndex >= 0, 'existing MusicLab/direct binding lane missing');
+  assert.ok(streamProbeIndex > existingIndex, 'existing binding must be stream-probed');
+  assert.ok(externalIndex > streamProbeIndex, 'external resolver must run only after existing binding verification');
 });
