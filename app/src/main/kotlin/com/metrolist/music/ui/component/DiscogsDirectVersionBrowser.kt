@@ -170,7 +170,9 @@ private data class DirectVersionSession(
     var initialized: Boolean = false,
     var originalWorkCredits: List<DiscogsCredit> = emptyList(),
     var stableOrder: List<String> = emptyList(),
-    var visibleLimit: Int = DIRECT_VERSION_PAGE_SIZE,
+    // LAB61: a fresh Cover session starts with ten entries, not twenty.
+    // Originali is still coerced to its native pageSize of twenty.
+    var visibleLimit: Int = DIRECT_COVER_PAGE_SIZE,
     var resultPageIndex: Int = 0,
     var sourceDiagnostics: List<CoverSourceDiagnostic> = emptyList(),
     var sourceDiscoveryComplete: Boolean = false,
@@ -1113,7 +1115,7 @@ internal fun DiscogsDirectVersionBrowser(
         // LAB61: publication follows documentary ranking, never video readiness.
         // Thumbnails still come exclusively from the video ID when discovered.
         if (!originalSectionFrozen) {
-            val originals = originalCandidatePool().take(pageSize)
+            val originals = originalCandidatePool().take(DIRECT_VIDEO_BATCH_SIZE)
             publishedOriginalSnapshots = originals.toList()
             session.publishedOriginalSnapshots = publishedOriginalSnapshots
             originalSectionFrozen = true
