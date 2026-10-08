@@ -1,4 +1,4 @@
-name: LAB58 Fast Artifact + Sicurezza 57 Gate
+name: LAB58 Fast Artifact + LAB58 Update Artifact Gate
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
       - uab-build/musiclab-lab58-aggiornamento-family-01
     paths-ignore:
       - LAB58_BUILD_STATUS.txt
+  pull_request:
+    branches:
+      - uab-build/musiclab-lab57-aggiornamento-family-01
   workflow_dispatch:
 
 permissions:
