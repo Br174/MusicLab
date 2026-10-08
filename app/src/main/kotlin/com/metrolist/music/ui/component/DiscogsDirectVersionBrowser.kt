@@ -1057,24 +1057,19 @@ internal fun DiscogsDirectVersionBrowser(
     fun hasVideoPreview(seed: DiscogsVersionSeed): Boolean =
         !seed.resolvedVideoId.isNullOrBlank()
 
-    fun isPlayReady(seed: DiscogsVersionSeed): Boolean {
-        val id = seed.resolvedVideoId?.trim().orEmpty()
-        return id.isNotBlank() &&
-            id in session.playReadyVideoIds &&
-            session.preparedVideoSongs.containsKey(id)
-    }
+    // LAB61 Pollicino: a video ID is a lightweight streaming link, not proof
+    // of an already-opened audio stream. The native player resolves audio on tap.
+    fun isPlayReady(seed: DiscogsVersionSeed): Boolean = hasVideoPreview(seed)
 
     fun originalCandidatePool(): List<DiscogsVersionSeed> =
         orderedResults(results)
             .filterNot(::isHiddenForCurrentCover)
             .filter(::isOriginalPerformerVersion)
-            .filterNot { it.videoResolutionChecked && it.resolvedVideoId.isNullOrBlank() }
 
     fun coverCandidatePool(): List<DiscogsVersionSeed> =
         orderedResults(results)
             .filterNot(::isHiddenForCurrentCover)
             .filterNot(::isOriginalPerformerVersion)
-            .filterNot { it.videoResolutionChecked && it.resolvedVideoId.isNullOrBlank() }
 
     fun remainingCoverPool(): List<DiscogsVersionSeed> {
         val committed = publishedCoverSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
@@ -1082,8 +1077,7 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun visibleCoverPool(): List<DiscogsVersionSeed> =
-        publishedCoverSnapshots + remainingCoverPool()
-            .take((visibleLimit - publishedCoverSnapshots.size).coerceAtLeast(0))
+        coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
 
     fun videoPreparationPool(): List<DiscogsVersionSeed> {
         if (mode != DiscogsDirectMode.COVER) {
@@ -1091,16 +1085,15 @@ internal fun DiscogsDirectVersionBrowser(
         }
         // LAB58: originals never consume ten-Cover page capacity.
         // Pending covers extend into the NEXT page for ranked replacements.
-        val committedOriginals = publishedOriginalSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
+        // LAB61: only visible, unbound video rows consume search resources.
+        // Publishing a row must not remove it from the video-resolution queue.
+        val pendingCovers = coverCandidatePool()
+            .take(visibleLimit.coerceAtLeast(pageSize))
+            .filter { it.resolvedVideoId.isNullOrBlank() && !it.videoResolutionChecked }
+            .take(pageSize)
         val pendingOriginals = originalCandidatePool()
-            .filterNot { it.fingerprint in committedOriginals }
-            .take(DIRECT_VIDEO_BATCH_SIZE)
-        val target = visibleLimit.coerceAtLeast(pageSize) + pageSize
-        val pendingCovers = remainingCoverPool().take(
-            (target - publishedCoverSnapshots.size).coerceAtLeast(0),
-        )
-        // LAB59: cover search owns the first video slots. Originals cannot
-        // starve a list containing hundreds of real cover candidates.
+            .take(2)
+            .filter { it.resolvedVideoId.isNullOrBlank() && !it.videoResolutionChecked }
         return pendingCovers + pendingOriginals
     }
 
@@ -1117,10 +1110,10 @@ internal fun DiscogsDirectVersionBrowser(
     suspend fun publishReadyBatches() {
         if (mode != DiscogsDirectMode.COVER || !rankingFrozen) return
 
-        // LAB59: originals and covers publish independently.  A single slow
-        // original never blocks even the first visible cover video.
+        // LAB61: publication follows documentary ranking, never video readiness.
+        // Thumbnails still come exclusively from the video ID when discovered.
         if (!originalSectionFrozen) {
-            val originals = originalCandidatePool().filter(::hasVideoPreview)
+            val originals = originalCandidatePool().take(pageSize)
             publishedOriginalSnapshots = originals.toList()
             session.publishedOriginalSnapshots = publishedOriginalSnapshots
             originalSectionFrozen = true
@@ -1132,10 +1125,10 @@ internal fun DiscogsDirectVersionBrowser(
                 DIRECT_VIDEO_BATCH_SIZE,
                 visibleLimit - publishedCoverSnapshots.size,
             )
-            // LAB59: collect actual video thumbnails from the scored queue.
-            // Unknown/unplayable rows never hold the first five hostage.
+            // LAB61: keep the ten ranked song slots visible while their video
+            // bindings arrive asynchronously. Never show album art as a substitute.
             val pending = remainingCoverPool()
-            val group = pending.filter(::hasVideoPreview).take(requested)
+            val group = pending.take(requested)
             if (group.isEmpty()) break
 
             // LAB58: atomic group commit. Already shown cards never reorder.
@@ -1143,7 +1136,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.publishedCoverSnapshots = publishedCoverSnapshots
             publishedReadyLimit = publishedCoverSnapshots.size
             session.publishedReadyLimit = publishedReadyLimit
-            delay(80)
+            // No display delay: publish 5+5 in the same frame.
         }
     }
 
@@ -1173,24 +1166,8 @@ internal fun DiscogsDirectVersionBrowser(
         publishReadyBatches()
     }
 
-    suspend fun warmResolvedVideoMetadata(limit: Int = 12) {
-        val ids =
-            orderedResults(results)
-                .take(visibleLimit.coerceAtLeast(pageSize))
-                .mapNotNull { it.resolvedVideoId }
-                .distinct()
-                .filterNot { session.preparedVideoSongs.containsKey(it) }
-                .take(limit)
-        if (ids.isEmpty()) return
-
-        ids.chunked(12).forEach { chunk ->
-            val songs =
-                withTimeoutOrNull(4_500L) {
-                    YouTube.queue(videoIds = chunk).getOrNull().orEmpty()
-                }.orEmpty()
-            songs.forEach(::rememberPreparedVideoSong)
-        }
-    }
+    // LAB61: intentionally no media-metadata prewarming. Video IDs alone
+    // populate the cards; audio stream setup belongs exclusively to playback.
 
     fun playbackIsNormallyPlaying(): Boolean =
         playerConnection?.isEffectivelyPlaying?.value == true
@@ -1419,13 +1396,9 @@ internal fun DiscogsDirectVersionBrowser(
         // pass it straight to the native player.  A second synchronous stream
         // probe here caused many seconds of tap-to-play latency and doubled
         // network contention with ExoPlayer's own stream request.
-        val track = playableTrack(selectedSeed)
+        // LAB61: even the 900 ms queue lookup was delaying first sound.
+        // A known YouTube ID can go straight into the native player metadata item.
         val selectedSong = session.preparedVideoSongs[selectedId]
-            ?: withTimeoutOrNull(900L) {
-                YouTube.queue(videoIds = listOf(selectedId)).getOrNull()?.firstOrNull()
-            }?.takeIf { candidate ->
-                track == null || CompilationTrackResolver.isHardCompatible(track, candidate)
-            }?.also(::rememberPreparedVideoSong)
 
         val selectedItem =
             selectedSong?.toMediaItem()
@@ -2323,7 +2296,6 @@ internal fun DiscogsDirectVersionBrowser(
     val publishPool =
         if (mode == DiscogsDirectMode.COVER) {
             navigablePool.filterNot(::isOriginalPerformerVersion)
-                .filterNot { it.videoResolutionChecked && it.resolvedVideoId.isNullOrBlank() }
         } else {
             navigablePool
         }
@@ -2349,23 +2321,22 @@ internal fun DiscogsDirectVersionBrowser(
     // new year/credit cannot reorder any video already seen on screen.
     val visibleOriginalVersions =
         if (mode == DiscogsDirectMode.COVER) {
-            val committed = publishedOriginalSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
-            sortGroup(
-                publishedOriginalSnapshots +
-                    navigablePool.filter(::isOriginalPerformerVersion)
-                        .filter(::hasVideoPreview).filterNot { it.fingerprint in committed },
-                sortMode,
-            )
+            // LAB61: existing rows read their updated video IDs from live results.
+            val originalsById = navigablePool.associateBy { it.fingerprint }
+            val originalRows = publishedOriginalSnapshots.mapNotNull { originalsById[it.fingerprint] }
+            if (sortMode == DirectVersionSort.RELEVANCE) originalRows else sortGroup(originalRows, sortMode)
         } else emptyList()
     val visibleTrueCovers =
         if (mode == DiscogsDirectMode.COVER) {
-            val committed = publishedCoverSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
-            val earlyVideos = publishPool.filter(::hasVideoPreview)
-                .filterNot { it.fingerprint in committed }
-                .take((visibleLimit - publishedCoverSnapshots.size).coerceAtLeast(0))
-            // LAB59: render already-discovered video thumbnails while the
-            // remaining stream probes run off the user-visible critical path.
-            sortGroup((publishedCoverSnapshots + earlyVideos).take(visibleLimit), sortMode)
+            // LAB61: the ranking is frozen, not the video binding. Refresh the
+            // same committed row from live results without changing its position.
+            val currentById = publishPool.associateBy { it.fingerprint }
+            val committed = publishedCoverSnapshots.mapNotNull { currentById[it.fingerprint] }
+            val committedIds = committed.mapTo(HashSet<String>()) { it.fingerprint }
+            val remainder = publishPool.filterNot { it.fingerprint in committedIds }
+                .take((visibleLimit - committed.size).coerceAtLeast(0))
+            val page = (committed + remainder).take(visibleLimit)
+            if (sortMode == DirectVersionSort.RELEVANCE) page else sortGroup(page, sortMode)
         } else emptyList()
     val visibleResults =
         if (mode == DiscogsDirectMode.COVER) {
@@ -2631,21 +2602,22 @@ internal fun DiscogsDirectVersionBrowser(
                             Text(
                                 text =
                                     "Risultati certificati: ${publishPool.size} · " +
-                                        "Pubblicati play-ready: ${visibleResults.size}/${visibleMembershipPool.size}",
+                                        "Cover in pagina: ${visibleTrueCovers.size}/${minOf(visibleLimit, publishPool.size)}" +
+                                        " · Video identificati: ${visibleTrueCovers.count(::hasVideoPreview)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            if (readyPool.size < visibleMembershipPool.size) {
+                            if (visibleTrueCovers.any { !hasVideoPreview(it) }) {
                                 Text(
-                                    "Blocco corrente 5+5: ${readyPool.size}/${visibleMembershipPool.size} play-ready",
+                                    "Video da associare: ${visibleTrueCovers.count { !hasVideoPreview(it) }} · ricerca senza precaricare audio",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             if (nextBlockPool.isNotEmpty()) {
                                 Text(
-                                    "Prossimi ${nextBlockPool.size} già in preparazione: $nextBlockReady/${nextBlockPool.size} play-ready",
+                                    "Prossime ${nextBlockPool.size} cover in attesa della pagina successiva",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
