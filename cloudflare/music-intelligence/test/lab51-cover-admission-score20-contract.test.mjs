@@ -34,11 +34,11 @@ test('LAB51 uses the complete 1..20 confidence scale end-to-end', () => {
   assert.doesNotMatch(browser, /Affidabilità: \$\{seed\.confidenceScore\}\/10/);
 });
 
-test('LAB51 broad discovery is preserved before the LAB56 Opera Identity Gate', () => {
+test('LAB51 broad multi-source discovery remains available before the stricter LAB57 identity gate', () => {
   assert.doesNotMatch(sources, /if \(!sameBaseTitle\(title, candidateTitle\)\) continue/);
   assert.doesNotMatch(sources, /if \(!sameBaseTitle\(title, candidateTitle\)\) return@mapNotNull null/);
   assert.match(sources, /val identityAccepted =/);
-  assert.match(sources, /strictTitleMatch \|\|[\s\S]*aiTrusted \|\|[\s\S]*explicitRelation \|\|[\s\S]*independentSourceConsensus/);
+  assert.match(sources, /strictTitleMatch \|\|[\s\S]*aiTrusted \|\|[\s\S]*musicBrainzWork \|\|[\s\S]*crossVerifiedRelation \|\|[\s\S]*independentSourceConsensus/);
 });
 
 test('LAB51 keeps COVER admission open while semantic weakness is ranked', () => {
@@ -80,10 +80,11 @@ test('LAB51 has no residual candidate-level same-performer drop gates', () => {
 });
 
 
-test('LAB56 explicitly separates weak evidence from wrong-work identity', () => {
-  assert.match(sources, /LAB56 Opera Identity Gate/);
-  assert.match(browser, /LAB56 Opera Identity Gate/);
+test('LAB57 explicitly separates weak evidence from wrong-work identity', () => {
+  assert.match(sources, /LAB57:/);
+  assert.match(browser, /LAB57 foreign-service gate/);
   assert.match(browser, /seed\.workRelationConfirmed/);
   assert.match(browser, /independentServices >= 2/);
   assert.match(browser, /sharedWorkCreditNames/);
+  assert.match(browser, /if \(!chronologyOk && !isApproved\(seed\)\) return false/);
 });
