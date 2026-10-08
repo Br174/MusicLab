@@ -148,13 +148,8 @@ class App :
             // Apply settings, including proxy configuration, before building extraction transport.
             initializeSettings()
 
-            // Prepare only the lightweight cipher runtime while Home is starting. Full extractor
-            // prewarm may mint a PO token through WebView/Main and must stay off the app-start path.
-            launch(Dispatchers.IO) {
-                runCatching { InnerTubeXPlayer.prepare() }
-                    .onFailure { Timber.tag("InnerTubeXPlayer").d(it, "Lightweight playback preparation did not complete; first play will retry normally") }
-            }
-
+            // LAB62 Pollicino: upstream Meld resolver is initialized lazily.
+            // No LAB41-only prepare() method or speculative PO-token prewarm.
             observeSettingsChanges()
         }
     }
