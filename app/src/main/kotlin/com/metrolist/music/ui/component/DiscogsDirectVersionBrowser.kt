@@ -69,6 +69,7 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -952,10 +953,17 @@ internal fun DiscogsDirectVersionBrowser(
                         if (!CompilationTrackResolver.isHardCompatible(track, candidate)) return null
                         val streamProbe =
                             withTimeoutOrNull(6_000L) {
-                                runCatching { connection.service.getStreamUrl(candidate.id) }
+                                try {
+                                    connection.service.getStreamUrl(candidate.id)
+                                } catch (cancel: CancellationException) {
+                                    throw cancel // LAB58: exit Cloud/Cover must cancel active requests.
+                                } catch (_: Exception) {
+                                    transientTimeout = true
+                                    null
+                                }
                             }
                         if (streamProbe == null) transientTimeout = true
-                        if (streamProbe?.getOrNull() == null) return null
+                        if (streamProbe == null) return null
                         rememberPreparedVideoSong(candidate)
                         session.playReadyVideoIds += candidate.id
                         return candidate to (source ?: "MusicLab")
@@ -979,19 +987,23 @@ internal fun DiscogsDirectVersionBrowser(
                             session.usedVideoIds
                                 .filterNot { it == existingId }
                                 .toSet()
-                        val resolverProbe =
+                        val resolved =
                             withTimeoutOrNull(10_000L) {
-                                runCatching {
+                                try {
                                     CompilationTrackResolver.resolveTrack(
                                         track = track,
                                         discogsVideos = current.videos,
                                         fastFirst = true,
                                         excludedVideoIds = excluded,
                                     )
+                                } catch (cancel: CancellationException) {
+                                    throw cancel
+                                } catch (_: Exception) {
+                                    transientTimeout = true
+                                    null
                                 }
                             }
-                        if (resolverProbe == null) transientTimeout = true
-                        val resolved = resolverProbe?.getOrNull()
+                        if (resolved == null) transientTimeout = true
                         verified = verifyCandidateSong(resolved?.song, resolved?.source)
                     }
 
