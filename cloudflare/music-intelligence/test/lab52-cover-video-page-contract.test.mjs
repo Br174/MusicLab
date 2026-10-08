@@ -63,9 +63,11 @@ test('LAB57 verifies an existing MusicLab/direct binding before the external res
   const resolverEnd = browser.indexOf('fun videoPriorityPool', resolverStart);
   const chunk = browser.slice(resolverStart, resolverEnd);
   const existingIndex = chunk.indexOf('val existingId = current.resolvedVideoId');
-  const streamProbeIndex = chunk.indexOf('connection.service.getStreamUrl(candidate.id)');
-  const externalIndex = chunk.indexOf('CompilationTrackResolver.resolveTrack(');
+  const helperProbeIndex = chunk.indexOf('connection.service.getStreamUrl(candidate.id)');
+  const existingVerifyIndex = chunk.indexOf('verified = verifyCandidateSong(existingSong', existingIndex);
+  const externalIndex = chunk.indexOf('CompilationTrackResolver.resolveTrack(', existingIndex);
   assert.ok(existingIndex >= 0, 'existing MusicLab/direct binding lane missing');
-  assert.ok(streamProbeIndex > existingIndex, 'existing binding must be stream-probed');
-  assert.ok(externalIndex > streamProbeIndex, 'external resolver must run only after existing binding verification');
+  assert.ok(helperProbeIndex >= 0, 'play-ready helper must probe the real stream');
+  assert.ok(existingVerifyIndex > existingIndex, 'existing binding must use the play-ready verifier');
+  assert.ok(externalIndex > existingVerifyIndex, 'external resolver must run only after existing binding verification');
 });
