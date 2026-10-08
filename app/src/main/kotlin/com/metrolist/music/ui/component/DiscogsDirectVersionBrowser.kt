@@ -1757,11 +1757,14 @@ internal fun DiscogsDirectVersionBrowser(
             )
 
             if (memoryVersions.isNotEmpty()) {
+                // LAB59: first Discogs page and direct COVER.INFO videos run
+                // concurrently with Cloud memory. Never replace their results
+                // when the slower Cloud response arrives.
                 results =
                     mergePage(
-                        current = emptyList(),
+                        current = results,
                         incoming = memoryVersions.map(::memoryCandidateToSeed),
-                        replace = true,
+                        replace = false,
                     )
                 session.results = results
                 // LAB57: keep cloud candidates internal until metadata
@@ -1779,7 +1782,9 @@ internal fun DiscogsDirectVersionBrowser(
                             "cloud-first · ${session.rejectedKeys.size} disapprovate nascoste per questa ricerca"
                         },
                 )
-            sourceDiagnostics = listOf(memoryDiagnostic)
+            // Keep diagnostics from providers that completed before Cloud.
+            sourceDiagnostics = listOf(memoryDiagnostic) +
+                sourceDiagnostics.filterNot { it.name == "Archivio Cloud" }
             session.sourceDiagnostics = sourceDiagnostics
 
             val firstPageLoaded = firstPageDeferred.await()
