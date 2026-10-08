@@ -55,7 +55,7 @@ test('LAB61 only discovers video IDs for visible Cover rows, regardless of publi
   assert.match(pending, /take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
   assert.match(pending, /filter\(::needsAutomaticVideo\)/);
   assert.match(browser, /fun needsAutomaticVideo\(seed: DiscogsVersionSeed\): Boolean/);
-  assert.match(pending, /session\.automaticVideoAttempts\[seed\.fingerprint\]/);
+  assert.match(pending, /session\.automaticVideoAttempts\[it\.fingerprint\]/);
   const verifier = section('fun scheduleDiscogsVerification()', 'fun pauseCoverBackgroundForPlayback()');
   assert.match(verifier, /if \(videoPreloadJob\?\.isActive == true\) return/);
   assert.match(verifier, /coverCandidatePool\(\)\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
