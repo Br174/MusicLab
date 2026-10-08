@@ -27,10 +27,24 @@ internal data class MusicBrainzCover(
     val year: Int? = null,
 )
 
+internal data class MusicBrainzWorkCredit(
+    val name: String,
+    val role: String,
+)
+
+internal data class MusicBrainzWorkAnchor(
+    val id: String,
+    val title: String,
+    val originalYear: Int?,
+    val credits: List<MusicBrainzWorkCredit>,
+)
+
 internal data class MusicBrainzLookup(
     val covers: List<MusicBrainzCover>,
     val status: MusicBrainzStatus,
     val sourceUrl: String? = null,
+    val originalVersions: List<MusicBrainzCover> = emptyList(),
+    val work: MusicBrainzWorkAnchor? = null,
 )
 
 internal data class MusicBrainzRecordingCandidate(
@@ -70,6 +84,7 @@ internal object MusicBrainzCoverSource {
     private const val MAX_WORKS_PER_RECORDING = 3
     private const val MAX_WORK_SEARCH_CANDIDATES = 6
     private const val MAX_DISCOVERED_COVERS = 100
+    private const val MAX_BROWSED_RECORDINGS = 300
     private const val MIN_REQUEST_INTERVAL_MS = 1_100L
     private const val CACHE_TTL_MS = 12L * 60L * 60L * 1000L
     private const val ERROR_CACHE_TTL_MS = 10L * 60L * 1000L
@@ -112,9 +127,25 @@ internal object MusicBrainzCoverSource {
     }
 
     private fun lookupFresh(title: String, artist: String): MusicBrainzLookup {
+        // LAB57: exact quoted Work search is the primary composition anchor.
+        val workFirst =
+            lookupByWorkTitle(
+                title = title,
+                artist = artist,
+                excludedRecordingIds = emptySet(),
+            )
+        if (
+            workFirst != null &&
+            workFirst.work != null &&
+            workFirst.status != MusicBrainzStatus.NETWORK_ERROR
+        ) {
+            return workFirst
+        }
+
+        // Bounded recording fallback for incomplete recording -> Work indexing.
         val candidates = linkedMapOf<String, MusicBrainzRecordingCandidate>()
-        var lastUrl: String? = null
-        var sawNetworkError = false
+        var lastUrl: String? = workFirst?.sourceUrl
+        var sawNetworkError = workFirst?.status == MusicBrainzStatus.NETWORK_ERROR
 
         val rawQueries = buildList {
             if (artist.isNotBlank()) {
@@ -146,14 +177,13 @@ internal object MusicBrainzCoverSource {
                     candidates[candidate.id] = candidate
                 }
             }
-
-            // A few good candidates are enough; avoid needless API calls.
             if (candidates.size >= 4) break
         }
 
-        val orderedCandidates = candidates.values
-            .sortedByDescending { it.score }
-            .take(MAX_DETAIL_CANDIDATES)
+        val orderedCandidates =
+            candidates.values
+                .sortedByDescending { it.score }
+                .take(MAX_DETAIL_CANDIDATES)
         val seenWorkIds = mutableSetOf<String>()
 
         for (candidate in orderedCandidates) {
@@ -167,44 +197,31 @@ internal object MusicBrainzCoverSource {
 
             for (workId in parseWorkIds(detail).take(MAX_WORKS_PER_RECORDING)) {
                 if (!seenWorkIds.add(workId)) continue
-                val result = browseValidatedWork(
-                    workId = workId,
-                    wantedTitle = title,
-                    wantedArtist = artist,
-                    excludedRecordingIds = candidates.keys,
-                )
+                val result =
+                    browseValidatedWork(
+                        workId = workId,
+                        workTitle = title,
+                        wantedTitle = title,
+                        wantedArtist = artist,
+                        excludedRecordingIds = candidates.keys,
+                    )
                 if (result == null) {
                     sawNetworkError = true
                     continue
                 }
                 lastUrl = result.sourceUrl
-                if (result.covers.isNotEmpty()) return result
+                if (result.work != null) return result
             }
-        }
-
-        // Some MusicBrainz recordings are missing recording -> work links even
-        // though the work and its other recordings exist. Search the work
-        // itself, then validate it against the requested recording/artist.
-        val workFallback = lookupByWorkTitle(
-            title = title,
-            artist = artist,
-            excludedRecordingIds = candidates.keys,
-        )
-        if (workFallback != null) {
-            if (workFallback.status == MusicBrainzStatus.OK || workFallback.covers.isNotEmpty()) {
-                return workFallback
-            }
-            if (workFallback.status == MusicBrainzStatus.NETWORK_ERROR) sawNetworkError = true
-            lastUrl = workFallback.sourceUrl ?: lastUrl
         }
 
         return MusicBrainzLookup(
             covers = emptyList(),
-            status = if (sawNetworkError && candidates.isEmpty()) {
-                MusicBrainzStatus.NETWORK_ERROR
-            } else {
-                MusicBrainzStatus.NO_MATCH
-            },
+            status =
+                if (sawNetworkError && candidates.isEmpty()) {
+                    MusicBrainzStatus.NETWORK_ERROR
+                } else {
+                    MusicBrainzStatus.NO_MATCH
+                },
             sourceUrl = lastUrl,
         )
     }
@@ -230,6 +247,7 @@ internal object MusicBrainzCoverSource {
         for (work in works) {
             val result = browseValidatedWork(
                 workId = work.id,
+                workTitle = work.title,
                 wantedTitle = title,
                 wantedArtist = artist,
                 excludedRecordingIds = excludedRecordingIds,
@@ -238,7 +256,7 @@ internal object MusicBrainzCoverSource {
                 sawNetworkError = true
                 continue
             }
-            if (result.covers.isNotEmpty()) return result
+            if (result.work != null) return result
         }
 
         return MusicBrainzLookup(
@@ -251,35 +269,104 @@ internal object MusicBrainzCoverSource {
     /** Returns null only when the MusicBrainz browse request itself failed. */
     private fun browseValidatedWork(
         workId: String,
+        workTitle: String,
         wantedTitle: String,
         wantedArtist: String,
         excludedRecordingIds: Set<String>,
     ): MusicBrainzLookup? {
-        val browseUrl = "$BASE_URL/recording?work=${URLEncoder.encode(workId, "UTF-8")}" +
-            "&limit=100&inc=artist-credits"
-        val browse = fetchXml(browseUrl) ?: return null
-        val allRecordings = parseBrowseRecordingsInternal(
-            document = browse,
-            excludedRecordingIds = emptySet(),
-            workId = workId,
-        )
+        val allRecordings = mutableListOf<MusicBrainzCover>()
+        var offset = 0
+        var lastBrowseUrl: String? = null
 
-        if (!workMatchesOriginal(allRecordings, wantedTitle, wantedArtist)) {
-            return MusicBrainzLookup(emptyList(), MusicBrainzStatus.NO_MATCH, browseUrl)
+        while (offset < MAX_BROWSED_RECORDINGS) {
+            val browseUrl =
+                "$BASE_URL/recording?work=${URLEncoder.encode(workId, "UTF-8")}" +
+                    "&limit=100&offset=$offset&inc=artist-credits"
+            lastBrowseUrl = browseUrl
+            val browse = fetchXml(browseUrl) ?: return null
+            val page =
+                parseBrowseRecordingsInternal(
+                    document = browse,
+                    excludedRecordingIds = emptySet(),
+                    workId = workId,
+                )
+            allRecordings += page
+            if (page.size < 100) break
+            offset += 100
         }
 
-        val covers = allRecordings
-            .filterNot { it.recordingId in excludedRecordingIds }
-            .filterNot { isOriginalRecordingLike(it, wantedTitle, wantedArtist) }
-            .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
-            .take(MAX_DISCOVERED_COVERS)
+        val distinctRecordings =
+            allRecordings
+                .distinctBy { it.recordingId }
+                .take(MAX_BROWSED_RECORDINGS)
+
+        if (!workMatchesOriginal(distinctRecordings, wantedTitle, wantedArtist)) {
+            return MusicBrainzLookup(
+                emptyList(),
+                MusicBrainzStatus.NO_MATCH,
+                lastBrowseUrl,
+            )
+        }
+
+        val originalVersions =
+            distinctRecordings
+                .filter { isOriginalRecordingLike(it, wantedTitle, wantedArtist) }
+                .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}|${it.recordingId}" }
+
+        val originalYear = originalVersions.mapNotNull { it.year }.minOrNull()
+        val workCredits = loadWorkCredits(workId)
+
+        val covers =
+            distinctRecordings
+                .filterNot { it.recordingId in excludedRecordingIds }
+                .filterNot { isOriginalRecordingLike(it, wantedTitle, wantedArtist) }
+                .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
+                .take(MAX_DISCOVERED_COVERS)
 
         return MusicBrainzLookup(
             covers = covers,
-            status = if (covers.isEmpty()) MusicBrainzStatus.NO_MATCH else MusicBrainzStatus.OK,
-            sourceUrl = browseUrl,
+            status = MusicBrainzStatus.OK,
+            sourceUrl = lastBrowseUrl,
+            originalVersions = originalVersions,
+            work =
+                MusicBrainzWorkAnchor(
+                    id = workId,
+                    title = workTitle.ifBlank { wantedTitle },
+                    originalYear = originalYear,
+                    credits = workCredits,
+                ),
         )
     }
+
+    private fun loadWorkCredits(workId: String): List<MusicBrainzWorkCredit> {
+        val detailUrl =
+            "$BASE_URL/work/${URLEncoder.encode(workId, "UTF-8")}?inc=artist-rels"
+        val document = fetchXml(detailUrl) ?: return emptyList()
+        return parseWorkCredits(document)
+    }
+
+    internal fun parseWorkCredits(document: Document): List<MusicBrainzWorkCredit> =
+        document
+            .select("relation-list[target-type=artist] relation")
+            .mapNotNull { relation ->
+                val role = relation.attr("type").trim()
+                val name =
+                    relation.selectFirst("artist name")
+                        ?.text()
+                        ?.trim()
+                        .orEmpty()
+                if (role.isBlank() || name.isBlank()) return@mapNotNull null
+                MusicBrainzWorkCredit(name = name, role = role)
+            }
+            .filter { credit ->
+                val role = credit.role.lowercase()
+                role.contains("composer") ||
+                    role.contains("writer") ||
+                    role.contains("lyric") ||
+                    role.contains("translator") ||
+                    role.contains("librett")
+            }
+            .distinctBy { "${canonical(it.name)}|${canonical(it.role)}" }
 
     private fun workMatchesOriginal(
         recordings: List<MusicBrainzCover>,
