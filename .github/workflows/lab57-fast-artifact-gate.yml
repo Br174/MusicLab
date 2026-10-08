@@ -211,7 +211,7 @@ jobs:
           cat > "$SAFETY_CONFIG" <<'EOF'
           UAB_TASK=":app:assembleFossDebug"
           UAB_APK_GLOB="app/build/outputs/apk/foss/debug/*.apk"
-          UAB_FILE_VERSION="LAB_DI_SICUREZZA_56"
+          UAB_FILE_VERSION="LAB_DI_SICUREZZA_57"
           UAB_OUTPUT_NAME="MusicLab-LAB-di-sicurezza-57"
           UAB_GRADLE_ARGS="-x lint"
           UAB_PRE_BUILD_SCRIPT=".uab/pre-build.sh"
