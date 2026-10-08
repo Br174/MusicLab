@@ -38,7 +38,7 @@ test('LAB52 uses a wider source fetch so failed videos do not prevent a ten-vide
 });
 
 test('LAB52 Cover card keeps resolved-video thumbnail as the Cover image without album-art fallback', () => {
-  assert.match(browser, /showVideoPreview = mode == DiscogsDirectMode\.COVER/);
+  assert.match(browser, /showVideoPreview = true/);
   assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
   assert.match(browser, /contentDescription = seed\.resolvedVideoTitle \?: "Video cover"/);
   const coverPreviewStart = browser.indexOf('if (showVideoPreview) {');
