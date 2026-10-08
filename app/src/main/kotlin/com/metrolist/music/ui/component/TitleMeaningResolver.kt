@@ -166,10 +166,10 @@ internal object TitleMeaningResolver {
         if (segments.isNotEmpty()) {
             val targetPositions = segments.indices.filter { canonical(segments[it]) == target }
             if (targetPositions.isNotEmpty()) {
-                val unsafeContinuation = segments.withIndex().any { (index, segment) ->
-                    index !in targetPositions && looksLikeLexicalContinuation(segment)
+                val invalidDecoration = segments.withIndex().any { (index, segment) ->
+                    index !in targetPositions && !allowedDecorationSegment(segment, aliases)
                 }
-                if (!unsafeContinuation) return TitleMeaningMatch.DECORATED
+                if (!invalidDecoration) return TitleMeaningMatch.DECORATED
             }
         }
 
@@ -234,11 +234,35 @@ internal object TitleMeaningResolver {
     private fun allowedResidual(residual: String, aliases: Set<String>): Boolean {
         if (residual.isBlank()) return true
         if (aliases.any { residual == it }) return true
+        if (FEATURE_PREFIXES.any { prefix -> residual == prefix || residual.startsWith("$prefix ") }) {
+            return true
+        }
         val tokens = residual.split(' ').filter(String::isNotBlank)
         return tokens.isNotEmpty() && tokens.all { token ->
             token.matches(Regex("(?:18|19|20)\\d{2}")) ||
                 token in TECHNICAL_TOKENS ||
                 aliases.any { alias -> token in alias.split(' ') }
+        }
+    }
+
+    private fun allowedDecorationSegment(
+        value: String,
+        aliases: Set<String>,
+    ): Boolean {
+        val normalized = canonical(value)
+        if (normalized.isBlank()) return true
+        if (isTechnicalSegment(value)) return true
+        if (
+            aliases.any { alias ->
+                normalized == alias ||
+                    normalized.startsWith("$alias ") ||
+                    normalized.endsWith(" $alias")
+            }
+        ) {
+            return true
+        }
+        return FEATURE_PREFIXES.any { prefix ->
+            normalized == prefix || normalized.startsWith("$prefix ")
         }
     }
 
@@ -298,6 +322,9 @@ internal object TitleMeaningResolver {
         "video", "lyrics", "lyric", "remaster", "remastered", "acoustic", "unplugged",
         "radio", "edit", "extended", "mono", "stereo", "instrumental", "karaoke",
     )
+
+    private val FEATURE_PREFIXES =
+        setOf("feat", "ft", "featuring", "with", "duet", "duetto")
 
     private val CONTINUATION_WORDS = setOf(
         "che", "chi", "cui", "quando", "dove", "come", "perche",
