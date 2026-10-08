@@ -1445,7 +1445,7 @@ internal fun DiscogsDirectVersionBrowser(
             CoverPlaybackMemory.pinVideoArtwork(context, selectedId, selectedArtwork)
         }
         val selectedItem =
-            selectedSong?.toMediaMetadata()?.copy(thumbnailUrl = selectedArtwork ?: selectedSong.thumbnail)
+            selectedSong?.toMediaMetadata()?.copy(thumbnailUrl = selectedArtwork ?: selectedSong?.thumbnail)
                 ?.toMediaItem()
                 ?: MediaMetadata(
                     id = selectedId,
@@ -2703,6 +2703,7 @@ internal fun DiscogsDirectVersionBrowser(
                     DiscogsVersionCard(
                         seed = seed,
                         showVideoPreview = false,
+                        stableArtworkUrl = stableArtworkFor(seed),
                         showConfidence = true,
                         selected = seed.fingerprint == selectedFingerprint,
                         resolving = seed.fingerprint == resolvingFingerprint,
