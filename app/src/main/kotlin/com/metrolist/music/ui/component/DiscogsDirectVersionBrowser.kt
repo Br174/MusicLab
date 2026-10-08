@@ -2321,11 +2321,11 @@ internal fun DiscogsDirectVersionBrowser(
         } else {
             orderedPool
         }
+    // LAB58: the Cover publication quota never counts Originali.
     val publishPool =
         if (mode == DiscogsDirectMode.COVER) {
-            navigablePool.filterNot { seed ->
-                seed.videoResolutionChecked && seed.resolvedVideoId.isNullOrBlank()
-            }
+            navigablePool.filterNot(::isOriginalPerformerVersion)
+                .filterNot { it.videoResolutionChecked && it.resolvedVideoId.isNullOrBlank() }
         } else {
             navigablePool
         }
@@ -2337,9 +2337,7 @@ internal fun DiscogsDirectVersionBrowser(
         }
     val nextBlockPool =
         if (mode == DiscogsDirectMode.COVER && rankingFrozen) {
-            publishPool
-                .drop(visibleLimit.coerceAtLeast(pageSize))
-                .take(pageSize)
+            publishPool.drop(visibleLimit.coerceAtLeast(pageSize)).take(pageSize)
         } else {
             emptyList()
         }
@@ -2349,18 +2347,19 @@ internal fun DiscogsDirectVersionBrowser(
         } else {
             visibleMembershipPool
         }
+    // The published snapshots are immutable, so an unavailable late result or
+    // new year/credit cannot reorder any video already seen on screen.
+    val visibleOriginalVersions =
+        if (mode == DiscogsDirectMode.COVER) publishedOriginalSnapshots else emptyList()
+    val visibleTrueCovers =
+        if (mode == DiscogsDirectMode.COVER) publishedCoverSnapshots else emptyList()
     val visibleResults =
         if (mode == DiscogsDirectMode.COVER) {
-            publishPool.take(publishedReadyLimit.coerceAtMost(visibleLimit))
+            visibleOriginalVersions + visibleTrueCovers
         } else {
             readyPool.take(visibleLimit)
         }
-    val nextBlockReady =
-        nextBlockPool.count(::isPlayReady)
-    val visibleOriginalVersions =
-        if (mode == DiscogsDirectMode.COVER) visibleResults.filter(::isOriginalPerformerVersion) else emptyList()
-    val visibleTrueCovers =
-        if (mode == DiscogsDirectMode.COVER) visibleResults.filterNot(::isOriginalPerformerVersion) else emptyList()
+    val nextBlockReady = nextBlockPool.count(::isPlayReady)
 
     LaunchedEffect(listState) {
         var previousIndex = listState.firstVisibleItemIndex
@@ -2804,6 +2803,7 @@ internal fun DiscogsDirectVersionBrowser(
             if (
                 mode == DiscogsDirectMode.COVER &&
                 activeCriteria != null &&
+                publishedCoverSnapshots.size >= visibleLimit &&
                 (
                     publishPool.size > visibleLimit ||
                         (currentPage > 0 && currentPage < totalPages)
