@@ -24,7 +24,7 @@ test('LAB53 Cover video thumbnail is large square and has no play overlay or pla
 test('LAB53 rejected Cover is hidden only from the current Cover work and no video work is wasted on it', () => {
   assert.match(browser, /fun isHiddenForCurrentCover\(seed: DiscogsVersionSeed\)/);
   assert.match(browser, /mode == DiscogsDirectMode\.COVER && isRejected\(seed\)/);
-  assert.match(browser, /orderedResults\(results\)\.filterNot\(::isHiddenForCurrentCover\)/);
+  assert.match(browser, /orderedResults\(results\)\s*\.filterNot\(::isHiddenForCurrentCover\)/);
   assert.match(browser, /orderedPool\.filterNot\(::isHiddenForCurrentCover\)/);
   assert.match(browser, /session\.rejectedKeys \+= rejectionKey\(seed\)/);
   assert.match(browser, /Disapprovata: non comparirà più tra le cover di questa canzone\./);
