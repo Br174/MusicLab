@@ -21,17 +21,13 @@ test('red Video non trovato text starts a manual deep retry', () => {
   assert.match(browser, /fun retryMissingVideo\(seed: DiscogsVersionSeed\)/);
 });
 
-test('manual retry is one coordinated three-lane search', () => {
+test('LAB63 manual retry is a bounded single-row query', () => {
   const start = browser.indexOf('fun retryMissingVideo(seed: DiscogsVersionSeed)');
   const end = browser.indexOf('fun play(seed: DiscogsVersionSeed)', start);
   const retry = browser.slice(start, end);
-  const memory = retry.indexOf('CloudMusicDiscovery.discoverMemoryState');
-  const providers = retry.indexOf('CoverDiscoverySources.discover');
-  const deep = retry.indexOf('CompilationTrackResolver.resolveTrack');
-  assert.ok(memory >= 0 && providers > memory && deep > providers);
-  assert.match(retry, /providerTrackHint/);
-  assert.match(retry, /fastFirst = false/);
-  assert.match(retry, /excludedVideoIds = session\.usedVideoIds\.toSet\(\)/);
+  assert.match(retry, /withTimeoutOrNull\(DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS\)/);
+  assert.match(retry, /resolveVideoChunk\(listOf\(current\.copy\(videoResolutionChecked = false\)\)\)/);
+  assert.doesNotMatch(retry, /CloudMusicDiscovery\.discoverMemoryState|CoverDiscoverySources\.discover/);
 });
 
 test('cross-provider duplicates merge into one evidence coordinator', () => {
