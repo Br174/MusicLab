@@ -1882,13 +1882,14 @@ internal fun DiscogsDirectVersionBrowser(
         if (loading || loadingMore) return
 
         if (mode == DiscogsDirectMode.COVER) {
-            val poolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
+            val poolSize = coverCandidatePool().size
             val target = visibleLimit + pageSize
             if (poolSize >= target) {
                 visibleLimit = target
                 session.visibleLimit = visibleLimit
                 verificationJob?.cancel()
                 videoPreloadJob?.cancel()
+                scope.launch { publishReadyBatches() }
                 scheduleDiscogsVerification()
                 scheduleVideoPreload()
                 return
@@ -1900,20 +1901,22 @@ internal fun DiscogsDirectVersionBrowser(
             paginationJob?.cancel()
             paginationJob =
                 scope.launch {
+                    playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
                     try {
                         val loaded = loadPage(criteria, currentPage + 1, replace = false)
                         if (loaded) {
-                            visibleLimit = (visibleLimit + pageSize).coerceAtMost(
-                                orderedResults(results).count { !isHiddenForCurrentCover(it) },
-                            )
+                            visibleLimit =
+                                (visibleLimit + pageSize).coerceAtMost(coverCandidatePool().size)
                             session.visibleLimit = visibleLimit
                             verificationJob?.cancel()
                             videoPreloadJob?.cancel()
+                            publishReadyBatches()
                             scheduleDiscogsVerification()
                             scheduleVideoPreload()
                         }
                     } finally {
                         loadingMore = false
+                        playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
                     }
                 }
             return
@@ -2207,9 +2210,11 @@ internal fun DiscogsDirectVersionBrowser(
         persistInputs()
     }
 
-    LaunchedEffect(visibleLimit, sourceDiagnostics) {
+    LaunchedEffect(visibleLimit, sourceDiagnostics, rankingFrozen, publishedReadyLimit) {
         session.visibleLimit = visibleLimit
         session.sourceDiagnostics = sourceDiagnostics
+        session.rankingFrozen = rankingFrozen
+        session.publishedReadyLimit = publishedReadyLimit
     }
 
     val orderedPool = orderedResults(results)
@@ -2219,15 +2224,23 @@ internal fun DiscogsDirectVersionBrowser(
         } else {
             orderedPool
         }
+    val publishPool =
+        if (mode == DiscogsDirectMode.COVER) {
+            navigablePool.filterNot { seed ->
+                seed.videoResolutionChecked && seed.resolvedVideoId.isNullOrBlank()
+            }
+        } else {
+            navigablePool
+        }
     val visibleMembershipPool =
         if (mode == DiscogsDirectMode.COVER) {
-            navigablePool.take(visibleLimit.coerceAtLeast(pageSize))
+            if (rankingFrozen) publishPool.take(visibleLimit.coerceAtLeast(pageSize)) else emptyList()
         } else {
             navigablePool
         }
     val nextBlockPool =
-        if (mode == DiscogsDirectMode.COVER) {
-            navigablePool
+        if (mode == DiscogsDirectMode.COVER && rankingFrozen) {
+            publishPool
                 .drop(visibleLimit.coerceAtLeast(pageSize))
                 .take(pageSize)
         } else {
@@ -2235,14 +2248,18 @@ internal fun DiscogsDirectVersionBrowser(
         }
     val readyPool =
         if (mode == DiscogsDirectMode.COVER) {
-            visibleMembershipPool.filter { !it.resolvedVideoId.isNullOrBlank() }
+            visibleMembershipPool.filter(::isPlayReady)
         } else {
             visibleMembershipPool
         }
     val visibleResults =
-        if (mode == DiscogsDirectMode.COVER) readyPool else readyPool.take(visibleLimit)
+        if (mode == DiscogsDirectMode.COVER) {
+            publishPool.take(publishedReadyLimit.coerceAtMost(visibleLimit))
+        } else {
+            readyPool.take(visibleLimit)
+        }
     val nextBlockReady =
-        nextBlockPool.count { !it.resolvedVideoId.isNullOrBlank() }
+        nextBlockPool.count(::isPlayReady)
     val visibleOriginalVersions =
         if (mode == DiscogsDirectMode.COVER) visibleResults.filter(::isOriginalPerformerVersion) else emptyList()
     val visibleTrueCovers =
@@ -2325,7 +2342,7 @@ internal fun DiscogsDirectVersionBrowser(
         val criteria = activeCriteria ?: return@LaunchedEffect
         if (
             mode == DiscogsDirectMode.COVER &&
-            navigablePool.size < visibleLimit + pageSize &&
+            publishPool.size < visibleLimit + pageSize &&
             currentPage > 0 &&
             currentPage < totalPages &&
             !loading &&
@@ -2428,6 +2445,8 @@ internal fun DiscogsDirectVersionBrowser(
                             session.category = selected
                             visibleLimit = pageSize
                             session.visibleLimit = visibleLimit
+                            publishedReadyLimit = 0
+                            session.publishedReadyLimit = 0
                             resultPageIndex = 0
                             session.resultPageIndex = 0
                             verificationJob?.cancel()
@@ -2466,6 +2485,10 @@ internal fun DiscogsDirectVersionBrowser(
                             sortMode = selected
                             session.sortMode = selected
                             rebuildStableOrder()
+                            rankingFrozen = mode == DiscogsDirectMode.COVER
+                            session.rankingFrozen = rankingFrozen
+                            publishedReadyLimit = 0
+                            session.publishedReadyLimit = 0
                             visibleLimit = pageSize
                             session.visibleLimit = visibleLimit
                             resultPageIndex = 0
@@ -2501,22 +2524,22 @@ internal fun DiscogsDirectVersionBrowser(
                         if (mode == DiscogsDirectMode.COVER) {
                             Text(
                                 text =
-                                    "Risultati raccolti: ${navigablePool.size} · " +
-                                        "Mostrati: ${visibleMembershipPool.size}",
+                                    "Risultati certificati: ${publishPool.size} · " +
+                                        "Pubblicati play-ready: ${visibleResults.size}/${visibleMembershipPool.size}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             if (readyPool.size < visibleMembershipPool.size) {
                                 Text(
-                                    "Preparo i video visibili: ${readyPool.size}/${visibleMembershipPool.size} pronti",
+                                    "Blocco corrente 5+5: ${readyPool.size}/${visibleMembershipPool.size} play-ready",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             if (nextBlockPool.isNotEmpty()) {
                                 Text(
-                                    "Prossimi ${nextBlockPool.size} in background: $nextBlockReady/${nextBlockPool.size} pronti",
+                                    "Prossimi ${nextBlockPool.size} già in preparazione: $nextBlockReady/${nextBlockPool.size} play-ready",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -2595,12 +2618,16 @@ internal fun DiscogsDirectVersionBrowser(
             } else if (
                 mode == DiscogsDirectMode.COVER &&
                 activeCriteria != null &&
-                visibleMembershipPool.isNotEmpty() &&
+                (sourceDiscoveryLoading || visibleMembershipPool.isNotEmpty()) &&
                 visibleResults.isEmpty()
             ) {
                 item(key = "discogs_direct_preparing_cover") {
                     Text(
-                        "Preparo i video di questa pagina mentre continui ad ascoltare la musica…",
+                        if (!rankingFrozen) {
+                            "Certifico opera, data, crediti e punteggio prima di pubblicare la graduatoria…"
+                        } else {
+                            "Preparo il primo blocco di 5 cover già riproducibili…"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -2681,7 +2708,7 @@ internal fun DiscogsDirectVersionBrowser(
                 mode == DiscogsDirectMode.COVER &&
                 activeCriteria != null &&
                 (
-                    navigablePool.size > visibleLimit ||
+                    publishPool.size > visibleLimit ||
                         (currentPage > 0 && currentPage < totalPages)
                     )
             ) {
@@ -2891,7 +2918,7 @@ private fun SourceDiagnosticsDialog(
                     )
                 }
                 Text(
-                    "Le fonti propongono o rafforzano candidati. Nessuna fonte e nessuna AI elimina automaticamente un risultato.",
+                    "Le fonti forniscono prove; MusicLab certifica identità, cronologia, crediti e punteggio prima di congelare la graduatoria.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -3010,6 +3037,7 @@ private fun DiscogsVersionCard(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .height(if (showVideoPreview) 184.dp else 104.dp)
             .padding(horizontal = 12.dp)
             .clickable(onClick = onPlay),
         color = if (selected) {
@@ -3021,7 +3049,7 @@ private fun DiscogsVersionCard(
         shape = RoundedCornerShape(14.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            modifier = Modifier.fillMaxSize().padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val videoId = seed.resolvedVideoId?.trim().orEmpty()
