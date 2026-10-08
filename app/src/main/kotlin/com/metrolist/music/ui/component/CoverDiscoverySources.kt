@@ -84,6 +84,7 @@ internal object CoverDiscoverySources {
         originalArtist: String,
         mode: DiscogsDirectMode,
         aiConfig: GeminiCoverVerificationConfig?,
+        onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
     ): CoverSourceOutcome = coroutineScope {
         val cleanTitle = title.trim()
         val cleanArtist = originalArtist.trim()
@@ -98,13 +99,29 @@ internal object CoverDiscoverySources {
                 if (aiConfig == null) "no-ai" else "ai",
             ).joinToString("|")
         val now = System.currentTimeMillis()
-        cache[key]?.takeIf { it.expiresAtMs > now }?.let { return@coroutineScope it.outcome }
+        cache[key]?.takeIf { it.expiresAtMs > now }?.let { hit ->
+            // LAB59: even cache hits must yield video previews immediately.
+            onEarlyVideoCandidates(hit.outcome.candidates.filter { !it.playbackVideoId.isNullOrBlank() })
+            return@coroutineScope hit.outcome
+        }
 
         // LAB57: bounded fan-out. All sources still participate, but a Cover
         // search must not create an unbounded network/CPU burst beside playback.
         val sourceGate = Semaphore(4)
         suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
 
+        // LAB59: prioritize cover.info direct videos over auxiliary metadata.
+        // Each lane still runs; slow services never gate early thumbnail emission.
+        val coverInfo = async(Dispatchers.IO) {
+            val lane = sourceLane { discoverCoverInfo(cleanTitle, cleanArtist, mode) }
+            onEarlyVideoCandidates(
+                lane.first.filter { candidate ->
+                    !candidate.playbackVideoId.isNullOrBlank() &&
+                        sameBaseTitle(cleanTitle, candidate.title)
+                },
+            )
+            lane
+        }
         val musicBrainzLookup =
             async(Dispatchers.IO) {
                 sourceLane {
@@ -113,10 +130,9 @@ internal object CoverDiscoverySources {
                 }
             }
         val iTunes = async(Dispatchers.IO) { sourceLane { discoverITunes(cleanTitle, cleanArtist, mode) } }
+        val spotify = async(Dispatchers.IO) { sourceLane { discoverSpotify(cleanTitle, cleanArtist, mode) } }
         val lastFm = async(Dispatchers.IO) { sourceLane { discoverLastFm(cleanTitle, cleanArtist, mode) } }
         val lrcLib = async(Dispatchers.IO) { sourceLane { discoverLrcLib(cleanTitle, cleanArtist, mode) } }
-        val spotify = async(Dispatchers.IO) { sourceLane { discoverSpotify(cleanTitle, cleanArtist, mode) } }
-        val coverInfo = async(Dispatchers.IO) { sourceLane { discoverCoverInfo(cleanTitle, cleanArtist, mode) } }
         val wikidata = async(Dispatchers.IO) { sourceLane { discoverWikidata(cleanTitle, cleanArtist) } }
         val ai = async(Dispatchers.IO) { sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) } }
 
@@ -245,11 +261,9 @@ internal object CoverDiscoverySources {
                     independentSourceConsensus
             }
 
-        val chronologicallyPossible =
-            identityAccepted.filter { candidate ->
-                val year = candidate.year
-                originalYear == null || year == null || year >= originalYear
-            }
+        // LAB59: the inferred original publication year can be wrong (for
+        // instance, an album reissue). Keep every identity-confirmed cover.
+        val chronologicallyPossible = identityAccepted
 
         fun certifiedScore(candidate: CoverSourceCandidate): Int {
             val titleMatch =
@@ -296,6 +310,10 @@ internal object CoverDiscoverySources {
             // A missing musical publication date survives, but cannot rank as if
             // that fundamental piece of evidence had been certified.
             if (candidate.year == null) score = score.coerceAtMost(11)
+            if (candidate.year != null && originalYear != null && candidate.year < originalYear) {
+                // Chronology uncertainty lowers evidence; it never removes a cover.
+                score = score.coerceAtMost(6)
+            }
 
             return score.coerceIn(1, 20)
         }
