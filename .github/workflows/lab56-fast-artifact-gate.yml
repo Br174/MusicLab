@@ -16,17 +16,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-update:
-    name: build-update-first
+  validate:
+    name: validate-once
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    outputs:
-      artifact_id: ${{ steps.upload_update.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload_update.outputs.artifact-digest }}
-    env:
-      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
-      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
-
+    timeout-minutes: 15
     steps:
       - name: Checkout exact LAB56 source
         uses: actions/checkout@v4
@@ -50,7 +43,36 @@ jobs:
           node --test cloudflare/music-intelligence/test/lab53-cover-card-decisions-contract.test.mjs
           node --test cloudflare/music-intelligence/test/lab54-cover-playback-pagination-card-contract.test.mjs
           node --test cloudflare/music-intelligence/test/lab55-original-first-vertical-prefetch-playback-contract.test.mjs
-          node --test cloudflare/music-intelligence/test/lab56-opera-identity-compact-header-contract.test.mjs
+          node --test cloudflare/music-intelligence/test/lab56-opera-identity-collapsible-header-contract.test.mjs
+
+      - name: Prove Player buono LAB41 is byte-identical
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOOD_SHA="329e663061d46928dc4d58a946c0d3d2f88881b3"
+          PLAYER_PATH="app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt"
+          git show "$GOOD_SHA:$PLAYER_PATH" > /tmp/player-buono.kt
+          cmp /tmp/player-buono.kt "$PLAYER_PATH"
+          grep -F 'LAB07_FAST_LANE_TIMEOUT_MS = 1_800L' "$PLAYER_PATH"
+
+  build-update:
+    name: build-update-first
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload_update.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_update.outputs.artifact-digest }}
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact LAB56 source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -75,17 +97,6 @@ jobs:
           if [[ -n "$LASTFM_SECRET" ]]; then
             printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
           fi
-
-      - name: Prove Player buono LAB41 is byte-identical
-        shell: bash
-        run: |
-          set -euo pipefail
-          GOOD_SHA="329e663061d46928dc4d58a946c0d3d2f88881b3"
-          PLAYER_PATH="app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt"
-          git show "$GOOD_SHA:$PLAYER_PATH" > /tmp/player-buono.kt
-          cmp /tmp/player-buono.kt "$PLAYER_PATH"
-          grep -F 'LAB07_FAST_LANE_TIMEOUT_MS = 1_800L' "$PLAYER_PATH"
-
 
       - name: UAB preflight diagnostics
         run: bash tools/universal-apk-builder/diagnose.sh .
@@ -145,6 +156,7 @@ jobs:
 
   build-safety:
     name: build-safety-parallel
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
