@@ -87,7 +87,9 @@ export async function collectSourceEvidence({
 
   const tasks = [
     queryMusicBrainz(canonicalTitle, canonicalArtist, fetchImpl),
-    queryWikidata(canonicalTitle, canonicalArtist, fetchImpl),
+    options?.disableWikidata === true
+      ? Promise.resolve(unavailable('wikidata', 'Disattivato in LAB60'))
+      : queryWikidata(canonicalTitle, canonicalArtist, fetchImpl),
   ];
   const [musicbrainz, wikidata] = await Promise.all(tasks);
 
@@ -95,9 +97,11 @@ export async function collectSourceEvidence({
   results.push(env?.DISCOGS_TOKEN
     ? await queryDiscogs(canonicalTitle, canonicalArtist, env.DISCOGS_TOKEN, fetchImpl)
     : unavailable('discogs', 'DISCOGS_TOKEN non configurato'));
-  results.push(env?.LASTFM_API_KEY
-    ? await queryLastFm(canonicalTitle, canonicalArtist, env.LASTFM_API_KEY, fetchImpl)
-    : unavailable('lastfm', 'LASTFM_API_KEY non configurata'));
+  results.push(options?.disableLastFm === true
+    ? unavailable('lastfm', 'Disattivato in LAB60')
+    : env?.LASTFM_API_KEY
+      ? await queryLastFm(canonicalTitle, canonicalArtist, env.LASTFM_API_KEY, fetchImpl)
+      : unavailable('lastfm', 'LASTFM_API_KEY non configurata'));
 
   // COVER.INFO is intentionally best-effort. There is no hard-coded scraper:
   // an operator may provide a stable JSON endpoint, otherwise the lane remains neutral.
