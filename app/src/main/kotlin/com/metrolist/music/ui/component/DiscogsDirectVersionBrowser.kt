@@ -3158,12 +3158,14 @@ private fun DiscogsVersionCard(
         ) {
             val videoId = seed.resolvedVideoId?.trim().orEmpty()
             if (showVideoPreview) {
-                // LAB53 Cover rule: the video thumbnail itself is the play target.
-                // No separate album artwork and no play icon are layered on top.
+                // LAB62 Pollicino: one image slot per Cover. Video ID wins.
+                // While video matching is pending, a verified release image
+                // temporarily fills the SAME slot; never create a second poster.
                 AsyncImage(
                     model = videoId.takeIf(String::isNotBlank)
-                        ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
-                    contentDescription = seed.resolvedVideoTitle ?: "Video cover",
+                        ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+                        ?: seed.coverUrl?.takeIf(String::isNotBlank),
+                    contentDescription = seed.resolvedVideoTitle ?: "Anteprima versione musicale",
                     modifier =
                         Modifier
                             .size(144.dp)
