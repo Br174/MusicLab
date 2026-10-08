@@ -88,7 +88,6 @@ fun NavGraphBuilder.navigationBuilder(
 ) {
     CoverNavigationBridge.bind(navController)
     CompilationNavigationBridge.bind(navController)
-    com.metrolist.music.ui.component.OriginalVersionNavigationBridge.bind(navController)
 
     composable(Screens.Home.route) {
         HomeScreen(snackbarHostState = snackbarHostState)
@@ -115,14 +114,7 @@ fun NavGraphBuilder.navigationBuilder(
         MusicLabArchiveScreen(navController = navController)
     }
 
-    composable(com.metrolist.music.ui.component.OriginalVersionNavigationBridge.ROUTE) {
-        com.metrolist.music.ui.component.OriginalVersionNavigationBridge.currentRequest?.let { request ->
-            com.metrolist.music.ui.component.OriginalVersionScreen(
-                request = request,
-                navController = navController,
-            )
-        }
-    }
+    // LAB64: the separate Originali destination was retired; Cover contains both sections.
 
     composable(Screens.Search.route) { backStackEntry ->
         val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = false)
