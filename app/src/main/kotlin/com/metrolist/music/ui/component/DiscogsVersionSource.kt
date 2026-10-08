@@ -437,7 +437,7 @@ internal object DiscogsVersionSource {
                 else add("Data musicale non reperita: candidato mantenuto con affidabilità limitata")
                 originalYear?.let { add("Opera originale: $it") }
                 if (sharedCredits.isNotEmpty()) {
-                    add("Crediti opera coincidenti: " + sharedCredits.joinToString { it.name })
+                    add("Crediti opera coincidenti: " + sharedCredits.joinToString())
                 }
                 if (sourceCount >= 2) add("Conferme indipendenti: $sourceCount fonti")
                 if (!chronologicallyPossible) add("Cronologia impossibile rispetto all'opera originale")
