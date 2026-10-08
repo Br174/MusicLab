@@ -140,6 +140,11 @@ internal object CoverDiscoverySources {
                 .orEmpty()
                 .map { credit -> DiscogsCredit(name = credit.name, role = credit.role) }
         val musicBrainzOriginalYear = resolvedMusicBrainz.work?.originalYear
+        val workCreditNames =
+            workCredits
+                .map { canonical(it.name) }
+                .filter(String::isNotBlank)
+                .toSet()
 
         val merged = linkedMapOf<String, CoverSourceCandidate>()
         lanes.flatMap { it.first }.forEach { candidate ->
@@ -221,8 +226,13 @@ internal object CoverDiscoverySources {
             publicationEnriched.filter { candidate ->
                 val strictTitleMatch = sameBaseTitle(cleanTitle, candidate.title)
                 val aiTrusted = candidate.sources.any { it.equals("AI Scout", ignoreCase = true) }
+                val sharedCreditEvidence =
+                    candidate.credits.any { credit ->
+                        canonical(credit.name) in workCreditNames
+                    }
                 val musicBrainzWork =
                     candidate.workRelationConfirmed &&
+                        sharedCreditEvidence &&
                         candidate.sources.any { it.equals("MusicBrainz", ignoreCase = true) }
                 val independentSourceConsensus = candidate.sources.distinct().size >= 2
                 val crossVerifiedRelation =
@@ -255,8 +265,13 @@ internal object CoverDiscoverySources {
             val coverInfoOnly =
                 sourceCount == 1 &&
                     candidate.sources.any { it.equals("COVER.INFO", ignoreCase = true) }
+            val sharedCreditEvidence =
+                candidate.credits.any { credit ->
+                    canonical(credit.name) in workCreditNames
+                }
             val musicBrainzWork =
                 candidate.workRelationConfirmed &&
+                    sharedCreditEvidence &&
                     candidate.sources.any { it.equals("MusicBrainz", ignoreCase = true) }
 
             var score = 1
@@ -269,7 +284,7 @@ internal object CoverDiscoverySources {
             if (musicBrainzWork) score += 2
             if (candidate.originalWorkReference) score += 3
             if (candidate.year != null) score += 2
-            if (workCredits.isNotEmpty() && candidate.workRelationConfirmed) score += 2
+            if (sharedCreditEvidence) score += 3
             score += ((sourceCount - 1).coerceAtLeast(0) * 2).coerceAtMost(4)
 
             // AI foreign admission is trusted by Bruno, but trust-to-admit is not
@@ -287,23 +302,7 @@ internal object CoverDiscoverySources {
 
         val certified =
             chronologicallyPossible.map { candidate ->
-                val sameWorkCredits =
-                    if (
-                        workCredits.isNotEmpty() &&
-                        (
-                            candidate.workRelationConfirmed ||
-                                sameBaseTitle(cleanTitle, candidate.title)
-                            )
-                    ) {
-                        (candidate.credits + workCredits)
-                            .distinctBy { credit ->
-                                credit.name.lowercase() + "|" + credit.role.lowercase()
-                            }
-                    } else {
-                        candidate.credits
-                    }
                 candidate.copy(
-                    credits = sameWorkCredits,
                     evidenceScore = certifiedScore(candidate),
                 )
             }
@@ -341,6 +340,12 @@ internal object CoverDiscoverySources {
         mode: DiscogsDirectMode,
         lookup: MusicBrainzLookup,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+        val musicBrainzWorkCredits =
+            lookup.work
+                ?.credits
+                .orEmpty()
+                .map { credit -> DiscogsCredit(name = credit.name, role = credit.role) }
+
         val originalVersions =
             lookup.originalVersions.mapNotNull { version ->
                 val artist = version.artist.trim()
@@ -355,6 +360,7 @@ internal object CoverDiscoverySources {
                     sourceUrl = lookup.sourceUrl,
                     workRelationConfirmed = true,
                     originalWorkReference = true,
+                    credits = musicBrainzWorkCredits,
                     evidenceScore = 8,
                 )
             }
@@ -383,6 +389,7 @@ internal object CoverDiscoverySources {
                             else "titolo/adattamento alternativo",
                         sourceUrl = lookup.sourceUrl,
                         workRelationConfirmed = true,
+                        credits = musicBrainzWorkCredits,
                         evidenceScore = 8,
                     )
                 }
