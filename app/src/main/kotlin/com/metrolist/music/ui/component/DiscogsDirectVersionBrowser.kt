@@ -32,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,6 +93,9 @@ private const val DIRECT_COVER_RANK_MAX_SOURCE_PAGES = 5
 private const val DIRECT_COVER_RANK_TARGET = 120
 private const val DIRECT_COVER_PLAYBACK_BATCH_SIZE = 1
 private const val DIRECT_VIDEO_PARALLELISM = 2
+// LAB64 Pollicino: prioritize 10 originals, then the first 10 ranked covers.
+private const val DIRECT_ORIGINAL_PRIORITY_COUNT = 10
+private const val DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS = 3_800L
 // LAB60 Pollicino: cap costly up-front Discogs details, keep discovered candidates.
 private const val DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12
 private const val DIRECT_BACKGROUND_PREFETCH_AHEAD = 20
@@ -192,6 +196,7 @@ private data class DirectVersionSession(
     val preparedVideoSongs: MutableMap<String, SongItem> = ConcurrentHashMap(),
     val playReadyVideoIds: MutableSet<String> = ConcurrentHashMap.newKeySet(),
     val transientVideoRetries: MutableMap<String, Int> = ConcurrentHashMap(),
+    val automaticVideoAttempts: MutableMap<String, Int> = ConcurrentHashMap(),
 )
 
 private object DirectVersionSessionStore {
@@ -209,6 +214,7 @@ private object DirectVersionSessionStore {
                     stale.usedVideoIds.clear()
                     stale.playReadyVideoIds.clear()
                     stale.transientVideoRetries.clear()
+                    stale.automaticVideoAttempts.clear()
                 }
             }
         }
@@ -322,6 +328,8 @@ internal fun DiscogsDirectVersionBrowser(
     var sourcePrefetchedForVisibleLimit by remember(sessionKey) { mutableStateOf(-1) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
     var headerSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
+    var shownOriginalIds by remember(sessionKey) { mutableStateOf<Set<String>>(emptySet()) }
+    var coverSwipeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
 
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = session.listIndex,
@@ -336,6 +344,8 @@ internal fun DiscogsDirectVersionBrowser(
             // LAB57 hard Cover lifecycle barrier: leaving this screen cancels every
             // owned coroutine and releases the playback-quality governor.
             playbackLaunchJob?.cancel()
+            coverSwipeJob?.cancel()
+            CoverSwipeBridge.clear(sessionKey)
             searchJob?.cancel()
             paginationJob?.cancel()
             verificationJob?.cancel()
@@ -989,7 +999,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 .filterNot { it == existingId }
                                 .toSet()
                         val resolved =
-                            withTimeoutOrNull(10_000L) {
+                            withTimeoutOrNull(DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS) {
                                 try {
                                     CompilationTrackResolver.resolveTrack(
                                         track = track,
@@ -1094,22 +1104,34 @@ internal fun DiscogsDirectVersionBrowser(
     fun visibleCoverPool(): List<DiscogsVersionSeed> =
         coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
 
+    // LAB64: more chances for high-confidence recordings, but never many
+    // parallel jobs. All IDs remain in the ranked archive even if not found.
+    fun autoVideoAttemptBudget(seed: DiscogsVersionSeed): Int = when {
+        seed.confidenceScore >= 17 -> 4
+        seed.confidenceScore >= 10 -> 3
+        else -> 2
+    }
+
+    fun needsAutomaticVideo(seed: DiscogsVersionSeed): Boolean =
+        seed.resolvedVideoId.isNullOrBlank() &&
+            (session.automaticVideoAttempts[seed.fingerprint] ?: 0) < autoVideoAttemptBudget(seed)
+
     fun videoPreparationPool(): List<DiscogsVersionSeed> {
         if (mode != DiscogsDirectMode.COVER) {
             return orderedResults(results).take(visibleLimit.coerceAtLeast(pageSize))
+                .filter(::needsAutomaticVideo)
         }
-        // LAB58: originals never consume ten-Cover page capacity.
-        // Pending covers extend into the NEXT page for ranked replacements.
-        // LAB61: only visible, unbound video rows consume search resources.
-        // Publishing a row must not remove it from the video-resolution queue.
-        val pendingCovers = coverCandidatePool()
-            .take(visibleLimit.coerceAtLeast(pageSize))
-            .filter { it.resolvedVideoId.isNullOrBlank() && !it.videoResolutionChecked }
-            .take(pageSize)
-        val pendingOriginals = originalCandidatePool()
-            .take(2)
-            .filter { it.resolvedVideoId.isNullOrBlank() && !it.videoResolutionChecked }
-        return pendingCovers + pendingOriginals
+        val originals = originalCandidatePool().take(DIRECT_ORIGINAL_PRIORITY_COUNT)
+            .filter(::needsAutomaticVideo)
+        val covers = coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
+            .filter(::needsAutomaticVideo)
+        // Original first pass, then first cover page; subsequent retries
+        // prioritize originals and high scores before lower-ranked rows.
+        val originalFirst = originals.filter { (session.automaticVideoAttempts[it.fingerprint] ?: 0) == 0 }
+        val coverFirst = covers.filter { (session.automaticVideoAttempts[it.fingerprint] ?: 0) == 0 }
+        val originalRetry = originals.filterNot { it in originalFirst }
+        val coverRetry = covers.filterNot { it in coverFirst }
+        return originalFirst + coverFirst + originalRetry + coverRetry
     }
 
     fun preparationReadyVideoCount(): Int =
@@ -1128,11 +1150,22 @@ internal fun DiscogsDirectVersionBrowser(
         // LAB61: publication follows documentary ranking, never video readiness.
         // Thumbnails still come exclusively from the video ID when discovered.
         if (!originalSectionFrozen) {
-            val originals = originalCandidatePool().take(DIRECT_VIDEO_BATCH_SIZE)
+            val originals = originalCandidatePool().take(DIRECT_ORIGINAL_PRIORITY_COUNT)
             publishedOriginalSnapshots = originals.toList()
             session.publishedOriginalSnapshots = publishedOriginalSnapshots
             originalSectionFrozen = true
             session.originalSectionFrozen = true
+        } else {
+            // Late original candidates stay eligible without reordering already
+            // committed cards. Screen inserts them only at a safe visual boundary.
+            val committed = publishedOriginalSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
+            val newOriginals = originalCandidatePool()
+                .filterNot { it.fingerprint in committed }
+                .take((DIRECT_ORIGINAL_PRIORITY_COUNT - publishedOriginalSnapshots.size).coerceAtLeast(0))
+            if (newOriginals.isNotEmpty()) {
+                publishedOriginalSnapshots = publishedOriginalSnapshots + newOriginals
+                session.publishedOriginalSnapshots = publishedOriginalSnapshots
+            }
         }
 
         while (publishedCoverSnapshots.size < visibleLimit) {
@@ -1176,7 +1209,14 @@ internal fun DiscogsDirectVersionBrowser(
             return
         }
         batch.chunked(DIRECT_VIDEO_PARALLELISM).forEach { chunk ->
-            resolveVideoChunk(chunk)
+            chunk.forEach { seed ->
+                session.automaticVideoAttempts[seed.fingerprint] =
+                    (session.automaticVideoAttempts[seed.fingerprint] ?: 0) + 1
+            }
+            // A bounded metadata-only attempt; never preload media streams.
+            withTimeoutOrNull(DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS) {
+                resolveVideoChunk(chunk)
+            }
         }
         publishReadyBatches()
     }
@@ -1276,7 +1316,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 if (playbackIsNormallyPlaying()) {
                                     DIRECT_COVER_PLAYBACK_BATCH_SIZE
                                 } else {
-                                    DIRECT_VIDEO_BATCH_SIZE
+                                    DIRECT_VIDEO_PARALLELISM
                                 },
                         )
                         // LAB60: do not warm unselected media metadata or streams.
@@ -1628,6 +1668,8 @@ internal fun DiscogsDirectVersionBrowser(
         publishedOriginalSnapshots = emptyList()
         publishedCoverSnapshots = emptyList()
         originalSectionFrozen = false
+        shownOriginalIds = emptySet()
+        CoverSwipeBridge.stop(sessionKey)
         if (mode == DiscogsDirectMode.COVER) {
             // LAB59: searching must not downgrade or compete with active audio.
             playerConnection?.service?.setCoverPerformanceLoad(
@@ -1661,6 +1703,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.preparedVideoSongs.clear()
             session.playReadyVideoIds.clear()
             session.transientVideoRetries.clear()
+            session.automaticVideoAttempts.clear()
         }
         session.originalWorkCredits = emptyList()
 
@@ -1980,8 +2023,10 @@ internal fun DiscogsDirectVersionBrowser(
                 session.rankingFrozen = true
                 publishedReadyLimit = 0
                 session.publishedReadyLimit = 0
-                // LAB61 Pollicino: publish ranked slots even when audio is playing.
-                // Video resolution is an optional follow-up, never a display gate.
+                // LAB64: give the best originals the first lightweight video
+                // lookup before publishing Cover cards; bound total time so the
+                // page never waits for ten remote verifications.
+                withTimeoutOrNull(2_200L) { resolveNextVideoBatch(limit = DIRECT_VIDEO_PARALLELISM) }
                 publishReadyBatches()
             } else {
                 rebuildStableOrder()
