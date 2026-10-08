@@ -5,6 +5,8 @@
 
 package com.metrolist.music.ui.player
 
+import com.metrolist.music.ui.component.CoverSwipeBridge
+
 import com.metrolist.music.playback.CoverPlaybackMemory
 
 import androidx.compose.animation.AnimatedVisibility
@@ -289,7 +291,7 @@ fun Thumbnail(
     var userSwipeArmed by remember { mutableStateOf(false) }
 
     val userSwipePointerModifier =
-        Modifier.pointerInput(swipeThumbnail) {
+        Modifier.pointerInput(swipeThumbnail, mediaMetadata?.id) {
             if (!swipeThumbnail) return@pointerInput
             val touchSlop = viewConfiguration.touchSlop
 
@@ -323,6 +325,20 @@ fun Thumbnail(
                     }
 
                     if (event.changes.none { it.pressed }) {
+                        // LAB64 Pollicino: only a deliberate finger swipe while
+                        // Cover owns this exact video ID can change ranked covers.
+                        // Outside Cover, the native player carousel is unchanged.
+                        val release = event.changes.firstOrNull { !it.pressed && it.previousPressed }
+                        if (release != null && isPlayerExpanded()) {
+                            val dx = release.position.x - startX
+                            val dy = release.position.y - startY
+                            if (kotlin.math.abs(dx) > touchSlop * 4 &&
+                                kotlin.math.abs(dx) > kotlin.math.abs(dy) &&
+                                CoverSwipeBridge.trySwipe(mediaMetadata?.id.orEmpty(), if (dx < 0) 1 else -1)
+                            ) {
+                                userSwipeArmed = false
+                            }
+                        }
                         gestureActive = false
                         userPointerDown = false
                     }
