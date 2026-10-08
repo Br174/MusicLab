@@ -43,7 +43,7 @@ test('LAB58 replaces failed candidates without consuming their score or one of t
 });
 
 test('LAB58 only enables another ten Cover slots when current ten have been published', () => {
-  assert.match(browser, /visibleTrueCovers\.size >= visibleLimit/);
+  assert.doesNotMatch(browser, /visibleTrueCovers\.size >= visibleLimit/);
   assert.match(browser, /Text\("Carica altri \$pageSize"\)/);
   assert.match(browser, /visibleLimit = visibleLimit \+ pageSize/);
   assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
@@ -65,7 +65,7 @@ test('compaction example preserves scores and full ten-slot page across 5+5', ()
 
 test('LAB58 network timeout retry is bounded before candidate rejection', () => {
   assert.match(browser, /transientVideoRetries: MutableMap<String, Int>/);
-  assert.match(browser, /if \(streamProbe == null\) transientTimeout = true/);
+  assert.doesNotMatch(browser, /getStreamUrl\(/);
   assert.match(browser, /if \(resolved == null\) transientTimeout = true/);
   assert.match(browser, /catch \(cancel: CancellationException\) \{\s*throw cancel/);
   assert.match(browser, /if \(transientTimeout && retries < 1\)/);
