@@ -66,10 +66,10 @@ test('LAB57 publishes Cover rows 5+5 only after metadata and real stream readine
   assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE = 5/);
   assert.match(browser, /val playReadyVideoIds: MutableSet<String>/);
   assert.match(browser, /suspend fun publishReadyBatches\(\)/);
-  assert.match(browser, /publishedReadyLimit \+ DIRECT_VIDEO_BATCH_SIZE/);
+  assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE,[\s\S]*visibleLimit - publishedCoverSnapshots\.size/);
   assert.match(browser, /connection\.service\.getStreamUrl\(candidate\.id\)/);
   assert.match(browser, /session\.playReadyVideoIds \+= candidate\.id/);
-  assert.match(browser, /publishPool\.take\(publishedReadyLimit\.coerceAtMost\(visibleLimit\)\)/);
+  assert.match(browser, /visibleOriginalVersions \+ visibleTrueCovers/);
 });
 
 test('LAB57 stops Cover-owned work on exit and lowers audio quality only while Cover is heavy', () => {
