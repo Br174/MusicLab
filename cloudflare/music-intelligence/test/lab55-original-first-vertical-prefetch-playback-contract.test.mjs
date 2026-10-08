@@ -25,7 +25,7 @@ test('LAB55 restores Score Oldest Newest sorting in Cover', () => {
 
 test('LAB55 appends ten results vertically and preloads exactly one future block', () => {
   assert.match(browser, /visibleMembershipPool[\s\S]*publishPool\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
-  assert.match(browser, /val target = visibleLimit\.coerceAtLeast\(pageSize\) \+ pageSize/);
+  assert.match(browser, /val target = visibleLimit \+ pageSize/);
   assert.match(browser, /Text\("Carica altri \$pageSize"\)/);
   assert.match(browser, /visibleLimit = target/);
   assert.doesNotMatch(browser, /Text\("‹ Precedenti"\)/);
@@ -34,7 +34,7 @@ test('LAB55 appends ten results vertically and preloads exactly one future block
 });
 
 test('LAB59 selected video fast lane reaches native Player without duplicate stream preflight', () => {
-  assert.match(browser, /withTimeoutOrNull\(900L\)/);
+  assert.doesNotMatch(browser, /withTimeoutOrNull\(900L\)/);
   assert.match(browser, /connection\.playQueue\(/);
   assert.doesNotMatch(browser, /needsDirectStreamProbe/);
   assert.match(browser, /fun pauseCoverBackgroundForPlayback\(/);
