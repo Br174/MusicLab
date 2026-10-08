@@ -78,6 +78,21 @@ internal object CoverDiscoverySources {
     )
 
     private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private const val MAX_CACHED_DISCOVERIES = 24
+
+    // LAB60 Pollicino: keep only a small number of recent searches in memory.
+    private fun rememberDiscovery(key: String, now: Long, outcome: CoverSourceOutcome) {
+        synchronized(cache) {
+            cache.entries.toList().forEach { (existingKey, entry) ->
+                if (entry.expiresAtMs <= now) cache.remove(existingKey)
+            }
+            while (cache.size >= MAX_CACHED_DISCOVERIES && !cache.containsKey(key)) {
+                val oldestKey = cache.entries.minByOrNull { it.value.expiresAtMs }?.key ?: break
+                cache.remove(oldestKey)
+            }
+            cache[key] = CacheEntry(now + CACHE_TTL_MS, outcome)
+        }
+    }
 
     suspend fun discover(
         title: String,
@@ -95,7 +110,7 @@ internal object CoverDiscoverySources {
                 mode.name,
                 canonical(cleanTitle),
                 canonical(cleanArtist),
-                if (BuildConfig.LASTFM_API_KEY.isBlank()) "no-lastfm" else "lastfm",
+                "lab60-lastfm-wikidata-disabled",
                 if (aiConfig == null) "no-ai" else "ai",
             ).joinToString("|")
         val now = System.currentTimeMillis()
@@ -107,7 +122,7 @@ internal object CoverDiscoverySources {
 
         // LAB57: bounded fan-out. All sources still participate, but a Cover
         // search must not create an unbounded network/CPU burst beside playback.
-        val sourceGate = Semaphore(4)
+        val sourceGate = Semaphore(3)
         suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
 
         // LAB59: prioritize cover.info direct videos over auxiliary metadata.
@@ -131,9 +146,9 @@ internal object CoverDiscoverySources {
             }
         val iTunes = async(Dispatchers.IO) { sourceLane { discoverITunes(cleanTitle, cleanArtist, mode) } }
         val spotify = async(Dispatchers.IO) { sourceLane { discoverSpotify(cleanTitle, cleanArtist, mode) } }
-        val lastFm = async(Dispatchers.IO) { sourceLane { discoverLastFm(cleanTitle, cleanArtist, mode) } }
+        // LAB60 Pollicino: Last.fm is disabled for Cover/Originali discovery.
         val lrcLib = async(Dispatchers.IO) { sourceLane { discoverLrcLib(cleanTitle, cleanArtist, mode) } }
-        val wikidata = async(Dispatchers.IO) { sourceLane { discoverWikidata(cleanTitle, cleanArtist) } }
+        // LAB60 Pollicino: Wikidata (not Wikipedia pages) is disabled in discovery.
         val ai = async(Dispatchers.IO) { sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) } }
 
         val resolvedMusicBrainz = musicBrainzLookup.await()
@@ -143,10 +158,8 @@ internal object CoverDiscoverySources {
                 coverInfo.await(),
                 musicBrainz,
                 iTunes.await(),
-                lastFm.await(),
                 lrcLib.await(),
                 spotify.await(),
-                wikidata.await(),
                 ai.await(),
             )
 
@@ -344,12 +357,15 @@ internal object CoverDiscoverySources {
 
         val outcome = CoverSourceOutcome(
             candidates = ordered,
-            diagnostics = lanes.map { it.second } + identityGateDiagnostic,
+            diagnostics = lanes.map { it.second } + listOf(
+                CoverSourceDiagnostic("Last.fm", false, 0, "Disattivato in LAB60"),
+                CoverSourceDiagnostic("Wikidata", false, 0, "Disattivato in LAB60"),
+            ) + identityGateDiagnostic,
             originalYear = originalYear,
             workId = resolvedMusicBrainz.work?.id,
             workCredits = workCredits,
         )
-        cache[key] = CacheEntry(now + CACHE_TTL_MS, outcome)
+        rememberDiscovery(key, now, outcome)
         outcome
     }
 
