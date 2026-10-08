@@ -22,14 +22,14 @@ test('LAB57 keeps ten-result Cover requests but publishes them in play-ready 5+5
   assert.match(browser, /pageSize = if \(mode == DiscogsDirectMode\.COVER\) DIRECT_COVER_PAGE_SIZE else DIRECT_VERSION_PAGE_SIZE/);
   assert.match(browser, /visibleMembershipPool[\s\S]*publishPool\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
   assert.match(browser, /visibleMembershipPool\.filter\(::isPlayReady\)/);
-  assert.match(browser, /publishPool\.take\(publishedReadyLimit\.coerceAtMost\(visibleLimit\)\)/);
+  assert.match(browser, /visibleOriginalVersions \+ visibleTrueCovers/);
 });
 
 test('LAB57 prepares the frozen ranking in contiguous play-ready batches', () => {
   assert.match(browser, /fun videoPriorityPool/);
   assert.match(browser, /compareByDescending<DiscogsVersionSeed> \{ it\.confidenceScore \}/);
   assert.match(browser, /suspend fun publishReadyBatches\(\)/);
-  assert.match(browser, /publishedReadyLimit \+ DIRECT_VIDEO_BATCH_SIZE/);
+  assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE,[\s\S]*visibleLimit - publishedCoverSnapshots\.size/);
   assert.match(browser, /Blocco corrente 5\+5: \$\{readyPool\.size\}\/\$\{visibleMembershipPool\.size\} play-ready/);
 });
 
