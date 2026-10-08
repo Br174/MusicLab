@@ -75,3 +75,10 @@ test('local comparison can reorder hundreds of results without network or re-ran
   assert.ok(newest.at(-1).year === null);
   assert.ok(performance.now()-start<500, 'local 500-row sort took too long');
 });
+
+test('LAB59 out-of-order Cloud response cannot erase earlier Discogs or COVER.INFO results', () => {
+  assert.match(browser, /LAB59: first Discogs page and direct COVER\.INFO videos run/);
+  assert.match(browser, /current = results,\s*incoming = memoryVersions\.map\(::memoryCandidateToSeed\),\s*replace = false/);
+  assert.match(browser, /sourceDiagnostics = listOf\(memoryDiagnostic\) \+/);
+  assert.match(browser, /sourceDiagnostics\.filterNot \{ it\.name == "Archivio Cloud" \}/);
+});
