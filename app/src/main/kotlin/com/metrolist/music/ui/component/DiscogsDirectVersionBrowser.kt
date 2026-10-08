@@ -664,11 +664,8 @@ internal fun DiscogsDirectVersionBrowser(
         return normalizeSearchLocalVideoBindings(recordingDeduped)
     }
     fun modeAcceptsSeed(seed: DiscogsVersionSeed): Boolean {
-        if (mode == DiscogsDirectMode.COVER) return true
-        val workTitle = TitleMeaningResolver.workAnchorTitle(title)
-        val originalArtistOk =
-            resolvedOriginalArtist.isNotBlank() &&
-                TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
+        val workTitle =
+            TitleMeaningResolver.workAnchorTitle(activeCriteria?.title ?: title)
         val titleOk =
             workTitle.isBlank() ||
                 TitleMeaningResolver.matchesBaseTitle(
@@ -676,6 +673,38 @@ internal fun DiscogsDirectVersionBrowser(
                     value = seed.trackTitle,
                     artistAliases = setOf(resolvedOriginalArtist).filter(String::isNotBlank).toSet(),
                 )
+
+        if (mode == DiscogsDirectMode.COVER) {
+            if (titleOk) return true
+            if (isApproved(seed)) return true
+
+            val aiTrusted =
+                seed.sourceNames.any { it.equals("AI Scout", ignoreCase = true) }
+            if (aiTrusted) return true
+
+            val independentServices =
+                seed.sourceNames
+                    .map { it.trim().lowercase() }
+                    .filter { it.isNotBlank() && it != "archivio cloud" && it != "musiclab interno" }
+                    .distinct()
+                    .size
+            val sharedCredits =
+                DiscogsVersionSource.sharedWorkCreditNames(
+                    seed = seed,
+                    originalCredits = session.originalWorkCredits,
+                ).isNotEmpty()
+
+            // LAB56 Opera Identity Gate. Different-title candidates do not enter the
+            // visible Cover pool unless the foreign/adapted identity has a trusted
+            // AI signal or extra service/credit evidence.
+            return seed.workRelationConfirmed ||
+                independentServices >= 2 ||
+                sharedCredits
+        }
+
+        val originalArtistOk =
+            resolvedOriginalArtist.isNotBlank() &&
+                TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
         return originalArtistOk && titleOk
     }
 
@@ -1627,6 +1656,39 @@ internal fun DiscogsDirectVersionBrowser(
             session.sourceDiagnostics = sourceDiagnostics
             session.sourceDiscoveryComplete = true
             sourceDiscoveryLoading = false
+
+            if (
+                mode == DiscogsDirectMode.COVER &&
+                discogsToken.isNotBlank() &&
+                resolvedOriginalArtist.isNotBlank() &&
+                session.originalWorkCredits.isEmpty()
+            ) {
+                val creditLookupTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
+                launch {
+                    val credits =
+                        withTimeoutOrNull(4_000L) {
+                            DiscogsVersionSource.loadOriginalWorkCredits(
+                                token = discogsToken,
+                                title = creditLookupTitle,
+                                originalArtist = resolvedOriginalArtist,
+                            )
+                        }.orEmpty()
+                    if (
+                        credits.isNotEmpty() &&
+                        activeCriteria?.title == criteria.title
+                    ) {
+                        session.originalWorkCredits = credits
+                        results =
+                            results.map { seed ->
+                                DiscogsVersionSource.applySharedWorkCreditEvidence(seed, credits)
+                            }
+                        session.results = results
+                        rebuildStableOrder()
+                        scheduleDiscogsVerification()
+                        scheduleVideoPreload()
+                    }
+                }
+            }
 
             rebuildStableOrder()
             session.visibleLimit = visibleLimit
