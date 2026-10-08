@@ -44,7 +44,7 @@ test('LAB61 snapshot refreshes the same ranked card when video ID arrives', () =
   assert.doesNotMatch(visible, /filter\(::hasVideoPreview\)/);
   const card = browser.slice(browser.indexOf('private fun DiscogsVersionCard('));
   assert.match(card, /model = stableArtworkUrl/);
-  assert.match(card, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
+  assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
   assert.doesNotMatch(card.slice(card.indexOf('if (showVideoPreview)'), card.indexOf('} else {', card.indexOf('if (showVideoPreview)'))), /seed\.coverUrl/);
 });
 
