@@ -614,28 +614,16 @@ internal fun DiscogsDirectVersionBrowser(
             if (key !in keys) keys += key
         }
 
-        fun rankedSeed(seed: DiscogsVersionSeed): DiscogsVersionSeed {
-            val samePerformerAsOriginal =
-                mode == DiscogsDirectMode.COVER &&
-                    resolvedOriginalArtist.isNotBlank() &&
-                    TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
-            return if (isRejected(seed) || samePerformerAsOriginal) {
+        fun rankedSeed(seed: DiscogsVersionSeed): DiscogsVersionSeed =
+            if (isRejected(seed)) {
                 seed.copy(
                     confidenceScore = 1,
                     confidenceReasons =
-                        (
-                            seed.confidenceReasons +
-                                if (samePerformerAsOriginal) {
-                                    "Stesso interprete dell'originale: mantenuta in fondo a 1/20"
-                                } else {
-                                    "Filtro negativo: mantenuta in graduatoria a 1/20"
-                                }
-                            ).distinct(),
+                        (seed.confidenceReasons + "Filtro negativo: mantenuta in graduatoria a 1/20").distinct(),
                 )
             } else {
                 seed
             }
-        }
 
         if (!replace) {
             current.forEach { rawSeed ->
@@ -690,34 +678,45 @@ internal fun DiscogsDirectVersionBrowser(
         return originalArtistOk && titleOk
     }
 
-    fun sortedPool(source: List<DiscogsVersionSeed>): List<DiscogsVersionSeed> {
-        val displayable =
-            source.filter(DiscogsVersionSource::isDisplayableDirectSeed)
-                .filter(::modeAcceptsSeed)
-        val effectiveSortMode =
-            if (mode == DiscogsDirectMode.COVER) DirectVersionSort.RELEVANCE else sortMode
-        return when (effectiveSortMode) {
+    fun isOriginalPerformerVersion(seed: DiscogsVersionSeed): Boolean =
+        mode == DiscogsDirectMode.COVER &&
+            resolvedOriginalArtist.isNotBlank() &&
+            (
+                seed.originalWorkReference ||
+                    TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
+                )
+
+    fun sortGroup(source: List<DiscogsVersionSeed>, selectedSort: DirectVersionSort): List<DiscogsVersionSeed> =
+        when (selectedSort) {
             DirectVersionSort.RELEVANCE ->
-                displayable.sortedWith(
+                source.sortedWith(
                     compareByDescending<DiscogsVersionSeed> { it.confidenceScore }
                         .thenByDescending { it.originalWorkReference }
                         .thenByDescending { it.sourceNames.distinct().size }
                         .thenByDescending { it.track != null }
-                        .thenByDescending { !it.resolvedVideoId.isNullOrBlank() }
                         .thenBy { it.artist.lowercase() }
                         .thenBy { it.trackTitle.lowercase() },
                 )
             DirectVersionSort.OLDEST ->
-                displayable.sortedWith(
+                source.sortedWith(
                     compareBy<DiscogsVersionSeed> { it.year ?: Int.MAX_VALUE }
                         .thenByDescending { it.confidenceScore },
                 )
             DirectVersionSort.NEWEST ->
-                displayable.sortedWith(
+                source.sortedWith(
                     compareByDescending<DiscogsVersionSeed> { it.year ?: Int.MIN_VALUE }
                         .thenByDescending { it.confidenceScore },
                 )
         }
+
+    fun sortedPool(source: List<DiscogsVersionSeed>): List<DiscogsVersionSeed> {
+        val displayable =
+            source.filter(DiscogsVersionSource::isDisplayableDirectSeed)
+                .filter(::modeAcceptsSeed)
+        if (mode != DiscogsDirectMode.COVER) return sortGroup(displayable, sortMode)
+
+        val (originalVersions, trueCovers) = displayable.partition(::isOriginalPerformerVersion)
+        return sortGroup(originalVersions, sortMode) + sortGroup(trueCovers, sortMode)
     }
 
     fun rebuildStableOrder() {
@@ -1180,20 +1179,73 @@ internal fun DiscogsDirectVersionBrowser(
 
     suspend fun playResolvedContext(selectedFingerprint: String) {
         val connection = playerConnection ?: return
-        val selectedSeed =
+        var selectedSeed =
             orderedResults(results)
                 .firstOrNull { it.fingerprint == selectedFingerprint && !it.resolvedVideoId.isNullOrBlank() }
                 ?: return
-        val selectedId = selectedSeed.resolvedVideoId?.trim().orEmpty()
+        var selectedId = selectedSeed.resolvedVideoId?.trim().orEmpty()
         if (selectedId.isBlank()) return
 
-        // LAB50 fast lane: once the exact playable video id is already verified,
-        // tapping Play must not make another YouTube.queue metadata request. Reuse a
-        // prepared SongItem when available; otherwise build the minimum player
-        // metadata locally from the verified row. MusicService resolves the stream
-        // from mediaId, so the network work that matters starts in the Player lane.
+        var selectedSong = session.preparedVideoSongs[selectedId]
+
+        // LAB55: resolver-produced ids keep the LAB50 zero-extra-request fast lane.
+        // IDs inherited from Cloud/COVER.INFO/direct metadata must prove that they
+        // still resolve in the current YouTube session before we hand them to Player.
+        if (selectedSong == null) {
+            val track = playableTrack(selectedSeed)
+            val verified =
+                withTimeoutOrNull(1_800L) {
+                    YouTube.queue(videoIds = listOf(selectedId)).getOrNull()?.firstOrNull()
+                }?.takeIf { song ->
+                    track == null || CompilationTrackResolver.isHardCompatible(track, song)
+                }
+
+            if (verified != null) {
+                rememberPreparedVideoSong(verified)
+                selectedSong = verified
+            } else if (track != null) {
+                session.usedVideoIds += selectedId
+                val stale =
+                    DiscogsVersionSource.markVideoUnavailable(selectedSeed).copy(
+                        videoResolutionChecked = false,
+                    )
+                replaceSeed(stale)
+
+                val alternate =
+                    CompilationTrackResolver.resolveTrack(
+                        track = track,
+                        discogsVideos = selectedSeed.videos,
+                        fastFirst = true,
+                        excludedVideoIds = session.usedVideoIds.toSet(),
+                    )
+                val alternateSong = alternate?.song
+                if (alternateSong != null && session.usedVideoIds.add(alternateSong.id)) {
+                    rememberPreparedVideoSong(alternateSong)
+                    val refreshed =
+                        DiscogsVersionSource.markVideoResolved(
+                            seed = results.firstOrNull { it.fingerprint == selectedFingerprint } ?: stale,
+                            videoId = alternateSong.id,
+                            videoTitle = alternateSong.title,
+                            source = alternate.source,
+                        )
+                    replaceSeed(refreshed)
+                    selectedSeed = refreshed
+                    selectedId = alternateSong.id
+                    selectedSong = alternateSong
+                } else {
+                    Toast.makeText(
+                        context,
+                        "Questa sorgente non è più riproducibile. Cerco un'altra versione.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    scheduleVideoPreload()
+                    return
+                }
+            }
+        }
+
         val selectedItem =
-            session.preparedVideoSongs[selectedId]?.toMediaItem()
+            selectedSong?.toMediaItem()
                 ?: MediaMetadata(
                     id = selectedId,
                     title = selectedSeed.resolvedVideoTitle?.takeIf(String::isNotBlank)
@@ -1210,11 +1262,7 @@ internal fun DiscogsDirectVersionBrowser(
                 ).toMediaItem()
 
         val queueTitle =
-            if (mode == DiscogsDirectMode.COVER) {
-                "Cover · $title"
-            } else {
-                "Originali · $title"
-            }
+            if (mode == DiscogsDirectMode.COVER) "Cover · $title" else "Originali · $title"
 
         connection.playQueue(
             ListQueue(
@@ -1223,12 +1271,6 @@ internal fun DiscogsDirectVersionBrowser(
                 startIndex = 0,
             ),
         )
-
-        // LAB50 deliberately ends here. The former delayed "prepare next item"
-        // hydration kept a second YouTube metadata request alive after every tap and
-        // could accumulate work across consecutive songs. The selected song is the
-        // only playback-critical item; later discovery resumes only after playback
-        // is genuinely idle.
     }
 
     suspend fun loadPage(
@@ -2118,23 +2160,25 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                 }
 
-                if (mode != DiscogsDirectMode.COVER) {
-                    DirectSortSelector(
-                        selected = sortMode,
-                        onSelected = { selected ->
-                            if (selected != sortMode) {
-                                sortMode = selected
-                                session.sortMode = selected
-                                rebuildStableOrder()
-                                visibleLimit = pageSize
-                                session.visibleLimit = visibleLimit
-                                resultPageIndex = 0
-                                session.resultPageIndex = 0
-                                scope.launch { listState.scrollToItem(0) }
-                            }
-                        },
-                    )
-                }
+                DirectSortSelector(
+                    selected = sortMode,
+                    onSelected = { selected ->
+                        if (selected != sortMode) {
+                            sortMode = selected
+                            session.sortMode = selected
+                            rebuildStableOrder()
+                            visibleLimit = pageSize
+                            session.visibleLimit = visibleLimit
+                            resultPageIndex = 0
+                            session.resultPageIndex = 0
+                            verificationJob?.cancel()
+                            videoPreloadJob?.cancel()
+                            scope.launch { listState.scrollToItem(0) }
+                            scheduleDiscogsVerification()
+                            scheduleVideoPreload()
+                        }
+                    },
+                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
