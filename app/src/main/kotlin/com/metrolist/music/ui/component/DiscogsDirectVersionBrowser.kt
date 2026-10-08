@@ -754,10 +754,7 @@ internal fun DiscogsDirectVersionBrowser(
     fun isOriginalPerformerVersion(seed: DiscogsVersionSeed): Boolean =
         mode == DiscogsDirectMode.COVER &&
             resolvedOriginalArtist.isNotBlank() &&
-            (
-                seed.originalWorkReference ||
-                    TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
-                )
+            TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
 
     fun sortGroup(source: List<DiscogsVersionSeed>, selectedSort: DirectVersionSort): List<DiscogsVersionSeed> =
         when (selectedSort) {
@@ -1067,8 +1064,9 @@ internal fun DiscogsDirectVersionBrowser(
         // Pending covers extend into the NEXT page for ranked replacements.
         val committedOriginals = publishedOriginalSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
         val pendingOriginals = originalCandidatePool().filterNot { it.fingerprint in committedOriginals }
+        val target = visibleLimit.coerceAtLeast(pageSize) + pageSize
         val pendingCovers = remainingCoverPool().take(
-            (visibleLimit - publishedCoverSnapshots.size).coerceAtLeast(0) + pageSize,
+            (target - publishedCoverSnapshots.size).coerceAtLeast(0),
         )
         return pendingOriginals + pendingCovers
     }
