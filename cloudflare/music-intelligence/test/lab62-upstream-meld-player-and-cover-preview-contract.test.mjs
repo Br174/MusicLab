@@ -46,14 +46,14 @@ test('LAB62 retains AI master switch isolation from the player, and Qobuz remain
 test('LAB62 uses same Cover image slot: video thumbnail first, trusted temporary release image second', () => {
   const card = cover.slice(cover.indexOf('private fun DiscogsVersionCard('));
   const model = card.slice(card.indexOf('if (showVideoPreview) {'),card.indexOf('} else {',card.indexOf('if (showVideoPreview) {')));
-  assert.match(model, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
-  assert.match(model, /\?: seed\.coverUrl\?\.takeIf\(String::isNotBlank\)/);
+  assert.match(model, /model = stableArtworkUrl/);
+  assert.match(cover, /fun stableArtworkFor\(seed: DiscogsVersionSeed\)/);
   assert.equal((model.match(/AsyncImage\(/g)||[]).length,1);
   assert.match(cover, /DIRECT_COVER_PAGE_SIZE = 10/);
 });
 
 test('LAB62 preserves in-place install identity and increases update version', () => {
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6201"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6301"/);
   assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
