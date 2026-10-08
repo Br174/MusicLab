@@ -1038,29 +1038,39 @@ internal fun DiscogsDirectVersionBrowser(
             session.preparedVideoSongs.containsKey(id)
     }
 
+    fun originalCandidatePool(): List<DiscogsVersionSeed> =
+        orderedResults(results)
+            .filterNot(::isHiddenForCurrentCover)
+            .filter(::isOriginalPerformerVersion)
+            .filterNot { it.videoResolutionChecked && it.resolvedVideoId.isNullOrBlank() }
+
     fun coverCandidatePool(): List<DiscogsVersionSeed> =
         orderedResults(results)
             .filterNot(::isHiddenForCurrentCover)
-            .filterNot { seed ->
-                seed.videoResolutionChecked &&
-                    seed.resolvedVideoId.isNullOrBlank()
-            }
+            .filterNot(::isOriginalPerformerVersion)
+            .filterNot { it.videoResolutionChecked && it.resolvedVideoId.isNullOrBlank() }
+
+    fun remainingCoverPool(): List<DiscogsVersionSeed> {
+        val committed = publishedCoverSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
+        return coverCandidatePool().filterNot { it.fingerprint in committed }
+    }
 
     fun visibleCoverPool(): List<DiscogsVersionSeed> =
-        coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
+        publishedCoverSnapshots + remainingCoverPool()
+            .take((visibleLimit - publishedCoverSnapshots.size).coerceAtLeast(0))
 
     fun videoPreparationPool(): List<DiscogsVersionSeed> {
-        val ranked =
-            if (mode == DiscogsDirectMode.COVER) {
-                coverCandidatePool()
-            } else {
-                orderedResults(results)
-            }
         if (mode != DiscogsDirectMode.COVER) {
-            return ranked.take(visibleLimit.coerceAtLeast(pageSize))
+            return orderedResults(results).take(visibleLimit.coerceAtLeast(pageSize))
         }
-        val target = visibleLimit.coerceAtLeast(pageSize) + pageSize
-        return ranked.take(target)
+        // LAB58 Pollicino: originals never consume ten-Cover page capacity.
+        // Pending covers extend into the NEXT page for ranked replacements.
+        val committedOriginals = publishedOriginalSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
+        val pendingOriginals = originalCandidatePool().filterNot { it.fingerprint in committedOriginals }
+        val pendingCovers = remainingCoverPool().take(
+            (visibleLimit - publishedCoverSnapshots.size).coerceAtLeast(0) + pageSize,
+        )
+        return pendingOriginals + pendingCovers
     }
 
     fun preparationReadyVideoCount(): Int =
@@ -1075,22 +1085,48 @@ internal fun DiscogsDirectVersionBrowser(
 
     suspend fun publishReadyBatches() {
         if (mode != DiscogsDirectMode.COVER || !rankingFrozen) return
-        while (true) {
-            val pool = coverCandidatePool()
-            val desired = minOf(visibleLimit.coerceAtLeast(pageSize), pool.size)
-            if (publishedReadyLimit >= desired) break
 
-            val nextLimit = minOf(publishedReadyLimit + DIRECT_VIDEO_BATCH_SIZE, desired)
-            val nextSlice = pool.take(nextLimit)
-            if (nextSlice.size < nextLimit || nextSlice.any { !isPlayReady(it) }) break
+        // Freeze ALL playable original-performer rows before publishing Covers.
+        // The original section and its count never count against ten Covers.
+        if (publishedOriginalSnapshots.isEmpty()) {
+            val originals = originalCandidatePool()
+            if (originals.any { !isPlayReady(it) }) return
+            if (originals.isNotEmpty()) {
+                publishedOriginalSnapshots = originals.toList()
+                session.publishedOriginalSnapshots = publishedOriginalSnapshots
+            }
+        }
 
-            publishedReadyLimit = nextLimit
-            session.publishedReadyLimit = nextLimit
+        while (publishedCoverSnapshots.size < visibleLimit) {
+            val requested = minOf(
+                DIRECT_VIDEO_BATCH_SIZE,
+                visibleLimit - publishedCoverSnapshots.size,
+            )
+            val pending = remainingCoverPool()
+            val group = pending.take(requested)
+            if (group.isEmpty()) break
+            // A missing video leaves the unpublished ordered pool; all following
+            // candidates shift left by one while keeping their original /20 score.
+            if (group.any { !isPlayReady(it) }) break
+            if (group.size < requested && currentPage in 1 until totalPages) break
+
+            // LAB58: atomic group commit. Already shown cards never reorder.
+            publishedCoverSnapshots = publishedCoverSnapshots + group
+            session.publishedCoverSnapshots = publishedCoverSnapshots
+            publishedReadyLimit = publishedCoverSnapshots.size
+            session.publishedReadyLimit = publishedReadyLimit
             delay(80)
         }
     }
 
     suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
+        // Do not let malformed/discographically incomplete seeds permanently
+        // block the 5+5 queue; keep their ranking evidence for later inspection.
+        videoPreparationPool()
+            .filter { !isPlayReady(it) && playableTrack(it) == null }
+            .take(limit)
+            .forEach { replaceSeed(DiscogsVersionSource.markVideoUnavailable(it)) }
+
         val batch =
             videoPreparationPool()
                 .filter { seed ->
@@ -1099,8 +1135,10 @@ internal fun DiscogsDirectVersionBrowser(
                         !isPlayReady(seed)
                 }
                 .take(limit)
-        if (batch.isEmpty()) return
-
+        if (batch.isEmpty()) {
+            publishReadyBatches()
+            return
+        }
         batch.chunked(DIRECT_VIDEO_PARALLELISM).forEach { chunk ->
             resolveVideoChunk(chunk)
         }
