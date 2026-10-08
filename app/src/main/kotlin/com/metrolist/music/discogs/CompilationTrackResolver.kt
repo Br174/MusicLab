@@ -32,6 +32,8 @@ internal object CompilationTrackResolver {
         discogsVideos: List<DiscogsVideo>,
         fastFirst: Boolean = true,
         excludedVideoIds: Set<String> = emptySet(),
+        searchRound: Int = 0,
+        preferLive: Boolean = false,
     ): CompilationResolvedTrack? = withContext(Dispatchers.IO) {
         // Fast lane: direct Discogs video first, then a bounded race between the
         // two MusicLab sources that most often resolve a playable track quickly.
@@ -53,7 +55,16 @@ internal object CompilationTrackResolver {
             }
         }
 
-        val queries = searchQueries(track)
+        // LAB63 Pollicino: each manual attempt rotates the query instead of
+        // re-running the same YouTube ID / same title-only lookup forever.
+        val baseQueries = searchQueries(track)
+        val liveQueries = if (preferLive) {
+            listOf(track.title + " " + track.artists.joinToString(" ") + " live",
+                track.title + " " + track.artists.joinToString(" ") + " dal vivo")
+        } else emptyList()
+        val allQueries = (liveQueries + baseQueries).filter(String::isNotBlank).distinct()
+        val shift = if (allQueries.isEmpty()) 0 else searchRound.mod(allQueries.size)
+        val queries = allQueries.drop(shift) + allQueries.take(shift)
         val query = queries.firstOrNull().orEmpty()
 
         if (fastFirst) {
