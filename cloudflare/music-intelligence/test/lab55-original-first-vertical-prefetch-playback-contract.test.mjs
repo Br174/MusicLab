@@ -24,7 +24,7 @@ test('LAB55 restores Score Oldest Newest sorting in Cover', () => {
 });
 
 test('LAB55 appends ten results vertically and preloads exactly one future block', () => {
-  assert.match(browser, /visibleMembershipPool[\s\S]*navigablePool\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
+  assert.match(browser, /visibleMembershipPool[\s\S]*publishPool\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
   assert.match(browser, /val target = visibleLimit\.coerceAtLeast\(pageSize\) \+ pageSize/);
   assert.match(browser, /Text\("Carica altri \$pageSize"\)/);
   assert.match(browser, /visibleLimit = target/);
