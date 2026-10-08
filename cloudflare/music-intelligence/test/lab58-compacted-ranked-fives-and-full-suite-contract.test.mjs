@@ -32,11 +32,11 @@ test('LAB58 scores discovery before freezing, without reshuffling already publis
   assert.match(browser, /val appended = sortedPool\(results\)/);
 });
 
-test('LAB58 replaces failed candidates without consuming their score or one of ten slots', () => {
+test('LAB61 retains ten ranked candidates even if their video bindings are pending', () => {
   assert.match(browser, /val committed = publishedCoverSnapshots\.mapTo/);
   assert.match(browser, /return coverCandidatePool\(\)\.filterNot/);
   assert.match(browser, /val pending = remainingCoverPool\(\)/);
-  assert.match(browser, /val group = pending\.filter\(::hasVideoPreview\)\.take\(requested\)/);
+  assert.match(browser, /val group = pending\.take\(requested\)/);
   assert.match(browser, /publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
   assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE = 5/);
   assert.match(browser, /DIRECT_COVER_PAGE_SIZE = 10/);
@@ -52,14 +52,14 @@ test('LAB58 only enables another ten Cover slots when current ten have been publ
 test('compaction example preserves scores and full ten-slot page across 5+5', () => {
   const ranked = Array.from({length: 24}, (_, i) => ({id:i+1, score:Math.max(1,20-Math.floor(i/2))}));
   const unavailable = new Set([4, 13, 17]);
-  const available = ranked.filter(x => !unavailable.has(x.id));
-  const first = available.slice(0,10);
-  const second = available.slice(10,20);
+  const first = ranked.slice(0,10);
+  const second = ranked.slice(10,20);
   assert.equal(first.length,10);
   assert.equal(second.length,10);
-  assert.deepEqual(first.map(x=>x.id), [1,2,3,5,6,7,8,9,10,11]);
-  assert.deepEqual(second.map(x=>x.id), [12,14,15,16,18,19,20,21,22,23]);
-  assert.equal(first[3].score,ranked[4].score);
+  assert.deepEqual(first.map(x=>x.id), [1,2,3,4,5,6,7,8,9,10]);
+  assert.deepEqual(second.map(x=>x.id), [11,12,13,14,15,16,17,18,19,20]);
+  assert.ok(first.some(x => unavailable.has(x.id)), 'missing video IDs must not remove ranked songs');
+  assert.equal(first[3].score,ranked[3].score);
   assert.deepEqual([first.slice(0,5).length,first.slice(5,10).length],[5,5]);
 });
 
