@@ -3059,11 +3059,12 @@ private fun DiscogsVersionCard(
     onDetails: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (showVideoPreview) 184.dp else 104.dp)
-            .padding(horizontal = 12.dp)
-            .clickable(onClick = onPlay),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .then(if (showVideoPreview) Modifier.height(184.dp) else Modifier)
+                .padding(horizontal = 12.dp)
+                .clickable(onClick = onPlay),
         color = if (selected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
         } else {
