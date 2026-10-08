@@ -41,9 +41,10 @@ test('cross-provider duplicates merge into one evidence coordinator', () => {
   assert.match(browser, /DiscogsVersionSource\.mergeCrossSourceEvidence\(previous, seed\)/);
 });
 
-test('Originali has a final identity guard using locked original artist and work title', () => {
+test('Originali keeps its final identity guard while LAB56 adds a Cover same-work gate', () => {
   assert.match(browser, /fun modeAcceptsSeed\(seed: DiscogsVersionSeed\)/);
-  assert.match(browser, /if \(mode == DiscogsDirectMode\.COVER\) return true/);
+  assert.match(browser, /if \(mode == DiscogsDirectMode\.COVER\) \{/);
+  assert.match(browser, /return seed\.workRelationConfirmed \|\|/);
   assert.match(browser, /TitleMeaningResolver\.sameArtist\(seed\.artist, resolvedOriginalArtist\)/);
   assert.match(browser, /TitleMeaningResolver\.matchesBaseTitle/);
   assert.match(browser, /\.filter\(::modeAcceptsSeed\)/);
