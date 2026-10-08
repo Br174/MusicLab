@@ -40,14 +40,15 @@ test('LAB52 uses a wider source fetch so failed videos do not prevent a ten-vide
   assert.match(browser, /readyVideoCount\(\)/);
 });
 
-test('LAB52 Cover card keeps resolved-video thumbnail as the Cover image without album-art fallback', () => {
+test('LAB62 Cover card prefers resolved-video thumbnail, allowing only a temporary same-slot release preview', () => {
   assert.match(browser, /showVideoPreview = true/);
   assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
-  assert.match(browser, /contentDescription = seed\.resolvedVideoTitle \?: "Video cover"/);
+  assert.match(browser, /contentDescription = seed\.resolvedVideoTitle \?: "Anteprima versione musicale"/);
   const coverPreviewStart = browser.indexOf('if (showVideoPreview) {');
   const coverPreviewEnd = browser.indexOf('} else {', coverPreviewStart);
   const coverPreview = browser.slice(coverPreviewStart, coverPreviewEnd);
-  assert.doesNotMatch(coverPreview, /model = seed\.coverUrl/);
+  assert.match(coverPreview, /\?: seed\.coverUrl\?\.takeIf\(String::isNotBlank\)/);
+  assert.equal((coverPreview.match(/AsyncImage\(/g) || []).length, 1);
 });
 
 test('LAB52 preserves COVER.INFO direct video bindings and explicit source priority', () => {
