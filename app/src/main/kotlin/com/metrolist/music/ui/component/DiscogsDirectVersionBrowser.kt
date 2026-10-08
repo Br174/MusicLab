@@ -282,7 +282,7 @@ internal fun DiscogsDirectVersionBrowser(
     var showSourceDiagnostics by remember(sessionKey) { mutableStateOf(false) }
     var sourceDiagnostics by remember(sessionKey) { mutableStateOf(session.sourceDiagnostics) }
     var visibleLimit by remember(sessionKey) {
-        mutableStateOf(if (mode == DiscogsDirectMode.COVER) minOf(session.visibleLimit, pageSize) else session.visibleLimit)
+        mutableStateOf(session.visibleLimit.coerceAtLeast(pageSize))
     }
     var resultPageIndex by remember(sessionKey) { mutableStateOf(session.resultPageIndex) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -927,34 +927,39 @@ internal fun DiscogsDirectVersionBrowser(
                 .thenBy { it.trackTitle.lowercase() },
         )
 
-    fun currentVideoPagePool(): List<DiscogsVersionSeed> {
-        val ranked = videoPriorityPool(results).filterNot(::isHiddenForCurrentCover)
+    fun visibleCoverPool(): List<DiscogsVersionSeed> =
+        orderedResults(results)
+            .filterNot(::isHiddenForCurrentCover)
+            .take(visibleLimit.coerceAtLeast(pageSize))
+
+    fun videoPreparationPool(): List<DiscogsVersionSeed> {
+        val ranked = orderedResults(results).filterNot(::isHiddenForCurrentCover)
         if (mode != DiscogsDirectMode.COVER) {
             return ranked.take(visibleLimit.coerceAtLeast(pageSize))
         }
-        val start = resultPageIndex.coerceAtLeast(0) * pageSize
-        return ranked.drop(start).take(pageSize)
+        // LAB55: prepare exactly one future block while Bruno is viewing the current list.
+        val target = visibleLimit.coerceAtLeast(pageSize) + pageSize
+        return ranked.take(target)
     }
 
-    fun currentPageReadyVideoCount(): Int =
-        currentVideoPagePool().count { !it.resolvedVideoId.isNullOrBlank() }
+    fun preparationReadyVideoCount(): Int =
+        videoPreparationPool().count { !it.resolvedVideoId.isNullOrBlank() }
 
     fun readyVideoCount(): Int =
         if (mode == DiscogsDirectMode.COVER) {
-            currentPageReadyVideoCount()
+            visibleCoverPool().count { !it.resolvedVideoId.isNullOrBlank() }
         } else {
             orderedResults(results).count { !it.resolvedVideoId.isNullOrBlank() }
         }
 
     suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
-        val pagePool = currentVideoPagePool()
-        val targetReady = pagePool.size
-        val missingReady = (targetReady - currentPageReadyVideoCount()).coerceAtLeast(0)
+        val preparationPool = videoPreparationPool()
+        val targetReady = preparationPool.size
+        val missingReady = (targetReady - preparationReadyVideoCount()).coerceAtLeast(0)
         if (missingReady == 0) return
 
-        // LAB54: resolve exactly the current global-ranking page.
         val batch =
-            pagePool
+            preparationPool
                 .filter { seed ->
                     DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                         playableTrack(seed) != null &&
@@ -1009,9 +1014,9 @@ internal fun DiscogsDirectVersionBrowser(
                 if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
                 while (true) {
                     if (backgroundWorkBlocked()) break
-                    val workWindow = currentVideoPagePool()
+                    val workWindow = videoPreparationPool()
                     val targetReady = workWindow.size
-                    if (targetReady == 0 || currentPageReadyVideoCount() >= targetReady) break
+                    if (targetReady == 0 || preparationReadyVideoCount() >= targetReady) break
 
                     val pendingBefore =
                         workWindow.count { seed ->
@@ -1021,7 +1026,7 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     if (pendingBefore == 0) break
 
-                    val readyBefore = currentPageReadyVideoCount()
+                    val readyBefore = preparationReadyVideoCount()
                     resolveNextVideoBatch(
                         limit = if (playbackIsNormallyPlaying()) {
                             DIRECT_COVER_PLAYBACK_BATCH_SIZE
@@ -1030,10 +1035,10 @@ internal fun DiscogsDirectVersionBrowser(
                         },
                     )
                     if (!playbackIsNormallyPlaying()) warmResolvedVideoMetadata()
-                    val readyAfter = currentPageReadyVideoCount()
+                    val readyAfter = preparationReadyVideoCount()
 
                     val anyPending =
-                        currentVideoPagePool().any { seed ->
+                        videoPreparationPool().any { seed ->
                             DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                                 playableTrack(seed) != null &&
                                 !seed.videoResolutionChecked
@@ -1053,7 +1058,7 @@ internal fun DiscogsDirectVersionBrowser(
                 while (true) {
                     if (backgroundWorkBlocked()) break
                     val pending =
-                        currentVideoPagePool()
+                        videoPreparationPool()
                             .firstOrNull { seed ->
                                 !isHiddenForCurrentCover(seed) &&
                                     seed.releaseId > 0 &&
@@ -1608,44 +1613,40 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
-    fun moveToResultPage(targetPage: Int) {
-        if (mode != DiscogsDirectMode.COVER) return
-        val poolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
-        val pageCount = if (poolSize == 0) 0 else (poolSize + pageSize - 1) / pageSize
-        if (targetPage !in 0 until pageCount) return
-        resultPageIndex = targetPage
-        session.resultPageIndex = targetPage
-        verificationJob?.cancel()
-        videoPreloadJob?.cancel()
-        scope.launch { listState.scrollToItem(0) }
-        scheduleDiscogsVerification()
-        scheduleVideoPreload()
-    }
-
     fun loadNextPage() {
         val criteria = activeCriteria ?: return
         if (loading || loadingMore) return
 
         if (mode == DiscogsDirectMode.COVER) {
             val poolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
-            val pageCount = if (poolSize == 0) 0 else (poolSize + pageSize - 1) / pageSize
-            if (resultPageIndex + 1 < pageCount) {
-                moveToResultPage(resultPageIndex + 1)
+            val target = visibleLimit + pageSize
+            if (poolSize >= target) {
+                visibleLimit = target
+                session.visibleLimit = visibleLimit
+                verificationJob?.cancel()
+                videoPreloadJob?.cancel()
+                scheduleDiscogsVerification()
+                scheduleVideoPreload()
                 return
             }
-            if (backgroundWorkBlocked() || currentPage <= 0 || currentPage >= totalPages) return
 
+            if (backgroundWorkBlocked() || currentPage <= 0 || currentPage >= totalPages) return
             loadingMore = true
             paginationError = null
             paginationJob?.cancel()
             paginationJob =
                 scope.launch {
                     try {
-                        val oldPoolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
                         val loaded = loadPage(criteria, currentPage + 1, replace = false)
                         if (loaded) {
-                            val newPoolSize = orderedResults(results).count { !isHiddenForCurrentCover(it) }
-                            if (newPoolSize > oldPoolSize) moveToResultPage(resultPageIndex + 1)
+                            visibleLimit = (visibleLimit + pageSize).coerceAtMost(
+                                orderedResults(results).count { !isHiddenForCurrentCover(it) },
+                            )
+                            session.visibleLimit = visibleLimit
+                            verificationJob?.cancel()
+                            videoPreloadJob?.cancel()
+                            scheduleDiscogsVerification()
+                            scheduleVideoPreload()
                         }
                     } finally {
                         loadingMore = false
@@ -1694,12 +1695,6 @@ internal fun DiscogsDirectVersionBrowser(
                     loadingMore = false
                 }
             }
-    }
-
-    fun loadPreviousPage() {
-        if (mode == DiscogsDirectMode.COVER && resultPageIndex > 0) {
-            moveToResultPage(resultPageIndex - 1)
-        }
     }
 
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
@@ -1960,33 +1955,30 @@ internal fun DiscogsDirectVersionBrowser(
         } else {
             orderedPool
         }
-    val resultPageCount =
-        if (mode == DiscogsDirectMode.COVER && navigablePool.isNotEmpty()) {
-            (navigablePool.size + pageSize - 1) / pageSize
-        } else if (mode == DiscogsDirectMode.COVER) {
-            0
-        } else {
-            1
-        }
-    val safeResultPageIndex =
-        if (resultPageCount == 0) 0 else resultPageIndex.coerceIn(0, resultPageCount - 1)
-    val resultPageStart = safeResultPageIndex * pageSize
-    val resultPagePool =
+    val visibleMembershipPool =
         if (mode == DiscogsDirectMode.COVER) {
-            navigablePool.drop(resultPageStart).take(pageSize)
+            navigablePool.take(visibleLimit.coerceAtLeast(pageSize))
         } else {
             navigablePool
         }
-    // Cover cards still publish only with their resolved video thumbnail, but page
-    // membership comes from the full global score list, never from readiness.
+    val nextBlockPool =
+        if (mode == DiscogsDirectMode.COVER) {
+            navigablePool
+                .drop(visibleLimit.coerceAtLeast(pageSize))
+                .take(pageSize)
+        } else {
+            emptyList()
+        }
     val readyPool =
         if (mode == DiscogsDirectMode.COVER) {
-            resultPagePool.filter { !it.resolvedVideoId.isNullOrBlank() }
+            visibleMembershipPool.filter { !it.resolvedVideoId.isNullOrBlank() }
         } else {
-            resultPagePool
+            visibleMembershipPool
         }
     val visibleResults =
         if (mode == DiscogsDirectMode.COVER) readyPool else readyPool.take(visibleLimit)
+    val nextBlockReady =
+        nextBlockPool.count { !it.resolvedVideoId.isNullOrBlank() }
 
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -1994,17 +1986,6 @@ internal fun DiscogsDirectVersionBrowser(
         }.collectLatest { (index, offset) ->
             session.listIndex = index
             session.listOffset = offset
-        }
-    }
-
-    LaunchedEffect(resultPageCount, category) {
-        if (mode == DiscogsDirectMode.COVER) {
-            val clamped = if (resultPageCount == 0) 0 else resultPageIndex.coerceIn(0, resultPageCount - 1)
-            if (clamped != resultPageIndex) {
-                resultPageIndex = clamped
-                session.resultPageIndex = clamped
-                scope.launch { listState.scrollToItem(0) }
-            }
         }
     }
 
@@ -2206,20 +2187,24 @@ internal fun DiscogsDirectVersionBrowser(
 
                 if (activeCriteria != null && (currentPage > 0 || results.isNotEmpty())) {
                     if (mode == DiscogsDirectMode.COVER) {
-                        val firstNumber = if (resultPagePool.isEmpty()) 0 else resultPageStart + 1
-                        val lastNumber = resultPageStart + resultPagePool.size
                         Text(
                             text =
                                 "Risultati raccolti: ${navigablePool.size} · " +
-                                    "Pagina ${safeResultPageIndex + 1}/${resultPageCount.coerceAtLeast(1)} · " +
-                                    "Risultati $firstNumber–$lastNumber",
+                                    "Mostrati: ${visibleMembershipPool.size}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
                         )
-                        if (readyPool.size < resultPagePool.size) {
+                        if (readyPool.size < visibleMembershipPool.size) {
                             Text(
-                                "Preparo i video della pagina: ${readyPool.size}/${resultPagePool.size} pronti",
+                                "Preparo i video visibili: ${readyPool.size}/${visibleMembershipPool.size} pronti",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (nextBlockPool.isNotEmpty()) {
+                            Text(
+                                "Prossimi ${nextBlockPool.size} in background: $nextBlockReady/${nextBlockPool.size} pronti",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -2291,10 +2276,10 @@ internal fun DiscogsDirectVersionBrowser(
             } else if (
                 mode == DiscogsDirectMode.COVER &&
                 activeCriteria != null &&
-                resultPagePool.isNotEmpty() &&
+                visibleMembershipPool.isNotEmpty() &&
                 visibleResults.isEmpty()
             ) {
-                item(key = "discogs_direct_preparing_${safeResultPageIndex}") {
+                item(key = "discogs_direct_preparing_cover") {
                     Text(
                         "Preparo i video di questa pagina mentre continui ad ascoltare la musica…",
                         style = MaterialTheme.typography.bodyMedium,
@@ -2324,8 +2309,15 @@ internal fun DiscogsDirectVersionBrowser(
                 )
             }
 
-            if (mode == DiscogsDirectMode.COVER && activeCriteria != null && resultPageCount > 0) {
-                item(key = "discogs_direct_cover_pager_${safeResultPageIndex}") {
+            if (
+                mode == DiscogsDirectMode.COVER &&
+                activeCriteria != null &&
+                (
+                    navigablePool.size > visibleLimit ||
+                        (currentPage > 0 && currentPage < totalPages)
+                    )
+            ) {
+                item(key = "discogs_direct_cover_more_${visibleLimit}") {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2337,33 +2329,11 @@ internal fun DiscogsDirectVersionBrowser(
                             )
                             Spacer(Modifier.height(6.dp))
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                        Button(
+                            onClick = ::loadNextPage,
+                            enabled = !loadingMore,
                         ) {
-                            TextButton(
-                                onClick = ::loadPreviousPage,
-                                enabled = safeResultPageIndex > 0 && !loadingMore,
-                            ) {
-                                Text("‹ Precedenti")
-                            }
-                            Text(
-                                "Pagina ${safeResultPageIndex + 1}/$resultPageCount",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            TextButton(
-                                onClick = ::loadNextPage,
-                                enabled =
-                                    !loadingMore &&
-                                        (
-                                            safeResultPageIndex + 1 < resultPageCount ||
-                                                (currentPage > 0 && currentPage < totalPages)
-                                        ),
-                            ) {
-                                Text("Successivi ›")
-                            }
+                            Text("Carica altri $pageSize")
                         }
                         paginationError?.let {
                             Text(
