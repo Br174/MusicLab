@@ -19,16 +19,16 @@ test('LAB52 Cover publishes ten video-ready rows per page without changing Origi
   assert.match(browser, /DIRECT_COVER_PAGE_SIZE = 10/);
   assert.match(browser, /DIRECT_VERSION_PAGE_SIZE = 20/);
   assert.match(browser, /pageSize = if \(mode == DiscogsDirectMode\.COVER\) DIRECT_COVER_PAGE_SIZE else DIRECT_VERSION_PAGE_SIZE/);
-  assert.match(browser, /navigablePool\.drop\(resultPageStart\)\.take\(pageSize\)/);
-  assert.match(browser, /resultPagePool\.filter \{ !it\.resolvedVideoId\.isNullOrBlank\(\) \}/);
+  assert.match(browser, /visibleMembershipPool[\s\S]*navigablePool\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
+  assert.match(browser, /visibleMembershipPool\.filter \{ !it\.resolvedVideoId\.isNullOrBlank\(\) \}/);
   assert.match(browser, /if \(mode == DiscogsDirectMode\.COVER\) readyPool else readyPool\.take\(visibleLimit\)/);
 });
 
 test('LAB52 prepares video candidates by evidence score from 20 down to 1', () => {
   assert.match(browser, /fun videoPriorityPool/);
   assert.match(browser, /compareByDescending<DiscogsVersionSeed> \{ it\.confidenceScore \}/);
-  assert.match(browser, /val missingReady = \(targetReady - currentPageReadyVideoCount\(\)\)/);
-  assert.match(browser, /Preparo i video della pagina: \$\{readyPool\.size\}\/\$\{resultPagePool\.size\} pronti/);
+  assert.match(browser, /val missingReady = \(targetReady - preparationReadyVideoCount\(\)\)/);
+  assert.match(browser, /Preparo i video visibili: \$\{readyPool\.size\}\/\$\{visibleMembershipPool\.size\} pronti/);
 });
 
 test('LAB52 uses a wider source fetch so failed videos do not prevent a ten-video page', () => {
