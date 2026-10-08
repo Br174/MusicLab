@@ -84,7 +84,7 @@ test('LAB57 stops Cover-owned work on exit and lowers audio quality only while C
 });
 
 test('LAB57 keeps Cover cards at fixed height while full metadata stays in Details', () => {
-  assert.match(browser, /\.height\(if \(showVideoPreview\) 184\.dp else 104\.dp\)/);
+  assert.match(browser, /\.then\(if \(showVideoPreview\) Modifier\.height\(184\.dp\) else Modifier\)/);
   assert.match(browser, /Text\("Data pubblicazione: \$publicationDate"\)/);
   assert.match(browser, /Text\("Autore: \$authors"\)/);
   assert.match(browser, /Text\("Compositore: \$composers"\)/);
