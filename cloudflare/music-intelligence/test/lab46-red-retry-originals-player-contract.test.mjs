@@ -36,11 +36,11 @@ test('Originali fixes performer to the resolved original artist and reuses work 
   assert.match(browser, /mode == DiscogsDirectMode\.COVER && explicitArtistHint\.isNullOrBlank\(\)/);
 });
 
-test('approved LAB41 Player buono fast lane is preserved', () => {
-  assert.match(player, /LAB07_FAST_LANE_TIMEOUT_MS = 1_800L/);
-  assert.match(player, /fastExtractor\.extract/);
-  assert.match(player, /fastStream \?: requireNotNull/);
-  assert.match(player, /usesWebView = false/);
+test('LAB62 removes LAB41 alternate extraction lane and uses Meld resolver', () => {
+  assert.doesNotMatch(player, /LAB07_FAST_LANE_TIMEOUT_MS/);
+  assert.doesNotMatch(player, /fastExtractor\.extract/);
+  assert.doesNotMatch(player, /fastStream \?: requireNotNull/);
+  assert.doesNotMatch(player, /usesWebView = false/);
 });
 
 test('active LAB revision stays in update family 01', () => {
