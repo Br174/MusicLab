@@ -10,9 +10,9 @@ const browser = read('app/src/main/kotlin/com/metrolist/music/ui/component/Disco
 const archive = read('app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabArchiveScreen.kt');
 const player = read('app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt');
 
-test('LAB49 preserves the LAB41 Player buono core', () => {
-  assert.match(player, /LAB07_FAST_LANE_TIMEOUT_MS = 1_800L/);
-  assert.match(player, /tokenProvider = fastTokenProvider/);
+test('LAB62 retains Qos guards but uses upstream Meld extractor', () => {
+  assert.doesNotMatch(player, /LAB07_FAST_LANE_TIMEOUT_MS/);
+  assert.doesNotMatch(player, /tokenProvider = fastTokenProvider/);
   assert.match(player, /tokenProvider = tokenProvider/);
 });
 
