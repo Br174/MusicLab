@@ -707,14 +707,10 @@ class MusicService :
         super.onCreate()
         isRunning = true
 
-        // LAB48: restore the device-approved LAB41 startup behavior exactly.
-        // Prepare only the local extraction runtime; never prewarm the modern
-        // resolver/WebView/PoToken path in the background.
+        // LAB62 Pollicino: Meld upstream playback experiment.
+        // The upstream resolver has no LAB41 lightweight prepare() path.
+        // Initialize lazily, as in Meld; do not launch a competing WebView prewarm.
         InnerTubeXPlayer.initialize(this)
-        scope.launch(Dispatchers.IO + SilentHandler) {
-            runCatching { InnerTubeXPlayer.prepare() }
-                .onFailure { Timber.tag(TAG).d(it, "LAB48 lightweight stream runtime prepare skipped") }
-        }
         shutdownDeferred = kotlinx.coroutines.CompletableDeferred<Unit>()
 
         setListener(
