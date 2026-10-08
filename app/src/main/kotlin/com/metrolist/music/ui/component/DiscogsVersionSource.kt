@@ -81,6 +81,7 @@ internal data class DiscogsVersionSeed(
     val discogsVerificationChecked: Boolean = false,
     val manuallyApproved: Boolean = false,
     val originalWorkReference: Boolean = false,
+    val workRelationConfirmed: Boolean = false,
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
@@ -1143,6 +1144,7 @@ internal object DiscogsVersionSource {
             sourceUrl = candidate.sourceUrl,
             discogsVerificationChecked = true,
             originalWorkReference = artistIsOriginal,
+            workRelationConfirmed = candidate.workRelationConfirmed,
         )
     }
 
@@ -1191,6 +1193,8 @@ internal object DiscogsVersionSource {
         val other = if (base === existing) incoming else existing
         val mergedOriginalReference =
             existing.originalWorkReference || incoming.originalWorkReference
+        val mergedWorkRelation =
+            existing.workRelationConfirmed || incoming.workRelationConfirmed
         val mergedScore =
             (
                 maxOf(existing.confidenceScore, incoming.confidenceScore) +
@@ -1229,14 +1233,15 @@ internal object DiscogsVersionSource {
                 existing.discogsVerificationChecked || incoming.discogsVerificationChecked,
             manuallyApproved = existing.manuallyApproved || incoming.manuallyApproved,
             originalWorkReference = mergedOriginalReference,
+            workRelationConfirmed = mergedWorkRelation,
         )
     }
 
-    internal fun applySharedWorkCreditEvidence(
+    internal fun sharedWorkCreditNames(
         seed: DiscogsVersionSeed,
         originalCredits: List<DiscogsCredit>,
-    ): DiscogsVersionSeed {
-        if (originalCredits.isEmpty() || seed.credits.isEmpty()) return seed
+    ): Set<String> {
+        if (originalCredits.isEmpty() || seed.credits.isEmpty()) return emptySet()
 
         fun relevant(credit: DiscogsCredit): Boolean =
             CREDIT_IDENTITY_REGEX.containsMatchIn(credit.role.lowercase())
@@ -1251,7 +1256,14 @@ internal object DiscogsVersionSource {
             .map { canonical(it.name) }
             .filter(String::isNotBlank)
             .toSet()
-        val shared = originalNames.intersect(candidateNames)
+        return originalNames.intersect(candidateNames)
+    }
+
+    internal fun applySharedWorkCreditEvidence(
+        seed: DiscogsVersionSeed,
+        originalCredits: List<DiscogsCredit>,
+    ): DiscogsVersionSeed {
+        val shared = sharedWorkCreditNames(seed, originalCredits)
         if (shared.isEmpty()) return seed
 
         return seed.copy(
@@ -1260,6 +1272,7 @@ internal object DiscogsVersionSource {
                 seed.confidenceReasons +
                     "Crediti dell'opera coincidenti: " + shared.joinToString(", ")
                 ).distinct(),
+            workRelationConfirmed = true,
         )
     }
 
