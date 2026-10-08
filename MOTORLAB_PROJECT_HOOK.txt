@@ -115,3 +115,5 @@ MOTORLAB_BUILD_FAST_LANE=required
 
 MOTORLAB_BUILD_MICRO_ACCELERATION=non_compiler_only
 MOTORLAB_KOTLIN_KSP_TUNING=explicit_approval_only
+
+MOTORLAB_KOTLIN_KSP_TUNING=forbidden_without_explicit_approval
