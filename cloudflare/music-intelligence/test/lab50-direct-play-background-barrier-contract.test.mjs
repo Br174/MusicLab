@@ -81,5 +81,6 @@ test('LAB59 automatic preload stops during playback, protecting audio from sourc
   assert.match(verification, /if \(backgroundWorkBlocked\(\)\) break/);
 
   const pagination = functionSlice('fun loadNextPage()', 'fun retryMissingVideo(');
-  assert.match(pagination, /if \(backgroundWorkBlocked\(\) \|\| currentPage <= 0 \|\| currentPage >= totalPages\) return/);
+  // LAB60: user paging must work even while audio is buffering; preload remains guarded.
+  assert.doesNotMatch(pagination, /if \(backgroundWorkBlocked\(\) \|\| currentPage <= 0/);
 });
