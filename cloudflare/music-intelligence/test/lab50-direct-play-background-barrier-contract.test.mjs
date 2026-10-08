@@ -25,9 +25,9 @@ test('LAB59 verified video goes direct to native Player without duplicate prefli
     'suspend fun loadPage(',
   );
   assert.match(playResolved, /val selectedSong = session\.preparedVideoSongs\[selectedId\]/);
-  assert.match(playResolved, /withTimeoutOrNull\(900L\)/);
+  assert.doesNotMatch(playResolved, /withTimeoutOrNull\(900L\)/);
   assert.doesNotMatch(playResolved, /needsDirectStreamProbe/);
-  assert.match(playResolved, /YouTube\.queue\(videoIds = listOf\(selectedId\)\)/);
+  assert.doesNotMatch(playResolved, /YouTube\.queue\(videoIds = listOf\(selectedId\)\)/);
   assert.doesNotMatch(playResolved, /connection\.service\.getStreamUrl\(selectedId\)/);
   assert.match(playResolved, /selectedSong\?\.toMediaItem\(\)/);
   assert.match(playResolved, /MediaMetadata\(/);
