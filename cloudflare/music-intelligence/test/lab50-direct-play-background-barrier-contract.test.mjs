@@ -13,9 +13,9 @@ function functionSlice(startMarker, endMarker) {
   return browser.slice(start, end);
 }
 
-test('LAB50 keeps the LAB41 Player buono core untouched', () => {
-  assert.match(player, /LAB07_FAST_LANE_TIMEOUT_MS = 1_800L/);
-  assert.match(player, /tokenProvider = fastTokenProvider/);
+test('LAB62 retains PlayerConnection behavior with upstream Meld extractor', () => {
+  assert.doesNotMatch(player, /LAB07_FAST_LANE_TIMEOUT_MS/);
+  assert.doesNotMatch(player, /tokenProvider = fastTokenProvider/);
   assert.match(player, /tokenProvider = tokenProvider/);
 });
 
