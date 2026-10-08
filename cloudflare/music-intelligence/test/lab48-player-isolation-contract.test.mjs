@@ -38,7 +38,7 @@ test('tapped Cover row receives playback priority before any resolver work', () 
 });
 
 test('tapped Cover row resolver is bounded and background work stays paused', () => {
-  assert.match(browser, /DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 2_500L/);
+  assert.match(browser, /DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 3_000L/);
   const start = browser.indexOf('fun play(seed: DiscogsVersionSeed)');
   const end = browser.indexOf('LaunchedEffect(', start);
   const play = browser.slice(start, end);
