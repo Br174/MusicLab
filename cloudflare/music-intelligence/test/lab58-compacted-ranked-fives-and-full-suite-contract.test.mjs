@@ -66,7 +66,8 @@ test('compaction example preserves scores and full ten-slot page across 5+5', ()
 test('LAB58 network timeout retry is bounded before candidate rejection', () => {
   assert.match(browser, /transientVideoRetries: MutableMap<String, Int>/);
   assert.match(browser, /if \(streamProbe == null\) transientTimeout = true/);
-  assert.match(browser, /if \(resolverProbe == null\) transientTimeout = true/);
+  assert.match(browser, /if \(resolved == null\) transientTimeout = true/);
+  assert.match(browser, /catch \(cancel: CancellationException\) \{\s*throw cancel/);
   assert.match(browser, /if \(transientTimeout && retries < 1\)/);
   assert.match(browser, /DiscogsVersionSource\.markVideoUnavailable\(latest\)/);
 });
