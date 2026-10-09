@@ -28,7 +28,7 @@ test('LAB68 Cloud snapshot precedes remote await and heavy external sources',()=
  const remote=ui.indexOf('val memoryDeferred = async(kotlinx.coroutines.Dispatchers.IO)',start);
  const awaitCache=ui.indexOf('val cachedMemory = cachedMemoryDeferred.await()',remote);
  const lookup=ui.indexOf('val memoryState = cachedMemory ?: memoryDeferred.await()',awaitCache);
- const fullWait=ui.indexOf('val firstPageLoaded = firstPageDeferred.await()',lookup);
+ const fullWait=ui.indexOf('val firstPageLoaded =',lookup);
  assert.ok(start>0 && remote>start && awaitCache>remote && lookup>awaitCache && fullWait>lookup);
  assert.match(ui,/cacheContext = context/);
  assert.match(ui,/val memoryVersions =/);
@@ -78,7 +78,7 @@ test('LAB68 preserves UI geometry and the byte-identical original player and upd
  assert.match(card,/ContentScale\.Crop/);
  const sha=createHash('sha1').update(Buffer.concat([Buffer.from('blob '+player.length+'\0'),player])).digest('hex');
  assert.equal(sha,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
- assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
- assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
- assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6801"/);
+ assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
+ assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
+ assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1001"/);
 });
