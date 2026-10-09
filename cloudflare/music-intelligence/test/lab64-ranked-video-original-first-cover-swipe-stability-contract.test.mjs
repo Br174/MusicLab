@@ -75,6 +75,6 @@ test('LAB64 keeps LAB63 stable artwork and exact upstream Meld resolver',()=>{
   ])).digest('hex');
   assert.equal(blob,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1002"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1003"/);
   assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
 });
