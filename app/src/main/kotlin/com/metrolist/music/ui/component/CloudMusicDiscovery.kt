@@ -1,6 +1,7 @@
 package com.metrolist.music.ui.component
 
 import android.content.Context
+import com.metrolist.music.BuildConfig
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -59,6 +60,11 @@ internal object CloudMusicDiscovery {
             .readTimeout(9, TimeUnit.SECONDS)
             .writeTimeout(4, TimeUnit.SECONDS)
             .build()
+
+    // Turbo is a separate experimental Android family. Network-backed Cloud
+    // memory/archive are read-only; never mutate the shared editorial D1 store.
+    internal val turboReadOnly: Boolean
+        get() = BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01"
 
     private val activeArchiveCalls = ConcurrentHashMap.newKeySet<okhttp3.Call>()
 
@@ -225,6 +231,7 @@ internal object CloudMusicDiscovery {
         config: GeminiCoverVerificationConfig,
         categoryOverride: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
+        if (turboReadOnly) return@withContext false
         val endpoint = config.cloudEndpoint.trim().trimEnd('/')
         if (endpoint.isBlank() || originalTitle.isBlank() || originalArtist.isBlank()) return@withContext false
 
@@ -297,6 +304,7 @@ internal object CloudMusicDiscovery {
         candidate: AiCoverCandidate,
         config: GeminiCoverVerificationConfig,
     ): Boolean = withContext(Dispatchers.IO) {
+        if (turboReadOnly) return@withContext false
         val endpoint = config.cloudEndpoint.trim().trimEnd('/')
         val playbackVideoId = candidate.playbackVideoId?.trim().orEmpty()
         if (
