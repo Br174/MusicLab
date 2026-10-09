@@ -59,7 +59,7 @@ test('LAB65 does not preload or listen to candidate audio and keeps Meld byte id
   const hash=createHash('sha1').update(Buffer.concat([Buffer.from('blob '+buffer.length+'\0'),buffer])).digest('hex');
   assert.equal(hash,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1001"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1002"/);
   assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
 });
 test('LAB65 manual page action appears after published 10; swipe navigates only validated IDs',()=>{
