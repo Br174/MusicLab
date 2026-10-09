@@ -59,6 +59,7 @@ import coil3.size.Size
 import androidx.media3.common.Player
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
+import com.metrolist.music.BuildConfig
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.DEFAULT_MUSIC_AI_CLOUD_ENDPOINT
@@ -91,6 +92,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 
 private const val DIRECT_VERSION_PAGE_SIZE = 20
+// Experimental family 02: bounded burst, never affect regular LAB68.
+private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
+private const val TURBO_RESULT_QUOTA = 50
+private const val TURBO_MAX_RANK_CANDIDATES = 100
+private const val TURBO_BURST_DEADLINE_MS = 24_000L
+private const val TURBO_ARCHIVE_TIMEOUT_MS = 4_500L
+private const val TURBO_COVER_ORIGINAL_GATE_MS = 900L
 private const val DIRECT_COVER_PAGE_SIZE = 10
 private const val DIRECT_VERSION_SOURCE_FETCH_SIZE = 30
 private const val DIRECT_VERSION_PREFETCH_DISTANCE = 2
@@ -205,6 +213,9 @@ private data class DirectVersionSession(
     var originalSectionFrozen: Boolean = false,
     var originalGateStartedAtMs: Long = 0L,
     var coverBatchStartedAtMs: Long = 0L,
+    var turboFinished: Boolean = false,
+    var turboBurstStartedAtMs: Long = 0L,
+    var turboArchiveMatches: Int = 0,
     val rejectedKeys: MutableSet<String> = linkedSetOf(),
     val approvedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
@@ -248,6 +259,7 @@ internal fun DiscogsDirectVersionBrowser(
     navController: NavHostController,
 ) {
     val context = LocalContext.current
+    val isTurbo = BuildConfig.APPLICATION_ID == TURBO_PACKAGE
     val playerConnection = LocalPlayerConnection.current
     val discogsToken by rememberPreference(DiscogsTokenKey, "")
     val aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
@@ -1173,6 +1185,7 @@ internal fun DiscogsDirectVersionBrowser(
             (session.automaticVideoAttempts[seed.fingerprint] ?: 0) >= autoVideoAttemptBudget(seed)
 
     fun videoPreparationPool(): List<DiscogsVersionSeed> {
+        if (isTurbo && session.turboFinished) return emptyList()
         if (mode != DiscogsDirectMode.COVER) {
             return orderedResults(results).take(visibleLimit.coerceAtLeast(pageSize))
                 .filter(::needsAutomaticVideo)
@@ -1187,8 +1200,9 @@ internal fun DiscogsDirectVersionBrowser(
         // Exhaust their bounded attempts before spending effort on weaker rows.
         // An unplayable 19/20 cannot silently be overtaken by a ready 2/20.
         return coverCandidatePool()
+            .take(if (isTurbo) TURBO_MAX_RANK_CANDIDATES else Int.MAX_VALUE)
             .filter(::needsAutomaticVideo)
-            .take(DIRECT_VIDEO_BATCH_SIZE)
+            .take(if (isTurbo) TURBO_RESULT_QUOTA else DIRECT_VIDEO_BATCH_SIZE)
     }
 
     fun preparationReadyVideoCount(): Int =
@@ -1210,7 +1224,8 @@ internal fun DiscogsDirectVersionBrowser(
         if (!originalSectionFrozen) {
             val candidates = originalCandidatePool().take(DIRECT_ORIGINAL_PRIORITY_COUNT)
             val elapsed = SystemClock.elapsedRealtime() - session.originalGateStartedAtMs
-            if (!candidates.all(::videoAttemptSettled) && elapsed < DIRECT_ORIGINAL_FIRST_GATE_MS) return
+            val gateMs = if (isTurbo) TURBO_COVER_ORIGINAL_GATE_MS else DIRECT_ORIGINAL_FIRST_GATE_MS
+            if (!candidates.all(::videoAttemptSettled) && elapsed < gateMs) return
 
             // Seal originals BEFORE any cover row appears: never insert a
             // late original above a visible Cover row.
@@ -1223,8 +1238,9 @@ internal fun DiscogsDirectVersionBrowser(
             }
         }
 
-        while (publishedCoverSnapshots.size < visibleLimit) {
-            val slots = minOf(DIRECT_VIDEO_BATCH_SIZE, visibleLimit - publishedCoverSnapshots.size)
+        val publicationTarget = if (isTurbo) TURBO_RESULT_QUOTA else visibleLimit
+        while (publishedCoverSnapshots.size < publicationTarget) {
+            val slots = minOf(DIRECT_VIDEO_BATCH_SIZE, publicationTarget - publishedCoverSnapshots.size)
             val remaining = remainingCoverPool()
             if (remaining.isEmpty()) break
 
@@ -1274,7 +1290,7 @@ internal fun DiscogsDirectVersionBrowser(
             publishReadyBatches()
             return
         }
-        batch.chunked(DIRECT_VIDEO_PARALLELISM).forEach { chunk ->
+        batch.chunked(if (isTurbo && !playbackIsNormallyPlaying()) 4 else DIRECT_VIDEO_PARALLELISM).forEach { chunk ->
             chunk.forEach { seed ->
                 session.automaticVideoAttempts[seed.fingerprint] =
                     (session.automaticVideoAttempts[seed.fingerprint] ?: 0) + 1
@@ -1309,6 +1325,7 @@ internal fun DiscogsDirectVersionBrowser(
     fun backgroundWorkBlocked(): Boolean = backgroundPausedForPlayback || playbackIsCritical()
 
     fun scheduleDiscogsVerification() {
+        if (isTurbo && session.turboFinished) return
         if (verificationJob?.isActive == true) return
         if (backgroundWorkBlocked()) return
         // LAB61: avoid racing heavy Discogs details against video-ID discovery.
@@ -1361,6 +1378,7 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun scheduleVideoPreload() {
+        if (isTurbo && session.turboFinished) return
         if (videoPreloadJob?.isActive == true) return
         if (playerConnection == null) return
         // LAB65B: only lightweight video metadata validation may run while
@@ -1380,9 +1398,16 @@ internal fun DiscogsDirectVersionBrowser(
                 }
                 try {
                     if (backgroundWorkBlocked()) return@launch
+                    if (isTurbo && session.turboBurstStartedAtMs == 0L) {
+                        session.turboBurstStartedAtMs = SystemClock.elapsedRealtime()
+                    }
                     // LAB60: do not warm unselected media metadata or streams.
 
                     while (true) {
+                        if (isTurbo && (
+                            publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA ||
+                            SystemClock.elapsedRealtime() - session.turboBurstStartedAtMs >= TURBO_BURST_DEADLINE_MS
+                        )) break
                         if (backgroundWorkBlocked() ||
                             (mode != DiscogsDirectMode.COVER && playbackIsNormallyPlaying())) break
                         val workWindow = videoPreparationPool()
@@ -1396,6 +1421,8 @@ internal fun DiscogsDirectVersionBrowser(
                             limit =
                                 if (playbackIsNormallyPlaying()) {
                                     DIRECT_COVER_PLAYBACK_BATCH_SIZE
+                                } else if (isTurbo) {
+                                    4
                                 } else {
                                     DIRECT_VIDEO_PARALLELISM
                                 },
@@ -1418,6 +1445,14 @@ internal fun DiscogsDirectVersionBrowser(
                     // LAB60: no whole-page playback pre-warming.
                     publishReadyBatches()
                 } finally {
+                    if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                        session.turboFinished = true
+                        verificationJob?.cancel()
+                        paginationJob?.cancel()
+                        searchJob?.cancel()
+                        CloudMusicDiscovery.cancelArchiveRequests()
+                        sourceDiscoveryLoading = false
+                    }
                     if (mode == DiscogsDirectMode.COVER) {
                         playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
                     }
@@ -1735,6 +1770,15 @@ internal fun DiscogsDirectVersionBrowser(
             return
         }
         val repeatSameWork = activeCriteria?.title?.equals(criteria.title, ignoreCase = true) == true
+        if (isTurbo && repeatSameWork && session.turboFinished) {
+            // Re-enter a completed 50-result burst without re-querying providers.
+            loading = false
+            sourceDiscoveryLoading = false
+            return
+        }
+        session.turboFinished = false
+        session.turboBurstStartedAtMs = 0L
+        session.turboArchiveMatches = 0
         val retainedResults = if (repeatSameWork) results else emptyList()
         val retainedOrder = if (repeatSameWork) session.stableOrder else emptyList()
         searchJob?.cancel()
@@ -2221,6 +2265,14 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun loadNextPage() {
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            if (visibleLimit < TURBO_RESULT_QUOTA &&
+                publishedCoverSnapshots.size > visibleLimit) {
+                visibleLimit = minOf(TURBO_RESULT_QUOTA, visibleLimit + pageSize)
+                session.visibleLimit = visibleLimit
+            }
+            return
+        }
         val criteria = activeCriteria ?: return
         if (loading || loadingMore) return
 
@@ -2625,6 +2677,7 @@ internal fun DiscogsDirectVersionBrowser(
         val criteria = activeCriteria ?: return@LaunchedEffect
         if (
             mode == DiscogsDirectMode.COVER &&
+            !isTurbo &&
             publishPool.size < visibleLimit + pageSize &&
             currentPage > 0 &&
             currentPage < totalPages &&
