@@ -54,6 +54,6 @@ test('LAB62 uses same Cover image slot: video thumbnail first, trusted temporary
 
 test('LAB62 preserves in-place install identity and increases update version', () => {
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1002"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1003"/);
   assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
 });
