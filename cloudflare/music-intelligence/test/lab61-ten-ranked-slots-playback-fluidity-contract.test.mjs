@@ -80,7 +80,7 @@ test('LAB61 diagnostics do not describe an unverified stream as play-ready', () 
 });
 
 test('LAB61 version 6101 updates family 01 without changing app identity', () => {
-  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6401"/);
+  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6501"/);
   assert.match(env, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
   assert.match(env, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
