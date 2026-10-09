@@ -856,7 +856,18 @@ internal object CoverDiscoverySources {
                             !seed.playbackVideoId.isNullOrBlank()
                     }
                     .map { seed -> toCoverInfoCandidate(seed, title) }
-                if (quickVideos.isNotEmpty()) onEarlyVideoCandidates(quickVideos)
+                if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
+                    // LAB03: retain all COVER.INFO first-page candidates even
+                    // if related-page expansion exceeds the provider budget.
+                    val partial = parseCoverInfoDocument(parsed)
+                        .filter { seed ->
+                            sameBaseTitle(title, seed.title) &&
+                                modeAcceptsArtist(mode, seed.artist, originalArtist)
+                        }.map { seed -> toCoverInfoCandidate(seed, title) }
+                    if (partial.isNotEmpty()) onEarlyVideoCandidates(partial)
+                } else if (quickVideos.isNotEmpty()) {
+                    onEarlyVideoCandidates(quickVideos)
+                }
             }
         }
 
