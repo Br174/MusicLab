@@ -97,7 +97,6 @@ private const val DIRECT_VIDEO_PARALLELISM = 2
 // LAB64 Pollicino: prioritize 10 originals, then the first 10 ranked covers.
 private const val DIRECT_ORIGINAL_PRIORITY_COUNT = 10
 private const val DIRECT_ORIGINAL_FIRST_GATE_MS = 7_600L
-private const val DIRECT_COVER_VERIFY_AHEAD = 30
 private const val DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS = 3_800L
 // LAB60 Pollicino: cap costly up-front Discogs details, keep discovered candidates.
 private const val DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12
@@ -1095,7 +1094,7 @@ internal fun DiscogsDirectVersionBrowser(
     fun hasPublishableVideo(seed: DiscogsVersionSeed): Boolean {
         val id = seed.resolvedVideoId?.trim().orEmpty()
         if (id.isBlank() || id in CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)) return false
-        return (id in session.playReadyVideoIds && session.preparedVideoSongs.containsKey(id)) ||
+        return id in session.playReadyVideoIds ||
             CoverPlaybackMemory.verifiedVideo(context, seed.fingerprint) == id
     }
 
@@ -1135,7 +1134,7 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun needsAutomaticVideo(seed: DiscogsVersionSeed): Boolean =
-        !hasPublishableVideo(seed) &&
+        !hasPublishableVideo(seed) && playableTrack(seed) != null &&
             (session.automaticVideoAttempts[seed.fingerprint] ?: 0) < autoVideoAttemptBudget(seed)
 
     fun videoAttemptSettled(seed: DiscogsVersionSeed): Boolean =
@@ -1157,7 +1156,6 @@ internal fun DiscogsDirectVersionBrowser(
         // Exhaust their bounded attempts before spending effort on weaker rows.
         // An unplayable 19/20 cannot silently be overtaken by a ready 2/20.
         return coverCandidatePool()
-            .take((visibleLimit + DIRECT_COVER_VERIFY_AHEAD).coerceAtMost(200))
             .filter(::needsAutomaticVideo)
             .take(DIRECT_VIDEO_BATCH_SIZE)
     }
@@ -2059,7 +2057,7 @@ internal fun DiscogsDirectVersionBrowser(
                 // LAB64: give the best originals the first lightweight video
                 // lookup before publishing Cover cards; bound total time so the
                 // page never waits for ten remote verifications.
-                withTimeoutOrNull(2_200L) { resolveNextVideoBatch(limit = DIRECT_VIDEO_PARALLELISM) }
+                withTimeoutOrNull(4_200L) { resolveNextVideoBatch(limit = DIRECT_VIDEO_PARALLELISM) }
                 publishReadyBatches()
             } else {
                 rebuildStableOrder()
