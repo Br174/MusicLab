@@ -97,6 +97,8 @@ private const val DIRECT_VIDEO_PARALLELISM = 2
 // LAB64 Pollicino: prioritize 10 originals, then the first 10 ranked covers.
 private const val DIRECT_ORIGINAL_PRIORITY_COUNT = 10
 private const val DIRECT_ORIGINAL_FIRST_GATE_MS = 7_600L
+// LAB65C: permit a verified partial group only after a bounded grace period.
+private const val DIRECT_COVER_PARTIAL_BATCH_GRACE_MS = 12_000L
 private const val DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS = 3_800L
 // LAB60 Pollicino: cap costly up-front Discogs details, keep discovered candidates.
 private const val DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12
@@ -192,6 +194,7 @@ private data class DirectVersionSession(
     var publishedCoverSnapshots: List<DiscogsVersionSeed> = emptyList(),
     var originalSectionFrozen: Boolean = false,
     var originalGateStartedAtMs: Long = 0L,
+    var coverBatchStartedAtMs: Long = 0L,
     val rejectedKeys: MutableSet<String> = linkedSetOf(),
     val approvedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
@@ -1187,6 +1190,9 @@ internal fun DiscogsDirectVersionBrowser(
             session.publishedOriginalSnapshots = publishedOriginalSnapshots
             originalSectionFrozen = true
             session.originalSectionFrozen = true
+            if (session.coverBatchStartedAtMs == 0L) {
+                session.coverBatchStartedAtMs = SystemClock.elapsedRealtime()
+            }
         }
 
         while (publishedCoverSnapshots.size < visibleLimit) {
@@ -1200,7 +1206,15 @@ internal fun DiscogsDirectVersionBrowser(
             val ready = settledPrefix.filter(::hasPublishableVideo)
             val sourceExhausted = remaining.all(::videoAttemptSettled) &&
                 !sourceDiscoveryLoading && (currentPage <= 0 || currentPage >= totalPages)
-            if (ready.size < slots && !sourceExhausted) break
+            // LAB65C: 220 pages of Discogs must never prevent already VERIFIED
+            // covers from appearing forever. Prefer groups of five; only at the
+            // bounded safety deadline publish a smaller committed group.
+            // takeWhile(videoAttemptSettled) still prevents 2/20 beating a
+            // pending higher-scored 19/20.
+            val graceElapsed = session.coverBatchStartedAtMs > 0L &&
+                SystemClock.elapsedRealtime() - session.coverBatchStartedAtMs >=
+                    DIRECT_COVER_PARTIAL_BATCH_GRACE_MS
+            if (ready.size < slots && !sourceExhausted && !graceElapsed) break
             val group = ready.take(slots)
             if (group.isEmpty()) break
 
@@ -1208,6 +1222,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.publishedCoverSnapshots = publishedCoverSnapshots
             publishedReadyLimit = publishedCoverSnapshots.size
             session.publishedReadyLimit = publishedReadyLimit
+            session.coverBatchStartedAtMs = SystemClock.elapsedRealtime()
         }
     }
 
@@ -1705,6 +1720,7 @@ internal fun DiscogsDirectVersionBrowser(
         publishedCoverSnapshots = emptyList()
         originalSectionFrozen = false
         session.originalGateStartedAtMs = 0L
+        session.coverBatchStartedAtMs = 0L
         CoverSwipeBridge.stop(sessionKey)
         if (mode == DiscogsDirectMode.COVER) {
             // LAB59: searching must not downgrade or compete with active audio.
@@ -1734,6 +1750,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.publishedCoverSnapshots = emptyList()
         session.originalSectionFrozen = false
         session.originalGateStartedAtMs = 0L
+        session.coverBatchStartedAtMs = 0L
         if (!repeatSameWork) {
             session.usedVideoIds.clear()
             session.knownVideoBindings.clear()
@@ -2350,6 +2367,18 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
+    // LAB65C: source pagination can contain hundreds of remote pages. A
+    // time-bound publisher retries the current verified prefix independently
+    // of provider completion, without ever admitting cards without video IDs.
+    LaunchedEffect(sessionKey, rankingFrozen, originalSectionFrozen, publishedCoverSnapshots.size, visibleLimit) {
+        if (mode != DiscogsDirectMode.COVER || !rankingFrozen || !originalSectionFrozen ||
+            publishedCoverSnapshots.size >= visibleLimit) return@LaunchedEffect
+        val remaining = (DIRECT_COVER_PARTIAL_BATCH_GRACE_MS -
+            (SystemClock.elapsedRealtime() - session.coverBatchStartedAtMs)).coerceAtLeast(0L)
+        delay(remaining)
+        publishReadyBatches()
+    }
+
     LaunchedEffect(visibleLimit, sourceDiagnostics, rankingFrozen, publishedReadyLimit) {
         session.visibleLimit = visibleLimit
         session.sourceDiagnostics = sourceDiagnostics
@@ -2594,6 +2623,7 @@ internal fun DiscogsDirectVersionBrowser(
                             originalSectionFrozen = false
                             session.originalSectionFrozen = false
                             session.originalGateStartedAtMs = 0L
+                            session.coverBatchStartedAtMs = 0L
                             resultPageIndex = 0
                             session.resultPageIndex = 0
                             verificationJob?.cancel()
