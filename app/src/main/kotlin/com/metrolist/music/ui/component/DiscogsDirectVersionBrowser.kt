@@ -1083,7 +1083,10 @@ internal fun DiscogsDirectVersionBrowser(
                         readyId in session.playReadyVideoIds &&
                         session.preparedVideoSongs.containsKey(readyId)
                     ) {
-                        persistCloudPlaybackBinding(updated)
+                        // LAB67: avoid serial remote cloud writes on video readiness.
+                        scope.launch(Dispatchers.IO) {
+                            persistCloudPlaybackBinding(updated)
+                        }
                     }
                 }
             }
@@ -1401,7 +1404,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     !hasPublishableVideo(seed)
                             }
                         if (readyAfter == readyBefore && !anyPending) break
-                        delay(if (playbackIsNormallyPlaying()) 450 else 120)
+                        // LAB67: keep audio-priority pacing without an extra
+                        // half-second gap between every ranked result.
+                        delay(if (playbackIsNormallyPlaying()) 150 else 40)
                     }
 
                     // LAB60: no whole-page playback pre-warming.
@@ -1528,9 +1533,15 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB63 Pollicino: lock the very first visible artwork per ranked recording.
     // It is not changed when video searches discover an alternative URL.
     fun stableArtworkFor(seed: DiscogsVersionSeed): String? {
+        // LAB67: video preview is taken from the verified video's ID,
+        // never a potentially unrelated Discogs album/release poster.
+        // Already-published Cover cards keep their video IDs immutable.
+        val videoId = seed.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
+        if (mode == DiscogsDirectMode.COVER && videoId != null) {
+            return "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+        }
         val candidate = seed.coverUrl?.takeIf(String::isNotBlank)
-            ?: seed.resolvedVideoId?.takeIf(String::isNotBlank)
-                ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+            ?: videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
         return CoverPlaybackMemory.stableArtwork(context, seed.fingerprint, candidate)
     }
 
@@ -2031,18 +2042,42 @@ internal fun DiscogsDirectVersionBrowser(
             if (mode == DiscogsDirectMode.COVER) {
                 val workTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
 
-                val discogsCredits =
-                    if (discogsToken.isNotBlank() && resolvedOriginalArtist.isNotBlank()) {
-                        withTimeoutOrNull(5_500L) {
-                            DiscogsVersionSource.loadOriginalWorkCredits(
-                                token = discogsToken,
-                                title = workTitle,
-                                originalArtist = resolvedOriginalArtist,
-                            )
-                        }.orEmpty()
-                    } else {
-                        emptyList()
+                // LAB67: run independent Discogs credits and initial detail
+                // verification concurrently, merging only on the UI lane.
+                val detailSeeds = if (discogsToken.isNotBlank()) {
+                    results.filter { seed ->
+                        seed.releaseId > 0 && !seed.discogsVerificationChecked
+                    }.take(DIRECT_COVER_INITIAL_DETAIL_BUDGET)
+                } else {
+                    emptyList()
+                }
+                val (discogsCredits, verifiedRankSeeds) = coroutineScope {
+                    val creditsDeferred = async(Dispatchers.IO) {
+                        if (discogsToken.isNotBlank() && resolvedOriginalArtist.isNotBlank()) {
+                            withTimeoutOrNull(5_500L) {
+                                DiscogsVersionSource.loadOriginalWorkCredits(
+                                    token = discogsToken,
+                                    title = workTitle,
+                                    originalArtist = resolvedOriginalArtist,
+                                )
+                            }.orEmpty()
+                        } else emptyList()
                     }
+                    val detailsDeferred = async(Dispatchers.IO) {
+                        if (detailSeeds.isNotEmpty()) {
+                            withTimeoutOrNull(4_500L) {
+                                DiscogsVersionSource.enrichSeedsForRanking(
+                                    token = discogsToken,
+                                    seeds = detailSeeds,
+                                    targetTitle = workTitle,
+                                    mode = mode,
+                                    originalArtist = resolvedOriginalArtist,
+                                )
+                            }.orEmpty()
+                        } else emptyList()
+                    }
+                    creditsDeferred.await() to detailsDeferred.await()
+                }
 
                 session.originalWorkCredits =
                     (external.workCredits + discogsCredits)
@@ -2054,20 +2089,8 @@ internal fun DiscogsDirectVersionBrowser(
                 // not 4,000 release-detail requests. Certify only a bounded
                 // up-front batch and preserve every other discovered candidate.
                 val rankingEnriched =
-                    if (discogsToken.isNotBlank()) {
-                        val detailSeeds = results.filter { seed ->
-                            seed.releaseId > 0 && !seed.discogsVerificationChecked
-                        }.take(DIRECT_COVER_INITIAL_DETAIL_BUDGET)
-                        val verified = withTimeoutOrNull(4_500L) {
-                            DiscogsVersionSource.enrichSeedsForRanking(
-                                token = discogsToken,
-                                seeds = detailSeeds,
-                                targetTitle = workTitle,
-                                mode = mode,
-                                originalArtist = resolvedOriginalArtist,
-                            )
-                        }.orEmpty()
-                        mergePage(results, verified, replace = false)
+                    if (verifiedRankSeeds.isNotEmpty()) {
+                        mergePage(results, verifiedRankSeeds, replace = false)
                     } else {
                         results
                     }
@@ -2109,7 +2132,7 @@ internal fun DiscogsDirectVersionBrowser(
                 // LAB64: give the best originals the first lightweight video
                 // lookup before publishing Cover cards; bound total time so the
                 // page never waits for ten remote verifications.
-                withTimeoutOrNull(4_200L) { resolveNextVideoBatch(limit = DIRECT_VIDEO_PARALLELISM) }
+                scheduleVideoPreload()
                 publishReadyBatches()
             } else {
                 rebuildStableOrder()
@@ -2847,7 +2870,9 @@ internal fun DiscogsDirectVersionBrowser(
                         DiscogsVersionCard(
                             seed = seed,
                             showVideoPreview = true,
-                            stableArtworkUrl = stableArtworkFor(seed),
+                            stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
+                                stableArtworkFor(seed)
+                            },
                             showConfidence = category == DirectVersionCategory.ALL,
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
@@ -2873,7 +2898,9 @@ internal fun DiscogsDirectVersionBrowser(
                         DiscogsVersionCard(
                             seed = seed,
                             showVideoPreview = true,
-                            stableArtworkUrl = stableArtworkFor(seed),
+                            stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
+                                stableArtworkFor(seed)
+                            },
                             showConfidence = category == DirectVersionCategory.ALL,
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
@@ -2891,7 +2918,9 @@ internal fun DiscogsDirectVersionBrowser(
                     DiscogsVersionCard(
                         seed = seed,
                         showVideoPreview = false,
-                        stableArtworkUrl = stableArtworkFor(seed),
+                        stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
+                                stableArtworkFor(seed)
+                            },
                         showConfidence = true,
                         selected = seed.fingerprint == selectedFingerprint,
                         resolving = seed.fingerprint == resolvingFingerprint,
