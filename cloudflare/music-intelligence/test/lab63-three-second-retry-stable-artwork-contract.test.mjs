@@ -27,7 +27,7 @@ test('LAB63 ranked thumbnails have one immutable image source even after video d
   assert.match(browser,/CoverPlaybackMemory\.stableArtwork\(context, seed\.fingerprint, candidate\)/);
   assert.match(browser,/stableArtworkUrl = stableArtworkFor\(seed\)/);
   const card = browser.slice(browser.indexOf('private fun DiscogsVersionCard('));
-  assert.match(card,/model = stableArtworkUrl/);
+  assert.match(card,/model = artworkRequest/);
   assert.doesNotMatch(card,/model = videoId\.takeIf/);
   assert.match(storage,/fun stableArtwork\(/);
 });
