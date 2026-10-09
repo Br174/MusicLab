@@ -46,12 +46,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.size.Size
 import androidx.media3.common.Player
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
@@ -74,6 +78,8 @@ import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -98,7 +104,11 @@ private const val DIRECT_VIDEO_PARALLELISM = 2
 private const val DIRECT_ORIGINAL_PRIORITY_COUNT = 10
 private const val DIRECT_ORIGINAL_FIRST_GATE_MS = 7_600L
 // LAB65C: permit a verified partial group only after a bounded grace period.
-private const val DIRECT_COVER_PARTIAL_BATCH_GRACE_MS = 12_000L
+// LAB66: never idle for 12s before showing already-verified ranked songs.
+private const val DIRECT_COVER_PARTIAL_BATCH_GRACE_MS = 2_800L
+// Fast first metadata pass, with full 3.8s retry budget retained for quality.
+private const val DIRECT_VIDEO_FIRST_PASS_TIMEOUT_MS = 2_400L
+private const val DIRECT_VIDEO_EXISTING_ID_TIMEOUT_MS = 1_400L
 private const val DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS = 3_800L
 // LAB60 Pollicino: cap costly up-front Discogs details, keep discovered candidates.
 private const val DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12
@@ -914,9 +924,12 @@ internal fun DiscogsDirectVersionBrowser(
             }
 
         session.results = results
+        // LAB66 Pollicino: a confirmed video URL does NOT change recording
+        // identity or any committed rank. Avoid O(n log n) ranking rebuilds
+        // and whole-screen Compose churn on every metadata-only update.
         if (!rankingFrozen && sortMode == DirectVersionSort.RELEVANCE && relevanceChanged) {
             rebuildStableOrder()
-        } else {
+        } else if (identityChanged || !rankingFrozen) {
             syncStableOrder()
         }
     }
@@ -985,8 +998,12 @@ internal fun DiscogsDirectVersionBrowser(
                     if (existingId.isNotBlank()) {
                         val existingSong =
                             session.preparedVideoSongs[existingId]
-                                ?: withTimeoutOrNull(2_200L) {
-                                    YouTube.queue(videoIds = listOf(existingId)).getOrNull()?.firstOrNull()
+                                ?: withTimeoutOrNull(DIRECT_VIDEO_EXISTING_ID_TIMEOUT_MS) {
+                                    // LAB66: metadata networking must never execute heavy
+                                    // provider work on Compose's UI dispatcher.
+                                    withContext(Dispatchers.IO) {
+                                        YouTube.queue(videoIds = listOf(existingId)).getOrNull()?.firstOrNull()
+                                    }
                                 }
                         if (existingSong == null) transientTimeout = true
                         verified = verifyCandidateSong(existingSong, current.resolvedVideoSource)
@@ -1006,14 +1023,16 @@ internal fun DiscogsDirectVersionBrowser(
                         val resolved =
                             withTimeoutOrNull(DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS) {
                                 try {
-                                    CompilationTrackResolver.resolveTrack(
-                                        track = track,
-                                        discogsVideos = current.videos,
-                                        fastFirst = true,
-                                        excludedVideoIds = excluded,
-                                        searchRound = CoverPlaybackMemory.nextSearchRound(context, current.fingerprint),
-                                        preferLive = current.kind == DiscogsVersionKind.LIVE,
-                                    )
+                                    withContext(Dispatchers.IO) {
+                                        CompilationTrackResolver.resolveTrack(
+                                            track = track,
+                                            discogsVideos = current.videos,
+                                            fastFirst = true,
+                                            excludedVideoIds = excluded,
+                                            searchRound = CoverPlaybackMemory.nextSearchRound(context, current.fingerprint),
+                                            preferLive = current.kind == DiscogsVersionKind.LIVE,
+                                        )
+                                    }
                                 } catch (cancel: CancellationException) {
                                     throw cancel
                                 } catch (_: Exception) {
@@ -1251,8 +1270,17 @@ internal fun DiscogsDirectVersionBrowser(
                 session.automaticVideoAttempts[seed.fingerprint] =
                     (session.automaticVideoAttempts[seed.fingerprint] ?: 0) + 1
             }
-            // A bounded metadata-only attempt; never preload media streams.
-            withTimeoutOrNull(DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS) {
+            // LAB66: try a short first pass. Higher-ranked recordings keep
+            // their original full timeout on subsequent rounds, preserving
+            // discovery breadth rather than merely dropping difficult videos.
+            // No audio stream is opened during either metadata pass.
+            val firstPass = chunk.all {
+                (session.automaticVideoAttempts[it.fingerprint] ?: 0) == 1
+            }
+            val budgetMs =
+                if (firstPass) DIRECT_VIDEO_FIRST_PASS_TIMEOUT_MS
+                else DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS
+            withTimeoutOrNull(budgetMs) {
                 resolveVideoChunk(chunk)
             }
         }
@@ -3206,6 +3234,22 @@ private fun DiscogsVersionCard(
     onRetryVideo: () -> Unit,
     onDetails: () -> Unit,
 ) {
+    // LAB66: keep the approved 144/76 dp card sizes, but decode only to
+    // the actual on-screen pixel size, not the full resolution of the source.
+    // Reuse the same Coil request as Compose recomposes other result rows.
+    val imageContext = LocalContext.current
+    val imagePixels = with(LocalDensity.current) {
+        (if (showVideoPreview) 144.dp else 76.dp).roundToPx()
+    }
+    val artworkRequest = remember(imageContext, stableArtworkUrl, imagePixels) {
+        ImageRequest.Builder(imageContext)
+            .data(stableArtworkUrl)
+            .size(Size(imagePixels, imagePixels))
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .networkCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
     Surface(
         modifier =
             Modifier
@@ -3231,7 +3275,7 @@ private fun DiscogsVersionCard(
                 // While video matching is pending, a verified release image
                 // temporarily fills the SAME slot; never create a second poster.
                 AsyncImage(
-                    model = stableArtworkUrl,
+                    model = artworkRequest,
                     contentDescription = seed.resolvedVideoTitle ?: "Anteprima versione musicale",
                     modifier =
                         Modifier
@@ -3241,7 +3285,7 @@ private fun DiscogsVersionCard(
                 )
             } else {
                 AsyncImage(
-                    model = stableArtworkUrl,
+                    model = artworkRequest,
                     contentDescription = null,
                     modifier = Modifier.size(76.dp),
                     contentScale = ContentScale.Crop,
