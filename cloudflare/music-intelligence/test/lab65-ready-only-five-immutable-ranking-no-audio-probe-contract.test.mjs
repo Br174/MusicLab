@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createHash} from 'node:crypto';
+const read=x=>fs.readFileSync(x,'utf8');
+const browser=read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt');
+const player=read('app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt');
+const env=read('uab-project.env');
+function part(a,b){const x=browser.indexOf(a),y=browser.indexOf(b,x+a.length);assert.ok(x>=0&&y>x,a+' missing');return browser.slice(x,y);}
+test('LAB65 publishes ONLY validated video IDs, not album covers or raw metadata IDs',()=>{
+  const verifier=part('fun hasPublishableVideo(seed:', 'fun originalCandidatePool():');
+  assert.match(verifier,/id in session\.playReadyVideoIds/);
+  assert.match(verifier,/CoverPlaybackMemory\.verifiedVideo\(context, seed\.fingerprint\) == id/);
+  assert.match(verifier,/CoverPlaybackMemory\.rejectedVideoIds/);
+  const ui=part('val visibleOriginalVersions =','val visibleResults =');
+  assert.match(ui,/publishedOriginalSnapshots/);
+  assert.match(ui,/publishedCoverSnapshots\.take\(visibleLimit\)/);
+  assert.doesNotMatch(ui,/remainder|currentById|shownOriginalIds|sortGroup/);
+});
+test('LAB65 original-first seal precedes immutable five-at-a-time cover publication',()=>{
+  const pub=part('suspend fun publishReadyBatches()', 'suspend fun resolveNextVideoBatch(');
+  assert.match(pub,/if \(!originalSectionFrozen\)/);
+  assert.match(pub,/publishedOriginalSnapshots = candidates\.filter\(::hasPublishableVideo\)/);
+  assert.match(pub,/originalSectionFrozen = true/);
+  assert.ok(pub.indexOf('originalSectionFrozen = true')<pub.indexOf('while (publishedCoverSnapshots.size < visibleLimit)'));
+  assert.match(pub,/val slots = minOf\(DIRECT_VIDEO_BATCH_SIZE, visibleLimit - publishedCoverSnapshots\.size\)/);
+  assert.match(pub,/val settledPrefix = remaining\.takeWhile\(::videoAttemptSettled\)/);
+  assert.match(pub,/val ready = settledPrefix\.filter\(::hasPublishableVideo\)/);
+  assert.match(pub,/if \(ready\.size < slots && !sourceExhausted\) break/);
+  assert.match(pub,/val group = ready\.take\(slots\)/);
+  assert.match(pub,/publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
+  assert.doesNotMatch(pub,/val group = pending\.take\(requested\)/);
+});
+test('LAB65 preserves 20-to-1 ranked order and replaces missing IDs before publishing',()=>{
+  const pool=part('fun coverCandidatePool():', 'fun remainingCoverPool():');
+  assert.match(pool,/val committed = publishedCoverSnapshots/);
+  assert.match(pool,/val pending = sortGroup\(candidates\.filterNot/);
+  assert.match(pool,/DirectVersionSort\.RELEVANCE/);
+  const pipeline=part('fun videoPreparationPool():','fun preparationReadyVideoCount():');
+  assert.match(pipeline,/originalCandidatePool\(\)\.take\(DIRECT_ORIGINAL_PRIORITY_COUNT\)/);
+  assert.match(pipeline,/coverCandidatePool\(\)/);
+  assert.match(pipeline,/filter\(::needsAutomaticVideo\)/);
+  assert.match(pipeline,/take\(DIRECT_VIDEO_BATCH_SIZE\)/);
+  const ordered=[{score:20,id:'20'}, {score:19,id:'19'}, {score:18,id:'18'}, {score:17,id:'17'}, {score:16,id:'16'}, {score:2,id:'2'}];
+  let attempts=new Map(),ready=new Set(['20','19','18','17','2']);
+  const budget=(s)=>s>=17?4:s>=10?3:2;
+  const settled=(x)=>ready.has(x.id)||(attempts.get(x.id)||0)>=budget(x.score);
+  const group=()=>ordered.slice(0,ordered.findIndex(x=>!settled(x))<0?ordered.length:ordered.findIndex(x=>!settled(x))).filter(x=>ready.has(x.id)).slice(0,5);
+  assert.deepEqual(group().map(x=>x.id), ['20','19','18','17']);
+  attempts.set('16',3);
+  assert.deepEqual(group().map(x=>x.id), ['20','19','18','17','2']);
+});
+test('LAB65 does not preload or listen to candidate audio and keeps Meld byte identical',()=>{
+  const pub=part('suspend fun publishReadyBatches()', 'suspend fun resolveNextVideoBatch(');
+  const lookup=part('suspend fun resolveVideoChunk(', 'fun videoPriorityPool(');
+  assert.doesNotMatch(pub+lookup,/getStreamUrl\(|ExoPlayer\.prepare\(|connection\.playQueue\(/);
+  assert.match(lookup,/CompilationTrackResolver\.isHardCompatible/);
+  const buffer=Buffer.from(player);
+  const hash=createHash('sha1').update(Buffer.concat([Buffer.from('blob '+buffer.length+'\0'),buffer])).digest('hex');
+  assert.equal(hash,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
+  assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6501"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
+});
+test('LAB65 manual page action appears after published 10; swipe navigates only validated IDs',()=>{
+  assert.match(browser,/publishedCoverSnapshots\.size >= visibleLimit && publishPool\.size > visibleLimit/);
+  const swipe=part('fun swipeCover(direction:', 'LaunchedEffect(');
+  assert.match(swipe,/filter\(::hasPublishableVideo\)/);
+  assert.match(browser,/DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 3_000L/);
+});
