@@ -989,6 +989,11 @@ internal fun DiscogsDirectVersionBrowser(
                         // alone obtains stream URLs when the user taps a result.
                         rememberPreparedVideoSong(candidate)
                         session.playReadyVideoIds += candidate.id
+                        // LAB68: this verdict is HARD-compatible metadata, not
+                        // an audio-stream probe. Reuse it for the same recording.
+                        CoverPlaybackMemory.saveMetadataVerifiedVideo(
+                            context, current.fingerprint, candidate.id,
+                        )
                         return candidate to (source ?: "MusicLab")
                     }
 
@@ -1120,7 +1125,8 @@ internal fun DiscogsDirectVersionBrowser(
         val id = seed.resolvedVideoId?.trim().orEmpty()
         if (id.isBlank() || id in CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)) return false
         return id in session.playReadyVideoIds ||
-            CoverPlaybackMemory.verifiedVideo(context, seed.fingerprint) == id
+            CoverPlaybackMemory.verifiedVideo(context, seed.fingerprint) == id ||
+            CoverPlaybackMemory.metadataVerifiedVideo(context, seed.fingerprint) == id
     }
 
     fun originalCandidatePool(): List<DiscogsVersionSeed> =
@@ -1814,6 +1820,19 @@ internal fun DiscogsDirectVersionBrowser(
                     requestedSort = requestedSort,
                 )
             }
+            // LAB68: a bounded on-disk snapshot can be read independently
+            // from a fresh Cloud refresh. Never gate already-vetted cards on HTTP.
+            val cachedMemoryDeferred = async(Dispatchers.IO) {
+                foreignScoutConfig?.let { config ->
+                    CloudMusicDiscovery.cachedMemoryState(
+                        context = context,
+                        title = criteria.title,
+                        artist = resolvedOriginalArtist,
+                        config = config,
+                        mode = if (mode == DiscogsDirectMode.ORIGINAL) "originals" else "cover",
+                    )
+                }
+            }
             val memoryDeferred = async(kotlinx.coroutines.Dispatchers.IO) {
                 foreignScoutConfig?.let { config ->
                     runCatching {
@@ -1823,6 +1842,7 @@ internal fun DiscogsDirectVersionBrowser(
                             config = config,
                             mode = if (mode == DiscogsDirectMode.ORIGINAL) "originals" else "cover",
                             limit = 150,
+                            cacheContext = context,
                         )
                     }.getOrNull()
                 }
@@ -1856,7 +1876,8 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                 }
 
-            val memoryState = memoryDeferred.await()
+            val cachedMemory = cachedMemoryDeferred.await()
+            val memoryState = cachedMemory ?: memoryDeferred.await()
 
             if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                 memoryState
@@ -1919,8 +1940,43 @@ internal fun DiscogsDirectVersionBrowser(
                         replace = false,
                     )
                 session.results = results
-                // LAB57: keep cloud candidates internal until metadata
-                // certification is complete and the rank is frozen.
+                // LAB68: a Cloud snapshot with previously HARD-compatible video
+                // IDs can be committed without waiting for Discogs, AI or
+                // COVER.INFO. Pending higher-ranked IDs still block lower ones.
+                // A cold/uncertified archive remains ranking-only until vetted.
+                if (mode == DiscogsDirectMode.COVER &&
+                    !rankingFrozen && results.any(::hasPublishableVideo)) {
+                    val anchor = TitleMeaningResolver.workAnchorTitle(criteria.title)
+                    val cloudYear = memoryState?.discovery?.original?.year
+                    val cloudSnapshot = results
+                    val certified = withContext(Dispatchers.Default) {
+                        cloudSnapshot.map { seed ->
+                            DiscogsVersionSource.certifyForFrozenRanking(
+                                seed = seed,
+                                targetTitle = anchor,
+                                originalArtist = resolvedOriginalArtist,
+                                originalYear = cloudYear,
+                                originalCredits = emptyList(),
+                            )
+                        }
+                    }
+                    if (activeCriteria == criteria && !rankingFrozen) {
+                        results = mergePage(results, certified, replace = false)
+                        session.results = results
+                        session.originalYear = cloudYear
+                        rebuildStableOrder()
+                        rankingFrozen = true
+                        session.rankingFrozen = true
+                        // An already-verified archive does not need the 7.6s
+                        // original gate nor the 2.8s partial-batch wait.
+                        session.originalGateStartedAtMs =
+                            SystemClock.elapsedRealtime() - DIRECT_ORIGINAL_FIRST_GATE_MS
+                        session.coverBatchStartedAtMs =
+                            SystemClock.elapsedRealtime() - DIRECT_COVER_PARTIAL_BATCH_GRACE_MS
+                        publishReadyBatches()
+                        scheduleVideoPreload()
+                    }
+                }
             }
             val memoryDiagnostic =
                 CoverSourceDiagnostic(
@@ -2122,16 +2178,18 @@ internal fun DiscogsDirectVersionBrowser(
                         )
                     }
                 session.results = results
-                rebuildStableOrder()
-
-                rankingFrozen = true
-                session.rankingFrozen = true
-                session.originalGateStartedAtMs = SystemClock.elapsedRealtime()
-                publishedReadyLimit = 0
-                session.publishedReadyLimit = 0
-                // LAB64: give the best originals the first lightweight video
-                // lookup before publishing Cover cards; bound total time so the
-                // page never waits for ten remote verifications.
+                // LAB68: never reset a committed Cloud-first list when the
+                // slower catalogs finish. Only uncommitted IDs may be appended.
+                if (rankingFrozen) {
+                    syncStableOrder()
+                } else {
+                    rebuildStableOrder()
+                    rankingFrozen = true
+                    session.rankingFrozen = true
+                    session.originalGateStartedAtMs = SystemClock.elapsedRealtime()
+                    publishedReadyLimit = 0
+                    session.publishedReadyLimit = 0
+                }
                 scheduleVideoPreload()
                 publishReadyBatches()
             } else {
@@ -2437,7 +2495,11 @@ internal fun DiscogsDirectVersionBrowser(
         session.publishedReadyLimit = publishedReadyLimit
     }
 
-    val orderedPool = orderedResults(results)
+    // LAB68: ignore unrelated player/animation recompositions when the
+    // ranking inputs did not change. No cached mutable UI state is duplicated.
+    val orderedPool = remember(results, session.stableOrder, resolvedOriginalArtist, sortMode, mode) {
+        orderedResults(results)
+    }
     val navigablePool =
         if (mode == DiscogsDirectMode.COVER) {
             orderedPool.filterNot(::isHiddenForCurrentCover)
