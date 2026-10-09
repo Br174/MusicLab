@@ -79,6 +79,6 @@ test('LAB64 keeps LAB63 stable artwork and exact upstream Meld resolver',()=>{
   ])).digest('hex');
   assert.equal(blob,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6401"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6501"/);
   assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
