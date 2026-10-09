@@ -1,5 +1,7 @@
 package com.metrolist.music.ui.component
 
+import android.content.Context
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -19,6 +21,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -59,8 +62,83 @@ internal object CloudMusicDiscovery {
 
     private val activeArchiveCalls = ConcurrentHashMap.newKeySet<okhttp3.Call>()
 
+    // LAB68 Pollicino: bounded on-disk Cloud snapshot, never an extra
+    // in-memory mirror of 150 full candidates. SharedPreferences I/O is IO-only.
+    private const val MEMORY_PREFS = "musiclab_lab68_cloud_snapshots"
+    private const val MEMORY_MAX_ENTRIES = 8
+    private const val MEMORY_MAX_JSON_CHARS = 900_000
+    private const val MEMORY_TTL_MS = 7L * 24 * 60 * 60 * 1000
     private val json = Json { ignoreUnknownKeys = true }
     private val mediaType = "application/json; charset=utf-8".toMediaType()
+
+    private fun snapshotKey(title: String, artist: String, mode: String, endpoint: String): String {
+        val identity = listOf(
+            title.trim().lowercase(), artist.trim().lowercase(),
+            mode.trim().lowercase(), endpoint.trim().trimEnd('/').lowercase(),
+        ).joinToString("|")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(identity.toByteArray(Charsets.UTF_8))
+        return digest.take(12).joinToString("") { "%02x".format(it) }
+    }
+
+    suspend fun cachedMemoryState(
+        context: Context,
+        title: String,
+        artist: String,
+        config: GeminiCoverVerificationConfig,
+        mode: String = "cover",
+    ): CloudMemoryState? = withContext(Dispatchers.IO) {
+        if (title.isBlank() || artist.isBlank() || !config.useCloudMemory) {
+            return@withContext null
+        }
+        val key = snapshotKey(title, artist, mode, config.cloudEndpoint)
+        val prefs = context.applicationContext.getSharedPreferences(MEMORY_PREFS, Context.MODE_PRIVATE)
+        val stamp = prefs.getLong("date_$key", 0L)
+        val age = System.currentTimeMillis() - stamp
+        if (stamp <= 0 || age < 0 || age >= MEMORY_TTL_MS) return@withContext null
+        val payload = prefs.getString("data_$key", null)
+            ?.takeIf { it.length <= MEMORY_MAX_JSON_CHARS } ?: return@withContext null
+        runCatching {
+            parseMemoryRoot(json.parseToJsonElement(payload).jsonObject)
+        }.getOrNull()
+    }
+
+    private fun storeMemorySnapshot(
+        context: Context,
+        title: String,
+        artist: String,
+        mode: String,
+        endpoint: String,
+        root: JsonObject,
+    ) {
+        val raw = root.toString()
+        if (raw.length > MEMORY_MAX_JSON_CHARS || parseCover(root) == null) return
+        val prefs = context.applicationContext.getSharedPreferences(MEMORY_PREFS, Context.MODE_PRIVATE)
+        val key = snapshotKey(title, artist, mode, endpoint)
+        val now = System.currentTimeMillis()
+        val existing = prefs.all.keys.filter { it.startsWith("date_") }
+            .map { it.removePrefix("date_") to prefs.getLong(it, 0L) }
+            .sortedByDescending { it.second }
+        val editor = prefs.edit()
+        // Keep the newest eight snapshots, never retain unbounded search history.
+        (existing.filter { it.first != key }.drop(MEMORY_MAX_ENTRIES - 1)).forEach {
+            editor.remove("data_${it.first}").remove("date_${it.first}")
+        }
+        editor.putString("data_$key", raw).putLong("date_$key", now).apply()
+    }
+
+    private fun parseMemoryRoot(root: JsonObject): CloudMemoryState {
+        val rejected = root["rejectedVersions"]
+            ?.runCatching { jsonArray }?.getOrNull()
+            ?.mapNotNull { element ->
+                val item = element.runCatching { jsonObject }.getOrNull() ?: return@mapNotNull null
+                val candidateTitle = item.string("title")
+                val candidateArtist = item.string("artist")
+                if (candidateTitle.isBlank() || candidateArtist.isBlank()) null
+                else memoryKey(candidateTitle, candidateArtist, item.string("category"))
+            }?.toSet().orEmpty()
+        return CloudMemoryState(discovery = parseCover(root), rejectedKeys = rejected)
+    }
 
     suspend fun discoverCover(
         title: String,
@@ -103,6 +181,7 @@ internal object CloudMusicDiscovery {
         config: GeminiCoverVerificationConfig,
         mode: String = "cover",
         limit: Int = 150,
+        cacheContext: Context? = null,
     ): CloudMemoryState? = withContext(Dispatchers.IO) {
         val endpoint = config.cloudEndpoint.trim().trimEnd('/')
         if (endpoint.isBlank() || title.isBlank() || artist.isBlank() || !config.useCloudMemory) {
@@ -131,28 +210,10 @@ internal object CloudMusicDiscovery {
             }
         }.getOrNull() ?: return@withContext null
 
-        val rejectedKeys =
-            root["rejectedVersions"]
-                ?.runCatching { jsonArray }
-                ?.getOrNull()
-                ?.mapNotNull { element ->
-                    val obj = element.runCatching { jsonObject }.getOrNull() ?: return@mapNotNull null
-                    val candidateTitle = obj.string("title")
-                    val candidateArtist = obj.string("artist")
-                    val category = obj.string("category")
-                    if (candidateTitle.isBlank() || candidateArtist.isBlank()) {
-                        null
-                    } else {
-                        memoryKey(candidateTitle, candidateArtist, category)
-                    }
-                }
-                ?.toSet()
-                .orEmpty()
-
-        CloudMemoryState(
-            discovery = parseCover(root),
-            rejectedKeys = rejectedKeys,
-        )
+        // LAB68: persist only successful Cloud results. The on-disk snapshot
+        // is used on the next search while this live response refreshes it.
+        cacheContext?.let { storeMemorySnapshot(it, title, artist, mode, endpoint, root) }
+        parseMemoryRoot(root)
     }
 
 
