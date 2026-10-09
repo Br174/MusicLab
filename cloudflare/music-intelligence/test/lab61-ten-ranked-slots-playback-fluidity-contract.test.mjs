@@ -24,16 +24,12 @@ test('LAB65 a rank can enter only after a valid video ID is present', () => {
   assert.ok(ranked.filter(x=>x.valid).every(x=>x.score>=19));
 });
 
-test('LAB61 snapshot refreshes the same ranked card when video ID arrives', () => {
-  const visible = section('val visibleTrueCovers =', 'val visibleResults =');
-  assert.match(visible, /val currentById = publishPool\.associateBy \{ it\.fingerprint \}/);
-  assert.match(visible, /publishedCoverSnapshots\.mapNotNull \{ currentById\[it\.fingerprint\] \}/);
-  assert.match(visible, /if \(sortMode == DirectVersionSort\.RELEVANCE\) page/);
-  assert.doesNotMatch(visible, /filter\(::hasVideoPreview\)/);
-  const card = browser.slice(browser.indexOf('private fun DiscogsVersionCard('));
-  assert.match(card, /model = stableArtworkUrl/);
-  assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
-  assert.doesNotMatch(card.slice(card.indexOf('if (showVideoPreview)'), card.indexOf('} else {', card.indexOf('if (showVideoPreview)'))), /seed\.coverUrl/);
+test('LAB65 visible cards are immutable approved snapshots', () => {
+  const visible = section('val visibleOriginalVersions =', 'val visibleResults =');
+  assert.match(visible, /publishedOriginalSnapshots/);
+  assert.match(visible, /publishedCoverSnapshots\.take\(visibleLimit\)/);
+  assert.doesNotMatch(visible, /remainder|currentById|shownOriginalIds/);
+  assert.match(browser, /model = stableArtworkUrl/);
 });
 
 test('LAB61 only discovers video IDs for visible Cover rows, regardless of publication state', () => {
