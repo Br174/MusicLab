@@ -101,6 +101,9 @@ internal object CoverDiscoverySources {
         aiConfig: GeminiCoverVerificationConfig?,
         onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
         maxNetworkFanOut: Int = 2,
+        // LAB03: source-complete callback remains useful when another provider
+        // reaches its deadline. No individual lane gates all other evidence.
+        onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
     ): CoverSourceOutcome = coroutineScope {
         val cleanTitle = title.trim()
         val cleanArtist = originalArtist.trim()
@@ -124,16 +127,23 @@ internal object CoverDiscoverySources {
         // LAB57: bounded fan-out. All sources still participate, but a Cover
         // search must not create an unbounded network/CPU burst beside playback.
         val sourceGate = Semaphore(maxNetworkFanOut.coerceIn(1, 3))
+        suspend fun reportResult(
+            lane: Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic>,
+            year: Int? = null,
+        ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+            onSourceCompleted(lane.first, lane.second, year)
+            return lane
+        }
         suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
 
         // LAB59: prioritize cover.info direct videos over auxiliary metadata.
         // Each lane still runs; slow services never gate early thumbnail emission.
         val coverInfo = async(Dispatchers.IO) {
-            val lane = sourceLane {
-                discoverCoverInfo(cleanTitle, cleanArtist, mode) { quick ->
-                    onEarlyVideoCandidates(quick)
-                }
-            }
+            // COVER.INFO is our lead source. It starts immediately and owns
+            // its own lane, independent from auxiliary provider semaphore.
+            val lane = reportResult(discoverCoverInfo(cleanTitle, cleanArtist, mode) { quick ->
+                onEarlyVideoCandidates(quick)
+            })
             onEarlyVideoCandidates(
                 lane.first.filter { candidate ->
                     !candidate.playbackVideoId.isNullOrBlank() &&
@@ -144,17 +154,28 @@ internal object CoverDiscoverySources {
         }
         val musicBrainzLookup =
             async(Dispatchers.IO) {
-                sourceLane {
+                val lookup = sourceLane {
                     runCatching { MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist) }
                         .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) }
                 }
+                reportResult(discoverMusicBrainz(cleanTitle, mode, lookup), lookup.work?.originalYear)
+                lookup
             }
-        val iTunes = async(Dispatchers.IO) { sourceLane { discoverITunes(cleanTitle, cleanArtist, mode) } }
-        val spotify = async(Dispatchers.IO) { sourceLane { discoverSpotify(cleanTitle, cleanArtist, mode) } }
+        val iTunes = async(Dispatchers.IO) {
+            reportResult(sourceLane { discoverITunes(cleanTitle, cleanArtist, mode) })
+        }
+        val spotify = async(Dispatchers.IO) {
+            reportResult(sourceLane { discoverSpotify(cleanTitle, cleanArtist, mode) })
+        }
         // LAB60 Pollicino: Last.fm is disabled for Cover/Originali discovery.
-        val lrcLib = async(Dispatchers.IO) { sourceLane { discoverLrcLib(cleanTitle, cleanArtist, mode) } }
+        val lrcLib = async(Dispatchers.IO) {
+            reportResult(sourceLane { discoverLrcLib(cleanTitle, cleanArtist, mode) })
+        }
         // LAB60 Pollicino: Wikidata (not Wikipedia pages) is disabled in discovery.
-        val ai = async(Dispatchers.IO) { sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) } }
+        val ai = async(Dispatchers.IO) {
+            // AI Scout stays read-only disabled on Turbo: no remote editorial writes.
+            reportResult(sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) })
+        }
 
         val resolvedMusicBrainz = musicBrainzLookup.await()
         val musicBrainz = discoverMusicBrainz(cleanTitle, mode, resolvedMusicBrainz)
