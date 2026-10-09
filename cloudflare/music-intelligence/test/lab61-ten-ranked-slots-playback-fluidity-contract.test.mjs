@@ -29,7 +29,7 @@ test('LAB65 visible cards are immutable approved snapshots', () => {
   assert.match(visible, /publishedOriginalSnapshots/);
   assert.match(visible, /publishedCoverSnapshots\.take\(visibleLimit\)/);
   assert.doesNotMatch(visible, /remainder|currentById|shownOriginalIds/);
-  assert.match(browser, /model = stableArtworkUrl/);
+  assert.match(browser, /model = artworkRequest/);
 });
 
 test('LAB65 lookup window is bounded to five prioritized candidates',()=> { assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE = 5/); });
