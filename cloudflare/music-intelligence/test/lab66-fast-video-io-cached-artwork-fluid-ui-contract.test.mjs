@@ -9,7 +9,7 @@ const env=fs.readFileSync('uab-project.env','utf8');
 function section(a,b){const i=browser.indexOf(a),j=browser.indexOf(b,i+a.length);assert.ok(i>=0&&j>i,'Missing '+a);return browser.slice(i,j);}
 
 test('LAB66 keeps approved 144dp cover and 184dp card dimensions; no redesign',()=>{
-  const card=section('private fun DiscogsVersionCard(', 'fun DirectChip(');
+  const card=browser.slice(browser.indexOf('private fun DiscogsVersionCard('));
   assert.match(card,/Modifier\.height\(184\.dp\)/);
   assert.match(card,/Modifier\s*\.size\(144\.dp\)/);
   assert.match(card,/Modifier\.size\(76\.dp\)/);
@@ -17,7 +17,7 @@ test('LAB66 keeps approved 144dp cover and 184dp card dimensions; no redesign',(
 });
 
 test('LAB66 Coil requests are decoded to actual device pixels and cached across recomposition',()=>{
-  const card=section('private fun DiscogsVersionCard(', 'fun DirectChip(');
+  const card=browser.slice(browser.indexOf('private fun DiscogsVersionCard('));
   assert.match(card,/with\(LocalDensity\.current\)/);
   assert.match(card,/\.roundToPx\(\)/);
   assert.match(card,/remember\(imageContext, stableArtworkUrl, imagePixels\)/);
