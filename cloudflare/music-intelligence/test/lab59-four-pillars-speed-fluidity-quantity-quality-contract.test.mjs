@@ -60,7 +60,7 @@ test('LAB59 cache: repeat searching same work preserves results and prepared vid
 });
 test('LAB59 installer updates LAB58 in place rather than replacing the family', () => {
   assert.match(env, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6501"/);
+  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6502"/);
   assert.match(env, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
 test('local comparison can reorder hundreds of results without network or re-ranking', () => {
