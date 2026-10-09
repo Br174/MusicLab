@@ -28,7 +28,7 @@ test('LAB65C partial group never violates previous rank and original-first displ
  assert.match(publication,/val settledPrefix = remaining\.takeWhile\(::videoAttemptSettled\)/);
  assert.match(publication,/val ready = settledPrefix\.filter\(::hasPublishableVideo\)/);
  assert.doesNotMatch(publication,/publishedCoverSnapshots = results/);
- assert.match(source,/publishedCoverSnapshots\.take\(visibleLimit\)/);
+ assert.match(source,/publishedCoverSnapshots\.filterNot\(::isHiddenForCurrentCover\)/);
 });
 
 test('LAB65C independent timer releases verified partial batches without waiting provider work',()=>{
