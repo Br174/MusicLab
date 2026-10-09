@@ -37,7 +37,7 @@ test('LAB57 resolves the musical Work before recording fallback and keeps work m
 });
 
 test('LAB57 bounds source fanout and prevents one service from self-awarding a top score', () => {
-  assert.match(sources, /val sourceGate = Semaphore\(3\)/);
+  assert.match(sources, /val sourceGate = Semaphore\(maxNetworkFanOut\.coerceIn\(1, 3\)\)/);
   assert.match(sources, /sourceGate\.withPermit/);
   assert.match(sources, /seed\.relationRole == CoverInfoRelationRole\.INITIAL -> 8/);
   assert.match(sources, /seed\.directRelation -> 7/);
