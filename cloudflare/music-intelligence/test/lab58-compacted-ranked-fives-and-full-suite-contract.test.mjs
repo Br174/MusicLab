@@ -32,14 +32,12 @@ test('LAB58 scores discovery before freezing, without reshuffling already publis
   assert.match(browser, /val appended = sortedPool\(results\)/);
 });
 
-test('LAB61 retains ten ranked candidates even if their video bindings are pending', () => {
-  assert.match(browser, /val committed = publishedCoverSnapshots\.mapTo/);
-  assert.match(browser, /return coverCandidatePool\(\)\.filterNot/);
-  assert.match(browser, /val pending = remainingCoverPool\(\)/);
-  assert.match(browser, /val group = pending\.take\(requested\)/);
-  assert.match(browser, /publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
-  assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE = 5/);
-  assert.match(browser, /DIRECT_COVER_PAGE_SIZE = 10/);
+test('LAB65 verifies video identities before committing five-song batches', () => {
+  const pub = browser.slice(browser.indexOf('suspend fun publishReadyBatches()'), browser.indexOf('suspend fun resolveNextVideoBatch('));
+  assert.match(pub, /val ready = settledPrefix/);
+  assert.match(pub, /val group = ready\.take\(slots\)/);
+  assert.match(pub, /publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
+  assert.doesNotMatch(pub, /val group = pending/);
 });
 
 test('LAB58 only enables another ten Cover slots when current ten have been published', () => {
