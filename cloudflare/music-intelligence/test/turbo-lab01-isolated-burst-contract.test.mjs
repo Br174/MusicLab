@@ -51,7 +51,7 @@ test('Turbo burst targets at most 50 ranked VIDEO recordings and preserves ten-r
   assert.ok(browser.includes('filter(::needsAutomaticVideo)'));
   assert.ok(browser.includes('filter(::hasPublishableVideo)'));
   assert.ok(browser.includes('publishedCoverSnapshots = publishedCoverSnapshots + group'));
-  assert.ok(browser.includes('publishedCoverSnapshots.take(visibleLimit)'));
+  assert.ok(browser.includes('publishedCoverSnapshots.filterNot(::isHiddenForCurrentCover)'));
 });
 
 test('Turbo bursts 4 metadata checks when idle but protects playback and never warms streams',()=>{
