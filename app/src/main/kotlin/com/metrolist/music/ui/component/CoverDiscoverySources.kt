@@ -1054,6 +1054,13 @@ internal object CoverDiscoverySources {
         mode: DiscogsDirectMode,
         config: GeminiCoverVerificationConfig?,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+        // Turbo reads existing Cloud archive and local evidence; the AI Scout
+        // endpoint can perform remote editorial writes and must stay disabled
+        // in the independently installed experimental family.
+        if (com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
+            return emptyList<CoverSourceCandidate>() to
+                CoverSourceDiagnostic("AI Scout", false, 0, "Turbo: Cloud editoriale in sola lettura")
+        }
         if (mode != DiscogsDirectMode.COVER || config == null) {
             return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
                 "AI Scout",
