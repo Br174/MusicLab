@@ -15,7 +15,7 @@ test('LAB53 Cover video thumbnail is large square and has no play overlay or pla
   const card = browser.slice(browser.indexOf('private fun DiscogsVersionCard'));
   assert.match(card, /showVideoPreview/);
   assert.match(card, /\.size\(144\.dp\)/);
-  assert.match(card, /model = stableArtworkUrl/);
+  assert.match(card, /model = artworkRequest/);
   assert.doesNotMatch(card, /Text\(\s*"▶"/);
   assert.doesNotMatch(card, /Tocca per riprodurre/);
   assert.match(card, /\.clickable\(onClick = onPlay\)/);
