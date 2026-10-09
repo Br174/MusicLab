@@ -61,7 +61,7 @@ test('LAB67 stable ordinal gate: no unverified previews; no score overtaking',()
 test('LAB67 keeps Meld player byte-identical and Android update identity stable',()=>{
   const blob=createHash('sha1').update(Buffer.concat([Buffer.from('blob '+player.length+'\0'),player])).digest('hex');
   assert.equal(blob,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
-  assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6801"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1001"/);
 });
