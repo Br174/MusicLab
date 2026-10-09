@@ -24,7 +24,7 @@ test('LAB65C partial group never violates previous rank and original-first displ
  const publication=section('suspend fun publishReadyBatches()', 'suspend fun resolveNextVideoBatch(');
  assert.match(publication,/if \(!originalSectionFrozen\)/);
  assert.match(publication,/publishedOriginalSnapshots = candidates\.filter\(::hasPublishableVideo\)/);
- assert.ok(publication.indexOf('originalSectionFrozen = true')<publication.indexOf('while (publishedCoverSnapshots.size < visibleLimit)'));
+ assert.ok(publication.indexOf('originalSectionFrozen = true')<publication.indexOf('while (publishedCoverSnapshots.size < publicationTarget)'));
  assert.match(publication,/val settledPrefix = remaining\.takeWhile\(::videoAttemptSettled\)/);
  assert.match(publication,/val ready = settledPrefix\.filter\(::hasPublishableVideo\)/);
  assert.doesNotMatch(publication,/publishedCoverSnapshots = results/);
