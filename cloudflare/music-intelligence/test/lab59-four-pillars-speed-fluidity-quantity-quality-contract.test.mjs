@@ -34,10 +34,10 @@ test('LAB59 quantity: identity-accepted versions remain even when historical yea
 });
 test('LAB59 graphics: original and Cover video thumbnails appear independently', () => {
   assert.match(browser, /fun hasVideoPreview\(seed: DiscogsVersionSeed\)/);
-  assert.match(browser, /val currentById = publishPool\.associateBy \{ it\.fingerprint \}/);
+  assert.match(browser, /fun hasPublishableVideo\(seed: DiscogsVersionSeed\)/);
   assert.match(browser, /val visibleOriginalVersions =/);
   assert.match(browser, /val visibleTrueCovers =/);
-  assert.match(browser, /val group = pending\.take\(requested\)/);
+  assert.match(browser, /val group = ready\.take\(slots\)/);
   assert.doesNotMatch(browser, /if \(originals\.any \{ !isPlayReady\(it\) \}\) return/);
 });
 test('LAB59 playback: tap uses native player without an extra blocking stream preflight', () => {
@@ -60,7 +60,7 @@ test('LAB59 cache: repeat searching same work preserves results and prepared vid
 });
 test('LAB59 installer updates LAB58 in place rather than replacing the family', () => {
   assert.match(env, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6401"/);
+  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6501"/);
   assert.match(env, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
 test('local comparison can reorder hundreds of results without network or re-ranking', () => {
