@@ -26,7 +26,7 @@ test('LAB65 original-first seal precedes immutable five-at-a-time cover publicat
   assert.match(pub,/val slots = minOf\(DIRECT_VIDEO_BATCH_SIZE, visibleLimit - publishedCoverSnapshots\.size\)/);
   assert.match(pub,/val settledPrefix = remaining\.takeWhile\(::videoAttemptSettled\)/);
   assert.match(pub,/val ready = settledPrefix\.filter\(::hasPublishableVideo\)/);
-  assert.match(pub,/if \(ready\.size < slots && !sourceExhausted\) break/);
+  assert.match(pub,/if \(ready\.size < slots && !sourceExhausted && !graceElapsed\) break/);
   assert.match(pub,/val group = ready\.take\(slots\)/);
   assert.match(pub,/publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
   assert.doesNotMatch(pub,/val group = pending\.take\(requested\)/);
