@@ -14,7 +14,7 @@ test('LAB65 publishes ONLY validated video IDs, not album covers or raw metadata
   assert.match(verifier,/CoverPlaybackMemory\.rejectedVideoIds/);
   const ui=part('val visibleOriginalVersions =','val visibleResults =');
   assert.match(ui,/publishedOriginalSnapshots/);
-  assert.match(ui,/publishedCoverSnapshots\.take\(visibleLimit\)/);
+  assert.match(ui,/publishedCoverSnapshots\.filterNot\(::isHiddenForCurrentCover\)/);
   assert.doesNotMatch(ui,/remainder|currentById|shownOriginalIds|sortGroup/);
 });
 test('LAB65 original-first seal precedes immutable five-at-a-time cover publication',()=>{
