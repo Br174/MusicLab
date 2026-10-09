@@ -27,7 +27,7 @@ test('LAB65 a rank can enter only after a valid video ID is present', () => {
 test('LAB65 visible cards are immutable approved snapshots', () => {
   const visible = section('val visibleOriginalVersions =', 'val visibleResults =');
   assert.match(visible, /publishedOriginalSnapshots/);
-  assert.match(visible, /publishedCoverSnapshots\.take\(visibleLimit\)/);
+  assert.match(visible, /publishedCoverSnapshots\.filterNot\(::isHiddenForCurrentCover\)/);
   assert.doesNotMatch(visible, /remainder|currentById|shownOriginalIds/);
   assert.match(browser, /model = artworkRequest/);
 });
