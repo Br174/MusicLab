@@ -59,7 +59,7 @@ test('LAB60 Discogs is bounded but preserves catalog candidates, and paging cann
   assert.match(browser, /DIRECT_COVER_RANK_MAX_SOURCE_PAGES = 5/);
   assert.match(browser, /DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12/);
   assert.match(browser, /take\(DIRECT_COVER_INITIAL_DETAIL_BUDGET\)/);
-  assert.match(browser, /mergePage\(results, verified, replace = false\)/);
+  assert.match(browser, /mergePage\(results, verifiedRankSeeds, replace = false\)/);
   const next = browser.slice(browser.indexOf('fun loadNextPage()'), browser.indexOf('fun retryMissingVideo('));
   const coverBranch = next.slice(0, next.indexOf('if (backgroundWorkBlocked()) return'));
   assert.doesNotMatch(coverBranch, /if \(backgroundWorkBlocked\(\) \|\| currentPage/);
