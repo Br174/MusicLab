@@ -1854,6 +1854,7 @@ internal fun DiscogsDirectVersionBrowser(
                         originalArtist = resolvedOriginalArtist,
                         mode = mode,
                         aiConfig = foreignScoutConfig,
+                        maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
                         onEarlyVideoCandidates = { early ->
                             // LAB59: COVER.INFO can supply direct YouTube video IDs
                             // before the entire multi-provider search has returned.
@@ -2025,6 +2026,7 @@ internal fun DiscogsDirectVersionBrowser(
                             originalArtist = resolvedOriginalArtist,
                             mode = mode,
                             aiConfig = foreignScoutConfig,
+                            maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
                         )
                     }.getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
                 external = mergeDiscoveryOutcomes(external, fallback)
