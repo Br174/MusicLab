@@ -1877,6 +1877,21 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                 }
             }
+            // Turbo reads the shared public archive by WORK TITLE, even when
+            // original artist is not yet known. This is a read-only lookup.
+            val turboArchiveDeferred = if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                async(Dispatchers.IO) {
+                    foreignScoutConfig?.let { config ->
+                        withTimeoutOrNull(TURBO_ARCHIVE_TIMEOUT_MS) {
+                            CloudMusicDiscovery.searchArchive(
+                                query = criteria.title,
+                                config = config,
+                                limit = 100,
+                            )
+                        }
+                    }.orEmpty()
+                }
+            } else null
             val memoryDeferred = async(kotlinx.coroutines.Dispatchers.IO) {
                 foreignScoutConfig?.let { config ->
                     runCatching {
@@ -1921,8 +1936,57 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                 }
 
+            val turboArchive = turboArchiveDeferred?.await().orEmpty()
+            if (turboArchive.isNotEmpty() && activeCriteria == criteria) {
+                val archiveSeeds = turboArchive.mapNotNull { item ->
+                    val anchor = item.workTitle.ifBlank { item.title }
+                    if (!TitleMeaningResolver.matchesBaseTitle(criteria.title, anchor) &&
+                        !TitleMeaningResolver.matchesBaseTitle(criteria.title, item.title)) {
+                        return@mapNotNull null
+                    }
+                    val category = when (item.category.lowercase()) {
+                        "live", "dal vivo" -> AiCoverCategory.LIVE
+                        "remix", "mix", "rework" -> AiCoverCategory.REMIX
+                        "straniera", "foreign", "adattamento" -> AiCoverCategory.FOREIGN
+                        else -> AiCoverCategory.COVER
+                    }
+                    val candidate = CoverSourceCandidate(
+                        title = item.title,
+                        artist = item.artist,
+                        sources = listOf("Archivio Cloud"),
+                        year = item.year,
+                        album = item.album,
+                        coverUrl = item.coverUrl,
+                        language = item.language,
+                        category = category,
+                        playbackVideoId = item.playbackVideoId,
+                        playbackVideoTitle = item.playbackVideoTitle,
+                        playbackVideoSource = item.playbackVideoSource,
+                        workRelationConfirmed = (item.sameWorkScore ?: 0) >= 70,
+                        evidenceScore = (
+                            ((item.sameWorkScore ?: 30) + (item.versionTypeScore ?: 30)) / 10
+                        ).coerceIn(1, 20),
+                    )
+                    DiscogsVersionSource.externalSeed(
+                        candidate = candidate,
+                        targetTitle = criteria.title,
+                        originalArtist = resolvedOriginalArtist,
+                    )
+                }
+                session.turboArchiveMatches = archiveSeeds.size
+                if (archiveSeeds.isNotEmpty()) {
+                    results = mergePage(results, archiveSeeds, replace = false)
+                    session.results = results
+                    rebuildStableOrder()
+                }
+            }
             val cachedMemory = cachedMemoryDeferred.await()
-            val memoryState = cachedMemory ?: memoryDeferred.await()
+            val memoryState =
+                if (isTurbo) {
+                    cachedMemory ?: withTimeoutOrNull(1_600L) { memoryDeferred.await() }
+                } else {
+                    cachedMemory ?: memoryDeferred.await()
+                }
 
             if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                 memoryState
@@ -2040,11 +2104,20 @@ internal fun DiscogsDirectVersionBrowser(
                 sourceDiagnostics.filterNot { it.name == "Archivio Cloud" }
             session.sourceDiagnostics = sourceDiagnostics
 
-            val firstPageLoaded = firstPageDeferred.await()
+            // Turbo is a bounded snapshot, not a never-ending crawl. The
+            // normal family retains its complete source waiting semantics.
+            val firstPageLoaded =
+                if (isTurbo) withTimeoutOrNull(4_500L) { firstPageDeferred.await() } ?: false
+                else firstPageDeferred.await()
 
             var external =
-                runCatching { externalDeferred.await() }
-                    .getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
+                (if (isTurbo) {
+                    withTimeoutOrNull(5_000L) {
+                        runCatching { externalDeferred.await() }.getOrNull()
+                    }
+                } else {
+                    runCatching { externalDeferred.await() }.getOrNull()
+                }) ?: CoverSourceOutcome(emptyList(), emptyList())
 
             if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                 consensusOriginalArtist(external.candidates)
@@ -2062,7 +2135,7 @@ internal fun DiscogsDirectVersionBrowser(
                     !workAnchor.equals(criteria.title, ignoreCase = true) &&
                     (!hasExplicitOriginalEvidence || weakCoverage)
 
-            if (needsAnchorFallback) {
+            if (needsAnchorFallback && !isTurbo) {
                 val fallback =
                     runCatching {
                         CoverDiscoverySources.discover(
@@ -2098,8 +2171,8 @@ internal fun DiscogsDirectVersionBrowser(
                 while (
                     currentPage > 0 &&
                     currentPage < totalPages &&
-                    rankPagesFetched < DIRECT_COVER_RANK_MAX_SOURCE_PAGES &&
-                    results.size < DIRECT_COVER_RANK_TARGET &&
+                    rankPagesFetched < (if (isTurbo) 2 else DIRECT_COVER_RANK_MAX_SOURCE_PAGES) &&
+                    results.size < (if (isTurbo) TURBO_MAX_RANK_CANDIDATES else DIRECT_COVER_RANK_TARGET) &&
                     !backgroundWorkBlocked()
                 ) {
                     if (!loadPage(criteria, currentPage + 1, replace = false)) break
@@ -2146,7 +2219,7 @@ internal fun DiscogsDirectVersionBrowser(
 
                 // LAB67: run independent Discogs credits and initial detail
                 // verification concurrently, merging only on the UI lane.
-                val detailSeeds = if (discogsToken.isNotBlank()) {
+                val detailSeeds = if (!isTurbo && discogsToken.isNotBlank()) {
                     results.filter { seed ->
                         seed.releaseId > 0 && !seed.discogsVerificationChecked
                     }.take(DIRECT_COVER_INITIAL_DETAIL_BUDGET)
@@ -2155,7 +2228,7 @@ internal fun DiscogsDirectVersionBrowser(
                 }
                 val (discogsCredits, verifiedRankSeeds) = coroutineScope {
                     val creditsDeferred = async(Dispatchers.IO) {
-                        if (discogsToken.isNotBlank() && resolvedOriginalArtist.isNotBlank()) {
+                        if (!isTurbo && discogsToken.isNotBlank() && resolvedOriginalArtist.isNotBlank()) {
                             withTimeoutOrNull(5_500L) {
                                 DiscogsVersionSource.loadOriginalWorkCredits(
                                     token = discogsToken,
