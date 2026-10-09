@@ -1153,12 +1153,13 @@ internal fun DiscogsDirectVersionBrowser(
                 .filter(::needsAutomaticVideo)
         }
         // Probe beyond 10 RAW candidates to fill 10 PLAYABLE slots.
-        val covers = coverCandidatePool()
+        // Only the next five highest-ranked missing IDs are investigated.
+        // Exhaust their bounded attempts before spending effort on weaker rows.
+        // An unplayable 19/20 cannot silently be overtaken by a ready 2/20.
+        return coverCandidatePool()
             .take((visibleLimit + DIRECT_COVER_VERIFY_AHEAD).coerceAtMost(200))
             .filter(::needsAutomaticVideo)
-        val firstPass = covers.filter { (session.automaticVideoAttempts[it.fingerprint] ?: 0) == 0 }
-        val retries = covers.filterNot { it in firstPass }
-        return firstPass + retries
+            .take(DIRECT_VIDEO_BATCH_SIZE)
     }
 
     fun preparationReadyVideoCount(): Int =
