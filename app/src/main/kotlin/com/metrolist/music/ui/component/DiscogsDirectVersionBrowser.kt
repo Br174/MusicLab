@@ -1,6 +1,7 @@
 package com.metrolist.music.ui.component
 
 import android.widget.Toast
+import android.os.SystemClock
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -95,6 +96,8 @@ private const val DIRECT_COVER_PLAYBACK_BATCH_SIZE = 1
 private const val DIRECT_VIDEO_PARALLELISM = 2
 // LAB64 Pollicino: prioritize 10 originals, then the first 10 ranked covers.
 private const val DIRECT_ORIGINAL_PRIORITY_COUNT = 10
+private const val DIRECT_ORIGINAL_FIRST_GATE_MS = 7_600L
+private const val DIRECT_COVER_VERIFY_AHEAD = 30
 private const val DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS = 3_800L
 // LAB60 Pollicino: cap costly up-front Discogs details, keep discovered candidates.
 private const val DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12
@@ -189,6 +192,7 @@ private data class DirectVersionSession(
     var publishedOriginalSnapshots: List<DiscogsVersionSeed> = emptyList(),
     var publishedCoverSnapshots: List<DiscogsVersionSeed> = emptyList(),
     var originalSectionFrozen: Boolean = false,
+    var originalGateStartedAtMs: Long = 0L,
     val rejectedKeys: MutableSet<String> = linkedSetOf(),
     val approvedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
@@ -328,7 +332,6 @@ internal fun DiscogsDirectVersionBrowser(
     var sourcePrefetchedForVisibleLimit by remember(sessionKey) { mutableStateOf(-1) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
     var headerSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
-    var shownOriginalIds by remember(sessionKey) { mutableStateOf<Set<String>>(emptySet()) }
     var coverSwipeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
 
     val listState = rememberLazyListState(
@@ -1086,15 +1089,34 @@ internal fun DiscogsDirectVersionBrowser(
     // of an already-opened audio stream. The native player resolves audio on tap.
     fun isPlayReady(seed: DiscogsVersionSeed): Boolean = hasVideoPreview(seed)
 
-    fun originalCandidatePool(): List<DiscogsVersionSeed> =
-        orderedResults(results)
-            .filterNot(::isHiddenForCurrentCover)
-            .filter(::isOriginalPerformerVersion)
+    // LAB65: only an ID checked against YouTube metadata/recording can
+    // be published. A playback-verified ID from LAB63 is also trusted.
+    // Deliberately NO audio stream is requested for this check.
+    fun hasPublishableVideo(seed: DiscogsVersionSeed): Boolean {
+        val id = seed.resolvedVideoId?.trim().orEmpty()
+        if (id.isBlank() || id in CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)) return false
+        return (id in session.playReadyVideoIds && session.preparedVideoSongs.containsKey(id)) ||
+            CoverPlaybackMemory.verifiedVideo(context, seed.fingerprint) == id
+    }
 
-    fun coverCandidatePool(): List<DiscogsVersionSeed> =
-        orderedResults(results)
+    fun originalCandidatePool(): List<DiscogsVersionSeed> =
+        sortGroup(
+            orderedResults(results).filterNot(::isHiddenForCurrentCover)
+                .filter(::isOriginalPerformerVersion), DirectVersionSort.RELEVANCE,
+        )
+
+    fun coverCandidatePool(): List<DiscogsVersionSeed> {
+        val candidates = orderedResults(results)
             .filterNot(::isHiddenForCurrentCover)
             .filterNot(::isOriginalPerformerVersion)
+        // Published cards are immutable; uncommitted candidates may be
+        // reordered by score 20→1 BEFORE their five-item batch is shown.
+        val byId = candidates.associateBy { it.fingerprint }
+        val committed = publishedCoverSnapshots.mapNotNull { byId[it.fingerprint] }
+        val used = committed.mapTo(HashSet<String>()) { it.fingerprint }
+        val pending = sortGroup(candidates.filterNot { it.fingerprint in used }, DirectVersionSort.RELEVANCE)
+        return committed + pending
+    }
 
     fun remainingCoverPool(): List<DiscogsVersionSeed> {
         val committed = publishedCoverSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
@@ -1113,25 +1135,30 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun needsAutomaticVideo(seed: DiscogsVersionSeed): Boolean =
-        seed.resolvedVideoId.isNullOrBlank() &&
+        !hasPublishableVideo(seed) &&
             (session.automaticVideoAttempts[seed.fingerprint] ?: 0) < autoVideoAttemptBudget(seed)
+
+    fun videoAttemptSettled(seed: DiscogsVersionSeed): Boolean =
+        hasPublishableVideo(seed) || playableTrack(seed) == null ||
+            (session.automaticVideoAttempts[seed.fingerprint] ?: 0) >= autoVideoAttemptBudget(seed)
 
     fun videoPreparationPool(): List<DiscogsVersionSeed> {
         if (mode != DiscogsDirectMode.COVER) {
             return orderedResults(results).take(visibleLimit.coerceAtLeast(pageSize))
                 .filter(::needsAutomaticVideo)
         }
-        val originals = originalCandidatePool().take(DIRECT_ORIGINAL_PRIORITY_COUNT)
+        // LAB65: before Cover display, resolve a bounded original-first gate.
+        if (!originalSectionFrozen) {
+            return originalCandidatePool().take(DIRECT_ORIGINAL_PRIORITY_COUNT)
+                .filter(::needsAutomaticVideo)
+        }
+        // Probe beyond 10 RAW candidates to fill 10 PLAYABLE slots.
+        val covers = coverCandidatePool()
+            .take((visibleLimit + DIRECT_COVER_VERIFY_AHEAD).coerceAtMost(200))
             .filter(::needsAutomaticVideo)
-        val covers = coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
-            .filter(::needsAutomaticVideo)
-        // Original first pass, then first cover page; subsequent retries
-        // prioritize originals and high scores before lower-ranked rows.
-        val originalFirst = originals.filter { (session.automaticVideoAttempts[it.fingerprint] ?: 0) == 0 }
-        val coverFirst = covers.filter { (session.automaticVideoAttempts[it.fingerprint] ?: 0) == 0 }
-        val originalRetry = originals.filterNot { it in originalFirst }
-        val coverRetry = covers.filterNot { it in coverFirst }
-        return originalFirst + coverFirst + originalRetry + coverRetry
+        val firstPass = covers.filter { (session.automaticVideoAttempts[it.fingerprint] ?: 0) == 0 }
+        val retries = covers.filterNot { it in firstPass }
+        return firstPass + retries
     }
 
     fun preparationReadyVideoCount(): Int =
@@ -1139,52 +1166,48 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun readyVideoCount(): Int =
         if (mode == DiscogsDirectMode.COVER) {
-            visibleCoverPool().count(::isPlayReady)
+            visibleCoverPool().count(::hasPublishableVideo)
         } else {
             orderedResults(results).count { !it.resolvedVideoId.isNullOrBlank() }
         }
 
+    // LAB65 Pollicino: append-only batches of FIVE verified ID bindings.
+    // No artwork-only seeds, no list motion, no pre-listening.
     suspend fun publishReadyBatches() {
         if (mode != DiscogsDirectMode.COVER || !rankingFrozen) return
 
-        // LAB61: publication follows documentary ranking, never video readiness.
-        // Thumbnails still come exclusively from the video ID when discovered.
         if (!originalSectionFrozen) {
-            val originals = originalCandidatePool().take(DIRECT_ORIGINAL_PRIORITY_COUNT)
-            publishedOriginalSnapshots = originals.toList()
+            val candidates = originalCandidatePool().take(DIRECT_ORIGINAL_PRIORITY_COUNT)
+            val elapsed = SystemClock.elapsedRealtime() - session.originalGateStartedAtMs
+            if (!candidates.all(::videoAttemptSettled) && elapsed < DIRECT_ORIGINAL_FIRST_GATE_MS) return
+
+            // Seal originals BEFORE any cover row appears: never insert a
+            // late original above a visible Cover row.
+            publishedOriginalSnapshots = candidates.filter(::hasPublishableVideo)
             session.publishedOriginalSnapshots = publishedOriginalSnapshots
             originalSectionFrozen = true
             session.originalSectionFrozen = true
-        } else {
-            // Late original candidates stay eligible without reordering already
-            // committed cards. Screen inserts them only at a safe visual boundary.
-            val committed = publishedOriginalSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
-            val newOriginals = originalCandidatePool()
-                .filterNot { it.fingerprint in committed }
-                .take((DIRECT_ORIGINAL_PRIORITY_COUNT - publishedOriginalSnapshots.size).coerceAtLeast(0))
-            if (newOriginals.isNotEmpty()) {
-                publishedOriginalSnapshots = publishedOriginalSnapshots + newOriginals
-                session.publishedOriginalSnapshots = publishedOriginalSnapshots
-            }
         }
 
         while (publishedCoverSnapshots.size < visibleLimit) {
-            val requested = minOf(
-                DIRECT_VIDEO_BATCH_SIZE,
-                visibleLimit - publishedCoverSnapshots.size,
-            )
-            // LAB61: keep the ten ranked song slots visible while their video
-            // bindings arrive asynchronously. Never show album art as a substitute.
-            val pending = remainingCoverPool()
-            val group = pending.take(requested)
+            val slots = minOf(DIRECT_VIDEO_BATCH_SIZE, visibleLimit - publishedCoverSnapshots.size)
+            val remaining = remainingCoverPool()
+            if (remaining.isEmpty()) break
+
+            // Do not let rank 2 overtake rank 19 while rank 19 is pending.
+            // Only a settled higher-score prefix may feed the next group.
+            val settledPrefix = remaining.takeWhile(::videoAttemptSettled)
+            val ready = settledPrefix.filter(::hasPublishableVideo)
+            val sourceExhausted = remaining.all(::videoAttemptSettled) &&
+                !sourceDiscoveryLoading && (currentPage <= 0 || currentPage >= totalPages)
+            if (ready.size < slots && !sourceExhausted) break
+            val group = ready.take(slots)
             if (group.isEmpty()) break
 
-            // LAB58: atomic group commit. Already shown cards never reorder.
             publishedCoverSnapshots = publishedCoverSnapshots + group
             session.publishedCoverSnapshots = publishedCoverSnapshots
             publishedReadyLimit = publishedCoverSnapshots.size
             session.publishedReadyLimit = publishedReadyLimit
-            // No display delay: publish 5+5 in the same frame.
         }
     }
 
@@ -1675,7 +1698,7 @@ internal fun DiscogsDirectVersionBrowser(
         publishedOriginalSnapshots = emptyList()
         publishedCoverSnapshots = emptyList()
         originalSectionFrozen = false
-        shownOriginalIds = emptySet()
+        session.originalGateStartedAtMs = 0L
         CoverSwipeBridge.stop(sessionKey)
         if (mode == DiscogsDirectMode.COVER) {
             // LAB59: searching must not downgrade or compete with active audio.
@@ -1704,6 +1727,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.publishedOriginalSnapshots = emptyList()
         session.publishedCoverSnapshots = emptyList()
         session.originalSectionFrozen = false
+        session.originalGateStartedAtMs = 0L
         if (!repeatSameWork) {
             session.usedVideoIds.clear()
             session.knownVideoBindings.clear()
@@ -2028,6 +2052,7 @@ internal fun DiscogsDirectVersionBrowser(
 
                 rankingFrozen = true
                 session.rankingFrozen = true
+                session.originalGateStartedAtMs = SystemClock.elapsedRealtime()
                 publishedReadyLimit = 0
                 session.publishedReadyLimit = 0
                 // LAB64: give the best originals the first lightweight video
@@ -2579,6 +2604,7 @@ internal fun DiscogsDirectVersionBrowser(
                             session.publishedCoverSnapshots = emptyList()
                             originalSectionFrozen = false
                             session.originalSectionFrozen = false
+                            session.originalGateStartedAtMs = 0L
                             resultPageIndex = 0
                             session.resultPageIndex = 0
                             verificationJob?.cancel()
