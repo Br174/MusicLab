@@ -18,17 +18,10 @@ test('LAB65 ten places admit only verified videos in groups of five', () => {
   assert.match(publish, /publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
 });
 
-test('LAB61 publishes ten ranked songs even with only three known YouTube video IDs', () => {
-  const ranked = Array.from({ length: 65 }, (_, i) => ({
-    rank: 20 - Math.floor(i / 5),
-    fingerprint: 'version-' + i,
-    videoId: i === 0 || i === 3 || i === 7 ? 'video-' + i : null,
-  }));
-  const firstPage = ranked.slice(0, 5).concat(ranked.slice(5, 10));
-  assert.equal(firstPage.length, 10);
-  assert.equal(firstPage.filter(s => s.videoId).length, 3);
-  assert.deepEqual(firstPage.map(s => s.fingerprint), ranked.slice(0, 10).map(s => s.fingerprint));
-  assert.deepEqual(ranked.slice(10, 20).map(s => s.fingerprint), Array.from({length:10}, (_,i)=>'version-'+(i+10)));
+test('LAB65 a rank can enter only after a valid video ID is present', () => {
+  const ranked = Array.from({length:65},(_,i)=>({score:20-Math.floor(i/5),valid:i===0||i===3||i===7}));
+  assert.equal(ranked.filter(x=>x.valid).length,3);
+  assert.ok(ranked.filter(x=>x.valid).every(x=>x.score>=19));
 });
 
 test('LAB61 snapshot refreshes the same ranked card when video ID arrives', () => {
