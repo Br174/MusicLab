@@ -47,6 +47,25 @@ internal object CoverPlaybackMemory {
     fun verifiedVideo(context: Context, fingerprint: String): String? =
         get(context, "verified:" + key(fingerprint))?.takeIf(String::isNotBlank)
 
+    // LAB68: persist short-lived, HARD-compatible YouTube metadata verdicts.
+    // This is NOT a claim that an audio stream has been opened. Expire in 24h.
+    private const val METADATA_VERIFIED_TTL_MS = 24L * 60 * 60 * 1000
+
+    fun metadataVerifiedVideo(context: Context, fingerprint: String): String? {
+        val record = get(context, "metadata:" + key(fingerprint)) ?: return null
+        val parts = record.split('|', limit = 2)
+        if (parts.size != 2) return null
+        val validUntil = parts[0].toLongOrNull() ?: return null
+        if (System.currentTimeMillis() >= validUntil) return null
+        return parts[1].takeIf(String::isNotBlank)
+    }
+
+    fun saveMetadataVerifiedVideo(context: Context, fingerprint: String, videoId: String) {
+        val id = videoId.trim().takeIf(String::isNotBlank) ?: return
+        val expires = System.currentTimeMillis() + METADATA_VERIFIED_TTL_MS
+        put(context, "metadata:" + key(fingerprint), "$expires|$id")
+    }
+
     fun saveVerifiedVideo(context: Context, fingerprint: String, videoId: String, image: String?) {
         val cleanId = videoId.trim().takeIf(String::isNotBlank) ?: return
         put(context, "verified:" + key(fingerprint), cleanId)
