@@ -39,7 +39,7 @@ test('LAB65B metadata verification continues at most one recording at a time whi
   assert.match(worker,/if \(playbackIsNormallyPlaying\(\)\) \{\s*DIRECT_COVER_PLAYBACK_BATCH_SIZE/);
   assert.match(code,/DIRECT_COVER_PLAYBACK_BATCH_SIZE = 1/);
   assert.match(worker,/heavy = !playbackIsNormallyPlaying\(\)/);
-  assert.match(worker,/delay\(if \(playbackIsNormallyPlaying\(\)\) 450 else 120\)/);
+  assert.match(worker,/delay\(if \(playbackIsNormallyPlaying\(\)\) 150 else 40\)/);
   const resume=block('fun resumeCoverBackgroundAfterPlaybackBurst()', 'fun saveDecision(');
   assert.match(resume,/scheduleVideoPreload\(\)/);
   assert.doesNotMatch(resume,/if \(!playbackIsNormallyPlaying\(\)\) \{\s*scheduleVideoPreload\(\)/);
