@@ -67,6 +67,6 @@ test('LAB63 upstream Meld remains byte-identical and APK family version increase
   ])).digest('hex');
   assert.equal(hash,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1002"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1003"/);
   assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
 });
