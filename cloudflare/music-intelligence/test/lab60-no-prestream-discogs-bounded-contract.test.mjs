@@ -79,7 +79,7 @@ test('LAB60 COVER.INFO publishes thumbnail candidates before following slow rela
 });
 
 test('LAB60 uses same update family signature and a higher version code', () => {
-  assert.match(updateFamily, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(updateFamily, /UAB_UPDATE_FAMILY_VERSION_CODE="6801"/);
-  assert.match(updateFamily, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
+  assert.match(updateFamily, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
+  assert.match(updateFamily, /UAB_UPDATE_FAMILY_VERSION_CODE="1001"/);
+  assert.match(updateFamily, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
 });
