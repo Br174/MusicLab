@@ -74,7 +74,7 @@ test('LAB66 yields verified partial batches promptly and never inserts artwork-o
 test('LAB66 retains unchanged Android signing and upstream Meld player',()=>{
  const hash=createHash('sha1').update(Buffer.concat([Buffer.from('blob '+meld.length+'\0'),meld])).digest('hex');
  assert.equal(hash,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
- assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6701"/);
+ assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6801"/);
  assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
  assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
