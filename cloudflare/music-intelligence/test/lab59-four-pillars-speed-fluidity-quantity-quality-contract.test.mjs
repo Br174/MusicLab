@@ -60,9 +60,9 @@ test('LAB59 cache: repeat searching same work preserves results and prepared vid
   assert.match(browser, /session\.stableOrder = retainedOrder/);
 });
 test('LAB59 installer updates LAB58 in place rather than replacing the family', () => {
-  assert.match(env, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
-  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="6801"/);
-  assert.match(env, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
+  assert.match(env, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
+  assert.match(env, /UAB_UPDATE_FAMILY_VERSION_CODE="1001"/);
+  assert.match(env, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
 });
 test('local comparison can reorder hundreds of results without network or re-ranking', () => {
   const seeds = Array.from({length: 500}, (_,i) => ({id:i, year:i%19?1980+(i%45):null, score:20-(i%20)}));
