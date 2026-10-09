@@ -2140,6 +2140,12 @@ internal fun DiscogsDirectVersionBrowser(
                     runCatching { externalDeferred.await() }.getOrNull()
                 }) ?: CoverSourceOutcome(emptyList(), emptyList())
 
+            // A timed-out provider must not remain as a hidden background job.
+            if (isTurbo) {
+                if (!firstPageDeferred.isCompleted) firstPageDeferred.cancel()
+                if (!externalDeferred.isCompleted) externalDeferred.cancel()
+                if (!memoryDeferred.isCompleted) memoryDeferred.cancel()
+            }
             if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                 consensusOriginalArtist(external.candidates)
                     ?.let { resolvedOriginalArtist = it }
