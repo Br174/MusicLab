@@ -13,9 +13,9 @@ const player=fs.readFileSync('app/src/main/kotlin/com/metrolist/music/utils/Inne
 test('Turbo LAB01 is a separate Android identity, not an update to LAB68',()=>{
   assert.ok(env.includes('UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"'));
   assert.ok(env.includes('export METROLIST_APPLICATION_ID="it.verlezza.musiclab.turbo01"'));
-  assert.ok(env.includes('export METROLIST_APP_NAME="MusicLab Turbo LAB 01"'));
+  assert.ok(env.includes('export METROLIST_APP_NAME="MusicLab Turbo LAB 02"'));
   assert.ok(env.includes('UAB_UPDATE_FAMILY_ID="turbo01"'));
-  assert.ok(env.includes('UAB_UPDATE_FAMILY_VERSION_CODE="1001"'));
+  assert.ok(env.includes('UAB_UPDATE_FAMILY_VERSION_CODE="1002"'));
   assert.ok(!env.includes('it.verlezza.musiclab.labupdate01'));
 });
 
@@ -64,7 +64,7 @@ test('Turbo bursts 4 metadata checks when idle but protects playback and never w
 });
 
 test('Turbo stops source jobs on quota or deadline, no automatic pagination after completion',()=>{
-  assert.ok(browser.includes('TURBO_BURST_DEADLINE_MS = 24_000L'));
+  assert.ok(browser.includes('TURBO_BURST_DEADLINE_MS = 40_000L'));
   assert.ok(browser.includes('publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA'));
   assert.ok(browser.includes('session.turboFinished = true'));
   assert.ok(browser.includes('verificationJob?.cancel()'));
