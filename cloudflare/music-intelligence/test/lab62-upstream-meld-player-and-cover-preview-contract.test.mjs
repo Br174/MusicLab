@@ -46,7 +46,7 @@ test('LAB62 retains AI master switch isolation from the player, and Qobuz remain
 test('LAB62 uses same Cover image slot: video thumbnail first, trusted temporary release image second', () => {
   const card = cover.slice(cover.indexOf('private fun DiscogsVersionCard('));
   const model = card.slice(card.indexOf('if (showVideoPreview) {'),card.indexOf('} else {',card.indexOf('if (showVideoPreview) {')));
-  assert.match(model, /model = stableArtworkUrl/);
+  assert.match(model, /model = artworkRequest/);
   assert.match(cover, /fun stableArtworkFor\(seed: DiscogsVersionSeed\)/);
   assert.equal((model.match(/AsyncImage\(/g)||[]).length,1);
   assert.match(cover, /DIRECT_COVER_PAGE_SIZE = 10/);
