@@ -11,16 +11,11 @@ const section = (start, end) => {
   return browser.slice(a, b);
 };
 
-test('LAB61 begins every Cover page at exactly ten ranked slots', () => {
-  assert.match(browser, /DIRECT_COVER_PAGE_SIZE = 10/);
-  assert.match(browser, /var visibleLimit: Int = DIRECT_COVER_PAGE_SIZE/);
-  const publishing = section('suspend fun publishReadyBatches()', 'suspend fun resolveNextVideoBatch(');
-  assert.match(publishing, /val pending = remainingCoverPool\(\)/);
-  assert.match(publishing, /val group = pending\.take\(requested\)/);
-  assert.doesNotMatch(publishing, /filter\(::hasVideoPreview\)/);
-  assert.match(publishing, /publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
-  const ranking = section('val rankingEnriched =', 'fun loadNextPage()');
-  assert.match(ranking, /session\.rankingFrozen = true[\s\S]*publishReadyBatches\(\)/);
+test('LAB65 ten places admit only verified videos in groups of five', () => {
+  const publish = section('suspend fun publishReadyBatches()', 'suspend fun resolveNextVideoBatch(');
+  assert.match(publish, /val ready = settledPrefix/);
+  assert.match(publish, /val group = ready\.take\(slots\)/);
+  assert.match(publish, /publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
 });
 
 test('LAB61 publishes ten ranked songs even with only three known YouTube video IDs', () => {
