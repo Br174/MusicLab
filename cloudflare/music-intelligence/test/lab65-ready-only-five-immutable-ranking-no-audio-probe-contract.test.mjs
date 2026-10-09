@@ -23,7 +23,7 @@ test('LAB65 original-first seal precedes immutable five-at-a-time cover publicat
   assert.match(pub,/publishedOriginalSnapshots = candidates\.filter\(::hasPublishableVideo\)/);
   assert.match(pub,/originalSectionFrozen = true/);
   assert.ok(pub.indexOf('originalSectionFrozen = true')<pub.indexOf('while (publishedCoverSnapshots.size < publicationTarget)'));
-  assert.match(pub,/val slots = minOf\\(DIRECT_VIDEO_BATCH_SIZE, publicationTarget - publishedCoverSnapshots\\.size\\)/);
+  assert.ok(pub.includes('val slots = minOf(DIRECT_VIDEO_BATCH_SIZE, publicationTarget - publishedCoverSnapshots.size)'));
   assert.match(pub,/val settledPrefix = remaining\.takeWhile\(::videoAttemptSettled\)/);
   assert.match(pub,/val ready = settledPrefix\.filter\(::hasPublishableVideo\)/);
   assert.match(pub,/if \(ready\.size < slots && !sourceExhausted && !graceElapsed\) break/);
@@ -40,7 +40,7 @@ test('LAB65 preserves 20-to-1 ranked order and replaces missing IDs before publi
   assert.match(pipeline,/originalCandidatePool\(\)\.take\(DIRECT_ORIGINAL_PRIORITY_COUNT\)/);
   assert.match(pipeline,/coverCandidatePool\(\)/);
   assert.match(pipeline,/filter\(::needsAutomaticVideo\)/);
-  assert.match(pipeline,/take\\(if \\(isTurbo\\) TURBO_RESULT_QUOTA else DIRECT_VIDEO_BATCH_SIZE\\)/);
+  assert.ok(pipeline.includes('take(if (isTurbo) TURBO_RESULT_QUOTA else DIRECT_VIDEO_BATCH_SIZE)'));
   const ordered=[{score:20,id:'20'}, {score:19,id:'19'}, {score:18,id:'18'}, {score:17,id:'17'}, {score:16,id:'16'}, {score:2,id:'2'}];
   let attempts=new Map(),ready=new Set(['20','19','18','17','2']);
   const budget=(s)=>s>=17?4:s>=10?3:2;
