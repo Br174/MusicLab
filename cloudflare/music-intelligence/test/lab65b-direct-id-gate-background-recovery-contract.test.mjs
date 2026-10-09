@@ -60,7 +60,7 @@ test('LAB65B original gate cannot deadlock the entire Cover list',()=>{
 test('LAB65B retains native Meld and signed Family 01 update identity',()=>{
   const hash=createHash('sha1').update(Buffer.concat([Buffer.from('blob '+meld.length+'\0'),meld])).digest('hex');
   assert.equal(hash,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1002"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1003"/);
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
   assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
 });
