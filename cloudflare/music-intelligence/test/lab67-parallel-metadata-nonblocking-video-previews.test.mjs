@@ -63,5 +63,5 @@ test('LAB67 keeps Meld player byte-identical and Android update identity stable'
   assert.equal(blob,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
   assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6701"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6801"/);
 });
