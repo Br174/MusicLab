@@ -48,8 +48,9 @@ test('LAB59 playback: tap uses native player without an extra blocking stream pr
   assert.doesNotMatch(playback, /withTimeoutOrNull\(900L\)/);
   assert.match(playback, /connection\.playQueue\(/);
   assert.doesNotMatch(playback, /getStreamUrl\(/);
-  assert.match(browser, /if \(playbackIsNormallyPlaying\(\)\) return/);
-  assert.match(browser, /if \(backgroundWorkBlocked\(\) \|\| playbackIsNormallyPlaying\(\)\) break/);
+  assert.match(browser, /if \(mode != DiscogsDirectMode\.COVER && playbackIsNormallyPlaying\(\)\) return/);
+  assert.match(browser, /if \(backgroundWorkBlocked\(\) \|\|/);
+  assert.match(browser, /DIRECT_COVER_PLAYBACK_BATCH_SIZE = 1/);
   assert.match(browser, /heavy = !playbackIsNormallyPlaying\(\)/);
 });
 test('LAB59 cache: repeat searching same work preserves results and prepared video songs', () => {
