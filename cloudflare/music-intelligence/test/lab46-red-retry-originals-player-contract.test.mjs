@@ -47,5 +47,5 @@ test('active LAB revision stays in update family 01', () => {
   assert.match(uab, /METROLIST_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
   const versionCode = Number(uab.match(/MUSICLAB_VERSION_CODE="(\d+)"/)?.[1] ?? 0);
   assert.ok(versionCode >= 1001);
-  assert.ok(uab.includes('MusicLab Turbo LAB 02'));
+  assert.ok(uab.includes('MusicLab Turbo LAB 03'));
 });
