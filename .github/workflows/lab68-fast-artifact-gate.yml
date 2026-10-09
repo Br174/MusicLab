@@ -8,7 +8,7 @@ on:
       - LAB68_BUILD_STATUS.txt
   pull_request:
     branches:
-      - uab-build/musiclab-lab57-aggiornamento-family-01
+      - uab-build/musiclab-lab67-aggiornamento-family-01
   workflow_dispatch:
 
 permissions:
