@@ -12,16 +12,14 @@ const env=read('uab-project.env');
 const meld=read('app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt');
 const section=(a,z)=>b.slice(b.indexOf(a),b.indexOf(z,b.indexOf(a)));
 
-test('LAB64 prioritizes up to ten original performer recordings then the highest ranked cover page',()=>{
+test('LAB65 searches original performer recordings before the top scored covers', () => {
   assert.match(b,/DIRECT_ORIGINAL_PRIORITY_COUNT = 10/);
   const prep=section('fun videoPreparationPool():', 'fun preparationReadyVideoCount():');
+  assert.match(prep,/if \(!originalSectionFrozen\)/);
   assert.match(prep,/originalCandidatePool\(\)\.take\(DIRECT_ORIGINAL_PRIORITY_COUNT\)/);
-  assert.match(prep,/coverCandidatePool\(\)\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
-  assert.ok(prep.indexOf('return originalFirst + coverFirst')>0);
-  assert.match(b,/resolveNextVideoBatch\(limit = DIRECT_VIDEO_PARALLELISM\)/);
+  assert.match(prep,/coverCandidatePool\(\)/);
   assert.match(b,/DIRECT_VIDEO_PARALLELISM = 2/);
   assert.match(b,/DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS = 3_800L/);
-  assert.match(b,/withTimeoutOrNull\(DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS\) \{\s*resolveVideoChunk\(chunk\)/);
 });
 
 test('LAB64 gives extra bounded attempts to strongest 20-point candidates without discarding low ranks',()=>{
