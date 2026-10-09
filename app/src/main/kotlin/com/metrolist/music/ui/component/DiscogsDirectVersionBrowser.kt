@@ -1161,7 +1161,8 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun preparationReadyVideoCount(): Int =
-        videoPreparationPool().count(::isPlayReady)
+        // LAB65B: source IDs and metadata-verified IDs are not equivalent.
+        results.count(::hasPublishableVideo)
 
     fun readyVideoCount(): Int =
         if (mode == DiscogsDirectMode.COVER) {
@@ -1214,7 +1215,7 @@ internal fun DiscogsDirectVersionBrowser(
         // Do not let malformed/discographically incomplete seeds permanently
         // block the 5+5 queue; keep their ranking evidence for later inspection.
         videoPreparationPool()
-            .filter { !isPlayReady(it) && playableTrack(it) == null }
+            .filter { !hasPublishableVideo(it) && playableTrack(it) == null }
             .take(limit)
             .forEach { replaceSeed(DiscogsVersionSource.markVideoUnavailable(it)) }
 
@@ -1223,7 +1224,7 @@ internal fun DiscogsDirectVersionBrowser(
                 .filter { seed ->
                     DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                         playableTrack(seed) != null &&
-                        !isPlayReady(seed)
+                        !hasPublishableVideo(seed)
                 }
                 .take(limit)
         if (batch.isEmpty()) {
@@ -1310,8 +1311,9 @@ internal fun DiscogsDirectVersionBrowser(
     fun scheduleVideoPreload() {
         if (videoPreloadJob?.isActive == true) return
         if (playerConnection == null) return
-        // LAB61: no background media preloading competes with playback.
-        if (playbackIsNormallyPlaying()) return
+        // LAB65B: only lightweight video metadata validation may run while
+        // another song is playing; at most one request and no audio stream.
+        if (mode != DiscogsDirectMode.COVER && playbackIsNormallyPlaying()) return
         if (backgroundWorkBlocked()) return
         if (mode == DiscogsDirectMode.COVER && !rankingFrozen) return
 
@@ -1320,17 +1322,22 @@ internal fun DiscogsDirectVersionBrowser(
         videoPreloadJob =
             scope.launch {
                 if (mode == DiscogsDirectMode.COVER) {
-                    playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = true)
+                    playerConnection?.service?.setCoverPerformanceLoad(
+                        active = true, heavy = !playbackIsNormallyPlaying(),
+                    )
                 }
                 try {
                     if (backgroundWorkBlocked()) return@launch
                     // LAB60: do not warm unselected media metadata or streams.
 
                     while (true) {
-                        if (backgroundWorkBlocked() || playbackIsNormallyPlaying()) break
+                        if (backgroundWorkBlocked() ||
+                            (mode != DiscogsDirectMode.COVER && playbackIsNormallyPlaying())) break
                         val workWindow = videoPreparationPool()
-                        if (workWindow.isEmpty()) break
-                        if (workWindow.all(::isPlayReady)) break
+                        if (workWindow.isEmpty()) {
+                            publishReadyBatches()
+                            break
+                        }
 
                         val readyBefore = preparationReadyVideoCount()
                         resolveNextVideoBatch(
@@ -1348,10 +1355,10 @@ internal fun DiscogsDirectVersionBrowser(
                             videoPreparationPool().any { seed ->
                                 DiscogsVersionSource.isDisplayableDirectSeed(seed) &&
                                     playableTrack(seed) != null &&
-                                    !isPlayReady(seed)
+                                    !hasPublishableVideo(seed)
                             }
                         if (readyAfter == readyBefore && !anyPending) break
-                        delay(if (playbackIsNormallyPlaying()) 260 else 120)
+                        delay(if (playbackIsNormallyPlaying()) 450 else 120)
                     }
 
                     // LAB60: no whole-page playback pre-warming.
@@ -1395,10 +1402,10 @@ internal fun DiscogsDirectVersionBrowser(
                 // LAB59: discovery may stay cached, but heavy video probes must
                 // not compete with an actively playing song.
                 backgroundPausedForPlayback = false
-                if (!playbackIsNormallyPlaying()) {
-                    scheduleVideoPreload()
-                    scheduleDiscogsVerification()
-                }
+                // Metadata ID checks are safe while music plays; detailed
+                // source expansion remains idle-only.
+                scheduleVideoPreload()
+                if (!playbackIsNormallyPlaying()) scheduleDiscogsVerification()
             }
     }
 
@@ -2328,6 +2335,19 @@ internal fun DiscogsDirectVersionBrowser(
         sortMode,
     ) {
         persistInputs()
+    }
+
+    // LAB65B: release the original-first gate even when ID lookups are
+    // blocked by buffering, all completed or interrupted.
+    LaunchedEffect(sessionKey, rankingFrozen, originalSectionFrozen) {
+        if (mode != DiscogsDirectMode.COVER || !rankingFrozen || originalSectionFrozen) return@LaunchedEffect
+        val remaining = (DIRECT_ORIGINAL_FIRST_GATE_MS -
+            (SystemClock.elapsedRealtime() - session.originalGateStartedAtMs)).coerceAtLeast(0L)
+        delay(remaining)
+        if (!originalSectionFrozen) {
+            publishReadyBatches()
+            scheduleVideoPreload()
+        }
     }
 
     LaunchedEffect(visibleLimit, sourceDiagnostics, rankingFrozen, publishedReadyLimit) {
