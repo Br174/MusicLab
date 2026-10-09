@@ -117,7 +117,7 @@ jobs:
           BADGING="$("$AAPT" dump badging "$APK")"
           printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
           printf '%s\n' "$BADGING" | grep -F "versionCode='1003'"
-          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab Turbo LAB 02'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab Turbo LAB 03'"
 
           EXPECTED="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
           CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
