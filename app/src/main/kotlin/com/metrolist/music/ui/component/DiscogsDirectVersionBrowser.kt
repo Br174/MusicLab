@@ -2094,7 +2094,7 @@ internal fun DiscogsDirectVersionBrowser(
             val poolSize = coverCandidatePool().size
             val target = visibleLimit + pageSize
             if (poolSize >= target || currentPage <= 0 || currentPage >= totalPages) {
-                if (poolSize <= publishedCoverSnapshots.size) return
+                if (poolSize <= publishedCoverSnapshots.size && (currentPage <= 0 || currentPage >= totalPages)) return
                 visibleLimit = target
                 session.visibleLimit = visibleLimit
                 verificationJob?.cancel()
@@ -2640,7 +2640,7 @@ internal fun DiscogsDirectVersionBrowser(
                             Text(
                                 text =
                                     "Risultati certificati: ${publishPool.size} · " +
-                                        "Cover in pagina: ${visibleTrueCovers.size}/${minOf(visibleLimit, publishPool.size)}" +
+                                        "Cover in pagina: ${visibleTrueCovers.size}/$visibleLimit" +
                                         " · Video identificati: ${visibleTrueCovers.count(::hasVideoPreview)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
@@ -2742,7 +2742,7 @@ internal fun DiscogsDirectVersionBrowser(
                         if (!rankingFrozen) {
                             "Certifico opera, data, crediti e punteggio prima di pubblicare la graduatoria…"
                         } else {
-                            "Preparo il primo blocco di 5 cover già riproducibili…"
+                            "Verifico gli ID video per il prossimo blocco di 5 canzoni…"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2828,8 +2828,8 @@ internal fun DiscogsDirectVersionBrowser(
                 activeCriteria != null &&
                 !loading &&
                 (
-                    publishPool.size > visibleLimit ||
-                        (currentPage > 0 && currentPage < totalPages)
+                    (publishedCoverSnapshots.size >= visibleLimit && publishPool.size > visibleLimit) ||
+                        (publishedCoverSnapshots.size >= visibleLimit && currentPage > 0 && currentPage < totalPages)
                     )
             ) {
                 item(key = "discogs_direct_cover_more_${visibleLimit}") {
