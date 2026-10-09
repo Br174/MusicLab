@@ -1290,7 +1290,7 @@ internal fun DiscogsDirectVersionBrowser(
             publishReadyBatches()
             return
         }
-        batch.chunked(if (isTurbo && !playbackIsNormallyPlaying()) 4 else DIRECT_VIDEO_PARALLELISM).forEach { chunk ->
+        batch.chunked(if (isTurbo && playerConnection?.isEffectivelyPlaying?.value != true) 4 else DIRECT_VIDEO_PARALLELISM).forEach { chunk ->
             chunk.forEach { seed ->
                 session.automaticVideoAttempts[seed.fingerprint] =
                     (session.automaticVideoAttempts[seed.fingerprint] ?: 0) + 1
