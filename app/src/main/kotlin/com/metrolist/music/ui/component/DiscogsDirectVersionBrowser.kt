@@ -1962,6 +1962,11 @@ internal fun DiscogsDirectVersionBrowser(
                             val memoryState = memoryDeferred.await()
                             firstPageDeferred.await()
                             val external = externalDeferred.await()
+                            // A completed cache hit returns no lane callbacks.
+                            // Its diagnostic snapshot is still authoritative.
+                            external?.diagnostics?.forEach { diagnostic ->
+                                sourceStatus[diagnostic.name] = diagnostic
+                            }
 
                             val cloudSeeds = cloudItems.mapNotNull { item ->
                                 val work = item.workTitle.ifBlank { item.title }
