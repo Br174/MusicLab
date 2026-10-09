@@ -29,7 +29,7 @@ test('LAB57 prepares the frozen ranking in contiguous play-ready batches', () =>
   assert.match(browser, /fun videoPriorityPool/);
   assert.match(browser, /compareByDescending<DiscogsVersionSeed> \{ it\.confidenceScore \}/);
   assert.match(browser, /suspend fun publishReadyBatches\(\)/);
-  assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE,[\s\S]*visibleLimit - publishedCoverSnapshots\.size/);
+  assert.match(browser, /val publicationTarget = if \\(isTurbo\\) TURBO_RESULT_QUOTA else visibleLimit/);
   assert.match(browser, /Video identificati:/);
   assert.match(browser, /Video da associare:/);
 });
