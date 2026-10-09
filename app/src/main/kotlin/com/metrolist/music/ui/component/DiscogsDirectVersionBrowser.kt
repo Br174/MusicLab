@@ -1945,6 +1945,12 @@ internal fun DiscogsDirectVersionBrowser(
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying()) 2 else 3,
                                         onEarlyVideoCandidates = { quick ->
                                             sourceEvidence.addAll(quick)
+                                            if (quick.isNotEmpty()) {
+                                                sourceStatus["COVER.INFO"] = CoverSourceDiagnostic(
+                                                    "COVER.INFO", true, quick.size,
+                                                    "prima pagina acquisita · dettaglio in corso",
+                                                )
+                                            }
                                         },
                                         onSourceCompleted = { items, diagnostic, originalYear ->
                                             sourceEvidence.addAll(items)
