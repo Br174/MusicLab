@@ -1,0 +1,6 @@
+Turbo LAB02 build verification repair
+Identity: it.verlezza.musiclab.turbo01
+Version code: 1002
+Verified source: Kotlin build succeeded in run 37947526243.
+Rebuild reason: release gate expected LAB01 display label instead of LAB02.
+Requested execution: run current turbo-lab02-artifact-gate.yml including corrected label check.
