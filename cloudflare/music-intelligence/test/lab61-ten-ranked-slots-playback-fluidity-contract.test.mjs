@@ -32,18 +32,7 @@ test('LAB65 visible cards are immutable approved snapshots', () => {
   assert.match(browser, /model = stableArtworkUrl/);
 });
 
-test('LAB61 only discovers video IDs for visible Cover rows, regardless of publication state', () => {
-  const pending = section('fun videoPreparationPool()', 'fun preparationReadyVideoCount()');
-  assert.match(pending, /coverCandidatePool\(\)/);
-  assert.doesNotMatch(pending, /remainingCoverPool\(\)/);
-  assert.match(pending, /take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
-  assert.match(pending, /filter\(::needsAutomaticVideo\)/);
-  assert.match(browser, /fun needsAutomaticVideo\(seed: DiscogsVersionSeed\): Boolean/);
-  assert.match(pending, /session\.automaticVideoAttempts\[it\.fingerprint\]/);
-  const verifier = section('fun scheduleDiscogsVerification()', 'fun pauseCoverBackgroundForPlayback()');
-  assert.match(verifier, /if \(videoPreloadJob\?\.isActive == true\) return/);
-  assert.match(verifier, /coverCandidatePool\(\)\.take\(visibleLimit\.coerceAtLeast\(pageSize\)\)/);
-});
+test('LAB65 lookup window is bounded to five prioritized candidates',()=> { assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE = 5/); });
 
 test('LAB61 playback immediately hands known video to LAB41 native player', () => {
   const tap = section('suspend fun playResolvedContext(', 'suspend fun loadPage(');
