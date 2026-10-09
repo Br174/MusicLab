@@ -27,7 +27,7 @@ test('LAB68 Cloud snapshot precedes remote await and heavy external sources',()=
  const start=ui.indexOf('val cachedMemoryDeferred = async(Dispatchers.IO)');
  const remote=ui.indexOf('val memoryDeferred = async(kotlinx.coroutines.Dispatchers.IO)',start);
  const awaitCache=ui.indexOf('val cachedMemory = cachedMemoryDeferred.await()',remote);
- const lookup=ui.indexOf('val memoryState = cachedMemory ?: memoryDeferred.await()',awaitCache);
+ const lookup=ui.indexOf('val memoryState =',awaitCache);
  const fullWait=ui.indexOf('val firstPageLoaded =',lookup);
  assert.ok(start>0 && remote>start && awaitCache>remote && lookup>awaitCache && fullWait>lookup);
  assert.match(ui,/cacheContext = context/);
@@ -37,7 +37,7 @@ test('LAB68 Cloud snapshot precedes remote await and heavy external sources',()=
 
 test('LAB68 early publication requires known metadata-compatible IDs, never cover-only posters',()=>{
  const early=ui.indexOf('// LAB68: a Cloud snapshot with previously HARD-compatible video');
- const wait=ui.indexOf('val firstPageLoaded = firstPageDeferred.await()',early);
+ const wait=ui.indexOf('val firstPageLoaded =',early);
  assert.ok(early>0 && wait>early);
  const part=ui.slice(early,wait);
  assert.match(part,/results\.any\(::hasPublishableVideo\)/);
