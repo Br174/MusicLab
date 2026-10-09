@@ -1396,6 +1396,7 @@ internal fun DiscogsDirectVersionBrowser(
                         active = true, heavy = !playbackIsNormallyPlaying(),
                     )
                 }
+                var turboStopCommitted = false
                 try {
                     if (backgroundWorkBlocked()) return@launch
                     if (isTurbo && session.turboBurstStartedAtMs == 0L) {
@@ -1407,12 +1408,25 @@ internal fun DiscogsDirectVersionBrowser(
                         if (isTurbo && (
                             publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA ||
                             SystemClock.elapsedRealtime() - session.turboBurstStartedAtMs >= TURBO_BURST_DEADLINE_MS
-                        )) break
+                        )) {
+                            turboStopCommitted = true
+                            break
+                        }
                         if (backgroundWorkBlocked() ||
                             (mode != DiscogsDirectMode.COVER && playbackIsNormallyPlaying())) break
                         val workWindow = videoPreparationPool()
                         if (workWindow.isEmpty()) {
                             publishReadyBatches()
+                            if (isTurbo && (
+                                sourceDiscoveryLoading ||
+                                (!originalSectionFrozen &&
+                                    SystemClock.elapsedRealtime() - session.originalGateStartedAtMs <
+                                        TURBO_COVER_ORIGINAL_GATE_MS)
+                            )) {
+                                delay(120)
+                                continue
+                            }
+                            if (isTurbo) turboStopCommitted = true
                             break
                         }
 
@@ -1436,7 +1450,14 @@ internal fun DiscogsDirectVersionBrowser(
                                     playableTrack(seed) != null &&
                                     !hasPublishableVideo(seed)
                             }
-                        if (readyAfter == readyBefore && !anyPending) break
+                        if (readyAfter == readyBefore && !anyPending) {
+                            if (isTurbo && sourceDiscoveryLoading) {
+                                delay(120)
+                                continue
+                            }
+                            if (isTurbo) turboStopCommitted = true
+                            break
+                        }
                         // LAB67: keep audio-priority pacing without an extra
                         // half-second gap between every ranked result.
                         delay(if (playbackIsNormallyPlaying()) 150 else 40)
@@ -1445,7 +1466,7 @@ internal fun DiscogsDirectVersionBrowser(
                     // LAB60: no whole-page playback pre-warming.
                     publishReadyBatches()
                 } finally {
-                    if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                    if (isTurbo && mode == DiscogsDirectMode.COVER && turboStopCommitted) {
                         session.turboFinished = true
                         verificationJob?.cancel()
                         paginationJob?.cancel()
