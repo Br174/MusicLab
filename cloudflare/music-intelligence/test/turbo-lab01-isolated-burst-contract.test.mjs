@@ -13,9 +13,9 @@ const player=fs.readFileSync('app/src/main/kotlin/com/metrolist/music/utils/Inne
 test('Turbo LAB01 is a separate Android identity, not an update to LAB68',()=>{
   assert.ok(env.includes('UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"'));
   assert.ok(env.includes('export METROLIST_APPLICATION_ID="it.verlezza.musiclab.turbo01"'));
-  assert.ok(env.includes('export METROLIST_APP_NAME="MusicLab Turbo LAB 02"'));
+  assert.ok(env.includes('export METROLIST_APP_NAME="MusicLab Turbo LAB 03"'));
   assert.ok(env.includes('UAB_UPDATE_FAMILY_ID="turbo01"'));
-  assert.ok(env.includes('UAB_UPDATE_FAMILY_VERSION_CODE="1002"'));
+  assert.ok(env.includes('UAB_UPDATE_FAMILY_VERSION_CODE="1003"'));
   assert.ok(!env.includes('it.verlezza.musiclab.labupdate01'));
 });
 
