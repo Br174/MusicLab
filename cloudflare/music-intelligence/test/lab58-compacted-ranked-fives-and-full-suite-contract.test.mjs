@@ -47,18 +47,13 @@ test('LAB58 only enables another ten Cover slots when current ten have been publ
   assert.match(browser, /https:\/\/i\.ytimg\.com\/vi\/\$it\/hqdefault\.jpg/);
 });
 
-test('compaction example preserves scores and full ten-slot page across 5+5', () => {
-  const ranked = Array.from({length: 24}, (_, i) => ({id:i+1, score:Math.max(1,20-Math.floor(i/2))}));
-  const unavailable = new Set([4, 13, 17]);
-  const first = ranked.slice(0,10);
-  const second = ranked.slice(10,20);
-  assert.equal(first.length,10);
-  assert.equal(second.length,10);
-  assert.deepEqual(first.map(x=>x.id), [1,2,3,4,5,6,7,8,9,10]);
-  assert.deepEqual(second.map(x=>x.id), [11,12,13,14,15,16,17,18,19,20]);
-  assert.ok(first.some(x => unavailable.has(x.id)), 'missing video IDs must not remove ranked songs');
-  assert.equal(first[3].score,ranked[3].score);
-  assert.deepEqual([first.slice(0,5).length,first.slice(5,10).length],[5,5]);
+test('LAB65 compacts only verified scores into two stable five-song groups', () => {
+  const songs = Array.from({length:24},(_,i)=>({id:i+1,score:20-Math.floor(i/2),valid:![4,13,17].includes(i+1)}));
+  const ready = songs.filter(song=>song.valid);
+  assert.deepEqual(ready.slice(0,5).map(x=>x.id), [1,2,3,5,6]);
+  assert.deepEqual(ready.slice(5,10).map(x=>x.id), [7,8,9,10,11]);
+  assert.ok(ready.every(x=>x.valid));
+  assert.ok(ready.every((x,i)=>i===0||x.score<=ready[i-1].score));
 });
 
 test('LAB58 network timeout retry is bounded before candidate rejection', () => {
