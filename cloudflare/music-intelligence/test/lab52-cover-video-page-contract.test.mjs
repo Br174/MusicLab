@@ -47,7 +47,7 @@ test('LAB62 Cover card prefers resolved-video thumbnail, allowing only a tempora
   const coverPreviewStart = browser.indexOf('if (showVideoPreview) {');
   const coverPreviewEnd = browser.indexOf('} else {', coverPreviewStart);
   const coverPreview = browser.slice(coverPreviewStart, coverPreviewEnd);
-  assert.match(coverPreview, /model = stableArtworkUrl/);
+  assert.match(coverPreview, /model = artworkRequest/);
   assert.equal((coverPreview.match(/AsyncImage\(/g) || []).length, 1);
 });
 
