@@ -100,6 +100,7 @@ internal object CoverDiscoverySources {
         mode: DiscogsDirectMode,
         aiConfig: GeminiCoverVerificationConfig?,
         onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
+        maxNetworkFanOut: Int = 2,
     ): CoverSourceOutcome = coroutineScope {
         val cleanTitle = title.trim()
         val cleanArtist = originalArtist.trim()
@@ -122,7 +123,7 @@ internal object CoverDiscoverySources {
 
         // LAB57: bounded fan-out. All sources still participate, but a Cover
         // search must not create an unbounded network/CPU burst beside playback.
-        val sourceGate = Semaphore(3)
+        val sourceGate = Semaphore(maxNetworkFanOut.coerceIn(1, 3))
         suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
 
         // LAB59: prioritize cover.info direct videos over auxiliary metadata.
