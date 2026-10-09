@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
+import coil3.imageLoader
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.size.Size
@@ -88,6 +89,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 
@@ -96,7 +100,9 @@ private const val DIRECT_VERSION_PAGE_SIZE = 20
 private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
 private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
-private const val TURBO_BURST_DEADLINE_MS = 24_000L
+private const val TURBO_BURST_DEADLINE_MS = 40_000L
+private const val TURBO_THUMBNAIL_RESERVE_MS = 6_000L
+private const val TURBO_SOURCE_WAIT_MS = 6_500L
 private const val TURBO_ARCHIVE_TIMEOUT_MS = 4_500L
 private const val TURBO_COVER_ORIGINAL_GATE_MS = 900L
 private const val DIRECT_COVER_PAGE_SIZE = 10
@@ -1325,7 +1331,7 @@ internal fun DiscogsDirectVersionBrowser(
     fun backgroundWorkBlocked(): Boolean = backgroundPausedForPlayback || playbackIsCritical()
 
     fun scheduleDiscogsVerification() {
-        if (isTurbo && session.turboFinished) return
+        if (isTurbo && mode == DiscogsDirectMode.COVER) return
         if (verificationJob?.isActive == true) return
         if (backgroundWorkBlocked()) return
         // LAB61: avoid racing heavy Discogs details against video-ID discovery.
@@ -1378,7 +1384,8 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun scheduleVideoPreload() {
-        if (isTurbo && session.turboFinished) return
+        // LAB02 owns video validation in one single bounded coordinator.
+        if (isTurbo && mode == DiscogsDirectMode.COVER) return
         if (videoPreloadJob?.isActive == true) return
         if (playerConnection == null) return
         // LAB65B: only lightweight video metadata validation may run while
@@ -1790,6 +1797,9 @@ internal fun DiscogsDirectVersionBrowser(
             error = "Interprete originale di riferimento mancante."
             return
         }
+        // Global wall clock starts at the actual user search action, not when
+        // verification begins after several network catalog requests.
+        val turboCommandStartedAt = SystemClock.elapsedRealtime()
         val repeatSameWork = activeCriteria?.title?.equals(criteria.title, ignoreCase = true) == true
         if (isTurbo && repeatSameWork && session.turboFinished) {
             // Re-enter a completed 50-result burst without re-querying providers.
@@ -1871,6 +1881,214 @@ internal fun DiscogsDirectVersionBrowser(
         }
         session.originalWorkCredits = emptyList()
 
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            // Turbo LAB02: replace LAB01's staged discovery/publisher entirely.
+            // No other worker owns this search. UI reveals ONLY the final sealed
+            // verified snapshot, in ten-row pages, after the bounded burst.
+            searchJob = scope.launch {
+                val stopAt = turboCommandStartedAt + TURBO_BURST_DEADLINE_MS
+                try {
+                    listState.scrollToItem(0)
+                    withTimeoutOrNull(
+                        (stopAt - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
+                    ) {
+                        coroutineScope {
+                            val archiveDeferred = async(Dispatchers.IO) {
+                                withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
+                                    foreignScoutConfig?.let { config ->
+                                        CloudMusicDiscovery.searchArchive(
+                                            query = criteria.title,
+                                            config = config,
+                                            limit = 100,
+                                        )
+                                    }.orEmpty()
+                                }.orEmpty()
+                            }
+                            val memoryDeferred = async(Dispatchers.IO) {
+                                withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
+                                    foreignScoutConfig?.let { config ->
+                                        CloudMusicDiscovery.cachedMemoryState(
+                                            context = context, title = criteria.title,
+                                            artist = resolvedOriginalArtist, config = config,
+                                        ) ?: CloudMusicDiscovery.discoverMemoryState(
+                                            title = criteria.title, artist = resolvedOriginalArtist,
+                                            config = config, limit = 150, cacheContext = context,
+                                        )
+                                    }
+                                }
+                            }
+                            val firstPageDeferred = async {
+                                withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
+                                    loadPage(criteria, page = 1, replace = false, requestedSort = requestedSort)
+                                } ?: false
+                            }
+                            val externalDeferred = async(Dispatchers.IO) {
+                                withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
+                                    CoverDiscoverySources.discover(
+                                        title = criteria.title,
+                                        originalArtist = resolvedOriginalArtist,
+                                        mode = mode,
+                                        aiConfig = foreignScoutConfig,
+                                        maxNetworkFanOut = if (playbackIsNormallyPlaying()) 2 else 3,
+                                    )
+                                }
+                            }
+
+                            // One collection barrier, not ten separate visible batches.
+                            // Every provider starts at once; slow ones are cancelled
+                            // within 6.5s so they cannot consume the verification time.
+                            val cloudItems = archiveDeferred.await()
+                            val memoryState = memoryDeferred.await()
+                            firstPageDeferred.await()
+                            val external = externalDeferred.await()
+
+                            val cloudSeeds = cloudItems.mapNotNull { item ->
+                                val work = item.workTitle.ifBlank { item.title }
+                                if (!TitleMeaningResolver.matchesBaseTitle(criteria.title, work) &&
+                                    !TitleMeaningResolver.matchesBaseTitle(criteria.title, item.title)
+                                ) return@mapNotNull null
+                                val category = when (item.category.lowercase()) {
+                                    "live", "dal vivo" -> AiCoverCategory.LIVE
+                                    "remix", "mix", "rework" -> AiCoverCategory.REMIX
+                                    "foreign", "straniera", "adattamento" -> AiCoverCategory.FOREIGN
+                                    else -> AiCoverCategory.COVER
+                                }
+                                DiscogsVersionSource.externalSeed(
+                                    CoverSourceCandidate(
+                                        title = item.title, artist = item.artist,
+                                        sources = listOf("Archivio Cloud"),
+                                        year = item.year, album = item.album,
+                                        coverUrl = item.coverUrl, language = item.language,
+                                        category = category,
+                                        playbackVideoId = item.playbackVideoId,
+                                        playbackVideoTitle = item.playbackVideoTitle,
+                                        playbackVideoSource = item.playbackVideoSource,
+                                        evidenceScore =
+                                            (((item.sameWorkScore ?: 30) +
+                                                (item.versionTypeScore ?: 30)) / 10).coerceIn(1, 20),
+                                    ),
+                                    targetTitle = criteria.title,
+                                    originalArtist = resolvedOriginalArtist,
+                                )
+                            }
+                            session.turboArchiveMatches = cloudSeeds.size
+                            if (resolvedOriginalArtist.isBlank()) {
+                                memoryState?.discovery?.original?.artist
+                                    ?.takeIf(String::isNotBlank)?.let { resolvedOriginalArtist = it }
+                            }
+                            val memorySeeds = memoryState?.discovery?.versions
+                                .orEmpty().map(::memoryCandidateToSeed)
+                            val externalSeeds = external?.candidates.orEmpty().map { source ->
+                                DiscogsVersionSource.externalSeed(
+                                    candidate = source,
+                                    targetTitle = criteria.title,
+                                    originalArtist = resolvedOriginalArtist,
+                                )
+                            }
+                            var merged = mergePage(results, cloudSeeds + memorySeeds + externalSeeds, replace = false)
+                            val workTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
+                            val originalYear = memoryState?.discovery?.original?.year
+                            merged = withContext(Dispatchers.Default) {
+                                merged.map { seed ->
+                                    DiscogsVersionSource.certifyForFrozenRanking(
+                                        seed = seed, targetTitle = workTitle,
+                                        originalArtist = resolvedOriginalArtist,
+                                        originalYear = originalYear, originalCredits = emptyList(),
+                                    )
+                                }
+                            }
+                            if (activeCriteria != criteria) return@coroutineScope
+                            results = merged
+                            session.results = results
+                            session.originalYear = originalYear
+                            rebuildStableOrder()
+                            rankingFrozen = true
+                            session.rankingFrozen = true
+                            originalSectionFrozen = true
+                            session.originalSectionFrozen = true
+                            session.sourceDiscoveryComplete = true
+                            session.originalGateStartedAtMs = SystemClock.elapsedRealtime()
+                            session.coverBatchStartedAtMs = SystemClock.elapsedRealtime()
+
+                            // Verify top-ranked candidates in parallel. A high-score
+                            // pending item no longer stalls all lower-ranked work.
+                            // Playback keeps network concurrency capped at four.
+                            val candidates = coverCandidatePool().take(TURBO_MAX_RANK_CANDIDATES)
+                            for (chunk in candidates.chunked(if (playbackIsNormallyPlaying()) 4 else 8)) {
+                                val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
+                                    SystemClock.elapsedRealtime()
+                                if (remaining <= 0L || !isActive) break
+                                val pending = chunk.filter { !hasPublishableVideo(it) &&
+                                    playableTrack(it) != null }
+                                if (pending.isNotEmpty()) {
+                                    withTimeoutOrNull(remaining) { resolveVideoChunk(pending) }
+                                }
+                                if (coverCandidatePool().count(::hasPublishableVideo) >= TURBO_RESULT_QUOTA) break
+                            }
+
+                            // Prime Coil's existing image memory/disk caches, rather
+                            // than creating 50 extra full-size bitmap copies.
+                            val ready = coverCandidatePool()
+                                .filter(::hasPublishableVideo).take(TURBO_RESULT_QUOTA)
+                            val thumbnails = ready.mapNotNull { seed ->
+                                seed.resolvedVideoId?.takeIf(String::isNotBlank)?.let { id ->
+                                    "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+                                }
+                            }.distinct()
+                            val imageBudget = stopAt - SystemClock.elapsedRealtime()
+                            if (imageBudget > 0L && thumbnails.isNotEmpty()) {
+                                withTimeoutOrNull(imageBudget) {
+                                    val gate = Semaphore(if (playbackIsNormallyPlaying()) 3 else 6)
+                                    thumbnails.map { url ->
+                                        async(Dispatchers.IO) {
+                                            gate.withPermit {
+                                                runCatching {
+                                                    context.imageLoader.execute(
+                                                        ImageRequest.Builder(context)
+                                                            .data(url).size(Size(144, 144))
+                                                            .memoryCachePolicy(CachePolicy.ENABLED)
+                                                            .diskCachePolicy(CachePolicy.ENABLED)
+                                                            .build()
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }.awaitAll()
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    // Only the sealed snapshot reaches UI; commit once after
+                    // the 40-second global deadline OR earlier if done.
+                    if (activeCriteria == criteria) {
+                        val finalRanked = coverCandidatePool()
+                            .filter(::hasPublishableVideo).take(TURBO_RESULT_QUOTA)
+                        publishedCoverSnapshots = finalRanked
+                        session.publishedCoverSnapshots = finalRanked
+                        publishedOriginalSnapshots = emptyList()
+                        session.publishedOriginalSnapshots = emptyList()
+                        publishedReadyLimit = finalRanked.size
+                        session.publishedReadyLimit = finalRanked.size
+                        rankingFrozen = true
+                        session.rankingFrozen = true
+                        originalSectionFrozen = true
+                        session.originalSectionFrozen = true
+                        session.sourceDiscoveryComplete = true
+                        session.turboFinished = true
+                        sourceDiscoveryLoading = false
+                        loading = false
+                        verificationJob?.cancel()
+                        paginationJob?.cancel()
+                        videoPreloadJob?.cancel()
+                        CloudMusicDiscovery.cancelArchiveRequests()
+                        playerConnection?.service?.setCoverPerformanceLoad(
+                            active = true, heavy = false,
+                        )
+                    }
+                }
+            }
+        } else {
         searchJob =
             scope.launch {
                 listState.scrollToItem(0)
@@ -2356,6 +2574,7 @@ internal fun DiscogsDirectVersionBrowser(
                 scheduleDiscogsVerification()
             }
         }
+        }
         searchJob?.invokeOnCompletion {
             scope.launch {
                 loading = false
@@ -2690,7 +2909,8 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode == DiscogsDirectMode.COVER) publishedOriginalSnapshots
         else emptyList()
     val visibleTrueCovers =
-        if (mode == DiscogsDirectMode.COVER) publishedCoverSnapshots.take(visibleLimit)
+        if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading))
+            publishedCoverSnapshots.take(visibleLimit)
         else emptyList()
     val visibleResults =
         if (mode == DiscogsDirectMode.COVER) {
