@@ -56,7 +56,7 @@ test('Turbo burst targets at most 50 ranked VIDEO recordings and preserves ten-r
 
 test('Turbo bursts 4 metadata checks when idle but protects playback and never warms streams',()=>{
   assert.ok(browser.includes('} else if (isTurbo) {\n                                    4'));
-  assert.ok(browser.includes('batch.chunked(if (isTurbo && !playbackIsNormallyPlaying()) 4 else DIRECT_VIDEO_PARALLELISM)'));
+  assert.ok(browser.includes('batch.chunked(if (isTurbo && playerConnection?.isEffectivelyPlaying?.value != true) 4 else DIRECT_VIDEO_PARALLELISM)'));
   assert.ok(browser.includes('DIRECT_COVER_PLAYBACK_BATCH_SIZE = 1'));
   assert.ok(browser.includes('if (backgroundWorkBlocked()) return@launch'));
   assert.ok(browser.includes('if (backgroundWorkBlocked() ||'));
