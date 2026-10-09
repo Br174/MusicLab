@@ -2368,45 +2368,13 @@ internal fun DiscogsDirectVersionBrowser(
         } else {
             visibleMembershipPool
         }
-    // LAB64 Pollicino: show an original only after its video is found (or
-    // all bounded attempts fail), and never insert newly ready originals above
-    // a Cover row the user is currently viewing. The screen is anchored by
-    // stable LazyColumn item keys; late originals wait for a safe top boundary.
-    val originalNow = publishedOriginalSnapshots.mapNotNull { snapshot ->
-        navigablePool.firstOrNull { it.fingerprint == snapshot.fingerprint }
-    }
-    val eligibleOriginalIds = originalNow.filter { seed ->
-        hasVideoPreview(seed) ||
-            (session.automaticVideoAttempts[seed.fingerprint] ?: 0) >= autoVideoAttemptBudget(seed)
-    }.map { it.fingerprint }
-    LaunchedEffect(sessionKey, eligibleOriginalIds, listState.firstVisibleItemIndex, listState.isScrollInProgress) {
-        if (!listState.isScrollInProgress && listState.firstVisibleItemIndex <= 2) {
-            shownOriginalIds = shownOriginalIds + eligibleOriginalIds
-        }
-    }
-
-    // The published snapshots are immutable, so an unavailable late result or
-    // new year/credit cannot reorder any video already seen on screen.
+    // LAB65: only committed, validated, immutable rows reach Compose.
     val visibleOriginalVersions =
-        if (mode == DiscogsDirectMode.COVER) {
-            // LAB61: existing rows read their updated video IDs from live results.
-            val originalsById = navigablePool.associateBy { it.fingerprint }
-            val originalRows = publishedOriginalSnapshots.mapNotNull { originalsById[it.fingerprint] }
-                .filter { it.fingerprint in shownOriginalIds }
-            if (sortMode == DirectVersionSort.RELEVANCE) originalRows else sortGroup(originalRows, sortMode)
-        } else emptyList()
+        if (mode == DiscogsDirectMode.COVER) publishedOriginalSnapshots
+        else emptyList()
     val visibleTrueCovers =
-        if (mode == DiscogsDirectMode.COVER) {
-            // LAB61: the ranking is frozen, not the video binding. Refresh the
-            // same committed row from live results without changing its position.
-            val currentById = publishPool.associateBy { it.fingerprint }
-            val committed = publishedCoverSnapshots.mapNotNull { currentById[it.fingerprint] }
-            val committedIds = committed.mapTo(HashSet<String>()) { it.fingerprint }
-            val remainder = publishPool.filterNot { it.fingerprint in committedIds }
-                .take((visibleLimit - committed.size).coerceAtLeast(0))
-            val page = (committed + remainder).take(visibleLimit)
-            if (sortMode == DirectVersionSort.RELEVANCE) page else sortGroup(page, sortMode)
-        } else emptyList()
+        if (mode == DiscogsDirectMode.COVER) publishedCoverSnapshots.take(visibleLimit)
+        else emptyList()
     val visibleResults =
         if (mode == DiscogsDirectMode.COVER) {
             visibleOriginalVersions + visibleTrueCovers
