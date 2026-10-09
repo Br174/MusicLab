@@ -72,7 +72,7 @@ test('LAB60 COVER.INFO publishes thumbnail candidates before following slow rela
   const begin = sources.indexOf('private suspend fun discoverCoverInfo(');
   const done = sources.indexOf('private data class CoverInfoSeed(');
   const scan = sources.slice(begin, done);
-  const early = scan.indexOf('if (quickVideos.isNotEmpty()) onEarlyVideoCandidates(quickVideos)');
+  const early = scan.indexOf('if (partial.isNotEmpty()) onEarlyVideoCandidates(partial)');
   const relation = scan.indexOf('relationRoots.chunked(2)');
   assert.ok(early > 0 && relation > early);
   assert.match(scan, /toCoverInfoCandidate\(seed, title\)/);
