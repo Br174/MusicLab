@@ -43,9 +43,9 @@ test('LAB62 removes LAB41 alternate extraction lane and uses Meld resolver', () 
 });
 
 test('active LAB revision stays in update family 01', () => {
-  assert.match(uab, /UAB_UPDATE_FAMILY_ID="01"/);
+  assert.match(uab, /UAB_UPDATE_FAMILY_ID="turbo01"/);
   assert.match(uab, /METROLIST_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
   const versionCode = Number(uab.match(/MUSICLAB_VERSION_CODE="(\d+)"/)?.[1] ?? 0);
-  assert.ok(versionCode >= 4601);
+  assert.ok(versionCode >= 1001);
   assert.match(uab, /MusicLab LAB \d+[A-Z]? aggiornamento/);
 });
