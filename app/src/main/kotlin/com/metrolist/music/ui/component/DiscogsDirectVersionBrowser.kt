@@ -2277,6 +2277,7 @@ internal fun DiscogsDirectVersionBrowser(
             var ranked = orderedResults(results)
                 .filterNot(::isOriginalPerformerVersion)
                 .filterNot(::isHiddenForCurrentCover)
+                .filter(::hasPublishableVideo)
             var position = ranked.indexOfFirst { it.fingerprint == selectedFingerprint }
             if (position < 0) return@launch
             var next = ranked.getOrNull(position + direction)
@@ -2291,6 +2292,7 @@ internal fun DiscogsDirectVersionBrowser(
                     ranked = orderedResults(results)
                         .filterNot(::isOriginalPerformerVersion)
                         .filterNot(::isHiddenForCurrentCover)
+                        .filter(::hasPublishableVideo)
                     position = ranked.indexOfFirst { it.fingerprint == selectedFingerprint }
                     next = ranked.getOrNull(position + direction)
                 }
