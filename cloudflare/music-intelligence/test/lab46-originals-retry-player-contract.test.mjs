@@ -60,7 +60,7 @@ test('LAB62 restores the current upstream Meld player, not Player buono LAB41', 
 
 test('active LAB revisions remain in the same Android update family', () => {
   assert.match(uab, /UAB_UPDATE_FAMILY_ID="01"/);
-  assert.match(uab, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
+  assert.match(uab, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
   assert.match(uab, /UAB_UPDATE_FAMILY_VISIBLE_NAME="LAB \d+[A-Z]? aggiornamento"/);
   const versionCode = Number(uab.match(/MUSICLAB_VERSION_CODE="(\d+)"/)?.[1] ?? 0);
   assert.ok(versionCode >= 4601);
