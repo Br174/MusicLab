@@ -94,6 +94,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
 
 private const val DIRECT_VERSION_PAGE_SIZE = 20
 // Experimental family 02: bounded burst, never affect regular LAB68.
@@ -102,7 +104,7 @@ private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
 private const val TURBO_BURST_DEADLINE_MS = 40_000L
 private const val TURBO_THUMBNAIL_RESERVE_MS = 6_000L
-private const val TURBO_SOURCE_WAIT_MS = 6_500L
+private const val TURBO_SOURCE_WAIT_MS = 13_000L
 private const val TURBO_ARCHIVE_TIMEOUT_MS = 4_500L
 private const val TURBO_COVER_ORIGINAL_GATE_MS = 900L
 private const val DIRECT_COVER_PAGE_SIZE = 10
@@ -1887,6 +1889,13 @@ internal fun DiscogsDirectVersionBrowser(
             // verified snapshot, in ten-row pages, after the bounded burst.
             searchJob = scope.launch {
                 val stopAt = turboCommandStartedAt + TURBO_BURST_DEADLINE_MS
+                // Source callbacks retain completed findings even if the whole
+                // aggregate discovery reaches its bounded deadline.
+                val sourceEvidence = ConcurrentLinkedQueue<CoverSourceCandidate>()
+                val sourceStatus = ConcurrentHashMap<String, CoverSourceDiagnostic>()
+                val sourceOriginalYear = AtomicReference<Int?>(null)
+                val cloudArchiveCount = java.util.concurrent.atomic.AtomicInteger(-1)
+                val cloudMemoryCount = java.util.concurrent.atomic.AtomicInteger(-1)
                 try {
                     listState.scrollToItem(0)
                     withTimeoutOrNull(
@@ -1894,7 +1903,7 @@ internal fun DiscogsDirectVersionBrowser(
                     ) {
                         coroutineScope {
                             val archiveDeferred = async(Dispatchers.IO) {
-                                withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
+                                val items = withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
                                     foreignScoutConfig?.let { config ->
                                         CloudMusicDiscovery.searchArchive(
                                             query = criteria.title,
@@ -1903,9 +1912,11 @@ internal fun DiscogsDirectVersionBrowser(
                                         )
                                     }.orEmpty()
                                 }.orEmpty()
+                                cloudArchiveCount.set(items.size)
+                                items
                             }
                             val memoryDeferred = async(Dispatchers.IO) {
-                                withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
+                                val memory = withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
                                     foreignScoutConfig?.let { config ->
                                         CloudMusicDiscovery.cachedMemoryState(
                                             context = context, title = criteria.title,
@@ -1916,6 +1927,8 @@ internal fun DiscogsDirectVersionBrowser(
                                         )
                                     }
                                 }
+                                cloudMemoryCount.set(memory?.discovery?.versions?.size ?: 0)
+                                memory
                             }
                             val firstPageDeferred = async {
                                 withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
@@ -1930,6 +1943,14 @@ internal fun DiscogsDirectVersionBrowser(
                                         mode = mode,
                                         aiConfig = foreignScoutConfig,
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying()) 2 else 3,
+                                        onEarlyVideoCandidates = { quick ->
+                                            sourceEvidence.addAll(quick)
+                                        },
+                                        onSourceCompleted = { items, diagnostic, originalYear ->
+                                            sourceEvidence.addAll(items)
+                                            sourceStatus[diagnostic.name] = diagnostic
+                                            if (originalYear != null) sourceOriginalYear.set(originalYear)
+                                        },
                                     )
                                 }
                             }
@@ -1978,7 +1999,10 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             val memorySeeds = memoryState?.discovery?.versions
                                 .orEmpty().map(::memoryCandidateToSeed)
-                            val externalSeeds = external?.candidates.orEmpty().map { source ->
+                            // Do not throw away already-completed providers if a
+                            // different lane times out and the aggregate is null.
+                            val externalSeeds = (sourceEvidence.toList() +
+                                external?.candidates.orEmpty()).map { source ->
                                 DiscogsVersionSource.externalSeed(
                                     candidate = source,
                                     targetTitle = criteria.title,
@@ -1987,7 +2011,11 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             var merged = mergePage(results, cloudSeeds + memorySeeds + externalSeeds, replace = false)
                             val workTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
-                            val originalYear = memoryState?.discovery?.original?.year
+                            // Use documentary original chronology even if another
+                            // service times out. Unknown dates never become invented.
+                            val originalYear = sourceOriginalYear.get()
+                                ?: memoryState?.discovery?.original?.year
+                                ?: external?.originalYear
                             merged = withContext(Dispatchers.Default) {
                                 merged.map { seed ->
                                     DiscogsVersionSource.certifyForFrozenRanking(
@@ -2062,6 +2090,9 @@ internal fun DiscogsDirectVersionBrowser(
                     // Only the sealed snapshot reaches UI; commit once after
                     // the 40-second global deadline OR earlier if done.
                     if (activeCriteria == criteria) {
+                        // Freeze only after the whole burst; expose all prepared
+                        // cards together, not one automatic page every 10 items.
+                        // Preserve all score/date evidence in results.
                         val finalRanked = coverCandidatePool()
                             .filter(::hasPublishableVideo).take(TURBO_RESULT_QUOTA)
                         publishedCoverSnapshots = finalRanked
@@ -2070,12 +2101,49 @@ internal fun DiscogsDirectVersionBrowser(
                         session.publishedOriginalSnapshots = emptyList()
                         publishedReadyLimit = finalRanked.size
                         session.publishedReadyLimit = finalRanked.size
+                        visibleLimit = TURBO_RESULT_QUOTA
+                        session.visibleLimit = TURBO_RESULT_QUOTA
+                        resultPageIndex = 0
+                        session.resultPageIndex = 0
                         rankingFrozen = true
                         session.rankingFrozen = true
                         originalSectionFrozen = true
                         session.originalSectionFrozen = true
                         session.sourceDiscoveryComplete = true
                         session.turboFinished = true
+                        // Separate results of each consulted source: no longer
+                        // report Discogs as if it were the only provider.
+                        val externalNames = listOf(
+                            "COVER.INFO", "MusicBrainz", "Apple/iTunes",
+                            "Spotify", "LRCLIB", "AI Scout",
+                        )
+                        val completed = externalNames.map { name ->
+                            sourceStatus[name] ?: CoverSourceDiagnostic(
+                                name = name, available = false, found = 0,
+                                note = if (name == "AI Scout") {
+                                    "Turbo: Cloud editoriale in sola lettura"
+                                } else {
+                                    "tempo scaduto o servizio non disponibile"
+                                },
+                            )
+                        }
+                        val archiveCount = cloudArchiveCount.get()
+                        val memoryCount = cloudMemoryCount.get()
+                        val cloudDiagnostic = listOf(
+                            CoverSourceDiagnostic(
+                                "Archivio Cloud", archiveCount >= 0,
+                                archiveCount.coerceAtLeast(0),
+                                if (archiveCount >= 0) "ricerca completata" else "timeout / non configurato",
+                            ),
+                            CoverSourceDiagnostic(
+                                "Memoria Cloud", memoryCount >= 0,
+                                memoryCount.coerceAtLeast(0),
+                                if (memoryCount >= 0) "ricerca completata" else "timeout / non configurato",
+                            ),
+                        )
+                        sourceDiagnostics = sourceDiagnostics
+                            .filter { it.name == "Discogs" } + cloudDiagnostic + completed
+                        session.sourceDiagnostics = sourceDiagnostics
                         sourceDiscoveryLoading = false
                         loading = false
                         verificationJob?.cancel()
@@ -2909,9 +2977,10 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode == DiscogsDirectMode.COVER) publishedOriginalSnapshots
         else emptyList()
     val visibleTrueCovers =
-        if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading))
-            publishedCoverSnapshots.take(visibleLimit)
-        else emptyList()
+        if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading)) {
+            (if (isTurbo) publishedCoverSnapshots.filterNot(::isHiddenForCurrentCover)
+             else publishedCoverSnapshots).take(visibleLimit)
+        } else emptyList()
     val visibleResults =
         if (mode == DiscogsDirectMode.COVER) {
             visibleOriginalVersions + visibleTrueCovers
@@ -3100,6 +3169,11 @@ internal fun DiscogsDirectVersionBrowser(
                         onSelected = { selected ->
                             category = selected
                             session.category = selected
+                            if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                                // LAB03: local category changes must never drop
+                                // the already prepared 50 cards or wake providers.
+                                scope.launch { listState.scrollToItem(0) }
+                            } else {
                             visibleLimit = pageSize
                             session.visibleLimit = visibleLimit
                             publishedReadyLimit = 0
@@ -3119,6 +3193,7 @@ internal fun DiscogsDirectVersionBrowser(
                             scope.launch { listState.scrollToItem(0) }
                             scheduleVideoPreload()
                             scheduleDiscogsVerification()
+                            }
                         },
                     )
                 }
