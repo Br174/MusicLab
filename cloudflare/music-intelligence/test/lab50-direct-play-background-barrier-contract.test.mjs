@@ -73,7 +73,9 @@ test('LAB59 automatic preload stops during playback, protecting audio from sourc
 
   const preload = functionSlice('fun scheduleVideoPreload()', 'fun pauseCoverBackgroundForPlayback()');
   assert.match(preload, /if \(backgroundWorkBlocked\(\)\) return/);
-  assert.match(preload, /if \(backgroundWorkBlocked\(\) \|\| playbackIsNormallyPlaying\(\)\) break/);
+  assert.match(preload, /if \(backgroundWorkBlocked\(\) \|\|/);
+  assert.match(preload, /mode != DiscogsDirectMode\.COVER && playbackIsNormallyPlaying\(\)/);
+  assert.match(preload, /heavy = !playbackIsNormallyPlaying\(\)/);
   assert.match(preload, /DIRECT_COVER_PLAYBACK_BATCH_SIZE/);
 
   const verification = functionSlice('fun scheduleDiscogsVerification()', 'fun pauseCoverBackgroundForPlayback()');
