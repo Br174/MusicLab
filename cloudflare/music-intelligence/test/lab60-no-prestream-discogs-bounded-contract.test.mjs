@@ -28,7 +28,7 @@ test('LAB60 provider savings: Last.fm and Wikidata do not run from Android Cover
   assert.doesNotMatch(scan, /sourceLane \{ discoverWikidata/);
   assert.match(scan, /CoverSourceDiagnostic\("Last\.fm", false, 0/);
   assert.match(scan, /CoverSourceDiagnostic\("Wikidata", false, 0/);
-  assert.match(scan, /val sourceGate = Semaphore\(3\)/);
+  assert.match(scan, /val sourceGate = Semaphore\(maxNetworkFanOut\.coerceIn\(1, 3\)\)/);
 });
 
 test('LAB60 Cloudflare Cover expansion keeps disabling slow/duplicated services', () => {
