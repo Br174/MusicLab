@@ -32,13 +32,11 @@ test('LAB64 gives extra bounded attempts to strongest 20-point candidates withou
   assert.match(b,/DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 3_000L/);
 });
 
-test('LAB64 defers late original insertions while visible cover rows are in view',()=>{
-  assert.match(b,/val eligibleOriginalIds =/);
-  assert.match(b,/listState\.firstVisibleItemIndex <= 2/);
-  assert.match(b,/!listState\.isScrollInProgress/);
-  assert.match(b,/shownOriginalIds = shownOriginalIds \+ eligibleOriginalIds/);
-  assert.match(b,/\.filter \{ it\.fingerprint in shownOriginalIds \}/);
-  assert.match(b,/publishedOriginalSnapshots = publishedOriginalSnapshots \+ newOriginals/);
+test('LAB65 seals originals exactly once before showing verified cover groups',()=>{
+  const pub=section('suspend fun publishReadyBatches()', 'suspend fun resolveNextVideoBatch(');
+  assert.match(pub,/publishedOriginalSnapshots = candidates\.filter\(::hasPublishableVideo\)/);
+  assert.match(pub,/originalSectionFrozen = true/);
+  assert.match(pub,/DIRECT_ORIGINAL_FIRST_GATE_MS/);
   assert.match(b,/val visibleOriginalVersions =/);
   assert.match(b,/val visibleTrueCovers =/);
 });
