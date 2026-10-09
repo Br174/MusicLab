@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: musiclab-lab68-fast-artifact-v1
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   validate:
