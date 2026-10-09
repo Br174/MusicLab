@@ -12,7 +12,7 @@ test('LAB65C a remote catalog of 220 pages never blocks 3 already-verified cover
  assert.match(publication,/if \(ready\.size < slots && !sourceExhausted && !graceElapsed\) break/);
  assert.match(publication,/val group = ready\.take\(slots\)/);
  assert.match(publication,/publishedCoverSnapshots = publishedCoverSnapshots \+ group/);
- assert.match(source,/DIRECT_COVER_PARTIAL_BATCH_GRACE_MS = 12_000L/);
+ assert.match(source,/DIRECT_COVER_PARTIAL_BATCH_GRACE_MS = 2_800L/);
  const ready=[{id:'a',score:20},{id:'b',score:19},{id:'c',score:18}];
  const slots=5, pagesRemaining=220, graceElapsed=true;
  const shouldWait=ready.length<slots && pagesRemaining===0 && !graceElapsed;
@@ -45,7 +45,7 @@ test('LAB65C retains no-audio-probe policy, raw-video-ID validation, and same An
  assert.doesNotMatch(pub,/getStreamUrl|ExoPlayer|playQueue/);
  assert.match(source,/fun hasPublishableVideo\(seed: DiscogsVersionSeed\)/);
  assert.match(source,/CoverPlaybackMemory\.verifiedVideo/);
- assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6503"/);
+ assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="6601"/);
  assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.labupdate01"/);
  assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-lab-family-01-test"/);
 });
