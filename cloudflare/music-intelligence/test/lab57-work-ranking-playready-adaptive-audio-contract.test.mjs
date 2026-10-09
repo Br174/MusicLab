@@ -66,7 +66,7 @@ test('LAB57 publishes Cover rows 5+5 only after metadata and real stream readine
   assert.match(browser, /DIRECT_VIDEO_BATCH_SIZE = 5/);
   assert.match(browser, /val playReadyVideoIds: MutableSet<String>/);
   assert.match(browser, /suspend fun publishReadyBatches\(\)/);
-  assert.match(browser, /val publicationTarget = if \\(isTurbo\\) TURBO_RESULT_QUOTA else visibleLimit/);
+  assert.ok(browser.includes('val publicationTarget = if (isTurbo) TURBO_RESULT_QUOTA else visibleLimit'));
   assert.doesNotMatch(browser, /connection\.service\.getStreamUrl\(candidate\.id\)/);
   assert.match(browser, /session\.playReadyVideoIds \+= candidate\.id/);
   assert.match(browser, /visibleOriginalVersions \+ visibleTrueCovers/);
