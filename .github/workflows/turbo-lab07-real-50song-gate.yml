@@ -1,0 +1,27 @@
+name: MusicLab Turbo LAB07 — 50 Real-Song Yield Gate (No APK)
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab07-strategy-lab-family-02
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-turbo-lab07-real-fifty-independent
+  cancel-in-progress: false
+
+jobs:
+  fifty-song-catalog:
+    name: fifty-song-source-and-verification-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Benchmark 50 real originals, cap 50 linked videos per song, enforce 5sec and verified mean 25 gate
+        run: node --test cloudflare/music-intelligence/test/turbo-lab07-fifty-song-real-catalog-benchmark.test.mjs
