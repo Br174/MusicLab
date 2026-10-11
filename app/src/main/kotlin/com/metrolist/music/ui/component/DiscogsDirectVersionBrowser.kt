@@ -2307,10 +2307,9 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     }
                 } finally {
-                    // Release all queued callback payloads. Only the completed
-                    // card snapshot and bounded cache survive the five seconds.
-                    streamingCandidates.cancel()
-                    supplementalSeeds.cancel()
+                    // Stop each discovery lane first, retain every finished
+                    // callback until the complete 5-second poster snapshot is
+                    // constructed, THEN free its queue buffers.
                     // Only the sealed snapshot reaches UI; commit once after
                     // the five-second global deadline OR sooner at fifty valid videos.
                     if (isActive && activeCriteria == criteria) {
@@ -2415,6 +2414,8 @@ internal fun DiscogsDirectVersionBrowser(
                             active = false, heavy = false,
                         )
                     }
+                    streamingCandidates.cancel()
+                    supplementalSeeds.cancel()
                 }
 
                 // LAB08 Pollicino: from the poster seal until T+10s only
