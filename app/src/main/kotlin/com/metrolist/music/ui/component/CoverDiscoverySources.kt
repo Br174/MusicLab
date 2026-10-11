@@ -882,6 +882,7 @@ internal object CoverDiscoverySources {
                         async(Dispatchers.IO) { readSearchTerm(term) }
                     }.awaitAll().filterNotNull()
                 }
+            }
 
         val searchDocuments = searchResponses.filterNotNull()
             .filter { (_, parsed) -> parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty() }
