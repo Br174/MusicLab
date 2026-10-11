@@ -1955,7 +1955,9 @@ internal fun DiscogsDirectVersionBrowser(
                 val stopAt = turboCommandStartedAt + TURBO_BURST_DEADLINE_MS
                 // Source callbacks retain completed findings even if the whole
                 // aggregate discovery reaches its bounded deadline.
-                val sourceEvidence = ConcurrentLinkedQueue<CoverSourceCandidate>()
+                // Exact duplicate callbacks must never consume another video-verifier turn.
+                // A distinct source or richer relation remains independent evidence.
+                val sourceEvidence = ConcurrentHashMap.newKeySet<CoverSourceCandidate>()
                 val streamingCandidates = Channel<List<CoverSourceCandidate>>(Channel.UNLIMITED)
                 val supplementalSeeds = Channel<List<DiscogsVersionSeed>>(Channel.UNLIMITED)
                 val sourceStatus = ConcurrentHashMap<String, CoverSourceDiagnostic>()
@@ -2128,8 +2130,8 @@ internal fun DiscogsDirectVersionBrowser(
                                         aiConfig = foreignScoutConfig,
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 5,
                                         onEarlyVideoCandidates = { quick ->
-                                            sourceEvidence.addAll(quick)
-                                            if (quick.isNotEmpty()) streamingCandidates.trySend(quick)
+                                            val fresh = quick.filter { sourceEvidence.add(it) }
+                                            if (fresh.isNotEmpty()) streamingCandidates.trySend(fresh)
                                             if (quick.isNotEmpty()) {
                                                 sourceStatus["COVER.INFO"] = CoverSourceDiagnostic(
                                                     "COVER.INFO", true, quick.size,
@@ -2138,8 +2140,8 @@ internal fun DiscogsDirectVersionBrowser(
                                             }
                                         },
                                         onSourceCompleted = { items, diagnostic, originalYear ->
-                                            sourceEvidence.addAll(items)
-                                            if (items.isNotEmpty()) streamingCandidates.trySend(items)
+                                            val fresh = items.filter { sourceEvidence.add(it) }
+                                            if (fresh.isNotEmpty()) streamingCandidates.trySend(fresh)
                                             sourceStatus[diagnostic.name] = diagnostic
                                             if (originalYear != null) sourceOriginalYear.set(originalYear)
                                         },
@@ -2195,8 +2197,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 .orEmpty().map(::memoryCandidateToSeed)
                             // Do not throw away already-completed providers if a
                             // different lane times out and the aggregate is null.
+                            // A service may send one early callback and the same
+                            // entries again in its final outcome. Merge each exact
+                            // documentary observation just once.
                             val externalSeeds = (sourceEvidence.toList() +
-                                external?.candidates.orEmpty()).map { source ->
+                                external?.candidates.orEmpty()).distinct().map { source ->
                                 DiscogsVersionSource.externalSeed(
                                     candidate = source,
                                     targetTitle = criteria.title,
@@ -2303,7 +2308,7 @@ internal fun DiscogsDirectVersionBrowser(
                     streamingCandidates.cancel()
                     supplementalSeeds.cancel()
                     // Only the sealed snapshot reaches UI; commit once after
-                    // the 40-second global deadline OR earlier if done.
+                    // the five-second global deadline OR sooner at fifty valid videos.
                     if (isActive && activeCriteria == criteria) {
                         // A Cover exit cancels the burst; never seal a cancelled session.
                         // Freeze only after the whole burst; expose all prepared
