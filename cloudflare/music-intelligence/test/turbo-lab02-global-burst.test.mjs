@@ -13,7 +13,7 @@ test('Turbo LAB03: concurrent collection followed by verification and thumbnail 
   for (const name of ['archiveDeferred','memoryDeferred','firstPageDeferred','externalDeferred']) {
     assert.ok(s.includes('val '+name+' = async'));
   }
-  assert.ok(s.includes('resolveVideoChunk(pending)'));
+  assert.ok(s.includes('resolveVideoChunk(chunk)'));
   assert.ok(s.includes('context.imageLoader.execute('));
   assert.ok(s.includes('finalRanked = coverCandidatePool()'));
 });
