@@ -49,8 +49,8 @@ test('RUN 05 Cloud archive and internal memory hand candidates to verifier immed
  assert.match(runners,/val cloudSeedsNow = supplementalSeeds\.tryReceive\(\)\.getOrNull\(\)\.orEmpty\(\)/);
 });
 test('RUN 06 provider callbacks queue each candidate independently; slow providers cannot gate the verifier',()=>{
- assert.match(runners,/streamingCandidates\.trySend\(quick\)/);
- assert.match(runners,/streamingCandidates\.trySend\(items\)/);
+ assert.match(runners,/streamingCandidates\.trySend\(fresh\)/);
+ assert.match(runners,/streamingCandidates\.trySend\(fresh\)/);
  assert.match(runners,/val streamingVerifier = launch/);
  assert.ok(runners.indexOf('val streamingVerifier = launch') < runners.indexOf('val externalDeferred = async'));
 });
