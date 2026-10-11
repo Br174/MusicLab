@@ -23,7 +23,7 @@ test('flow 12: every provider callback enters the nonblocking bounded verifier q
  assert.match(flow(),/onSourceCompleted = \{ items, diagnostic, originalYear ->\s*sourceEvidence\.addAll\(items\)\s*if \(items\.isNotEmpty\(\)\) streamingCandidates\.trySend\(items\)/);
 });
 test('flow 13: verified video lookup begins before serial await of cloud/archive',()=>{
- const f=flow(),first=f.indexOf('val streamingVerifier = launch'),awaitAll=f.indexOf('val cloudSeeds = archiveDeferred.await()');
+ const f=flow(),first=f.indexOf('val streamingVerifier = launch'),awaitAll=f.indexOf('archiveDeferred.await()');
  assert.ok(first>0 && first<awaitAll);
  assert.match(f,/resolveVideoChunk\(pending\)/);
 });
