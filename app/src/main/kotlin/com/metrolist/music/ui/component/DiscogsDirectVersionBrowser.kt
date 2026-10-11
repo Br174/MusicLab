@@ -1067,6 +1067,15 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     }
 
+                    if (verified == null && existingId.isBlank()) {
+                        // Prefer MusicLab's own previously bound and prepared
+                        // recording before sending another external search.
+                        // knownMusicLabVideo reuses an in-memory SongItem with
+                        // zero network traffic when it is already prepared.
+                        val known = knownMusicLabVideo(current, track)
+                        verified = verifyCandidateSong(known?.first, known?.second)
+                    }
+
                     if (verified == null) {
                         val excluded =
                             (session.usedVideoIds + CoverPlaybackMemory.rejectedVideoIds(context, current.fingerprint))
