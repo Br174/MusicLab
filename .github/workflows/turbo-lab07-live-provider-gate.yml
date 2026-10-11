@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - uab-build/musiclab-turbo-lab07-strategy-lab-family-02
+    paths:
+      - .github/workflows/turbo-lab07-live-provider-gate.yml
+      - cloudflare/music-intelligence/test/turbo-lab07-live-coverinfo-probe.test.mjs
+      - cloudflare/music-intelligence/test/turbo-lab07-live-video-chain.test.mjs
+      - cloudflare/music-intelligence/test/turbo-lab07-five-song-query-variants.test.mjs
   workflow_dispatch:
 
 permissions:
