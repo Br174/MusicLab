@@ -2154,6 +2154,9 @@ internal fun DiscogsDirectVersionBrowser(
                             providerJobs.addAll(
                                 listOf(archiveDeferred, memoryDeferred, firstPageDeferred, externalDeferred),
                             )
+                            // A warm MusicLab cache can hit quota before all
+                            // asynchronous runners have been registered.
+                            if (quotaReached) providerJobs.forEach { it.cancel() }
                             val cloudSeeds = try {
                                 archiveDeferred.await()
                             } catch (cancel: CancellationException) {
