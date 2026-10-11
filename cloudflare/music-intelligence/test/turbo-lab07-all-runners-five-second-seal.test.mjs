@@ -12,7 +12,7 @@ function between(s,start,end){
 const turbo=between(b,'if (isTurbo && mode == DiscogsDirectMode.COVER) {\n            // Turbo LAB02','\n        } else {\n        searchJob =');
 const provider=between(sources,'suspend fun discover(', 'private suspend fun discoverCoverInfo(');
 const runners=between(turbo,'val streamingVerifier = launch','// LAB04: one short catalog phase');
-const finish=between(turbo,'} finally {','\n        } else {');
+const finish=turbo.slice(turbo.lastIndexOf('} finally {'));
 test('RUN 01 all provider runner lanes are spawned before aggregator awaits',()=>{
  const laneCalls=['val archiveDeferred = async(Dispatchers.IO)',
   'val memoryDeferred = async(Dispatchers.IO)','val firstPageDeferred = async',
