@@ -1972,11 +1972,24 @@ internal fun DiscogsDirectVersionBrowser(
                             // while slow catalog/cloud lanes are still running.
                             // Compose state stays on the owning UI dispatcher;
                             // user sees only the final atomic snapshot.
+                            var quotaReached = false
+                            val providerJobs = mutableListOf<Job>()
+                            fun stopAtFullQuota(): Boolean {
+                                if (coverCandidatePool().count(::hasPublishableVideo) < TURBO_RESULT_QUOTA) return false
+                                if (!quotaReached) {
+                                    quotaReached = true
+                                    // Stop just the producer runners; cancellation of
+                                    // the parent here would discard our final snapshot.
+                                    providerJobs.forEach { it.cancel() }
+                                }
+                                return true
+                            }
                             val streamingVerifier = launch {
                                 // Each distinct recording/video binding is examined once
                                 // per burst, even if no more source callbacks arrive.
                                 val examinedBindings = hashSetOf<String>()
                                 while (isActive && SystemClock.elapsedRealtime() < stopAt - TURBO_THUMBNAIL_RESERVE_MS) {
+                                    if (stopAtFullQuota()) break
                                     // Every runner delivers an immutable batch. Never
                                     // wait for Cover.Info, Discogs, Cloud or Apple/iTunes
                                     // to finish before verifying another runner's IDs.
@@ -2033,6 +2046,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         withTimeoutOrNull(minOf(remaining, 1_250L)) {
                                             resolveVideoChunk(pending)
                                         }
+                                        if (stopAtFullQuota()) break
                                     }
                                 }
                             }
@@ -2133,13 +2147,36 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
 
-                            // LAB04: one short catalog phase within the 40s budget.
-                            // Each provider has its own callback, so completed
-                            // evidence survives even if another source times out.
-                            val cloudSeeds = archiveDeferred.await()
-                            val memoryState = memoryDeferred.await()
-                            firstPageDeferred.await()
-                            val external = externalDeferred.await()
+                            // Producers already launched together. The first
+                            // 50 metadata-verified versions cancel remaining lanes
+                            // immediately; source-complete still awaits normally
+                            // when fewer versions were found before the deadline.
+                            providerJobs.addAll(
+                                listOf(archiveDeferred, memoryDeferred, firstPageDeferred, externalDeferred),
+                            )
+                            val cloudSeeds = try {
+                                archiveDeferred.await()
+                            } catch (cancel: CancellationException) {
+                                if (!quotaReached) throw cancel
+                                emptyList()
+                            }
+                            val memoryState = try {
+                                memoryDeferred.await()
+                            } catch (cancel: CancellationException) {
+                                if (!quotaReached) throw cancel
+                                null
+                            }
+                            try {
+                                firstPageDeferred.await()
+                            } catch (cancel: CancellationException) {
+                                if (!quotaReached) throw cancel
+                            }
+                            val external = try {
+                                externalDeferred.await()
+                            } catch (cancel: CancellationException) {
+                                if (!quotaReached) throw cancel
+                                null
+                            }
                             // A completed cache hit returns no lane callbacks.
                             // Its diagnostic snapshot is still authoritative.
                             external?.diagnostics?.forEach { diagnostic ->
@@ -2212,9 +2249,9 @@ internal fun DiscogsDirectVersionBrowser(
                             for (chunk in candidates.chunked(verifyFanOut)) {
                                 val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
                                     SystemClock.elapsedRealtime()
-                                if (remaining <= 0L || !isActive) break
-                                if (coverCandidatePool().count(::hasPublishableVideo) >= TURBO_RESULT_QUOTA) break
+                                if (remaining <= 0L || !isActive || stopAtFullQuota()) break
                                 withTimeoutOrNull(remaining) { resolveVideoChunk(chunk) }
+                                if (stopAtFullQuota()) break
                             }
 
                             // Prime Coil's existing image memory/disk caches, rather
@@ -2226,11 +2263,18 @@ internal fun DiscogsDirectVersionBrowser(
                                     "https://i.ytimg.com/vi/$id/hqdefault.jpg"
                                 }
                             }.distinct()
-                            val imageBudget = stopAt - SystemClock.elapsedRealtime()
-                            if (imageBudget > 0L && thumbnails.isNotEmpty()) {
+                            // Thumbnail warming never extends the burst to 5s
+                            // after we already reached the 50-video quota.
+                            // When audio is playing, leave image IO to LazyColumn.
+                            val imageBudget = minOf(
+                                TURBO_THUMBNAIL_RESERVE_MS,
+                                (stopAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L),
+                            )
+                            if (imageBudget > 0L && thumbnails.isNotEmpty() &&
+                                !playbackIsNormallyPlaying() && !playbackIsCritical()) {
                                 withTimeoutOrNull(imageBudget) {
-                                    val gate = Semaphore(if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 4)
-                                    thumbnails.map { url ->
+                                    val gate = Semaphore(3)
+                                    thumbnails.take(12).map { url ->
                                         async(Dispatchers.IO) {
                                             gate.withPermit {
                                                 runCatching {
