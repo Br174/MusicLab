@@ -1018,7 +1018,20 @@ internal fun DiscogsDirectVersionBrowser(
                         source: String?,
                     ): Pair<SongItem, String>? {
                         val candidate = song ?: return null
-                        if (!CompilationTrackResolver.isHardCompatible(track, candidate)) return null
+                        val documentedPerformer =
+                            source?.equals("COVER.INFO", ignoreCase = true) == true &&
+                                current.workRelationConfirmed &&
+                                current.resolvedVideoId?.trim() == candidate.id &&
+                                current.sourceNames.any {
+                                    it.equals("COVER.INFO", ignoreCase = true)
+                                }
+                        // The editorial relation proves the performer; YouTube
+                        // metadata must still satisfy exact title, version and
+                        // duration validation. Never apply this to blind searches.
+                        if (!CompilationTrackResolver.isHardCompatible(
+                                track, candidate,
+                                documentedPerformerMatch = documentedPerformer,
+                            )) return null
                         // LAB60: compatible video ID is enough. The native player
                         // alone obtains stream URLs when the user taps a result.
                         rememberPreparedVideoSong(candidate)
