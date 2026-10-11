@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run archived 281 contracts and current 42 LAB08 deadline, ranking and lifecycle safety tests
+      - name: Run archived 281 contracts and current 43 LAB08 deadline, ranking and lifecycle safety tests
         run: |
           # Older regression contracts deliberately pin Turbo LAB04's update
           # manifest; the application source under test is still LAB05.
