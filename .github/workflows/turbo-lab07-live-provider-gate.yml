@@ -1,0 +1,27 @@
+name: MusicLab LAB07 Live Cover Provider Benchmark (No APK)
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab07-strategy-lab-family-02
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-turbo-lab07-live-provider-independent
+  cancel-in-progress: false
+
+jobs:
+  live-provider:
+    name: ten-actual-COVER-INFO-network-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read-only live COVER.INFO tests within five-second timeboxes
+        run: node --test cloudflare/music-intelligence/test/turbo-lab07-live-coverinfo-probe.test.mjs
