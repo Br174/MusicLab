@@ -73,6 +73,20 @@ jobs:
           grep -q 'bundle().extractor.extract(' "$PLAYER_PATH"
 
 
+  live-provider-readonly:
+    name: live-COVER-INFO-probe-without-APK
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact LAB07 strategy candidate
+        uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test ten genuine COVER.INFO HTTP and relation checks
+        run: node --test cloudflare/music-intelligence/test/turbo-lab07-live-coverinfo-probe.test.mjs
+
   compile-source-only:
     name: compile-Android-without-APK
     needs: validate
