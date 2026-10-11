@@ -781,6 +781,12 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode == DiscogsDirectMode.COVER) {
             if (titleOk) return true
             if (isApproved(seed)) return true
+            // Explicit COVER.INFO follow-up relationships are a stronger
+            // musical-work link than translated title equality. They have
+            // already been anchored to the matching original song's page.
+            if (seed.workRelationConfirmed &&
+                seed.sourceNames.any { it.equals("COVER.INFO", ignoreCase = true) }
+            ) return true
 
             val aiTrusted =
                 seed.sourceNames.any { it.equals("AI Scout", ignoreCase = true) }
@@ -1969,6 +1975,13 @@ internal fun DiscogsDirectVersionBrowser(
                                     session.originalSectionFrozen = true
                                     val pending = coverCandidatePool()
                                         .filter { !hasPublishableVideo(it) && playableTrack(it) != null }
+                                        // Verify attached video IDs before doing a slower
+                                        // blind video search; keep quality order within lanes.
+                                        .sortedWith(
+                                            compareByDescending<DiscogsVersionSeed> {
+                                                !it.resolvedVideoId.isNullOrBlank()
+                                            }.thenByDescending { it.confidenceScore },
+                                        )
                                         .take(if (playbackIsNormallyPlaying()) 2 else 4)
                                     val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
                                         SystemClock.elapsedRealtime()
@@ -2139,6 +2152,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 .filter { seed ->
                                     !hasPublishableVideo(seed) && playableTrack(seed) != null
                                 }
+                                .sortedWith(
+                                    compareByDescending<DiscogsVersionSeed> {
+                                        !it.resolvedVideoId.isNullOrBlank()
+                                    }.thenByDescending { it.confidenceScore },
+                                )
                             val verifyFanOut = if (playbackIsNormallyPlaying()) 2 else 6
                             for (chunk in candidates.chunked(verifyFanOut)) {
                                 val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
