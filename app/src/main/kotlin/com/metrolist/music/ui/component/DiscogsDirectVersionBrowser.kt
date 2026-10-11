@@ -3580,21 +3580,29 @@ internal fun DiscogsDirectVersionBrowser(
                         if (mode == DiscogsDirectMode.COVER) {
                             Text(
                                 text =
-                                    "Risultati certificati: ${publishPool.size} · " +
-                                        "Cover in pagina: ${visibleTrueCovers.size}/$visibleLimit" +
-                                        " · Video identificati: ${visibleTrueCovers.count(::hasVideoPreview)}",
+                                    if (isTurbo) {
+                                        "Locandine: ${visibleTrueCovers.size}/50 · " +
+                                            "Video verificati: ${visibleTrueCovers.count(::hasPublishableVideo)} · " +
+                                            if (loading) "Raccolta in corso (max 5 s)"
+                                            else if (!session.turboFinished) "Video in verifica (max 10 s)"
+                                            else "Verifica video conclusa"
+                                    } else {
+                                        "Risultati certificati: ${publishPool.size} · " +
+                                            "Cover in pagina: ${visibleTrueCovers.size}/$visibleLimit" +
+                                            " · Video identificati: ${visibleTrueCovers.count(::hasVideoPreview)}"
+                                    },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            if (visibleTrueCovers.any { !hasVideoPreview(it) }) {
+                            if (!isTurbo && visibleTrueCovers.any { !hasVideoPreview(it) }) {
                                 Text(
                                     "Video da associare: ${visibleTrueCovers.count { !hasVideoPreview(it) }} · ricerca senza precaricare audio",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            if (nextBlockPool.isNotEmpty()) {
+                            if (!isTurbo && nextBlockPool.isNotEmpty()) {
                                 Text(
                                     "Prossime ${nextBlockPool.size} cover in attesa della pagina successiva",
                                     style = MaterialTheme.typography.bodySmall,
