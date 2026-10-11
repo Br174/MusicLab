@@ -29,6 +29,6 @@ test('Turbo LAB03: stop all background searches, independent update identity', (
   assert.ok(s.includes('paginationJob?.cancel()'));
   assert.ok(s.includes('videoPreloadJob?.cancel()'));
   assert.ok(s.includes('CloudMusicDiscovery.cancelArchiveRequests()'));
-  assert.ok(env.includes('UAB_UPDATE_FAMILY_VERSION_CODE="1003"'));
+  assert.ok(env.includes('UAB_UPDATE_FAMILY_VERSION_CODE="1004"'));
   assert.ok(env.includes('it.verlezza.musiclab.turbo01'));
 });
