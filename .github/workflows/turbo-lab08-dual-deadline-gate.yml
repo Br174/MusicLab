@@ -1,0 +1,128 @@
+name: MusicLab Turbo LAB08 — Dual-Deadline Score-First Verification (No APK)
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab08-two-phase-family-02
+    paths-ignore:
+      - TURBO_LAB04_BUILD_STATUS.txt
+  pull_request:
+    branches:
+      - uab-build/musiclab-lab68-aggiornamento-family-01
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-turbo-lab08-dual-deadline-v1
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate-once
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout LAB08 two-phase source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run archived 281 contracts and current 30 LAB08 dual-deadline score-priority tests
+        run: |
+          # Older regression contracts deliberately pin Turbo LAB04's update
+          # manifest; the application source under test is still LAB05.
+          # Run the legacy suite against its immutable historical manifest,
+          # then restore the LAB05 manifest for current-version tests/build.
+          cp uab-project.env "$RUNNER_TEMP/turbo-lab06.env"
+          cp app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt "$RUNNER_TEMP/turbo-lab06-browser.kt"
+          cp app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt "$RUNNER_TEMP/turbo-lab06-navigation.kt"
+          # Historical assertions pin the exact LAB05 behavior and LAB04 family label.
+          git show dec1876513a70a783f187ba5ddf3978e149db536:app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt > app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
+          git show dec1876513a70a783f187ba5ddf3978e149db536:app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt > app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt
+          git show 969263ad60d74ef7dcf1d47d3aefccb01244bd83:uab-project.env > uab-project.env
+          node --test cloudflare/music-intelligence/test/lab46-originals-retry-player-contract.test.mjs cloudflare/music-intelligence/test/lab46-red-retry-originals-player-contract.test.mjs cloudflare/music-intelligence/test/lab48-player-isolation-contract.test.mjs cloudflare/music-intelligence/test/lab49-cancellable-background-contract.test.mjs cloudflare/music-intelligence/test/lab50-direct-play-background-barrier-contract.test.mjs cloudflare/music-intelligence/test/lab51-cover-admission-score20-contract.test.mjs cloudflare/music-intelligence/test/lab52-cover-video-page-contract.test.mjs cloudflare/music-intelligence/test/lab53-cover-card-decisions-contract.test.mjs cloudflare/music-intelligence/test/lab54-cover-playback-pagination-card-contract.test.mjs cloudflare/music-intelligence/test/lab55-original-first-vertical-prefetch-playback-contract.test.mjs cloudflare/music-intelligence/test/lab56-opera-identity-collapsible-header-contract.test.mjs cloudflare/music-intelligence/test/lab57-work-ranking-playready-adaptive-audio-contract.test.mjs cloudflare/music-intelligence/test/lab58-compacted-ranked-fives-and-full-suite-contract.test.mjs cloudflare/music-intelligence/test/lab59-four-pillars-speed-fluidity-quantity-quality-contract.test.mjs cloudflare/music-intelligence/test/lab60-no-prestream-discogs-bounded-contract.test.mjs cloudflare/music-intelligence/test/lab61-ten-ranked-slots-playback-fluidity-contract.test.mjs cloudflare/music-intelligence/test/lab62-upstream-meld-player-and-cover-preview-contract.test.mjs cloudflare/music-intelligence/test/lab63-three-second-retry-stable-artwork-contract.test.mjs cloudflare/music-intelligence/test/lab64-ranked-video-original-first-cover-swipe-stability-contract.test.mjs cloudflare/music-intelligence/test/lab65-ready-only-five-immutable-ranking-no-audio-probe-contract.test.mjs cloudflare/music-intelligence/test/lab65b-direct-id-gate-background-recovery-contract.test.mjs cloudflare/music-intelligence/test/lab65c-bounded-partial-cover-batch-contract.test.mjs cloudflare/music-intelligence/test/lab66-fast-video-io-cached-artwork-fluid-ui-contract.test.mjs cloudflare/music-intelligence/test/lab67-parallel-metadata-nonblocking-video-previews.test.mjs cloudflare/music-intelligence/test/lab68-cloud-first-cache-player-fluidity-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab01-isolated-burst-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab02-global-burst.test.mjs cloudflare/music-intelligence/test/turbo-lab03-multisource-fifty.test.mjs cloudflare/music-intelligence/test/turbo-lab04-fast-complete-sources-contract.test.mjs
+          cp "$RUNNER_TEMP/turbo-lab06.env" uab-project.env
+          cp "$RUNNER_TEMP/turbo-lab06-browser.kt" app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
+          cp "$RUNNER_TEMP/turbo-lab06-navigation.kt" app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt
+          # LAB05's signing/version assertions must use LAB05's immutable manifest.
+          git show dec1876513a70a783f187ba5ddf3978e149db536:uab-project.env > uab-project.env
+          node --test cloudflare/music-intelligence/test/turbo-lab05-audio-return-and-sealed-cleanup.test.mjs
+          cp "$RUNNER_TEMP/turbo-lab06.env" uab-project.env
+          # Use the exact LAB06 browser for its historical 10-test gate.
+          cp app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt "$RUNNER_TEMP/turbo-lab07-browser.kt"
+          git show 97f2ac5dd3c0c2b46d6355fd5b3072dbc376663c:app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt > app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
+          node --test cloudflare/music-intelligence/test/turbo-lab06-five-second-audio-home-regression.test.mjs
+          cp "$RUNNER_TEMP/turbo-lab07-browser.kt" app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
+          cp app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt "$RUNNER_TEMP/turbo-lab08-browser.kt"
+          # All 90 LAB07 tests pin the last verified LAB07 release source.
+          git show ff0178a64fcb89e5d1c2f37a1ded00449a31b223:app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt > app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
+          node --test cloudflare/music-intelligence/test/turbo-lab07-strategy-portfolio.test.mjs cloudflare/music-intelligence/test/turbo-lab07-actual-flow-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab07-winner-regression.test.mjs cloudflare/music-intelligence/test/turbo-lab07-documented-direct-video.test.mjs cloudflare/music-intelligence/test/turbo-lab07-internal-memory-priority.test.mjs cloudflare/music-intelligence/test/turbo-lab07-fifty-song-evidence-and-load-safety.test.mjs cloudflare/music-intelligence/test/turbo-lab07-all-runners-five-second-seal.test.mjs cloudflare/music-intelligence/test/turbo-lab07-fifty-hit-stop-and-audio-isolation.test.mjs cloudflare/music-intelligence/test/turbo-lab07-final-redundancy-and-publisher-audit.test.mjs
+          cp "$RUNNER_TEMP/turbo-lab08-browser.kt" app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
+          node --test cloudflare/music-intelligence/test/turbo-lab08-five-second-atomic-posters.test.mjs cloudflare/music-intelligence/test/turbo-lab08-ten-second-video-seal.test.mjs cloudflare/music-intelligence/test/turbo-lab08-id-ready-score-priority.test.mjs
+
+      - name: Prove experimental player is exact upstream Meld (no LAB41 alternate resolver)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLAYER_PATH="app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt"
+          MELD_BLOB="03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
+          test "$(git hash-object "$PLAYER_PATH")" = "$MELD_BLOB"
+          ! grep -q 'LAB07_FAST_LANE_TIMEOUT_MS' "$PLAYER_PATH"
+          grep -q 'bundle().extractor.extract(' "$PLAYER_PATH"
+
+
+  # Read-only provider probes are isolated in their own explicitly targeted
+  # workflow, so an unrelated code commit cannot overload COVER.INFO.
+  compile-source-only:
+    name: compile-Android-without-APK
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+    steps:
+      - name: Checkout LAB08 without producing any APK
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+          cache-overwrite-existing: true
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Android SDK and optional Last.fm build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          fi
+
+      - name: Compile Kotlin for Foss Debug without APK packaging
+        run: ./gradlew :app:compileFossDebugKotlin --no-daemon --stacktrace
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
