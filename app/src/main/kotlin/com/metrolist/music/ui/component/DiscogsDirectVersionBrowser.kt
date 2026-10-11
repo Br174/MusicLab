@@ -3024,11 +3024,57 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB63 Pollicino: Retry shares the same hard 3-second cap as tapping
     // a missing Cover video. No unbounded cloud/COVER.INFO/YouTube chain on UI.
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
-        // The LAB08 video coordinator already owns all metadata requests.
-        // A second on-tap network lookup would duplicate the same ID check.
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
-            if (!session.turboFinished) {
-                Toast.makeText(context, "Verifica video in corso, fino a 10 secondi.", Toast.LENGTH_SHORT).show()
+            // LAB09: user owns this loop. It has NO total time limit.
+            // Tapping the same row again stops it; starting another row
+            // cancels the previous loop. Leaving Cover also cancels it.
+            if (loading) {
+                Toast.makeText(context, "Attendi il blocco locandine (massimo 10 secondi).", Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (manualVideoSearchJob?.isActive == true &&
+                resolvingFingerprint == seed.fingerprint) {
+                manualVideoSearchJob?.cancel()
+                resolvingFingerprint = null
+                Toast.makeText(context, "Ricerca video interrotta.", Toast.LENGTH_SHORT).show()
+                return
+            }
+            manualVideoSearchJob?.cancel()
+            manualVideoSearchJob = scope.launch {
+                resolvingFingerprint = seed.fingerprint
+                var failedRounds = 0
+                try {
+                    while (isActive && activeCriteria != null &&
+                        publishedCoverSnapshots.any { it.fingerprint == seed.fingerprint }) {
+                        val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
+                        if (hasPublishableVideo(current)) {
+                            val updated = publishedCoverSnapshots.map { poster ->
+                                if (poster.fingerprint == seed.fingerprint) current else poster
+                            }
+                            publishedCoverSnapshots = updated
+                            session.publishedCoverSnapshots = updated
+                            Toast.makeText(context, "Video trovato! Tocca per ascoltare.", Toast.LENGTH_SHORT).show()
+                            break
+                        }
+                        // New searchRound each iteration tries alternative
+                        // queries/sources. Provider refusals get a rising
+                        // backoff to protect COVER.INFO and YouTube rate limits.
+                        try {
+                            withTimeoutOrNull(8_000L) {
+                                resolveVideoChunk(listOf(current.copy(videoResolutionChecked = false)))
+                            }
+                        } catch (cancel: CancellationException) {
+                            throw cancel
+                        } catch (_: Exception) {
+                            // Transient network failure: continue after backoff.
+                        }
+                        failedRounds++
+                        val pauseMs = minOf(30_000L, 2_000L + failedRounds * 2_500L)
+                        delay(pauseMs)
+                    }
+                } finally {
+                    if (resolvingFingerprint == seed.fingerprint) resolvingFingerprint = null
+                }
             }
             return
         }
@@ -3058,12 +3104,7 @@ internal fun DiscogsDirectVersionBrowser(
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
             val latest = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
             if (!hasPublishableVideo(latest)) {
-                Toast.makeText(
-                    context,
-                    if (!session.turboFinished) "Video ancora in verifica (massimo 10 secondi)."
-                    else "Nessun video verificato per questa cover.",
-                    Toast.LENGTH_SHORT,
-                ).show()
+                retryMissingVideo(seed)
                 return
             }
         }
