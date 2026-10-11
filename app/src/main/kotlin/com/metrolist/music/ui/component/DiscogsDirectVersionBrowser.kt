@@ -103,6 +103,7 @@ private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
 private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
 private const val TURBO_BURST_DEADLINE_MS = 5_000L
+private const val TURBO_VIDEO_DEADLINE_MS = 10_000L
 private const val TURBO_THUMBNAIL_RESERVE_MS = 400L
 private const val TURBO_SOURCE_WAIT_MS = 2_500L
 private const val TURBO_COVER_INFO_WAIT_MS = 4_100L
@@ -1655,7 +1656,8 @@ internal fun DiscogsDirectVersionBrowser(
         // never a potentially unrelated Discogs album/release poster.
         // Already-published Cover cards keep their video IDs immutable.
         val videoId = seed.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
-        if (mode == DiscogsDirectMode.COVER && videoId != null) {
+        if (mode == DiscogsDirectMode.COVER && videoId != null &&
+            (!isTurbo || hasPublishableVideo(seed))) {
             return "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
         }
         val candidate = seed.coverUrl?.takeIf(String::isNotBlank)
@@ -2316,8 +2318,37 @@ internal fun DiscogsDirectVersionBrowser(
                         // Freeze only after the whole burst; expose all prepared
                         // cards together, not one automatic page every 10 items.
                         // Preserve all score/date evidence in results.
-                        val finalRanked = coverCandidatePool()
-                            .filter(::hasPublishableVideo).take(TURBO_RESULT_QUOTA)
+                        // LAB08 two-phase publisher: collect every completed
+                        // source callback, even if a slower sibling timed out.
+                        // Source runners stop NOW, not after video lookups.
+                        val bufferedSeeds = mutableListOf<DiscogsVersionSeed>()
+                        while (true) {
+                            val batch = supplementalSeeds.tryReceive().getOrNull() ?: break
+                            bufferedSeeds += batch
+                        }
+                        val documentarySeeds = sourceEvidence.toList()
+                            .map { item ->
+                                DiscogsVersionSource.externalSeed(
+                                    candidate = item,
+                                    targetTitle = criteria.title,
+                                    originalArtist = resolvedOriginalArtist,
+                                )
+                            }
+                        if (bufferedSeeds.isNotEmpty() || documentarySeeds.isNotEmpty()) {
+                            results = mergePage(results, bufferedSeeds + documentarySeeds, replace = false)
+                            session.results = results
+                            rebuildStableOrder()
+                        }
+                        val rankedPosters = coverCandidatePool().filter(::modeAcceptsSeed)
+                        // Prefer actual artwork over blank slots, while retaining
+                        // ranking 20→1 within each group; never wait for an ID.
+                        val withArt = rankedPosters.filter {
+                            !it.coverUrl.isNullOrBlank() || !it.resolvedVideoId.isNullOrBlank()
+                        }
+                        val withoutArt = rankedPosters.filter {
+                            it.coverUrl.isNullOrBlank() && it.resolvedVideoId.isNullOrBlank()
+                        }
+                        val finalRanked = (withArt + withoutArt).take(TURBO_RESULT_QUOTA)
                         publishedCoverSnapshots = finalRanked
                         session.publishedCoverSnapshots = finalRanked
                         publishedOriginalSnapshots = emptyList()
@@ -2333,7 +2364,9 @@ internal fun DiscogsDirectVersionBrowser(
                         originalSectionFrozen = true
                         session.originalSectionFrozen = true
                         session.sourceDiscoveryComplete = true
-                        session.turboFinished = true
+                        // The posters are sealed at five seconds; video IDs still
+                        // have their own deadline at ten seconds.
+                        session.turboFinished = false
                         // An empty snapshot is a transient result, never an
                         // immutable cache hit: another tap may retry the providers.
                         // Separate results of each consulted source: no longer
@@ -2381,6 +2414,71 @@ internal fun DiscogsDirectVersionBrowser(
                         playerConnection?.service?.setCoverPerformanceLoad(
                             active = false, heavy = false,
                         )
+                    }
+                }
+
+                // LAB08 Pollicino: from the poster seal until T+10s only
+                // metadata verification of those SAME 50 cards may continue.
+                // No new catalog search, no pagination and no new posters.
+                if (isActive && activeCriteria == criteria) {
+                    try {
+                        val videoStopAt = turboCommandStartedAt + TURBO_VIDEO_DEADLINE_MS
+                        withTimeoutOrNull(
+                            (videoStopAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                        ) {
+                            val frozenFingerprints =
+                                publishedCoverSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
+                            val pending = results
+                                .filter { it.fingerprint in frozenFingerprints }
+                                .filter { !hasPublishableVideo(it) && playableTrack(it) != null }
+                                .sortedWith(
+                                    compareByDescending<DiscogsVersionSeed> {
+                                        !it.resolvedVideoId.isNullOrBlank()
+                                    }.thenByDescending { it.confidenceScore },
+                                )
+                            val videoFanOut =
+                                if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8
+                            for (chunk in pending.chunked(videoFanOut)) {
+                                if (!isActive || SystemClock.elapsedRealtime() >= videoStopAt) break
+                                resolveVideoChunk(chunk)
+                            }
+                        }
+                    } finally {
+                        if (isActive && activeCriteria == criteria) {
+                            // One atomic update attaches all VIDEO metadata
+                            // while preserving poster membership, order and art.
+                            val byFingerprint = results.associateBy { it.fingerprint }
+                            val finalVideoSnapshots = publishedCoverSnapshots.map { poster ->
+                                val resolved = byFingerprint[poster.fingerprint]
+                                if (resolved != null && hasPublishableVideo(resolved)) {
+                                    poster.copy(
+                                        resolvedVideoId = resolved.resolvedVideoId,
+                                        resolvedVideoTitle = resolved.resolvedVideoTitle,
+                                        resolvedVideoSource = resolved.resolvedVideoSource,
+                                        videoResolutionChecked = true,
+                                    )
+                                } else {
+                                    // Never present an unverified ID as playable.
+                                    poster.copy(
+                                        resolvedVideoId = null,
+                                        resolvedVideoTitle = null,
+                                        resolvedVideoSource = null,
+                                        videoResolutionChecked = true,
+                                    )
+                                }
+                            }
+                            publishedCoverSnapshots = finalVideoSnapshots
+                            session.publishedCoverSnapshots = finalVideoSnapshots
+                            session.turboFinished = true
+                            verificationJob?.cancel()
+                            paginationJob?.cancel()
+                            videoPreloadJob?.cancel()
+                            backgroundResumeJob?.cancel()
+                            CloudMusicDiscovery.cancelArchiveRequests()
+                            playerConnection?.service?.setCoverPerformanceLoad(
+                                active = false, heavy = false,
+                            )
+                        }
                     }
                 }
             }
