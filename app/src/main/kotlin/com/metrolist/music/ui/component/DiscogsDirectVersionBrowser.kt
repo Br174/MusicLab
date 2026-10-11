@@ -1942,7 +1942,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         originalArtist = resolvedOriginalArtist,
                                         mode = mode,
                                         aiConfig = foreignScoutConfig,
-                                        maxNetworkFanOut = if (playbackIsNormallyPlaying()) 2 else 3,
+                                        maxNetworkFanOut = if (playbackIsNormallyPlaying()) 4 else 5,
                                         onEarlyVideoCandidates = { quick ->
                                             sourceEvidence.addAll(quick)
                                             if (quick.isNotEmpty()) {
@@ -1961,9 +1961,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
 
-                            // One collection barrier, not ten separate visible batches.
-                            // Every provider starts at once; slow ones are cancelled
-                            // within 6.5s so they cannot consume the verification time.
+                            // LAB04: one short catalog phase within the 40s budget.
+                            // Each provider has its own callback, so completed
+                            // evidence survives even if another source times out.
                             val cloudItems = archiveDeferred.await()
                             val memoryState = memoryDeferred.await()
                             firstPageDeferred.await()
@@ -2049,20 +2049,24 @@ internal fun DiscogsDirectVersionBrowser(
                             session.originalGateStartedAtMs = SystemClock.elapsedRealtime()
                             session.coverBatchStartedAtMs = SystemClock.elapsedRealtime()
 
-                            // Verify top-ranked candidates in parallel. A high-score
-                            // pending item no longer stalls all lower-ranked work.
-                            // Playback keeps network concurrency capped at four.
-                            val candidates = coverCandidatePool().take(TURBO_MAX_RANK_CANDIDATES)
-                            for (chunk in candidates.chunked(if (playbackIsNormallyPlaying()) 4 else 8)) {
+                            // LAB04: inspect the entire scored evidence pool, not
+                            // the first hundred releases. A first hundred that
+                            // contains many artwork-only seeds must not starve
+                            // lower-ranked but playable genuine cover recordings.
+                            // Already verified IDs are reused without a new probe.
+                            // All remote verification remains inside this single
+                            // hard global deadline and never probes audio streams.
+                            val candidates = coverCandidatePool()
+                                .filter { seed ->
+                                    !hasPublishableVideo(seed) && playableTrack(seed) != null
+                                }
+                            val verifyFanOut = if (playbackIsNormallyPlaying()) 6 else 12
+                            for (chunk in candidates.chunked(verifyFanOut)) {
                                 val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
                                     SystemClock.elapsedRealtime()
                                 if (remaining <= 0L || !isActive) break
-                                val pending = chunk.filter { !hasPublishableVideo(it) &&
-                                    playableTrack(it) != null }
-                                if (pending.isNotEmpty()) {
-                                    withTimeoutOrNull(remaining) { resolveVideoChunk(pending) }
-                                }
                                 if (coverCandidatePool().count(::hasPublishableVideo) >= TURBO_RESULT_QUOTA) break
+                                withTimeoutOrNull(remaining) { resolveVideoChunk(chunk) }
                             }
 
                             // Prime Coil's existing image memory/disk caches, rather
