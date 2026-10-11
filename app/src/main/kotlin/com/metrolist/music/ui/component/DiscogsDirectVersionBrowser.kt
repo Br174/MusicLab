@@ -102,10 +102,10 @@ private const val DIRECT_VERSION_PAGE_SIZE = 20
 private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
 private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
-private const val TURBO_BURST_DEADLINE_MS = 40_000L
-private const val TURBO_THUMBNAIL_RESERVE_MS = 6_000L
-private const val TURBO_SOURCE_WAIT_MS = 13_000L
-private const val TURBO_ARCHIVE_TIMEOUT_MS = 4_500L
+private const val TURBO_BURST_DEADLINE_MS = 5_000L
+private const val TURBO_THUMBNAIL_RESERVE_MS = 400L
+private const val TURBO_SOURCE_WAIT_MS = 2_500L
+private const val TURBO_ARCHIVE_TIMEOUT_MS = 1_800L
 private const val TURBO_COVER_ORIGINAL_GATE_MS = 900L
 private const val DIRECT_COVER_PAGE_SIZE = 10
 private const val DIRECT_VERSION_SOURCE_FETCH_SIZE = 30
@@ -1115,8 +1115,10 @@ internal fun DiscogsDirectVersionBrowser(
                         session.preparedVideoSongs.containsKey(readyId)
                     ) {
                         // LAB67: avoid serial remote cloud writes on video readiness.
-                        scope.launch(Dispatchers.IO) {
-                            persistCloudPlaybackBinding(updated)
+                        if (!isTurbo) {
+                            scope.launch(Dispatchers.IO) {
+                                persistCloudPlaybackBinding(updated)
+                            }
                         }
                     }
                 }
@@ -1860,7 +1862,7 @@ internal fun DiscogsDirectVersionBrowser(
         totalDiscogsResults = 0
         activeCriteria = criteria
         selectedFingerprint = null
-        visibleLimit = pageSize
+        visibleLimit = if (isTurbo && mode == DiscogsDirectMode.COVER) TURBO_RESULT_QUOTA else pageSize
         resultPageIndex = 0
         headerExpanded = false
         session.headerExpanded = false
@@ -1892,7 +1894,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.listIndex = 0
         session.listOffset = 0
         session.stableOrder = retainedOrder
-        session.visibleLimit = pageSize
+        session.visibleLimit = if (isTurbo && mode == DiscogsDirectMode.COVER) TURBO_RESULT_QUOTA else pageSize
         session.resultPageIndex = 0
         session.sourceDiagnostics = emptyList()
         session.sourceDiscoveryComplete = false
@@ -1917,7 +1919,7 @@ internal fun DiscogsDirectVersionBrowser(
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
             // Turbo LAB02: replace LAB01's staged discovery/publisher entirely.
             // No other worker owns this search. UI reveals ONLY the final sealed
-            // verified snapshot, in ten-row pages, after the bounded burst.
+            // verified snapshot, in one virtualized scroll, within five seconds.
             searchJob = scope.launch {
                 val stopAt = turboCommandStartedAt + TURBO_BURST_DEADLINE_MS
                 // Source callbacks retain completed findings even if the whole
@@ -1973,7 +1975,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         originalArtist = resolvedOriginalArtist,
                                         mode = mode,
                                         aiConfig = foreignScoutConfig,
-                                        maxNetworkFanOut = if (playbackIsNormallyPlaying()) 4 else 5,
+                                        maxNetworkFanOut = if (playbackIsNormallyPlaying()) 2 else 5,
                                         onEarlyVideoCandidates = { quick ->
                                             sourceEvidence.addAll(quick)
                                             if (quick.isNotEmpty()) {
@@ -2091,7 +2093,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 .filter { seed ->
                                     !hasPublishableVideo(seed) && playableTrack(seed) != null
                                 }
-                            val verifyFanOut = if (playbackIsNormallyPlaying()) 6 else 12
+                            val verifyFanOut = if (playbackIsNormallyPlaying()) 2 else 6
                             for (chunk in candidates.chunked(verifyFanOut)) {
                                 val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
                                     SystemClock.elapsedRealtime()
@@ -2112,7 +2114,7 @@ internal fun DiscogsDirectVersionBrowser(
                             val imageBudget = stopAt - SystemClock.elapsedRealtime()
                             if (imageBudget > 0L && thumbnails.isNotEmpty()) {
                                 withTimeoutOrNull(imageBudget) {
-                                    val gate = Semaphore(if (playbackIsNormallyPlaying()) 3 else 6)
+                                    val gate = Semaphore(if (playbackIsNormallyPlaying()) 2 else 4)
                                     thumbnails.map { url ->
                                         async(Dispatchers.IO) {
                                             gate.withPermit {
@@ -2195,6 +2197,7 @@ internal fun DiscogsDirectVersionBrowser(
                         verificationJob?.cancel()
                         paginationJob?.cancel()
                         videoPreloadJob?.cancel()
+                        backgroundResumeJob?.cancel()
                         CloudMusicDiscovery.cancelArchiveRequests()
                         // Full shutdown is separate from remaining on the Cover
                         // screen.  Audio reverts to its ordinary governor state.
@@ -2700,14 +2703,8 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun loadNextPage() {
-        if (isTurbo && mode == DiscogsDirectMode.COVER) {
-            if (visibleLimit < TURBO_RESULT_QUOTA &&
-                publishedCoverSnapshots.size > visibleLimit) {
-                visibleLimit = minOf(TURBO_RESULT_QUOTA, visibleLimit + pageSize)
-                session.visibleLimit = visibleLimit
-            }
-            return
-        }
+        // All certified Turbo cards already share a single LazyColumn scroll.
+        if (isTurbo && mode == DiscogsDirectMode.COVER) return
         val criteria = activeCriteria ?: return
         if (loading || loadingMore) return
 
@@ -2899,14 +2896,14 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode != DiscogsDirectMode.COVER || coverSwipeJob?.isActive == true ||
             playerConnection?.mediaMetadata?.value?.id != playingId) return
         coverSwipeJob = scope.launch {
-            var ranked = orderedResults(results)
+            var ranked = (if (isTurbo) publishedCoverSnapshots else orderedResults(results))
                 .filterNot(::isOriginalPerformerVersion)
                 .filterNot(::isHiddenForCurrentCover)
                 .filter(::hasPublishableVideo)
             var position = ranked.indexOfFirst { it.fingerprint == selectedFingerprint }
             if (position < 0) return@launch
             var next = ranked.getOrNull(position + direction)
-            if (next == null && direction > 0 && currentPage > 0 && currentPage < totalPages) {
+            if (!isTurbo && next == null && direction > 0 && currentPage > 0 && currentPage < totalPages) {
                 // Extra metadata fetch only on explicit Cover swipe; do not
                 // advance the visible Cover list's manual page boundary.
                 val criteria = activeCriteria
@@ -3497,6 +3494,7 @@ internal fun DiscogsDirectVersionBrowser(
 
             if (
                 mode == DiscogsDirectMode.COVER &&
+                !isTurbo &&
                 activeCriteria != null &&
                 !loading &&
                 (
