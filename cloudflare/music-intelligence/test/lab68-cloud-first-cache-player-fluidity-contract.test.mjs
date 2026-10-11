@@ -63,7 +63,7 @@ test('LAB68 late providers cannot erase an early committed five-song ranking',()
 
 test('LAB68 caps discovery fan-out, gives playback priority and memoizes expensive Compose order',()=>{
  assert.match(providers,/maxNetworkFanOut: Int = 2/);
- assert.match(providers,/Semaphore\(maxNetworkFanOut\.coerceIn\(1, 3\)\)/);
+ assert.match(providers,/Semaphore\(maxNetworkFanOut\.coerceIn\(1, if \(BuildConfig\.APPLICATION_ID/);
  assert.equal((ui.match(/maxNetworkFanOut = if \(playbackIsNormallyPlaying\(\)\) 1 else 2/g)||[]).length,2);
  assert.match(ui,/val orderedPool = remember\(results, session\.stableOrder, resolvedOriginalArtist, sortMode, mode\)/);
  assert.match(ui,/DIRECT_COVER_PLAYBACK_BATCH_SIZE = 1/);
@@ -80,5 +80,5 @@ test('LAB68 preserves UI geometry and the byte-identical original player and upd
  assert.equal(sha,'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
  assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
  assert.match(env,/UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
- assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1003"/);
+ assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1004"/);
 });
