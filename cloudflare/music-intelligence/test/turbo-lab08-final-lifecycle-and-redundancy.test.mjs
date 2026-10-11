@@ -92,7 +92,7 @@ test('AUDIT08 11 exact source duplicates are suppressed; unrelated sources retai
  assert.match(turbo,/val fresh = items\.filter \{ sourceEvidence\.add\(it\) \}/);
  assert.match(turbo,/external\?\.candidates\.orEmpty\(\)\)\.distinct\(\)/);
 });
-test('AUDIT08 12 keep player's source unchanged, preserve Home navigation',()=>{
+test("AUDIT08 12 keep player's source unchanged, preserve Home navigation",()=>{
  const blob=Buffer.concat([Buffer.from('blob '+player.length+'\0'),player]);
  assert.equal(createHash('sha1').update(blob).digest('hex'),'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
  assert.equal((nav.match(/if \(!isSearchItem\) \{/g)||[]).length,2);
