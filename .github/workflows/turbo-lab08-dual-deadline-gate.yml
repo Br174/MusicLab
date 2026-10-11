@@ -53,7 +53,9 @@ jobs:
           cp "$RUNNER_TEMP/turbo-lab06-navigation.kt" app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt
           # LAB05's signing/version assertions must use LAB05's immutable manifest.
           git show dec1876513a70a783f187ba5ddf3978e149db536:uab-project.env > uab-project.env
+          git show dec1876513a70a783f187ba5ddf3978e149db536:app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt > app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
           node --test cloudflare/music-intelligence/test/turbo-lab05-audio-return-and-sealed-cleanup.test.mjs
+          cp "$RUNNER_TEMP/turbo-lab06-browser.kt" app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
           cp "$RUNNER_TEMP/turbo-lab06.env" uab-project.env
           # Use the exact LAB06 browser for its historical 10-test gate.
           cp app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt "$RUNNER_TEMP/turbo-lab07-browser.kt"
