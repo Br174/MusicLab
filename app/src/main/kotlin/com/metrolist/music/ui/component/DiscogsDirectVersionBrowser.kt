@@ -3068,9 +3068,18 @@ internal fun DiscogsDirectVersionBrowser(
                         } catch (_: Exception) {
                             // Transient network failure: continue after backoff.
                         }
+                        val newest = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: current
+                        if (hasPublishableVideo(newest)) {
+                            val updated = publishedCoverSnapshots.map { poster ->
+                                if (poster.fingerprint == seed.fingerprint) newest else poster
+                            }
+                            publishedCoverSnapshots = updated
+                            session.publishedCoverSnapshots = updated
+                            Toast.makeText(context, "Video trovato! Tocca per ascoltare.", Toast.LENGTH_SHORT).show()
+                            break
+                        }
                         failedRounds++
-                        val pauseMs = minOf(30_000L, 2_000L + failedRounds * 2_500L)
-                        delay(pauseMs)
+                        delay(minOf(30_000L, 2_000L + failedRounds * 2_500L))
                     }
                 } finally {
                     if (resolvingFingerprint == seed.fingerprint) resolvingFingerprint = null
