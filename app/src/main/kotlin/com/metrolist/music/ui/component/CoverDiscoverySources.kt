@@ -911,8 +911,14 @@ internal object CoverDiscoverySources {
                         val seeds = parseCoverInfoDocument(page)
                             .map { it.copy(directRelation = true) }
                         if (turbo && seeds.isNotEmpty()) {
+                            // The root song was matched against the requested
+                            // work. Follow-up records are documentary relations
+                            // even when their title is translated (for example,
+                            // 'Yeniden başlasın' for 'Se mi lasci non vale').
+                            // Preserve those genuine covers instead of imposing
+                            // a second same-language title filter.
                             val partial = seeds.filter { seed ->
-                                sameBaseTitle(title, seed.title) &&
+                                seed.directRelation &&
                                     modeAcceptsArtist(mode, seed.artist, originalArtist)
                             }.map { seed -> toCoverInfoCandidate(seed, title) }
                             if (partial.isNotEmpty()) onEarlyVideoCandidates(partial)
