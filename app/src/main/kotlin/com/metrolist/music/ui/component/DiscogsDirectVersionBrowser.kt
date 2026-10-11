@@ -131,7 +131,7 @@ private const val DIRECT_AUTO_VIDEO_LOOKUP_TIMEOUT_MS = 3_800L
 // LAB60 Pollicino: cap costly up-front Discogs details, keep discovered candidates.
 private const val DIRECT_COVER_INITIAL_DETAIL_BUDGET = 12
 private const val DIRECT_BACKGROUND_PREFETCH_AHEAD = 20
-private const val DIRECT_PREPARED_VIDEO_CACHE_LIMIT = 48
+private const val DIRECT_PREPARED_VIDEO_CACHE_LIMIT = 64
 // LAB63: a tap or Retry may wait at most 3 seconds for a VIDEO ID, never for audio.
 private const val DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS = 3_000L
 private val DirectCoverGeminiApiKey = stringPreferencesKey("coverGeminiApiKey")
