@@ -1265,6 +1265,9 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB65 Pollicino: append-only batches of FIVE verified ID bindings.
     // No artwork-only seeds, no list motion, no pre-listening.
     suspend fun publishReadyBatches() {
+        // All Turbo discoveries publish exactly ONCE, in the search coordinator's
+        // sealed finally block. Legacy five-row publication must never run here.
+        if (isTurbo && mode == DiscogsDirectMode.COVER) return
         if (mode != DiscogsDirectMode.COVER || !rankingFrozen) return
 
         if (!originalSectionFrozen) {
@@ -3131,6 +3134,7 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB65B: release the original-first gate even when ID lookups are
     // blocked by buffering, all completed or interrupted.
     LaunchedEffect(sessionKey, rankingFrozen, originalSectionFrozen) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER) return@LaunchedEffect
         if (mode != DiscogsDirectMode.COVER || !rankingFrozen || originalSectionFrozen) return@LaunchedEffect
         val remaining = (DIRECT_ORIGINAL_FIRST_GATE_MS -
             (SystemClock.elapsedRealtime() - session.originalGateStartedAtMs)).coerceAtLeast(0L)
@@ -3145,6 +3149,7 @@ internal fun DiscogsDirectVersionBrowser(
     // time-bound publisher retries the current verified prefix independently
     // of provider completion, without ever admitting cards without video IDs.
     LaunchedEffect(sessionKey, rankingFrozen, originalSectionFrozen, publishedCoverSnapshots.size, visibleLimit) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER) return@LaunchedEffect
         if (mode != DiscogsDirectMode.COVER || !rankingFrozen || !originalSectionFrozen ||
             publishedCoverSnapshots.size >= visibleLimit) return@LaunchedEffect
         val remaining = (DIRECT_COVER_PARTIAL_BATCH_GRACE_MS -
