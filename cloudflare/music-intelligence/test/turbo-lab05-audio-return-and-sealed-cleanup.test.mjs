@@ -19,7 +19,7 @@ function between(source, start, end) {
 
 test('LAB05 releases the native audio governor when a 50-video Turbo burst is sealed', () => {
   const burst = between(browser, 'if (isTurbo && mode == DiscogsDirectMode.COVER) {\n            // Turbo LAB02', '\n        } else {\n        searchJob =');
-  assert.match(burst, /session\.turboFinished = true;/);
+  assert.match(burst, /session\.turboFinished = true/);
   assert.match(burst, /CloudMusicDiscovery\.cancelArchiveRequests\(\)/);
   assert.match(burst, /active = false, heavy = false/);
   assert.match(burst, /publishedCoverSnapshots = finalRanked/);
