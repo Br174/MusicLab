@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run archived 281 contracts and current 30 LAB08 dual-deadline score-priority tests
+      - name: Run archived 281 contracts and current 42 LAB08 deadline, ranking and lifecycle safety tests
         run: |
           # Older regression contracts deliberately pin Turbo LAB04's update
           # manifest; the application source under test is still LAB05.
@@ -67,7 +67,7 @@ jobs:
           git show ff0178a64fcb89e5d1c2f37a1ded00449a31b223:app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt > app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
           node --test cloudflare/music-intelligence/test/turbo-lab07-strategy-portfolio.test.mjs cloudflare/music-intelligence/test/turbo-lab07-actual-flow-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab07-winner-regression.test.mjs cloudflare/music-intelligence/test/turbo-lab07-documented-direct-video.test.mjs cloudflare/music-intelligence/test/turbo-lab07-internal-memory-priority.test.mjs cloudflare/music-intelligence/test/turbo-lab07-fifty-song-evidence-and-load-safety.test.mjs cloudflare/music-intelligence/test/turbo-lab07-all-runners-five-second-seal.test.mjs cloudflare/music-intelligence/test/turbo-lab07-fifty-hit-stop-and-audio-isolation.test.mjs cloudflare/music-intelligence/test/turbo-lab07-final-redundancy-and-publisher-audit.test.mjs
           cp "$RUNNER_TEMP/turbo-lab08-browser.kt" app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt
-          node --test cloudflare/music-intelligence/test/turbo-lab08-five-second-atomic-posters.test.mjs cloudflare/music-intelligence/test/turbo-lab08-ten-second-video-seal.test.mjs cloudflare/music-intelligence/test/turbo-lab08-id-ready-score-priority.test.mjs
+          node --test cloudflare/music-intelligence/test/turbo-lab08-five-second-atomic-posters.test.mjs cloudflare/music-intelligence/test/turbo-lab08-ten-second-video-seal.test.mjs cloudflare/music-intelligence/test/turbo-lab08-id-ready-score-priority.test.mjs cloudflare/music-intelligence/test/turbo-lab08-final-lifecycle-and-redundancy.test.mjs
 
       - name: Prove experimental player is exact upstream Meld (no LAB41 alternate resolver)
         shell: bash
