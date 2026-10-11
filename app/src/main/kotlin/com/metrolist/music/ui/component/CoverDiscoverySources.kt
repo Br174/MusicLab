@@ -824,11 +824,11 @@ internal object CoverDiscoverySources {
         val searchTerms =
             listOfNotNull(
                 if (cleanArtist.isNotBlank()) {
-                    """song="$cleanTitle" performer="$cleanArtist""""
+                    """song:"$cleanTitle" artist:"$cleanArtist""""
                 } else {
                     null
                 },
-                """song="$cleanTitle"""",
+                """song:"$cleanTitle"""",
             ).distinct()
 
         // LAB04: both COVER.INFO search variants start concurrently, in an
