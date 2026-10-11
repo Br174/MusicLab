@@ -138,8 +138,8 @@ test('strategy 09: current Kotlin callback pipeline does not wait for all provid
  const stream=browser.indexOf('val streamingVerifier = launch');
  const firstAwait=browser.indexOf('archiveDeferred.await()');
  assert.ok(stream>0&&firstAwait>stream);
- assert.match(browser,/streamingCandidates\.trySend\(quick\)/);
- assert.match(browser,/streamingCandidates\.trySend\(items\)/);
+ assert.match(browser,/streamingCandidates\.trySend\(fresh\)/);
+ assert.match(browser,/streamingCandidates\.trySend\(fresh\)/);
  assert.match(browser,/withTimeoutOrNull\(minOf\(remaining, 1_250L\)\)/);
 });
 test('strategy 10: rank & score are explicit; the published top choice is reproducible',()=>{
