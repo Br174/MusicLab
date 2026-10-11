@@ -1156,15 +1156,23 @@ internal fun DiscogsDirectVersionBrowser(
         jobs.forEach { it.join() }
     }
 
-    fun videoPriorityPool(source: List<DiscogsVersionSeed>): List<DiscogsVersionSeed> =
-        orderedResults(source).sortedWith(
-            compareByDescending<DiscogsVersionSeed> { it.confidenceScore }
+    // LAB08 Pollicino — video-ready candidates never wait behind higher
+    // scored candidates with NO video ID. Among video-ready records, always
+    // check 20/20 before 19/20, 18/20 ... down to 1/20. When none has an ID,
+    // search for IDs in descending score order using the remaining time.
+    // Having an ID is NOT proof of playback: metadata verification is mandatory.
+    fun videoLookupPriority(source: List<DiscogsVersionSeed>): List<DiscogsVersionSeed> =
+        source.sortedWith(
+            compareByDescending<DiscogsVersionSeed> { !it.resolvedVideoId.isNullOrBlank() }
+                .thenByDescending { it.confidenceScore }
                 .thenByDescending { it.originalWorkReference }
                 .thenByDescending { it.sourceNames.distinct().size }
-                .thenByDescending { it.track != null }
                 .thenBy { it.artist.lowercase() }
                 .thenBy { it.trackTitle.lowercase() },
         )
+
+    fun videoPriorityPool(source: List<DiscogsVersionSeed>): List<DiscogsVersionSeed> =
+        videoLookupPriority(orderedResults(source))
 
     // LAB59: cover cards are videos, not extra release posters.  A valid YouTube
     // video binding is enough to display its OWN thumbnail immediately; the
@@ -2035,11 +2043,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         }
                                         // Verify attached video IDs before doing a slower
                                         // blind video search; keep quality order within lanes.
-                                        .sortedWith(
-                                            compareByDescending<DiscogsVersionSeed> {
-                                                !it.resolvedVideoId.isNullOrBlank()
-                                            }.thenByDescending { it.confidenceScore },
-                                        )
+                                        .let(::videoLookupPriority)
                                         .take(if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8)
                                     val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
                                         SystemClock.elapsedRealtime()
@@ -2252,11 +2256,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 .filter { seed ->
                                     !hasPublishableVideo(seed) && playableTrack(seed) != null
                                 }
-                                .sortedWith(
-                                    compareByDescending<DiscogsVersionSeed> {
-                                        !it.resolvedVideoId.isNullOrBlank()
-                                    }.thenByDescending { it.confidenceScore },
-                                )
+                                .let(::videoLookupPriority)
                             val verifyFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8
                             for (chunk in candidates.chunked(verifyFanOut)) {
                                 val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
@@ -2339,13 +2339,14 @@ internal fun DiscogsDirectVersionBrowser(
                             rebuildStableOrder()
                         }
                         val rankedPosters = coverCandidatePool().filter(::modeAcceptsSeed)
-                        // Only actual cover artwork or a catalog-provided video
-                        // thumbnail qualifies for the 5s poster list. Never add
-                        // blank poster slots just to reach fifty. Ranking stays 20→1.
-                        val finalRanked = rankedPosters.filter { seed ->
+                        // Prefer the highest-ranked cover ALREADY bearing a video
+                        // ID: a ready 12/20 moves ahead of a pending 19/20.
+                        // Reserve remaining poster slots for ID-missing covers by
+                        // score 20→1. All fifty posters publish at once at T+5s.
+                        val finalRanked = videoLookupPriority(rankedPosters.filter { seed ->
                             !seed.coverUrl.isNullOrBlank() ||
                                 !seed.resolvedVideoId.isNullOrBlank()
-                        }.take(TURBO_RESULT_QUOTA)
+                        }).take(TURBO_RESULT_QUOTA)
                         publishedCoverSnapshots = finalRanked
                         session.publishedCoverSnapshots = finalRanked
                         publishedOriginalSnapshots = emptyList()
@@ -2430,11 +2431,7 @@ internal fun DiscogsDirectVersionBrowser(
                             val pending = results
                                 .filter { it.fingerprint in frozenFingerprints }
                                 .filter { !hasPublishableVideo(it) && playableTrack(it) != null }
-                                .sortedWith(
-                                    compareByDescending<DiscogsVersionSeed> {
-                                        !it.resolvedVideoId.isNullOrBlank()
-                                    }.thenByDescending { it.confidenceScore },
-                                )
+                                .let(::videoLookupPriority)
                             val videoFanOut =
                                 if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8
                             for (chunk in pending.chunked(videoFanOut)) {
@@ -2454,19 +2451,22 @@ internal fun DiscogsDirectVersionBrowser(
                             // disappears; no unloaded/blank cards can remain.
                             // Poster membership and rank are frozen at T+5s.
                             val byFingerprint = results.associateBy { it.fingerprint }
-                            val finalVideoSnapshots = publishedCoverSnapshots.mapNotNull { poster ->
-                                val resolved = byFingerprint[poster.fingerprint]
-                                if (resolved != null && hasPublishableVideo(resolved)) {
-                                    poster.copy(
-                                        resolvedVideoId = resolved.resolvedVideoId,
-                                        resolvedVideoTitle = resolved.resolvedVideoTitle,
-                                        resolvedVideoSource = resolved.resolvedVideoSource,
-                                        videoResolutionChecked = true,
-                                    )
-                                } else {
-                                    null
-                                }
-                            }.take(TURBO_RESULT_QUOTA)
+                            val finalVideoSnapshots = sortGroup(
+                                publishedCoverSnapshots.mapNotNull { poster ->
+                                    val resolved = byFingerprint[poster.fingerprint]
+                                    if (resolved != null && hasPublishableVideo(resolved)) {
+                                        poster.copy(
+                                            resolvedVideoId = resolved.resolvedVideoId,
+                                            resolvedVideoTitle = resolved.resolvedVideoTitle,
+                                            resolvedVideoSource = resolved.resolvedVideoSource,
+                                            videoResolutionChecked = true,
+                                        )
+                                    } else {
+                                        null
+                                    }
+                                },
+                                DirectVersionSort.RELEVANCE,
+                            ).take(TURBO_RESULT_QUOTA)
                             // Compose observes a single immutable batch; do
                             // not progressively append, page, or reshuffle rows.
                             publishedCoverSnapshots = finalVideoSnapshots
