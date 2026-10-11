@@ -92,6 +92,12 @@ test('AUDIT08 11 exact source duplicates are suppressed; unrelated sources retai
  assert.match(turbo,/val fresh = items\.filter \{ sourceEvidence\.add\(it\) \}/);
  assert.match(turbo,/external\?\.candidates\.orEmpty\(\)\)\.distinct\(\)/);
 });
+test('AUDIT08 13 zero verified videos at the ten-second seal never displays the obsolete five-second loading message',()=>{
+ assert.match(kotlin,/session\.turboFinished ->\s*"Nessuna cover con video verificato entro 10 secondi\."/);
+ assert.match(kotlin,/loading \|\| !rankingFrozen ->\s*"Raccolgo le locandine in un unico blocco \(massimo 5 secondi\)/);
+ assert.match(kotlin,/"Collego i video alle locandine \(massimo 10 secondi\)/);
+ assert.match(kotlin,/if \(!isTurbo && nextBlockPool\.isNotEmpty\(\)\)/);
+});
 test("AUDIT08 12 keep player's source unchanged, preserve Home navigation",()=>{
  const blob=Buffer.concat([Buffer.from('blob '+player.length+'\0'),player]);
  assert.equal(createHash('sha1').update(blob).digest('hex'),'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
