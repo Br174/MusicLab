@@ -94,7 +94,7 @@ fun AppNavigationRail(
                                 if (isHomeHoldItem) onHomeLongHold.invoke() else onSearchLongClick?.invoke()
                             }
                             is PressInteraction.Release -> {
-                                if (!isLongClick) {
+                                if (!isLongClick && !isHomeHoldItem) {
                                     onItemClick(screen, currentIsSelected)
                                 }
                             }
@@ -109,7 +109,9 @@ fun AppNavigationRail(
             NavigationRailItem(
                 selected = isSelected,
                 onClick = {
-                    if (!isSearchItem && !isHomeHoldItem) {
+                    if (!isSearchItem) {
+                        // HOME must navigate on an ordinary tap, including from Cover.
+                        // The release interaction is reserved for the Search long-hold.
                         onItemClick(screen, currentIsSelected)
                     }
                     // Long presses are handled via InteractionSource
@@ -176,7 +178,7 @@ fun AppNavigationBar(
                                 if (isHomeHoldItem) onHomeLongHold.invoke() else onSearchLongClick?.invoke()
                             }
                             is PressInteraction.Release -> {
-                                if (!isLongClick) {
+                                if (!isLongClick && !isHomeHoldItem) {
                                     onItemClick(screen, currentIsSelected)
                                 }
                             }
@@ -191,7 +193,9 @@ fun AppNavigationBar(
             NavigationBarItem(
                 selected = isSelected,
                 onClick = {
-                    if (!isSearchItem && !isHomeHoldItem) {
+                    if (!isSearchItem) {
+                        // HOME must navigate on an ordinary tap, including from Cover.
+                        // The release interaction is reserved for the Search long-hold.
                         onItemClick(screen, currentIsSelected)
                     }
                     // Long presses are handled via InteractionSource
