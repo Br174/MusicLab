@@ -1683,14 +1683,24 @@ internal fun DiscogsDirectVersionBrowser(
         // card, even if a transient catalog refresh changes the mutable pool.
         var selectedSeed =
             (if (isTurbo && mode == DiscogsDirectMode.COVER) {
-                publishedCoverSnapshots.firstOrNull {
-                    it.fingerprint == selectedFingerprint && !it.resolvedVideoId.isNullOrBlank()
-                }
+                // The T+5 poster snapshot is intentionally immutable; during
+                // T+5..10, the mutable recording may acquire a different ID.
+                // Play only the new metadata-verified binding, never a stale
+                // unverified ID retained by the original artwork card.
+                val admitted = publishedCoverSnapshots.any { it.fingerprint == selectedFingerprint }
+                if (admitted) {
+                    results.firstOrNull {
+                        it.fingerprint == selectedFingerprint && hasPublishableVideo(it)
+                    } ?: publishedCoverSnapshots.firstOrNull {
+                        it.fingerprint == selectedFingerprint && hasPublishableVideo(it)
+                    }
+                } else null
             } else null)
-                ?: orderedResults(results)
-                    .firstOrNull {
+                ?: (if (!isTurbo) {
+                    orderedResults(results).firstOrNull {
                         it.fingerprint == selectedFingerprint && !it.resolvedVideoId.isNullOrBlank()
                     }
+                } else null)
                 ?: return
         var selectedId = selectedSeed.resolvedVideoId?.trim().orEmpty()
         if (selectedId.isBlank()) return
