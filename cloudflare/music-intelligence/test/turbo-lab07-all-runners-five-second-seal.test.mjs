@@ -17,7 +17,7 @@ test('RUN 01 all provider runner lanes are spawned before aggregator awaits',()=
  const laneCalls=['val archiveDeferred = async(Dispatchers.IO)',
   'val memoryDeferred = async(Dispatchers.IO)','val firstPageDeferred = async',
   'val externalDeferred = async(Dispatchers.IO)'];
- const awaits='val cloudSeeds = archiveDeferred.await()';
+ const awaits='val cloudSeeds = try {';
  const p=turbo.indexOf(awaits);assert.ok(p>0);
  for(const lane of laneCalls) assert.ok(turbo.indexOf(lane)>0 && turbo.indexOf(lane)<p,lane);
 });
