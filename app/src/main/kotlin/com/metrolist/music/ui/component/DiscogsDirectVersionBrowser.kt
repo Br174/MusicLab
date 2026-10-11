@@ -1881,7 +1881,8 @@ internal fun DiscogsDirectVersionBrowser(
             // LAB59: searching must not downgrade or compete with active audio.
             playerConnection?.service?.setCoverPerformanceLoad(
                 active = true,
-                heavy = !playbackIsNormallyPlaying(),
+                // Turbo searching cannot downgrade any newly selected song.
+                heavy = !isTurbo && !playbackIsNormallyPlaying(),
             )
         }
 
@@ -2137,7 +2138,8 @@ internal fun DiscogsDirectVersionBrowser(
                 } finally {
                     // Only the sealed snapshot reaches UI; commit once after
                     // the 40-second global deadline OR earlier if done.
-                    if (activeCriteria == criteria) {
+                    if (isActive && activeCriteria == criteria) {
+                        // A Cover exit cancels the burst; never seal a cancelled session.
                         // Freeze only after the whole burst; expose all prepared
                         // cards together, not one automatic page every 10 items.
                         // Preserve all score/date evidence in results.
