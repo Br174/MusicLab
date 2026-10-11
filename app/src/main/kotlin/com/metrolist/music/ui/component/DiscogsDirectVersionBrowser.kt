@@ -2339,15 +2339,13 @@ internal fun DiscogsDirectVersionBrowser(
                             rebuildStableOrder()
                         }
                         val rankedPosters = coverCandidatePool().filter(::modeAcceptsSeed)
-                        // Prefer actual artwork over blank slots, while retaining
-                        // ranking 20→1 within each group; never wait for an ID.
-                        val withArt = rankedPosters.filter {
-                            !it.coverUrl.isNullOrBlank() || !it.resolvedVideoId.isNullOrBlank()
-                        }
-                        val withoutArt = rankedPosters.filter {
-                            it.coverUrl.isNullOrBlank() && it.resolvedVideoId.isNullOrBlank()
-                        }
-                        val finalRanked = (withArt + withoutArt).take(TURBO_RESULT_QUOTA)
+                        // Only actual cover artwork or a catalog-provided video
+                        // thumbnail qualifies for the 5s poster list. Never add
+                        // blank poster slots just to reach fifty. Ranking stays 20→1.
+                        val finalRanked = rankedPosters.filter { seed ->
+                            !seed.coverUrl.isNullOrBlank() ||
+                                !seed.resolvedVideoId.isNullOrBlank()
+                        }.take(TURBO_RESULT_QUOTA)
                         publishedCoverSnapshots = finalRanked
                         session.publishedCoverSnapshots = finalRanked
                         publishedOriginalSnapshots = emptyList()
