@@ -53,14 +53,21 @@ async function runOne(track){
   documentaryCoverCandidates:0,documentaryVideoIds:0,verifiedVideoIds:null,
   issue:null,withinFiveSeconds:false};
  try{
-  const url='https://cover.info/en/search?'+new URLSearchParams({
-    find:'song:"'+title+'" artist:"'+artist+'"','per-page-songs':'200',
-  });
-  const search=await get(url,budget());
-  row.queryStatus=search.status;
-  if(!search.ok)throw Error('Search response '+search.status);
-  const refs=[...search.html.matchAll(/href=["']([^"']*\/en\/song\/\d+\/[^"']+)/gi)]
-   .map(m=>m[1].replace(/&amp;/g,'&')).map(h=>new URL(h,'https://cover.info').toString());
+  // Match the production source: run artist-specific and title-only searches
+  // concurrently. Never let one slow query discard the other one's result.
+  const terms=['song:"'+title+'" artist:"'+artist+'"','song:"'+title+'"'];
+  const searchResults=await Promise.all(terms.map(async find=>{
+    try{
+      return await get('https://cover.info/en/search?'+new URLSearchParams({
+        find,'per-page-songs':'200',
+      }),budget());
+    }catch(e){return {status:0,ok:false,html:'',error:String(e)};}
+  }));
+  const healthy=searchResults.filter(x=>x.ok);
+  row.queryStatus=healthy[0]?.status||searchResults[0].status;
+  if(!healthy.length)throw Error('Both parallel song search queries failed');
+  const refs=healthy.flatMap(search=>[...search.html.matchAll(/href=["']([^"']*\/en\/song\/\d+\/[^"']+)/gi)]
+   .map(m=>m[1].replace(/&amp;/g,'&')).map(h=>new URL(h,'https://cover.info').toString()));
   const slug=titleSlug(title);
   const root=refs.find(x=>x.toLowerCase().includes('/'+slug.toLowerCase()+'/'))
    ||refs.find(x=>x.toLowerCase().includes('/'+slug.toLowerCase()));
