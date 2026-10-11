@@ -28,7 +28,7 @@ test('flow 13: verified video lookup begins before serial await of cloud/archive
  assert.match(f,/resolveVideoChunk\(pending\)/);
 });
 test('flow 14: no fake videos, verifies recording metadata before marking ID ready',()=>{
- assert.match(b,/CompilationTrackResolver\.isHardCompatible\(track, candidate\)/);
+ assert.match(b,/CompilationTrackResolver\.isHardCompatible\(\s*track, candidate,\s*documentedPerformerMatch = documentedPerformer/);
  assert.match(b,/CoverPlaybackMemory\.saveMetadataVerifiedVideo/);
  assert.match(b,/fun hasPublishableVideo\(seed: DiscogsVersionSeed\): Boolean/);
  assert.match(flow(),/\.filter\(::hasPublishableVideo\)\.take\(TURBO_RESULT_QUOTA\)/);
