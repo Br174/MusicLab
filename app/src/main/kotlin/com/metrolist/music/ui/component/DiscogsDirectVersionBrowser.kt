@@ -1562,9 +1562,13 @@ internal fun DiscogsDirectVersionBrowser(
         backgroundResumeJob?.cancel()
         // Turbo LAB05: once all cards are published, a Cover tap must NEVER
         // wake discovery, metadata verification, or a performance governor.
-        if (isTurbo && mode == DiscogsDirectMode.COVER && session.turboFinished) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            // A single T+0→T+10 coordinator owns video metadata. Never launch
+            // the legacy background restarter during or after its deadline.
             backgroundPausedForPlayback = false
-            playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
+            if (session.turboFinished) {
+                playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
+            }
             return
         }
         backgroundResumeJob =
@@ -1690,6 +1694,7 @@ internal fun DiscogsDirectVersionBrowser(
                 ?: return
         var selectedId = selectedSeed.resolvedVideoId?.trim().orEmpty()
         if (selectedId.isBlank()) return
+        if (isTurbo && mode == DiscogsDirectMode.COVER && !hasPublishableVideo(selectedSeed)) return
 
         // LAB59: the selected video already has a trusted source binding.
         // Get lightweight metadata from cache (or one short queue lookup), then
@@ -2436,11 +2441,22 @@ internal fun DiscogsDirectVersionBrowser(
                                 if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8
                             for (chunk in pending.chunked(videoFanOut)) {
                                 if (!isActive || SystemClock.elapsedRealtime() >= videoStopAt) break
-                                // Existing source+video discovery started at T0,
-                                // alongside all the cover runners; this is just
-                                // the second half of the SAME video verification
-                                // race, not a new video-search start at T+5s.
+                                // Video discovery began at T0. The next five
+                                // seconds extend that same concurrent lookup
+                                // without adding more cover cards or sources.
                                 resolveVideoChunk(chunk)
+                            }
+                            // Keep pending provisional posters visible until the
+                            // complete T+10 allowance has elapsed. If every
+                            // published poster is verified sooner, seal at once.
+                            // No polling or extra provider traffic is needed
+                            // while waiting for this exact removal boundary.
+                            if (publishedCoverSnapshots.any { poster ->
+                                    results.firstOrNull { it.fingerprint == poster.fingerprint }
+                                        ?.let { !hasPublishableVideo(it) } ?: true
+                                }) {
+                                val remaining = videoStopAt - SystemClock.elapsedRealtime()
+                                if (remaining > 0L) delay(remaining)
                             }
                         }
                     } finally {
@@ -3072,6 +3088,14 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB63 Pollicino: Retry shares the same hard 3-second cap as tapping
     // a missing Cover video. No unbounded cloud/COVER.INFO/YouTube chain on UI.
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
+        // The LAB08 video coordinator already owns all metadata requests.
+        // A second on-tap network lookup would duplicate the same ID check.
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            if (!session.turboFinished) {
+                Toast.makeText(context, "Verifica video in corso, fino a 10 secondi.", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
         if (resolvingFingerprint == seed.fingerprint) return
         val track = playableTrack(seed)
         if (track == null) {
@@ -3092,6 +3116,21 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun play(seed: DiscogsVersionSeed) {
+        // LAB08 invariant: showing artwork at T+5 does not certify playback.
+        // Never send a bare catalog ID to the native player while the
+        // simultaneous metadata-verification race is still in flight.
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            val latest = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
+            if (!hasPublishableVideo(latest)) {
+                Toast.makeText(
+                    context,
+                    if (!session.turboFinished) "Video ancora in verifica (massimo 10 secondi)."
+                    else "Nessun video verificato per questa cover.",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                return
+            }
+        }
         CoverSwipeBridge.stop(sessionKey)
         session.listIndex = listState.firstVisibleItemIndex
         session.listOffset = listState.firstVisibleItemScrollOffset
