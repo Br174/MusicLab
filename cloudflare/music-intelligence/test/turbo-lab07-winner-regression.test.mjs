@@ -57,7 +57,8 @@ test('WIN 09 audio buffering uses two lanes, idle device may use eight lanes',()
 });
 test('WIN 10 source, image and video concurrency independently honor buffering priority',()=>{
  assert.match(burst,/maxNetworkFanOut = if \(playbackIsNormallyPlaying\(\) \|\| playbackIsCritical\(\)\) 2 else 5/);
- assert.match(burst,/Semaphore\(if \(playbackIsNormallyPlaying\(\) \|\| playbackIsCritical\(\)\) 2 else 4\)/);
+ assert.match(burst,/if \(imageBudget > 0L && thumbnails\.isNotEmpty\(\) &&\s*!playbackIsNormallyPlaying\(\) && !playbackIsCritical\(\)\)/);
+ assert.match(burst,/val gate = Semaphore\(3\)/);
  assert.match(burst,/CloudMusicDiscovery\.cancelArchiveRequests\(\)/);
  assert.match(burst,/session\.turboFinished = true/);
 });
