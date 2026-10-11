@@ -106,6 +106,7 @@ private const val TURBO_MAX_RANK_CANDIDATES = 100
 private const val TURBO_BURST_DEADLINE_MS = 5_000L
 private const val TURBO_THUMBNAIL_RESERVE_MS = 400L
 private const val TURBO_SOURCE_WAIT_MS = 2_500L
+private const val TURBO_COVER_INFO_WAIT_MS = 4_100L
 private const val TURBO_ARCHIVE_TIMEOUT_MS = 1_800L
 private const val TURBO_COVER_ORIGINAL_GATE_MS = 900L
 private const val DIRECT_COVER_PAGE_SIZE = 10
@@ -1982,7 +1983,7 @@ internal fun DiscogsDirectVersionBrowser(
                                                 !it.resolvedVideoId.isNullOrBlank()
                                             }.thenByDescending { it.confidenceScore },
                                         )
-                                        .take(if (playbackIsNormallyPlaying()) 2 else 4)
+                                        .take(if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8)
                                     val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
                                         SystemClock.elapsedRealtime()
                                     if (remaining > 120L && pending.isNotEmpty()) {
@@ -2026,13 +2027,17 @@ internal fun DiscogsDirectVersionBrowser(
                                 } ?: false
                             }
                             val externalDeferred = async(Dispatchers.IO) {
-                                withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
+                                // COVER.INFO needs two network hops: first the
+                                // matching work, then its related recordings.
+                                // Early callbacks are verified concurrently.
+                                // The enclosing 5000ms deadline still rules all.
+                                withTimeoutOrNull(TURBO_COVER_INFO_WAIT_MS) {
                                     CoverDiscoverySources.discover(
                                         title = criteria.title,
                                         originalArtist = resolvedOriginalArtist,
                                         mode = mode,
                                         aiConfig = foreignScoutConfig,
-                                        maxNetworkFanOut = if (playbackIsNormallyPlaying()) 2 else 5,
+                                        maxNetworkFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 5,
                                         onEarlyVideoCandidates = { quick ->
                                             sourceEvidence.addAll(quick)
                                             if (quick.isNotEmpty()) streamingCandidates.trySend(quick)
@@ -2157,7 +2162,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         !it.resolvedVideoId.isNullOrBlank()
                                     }.thenByDescending { it.confidenceScore },
                                 )
-                            val verifyFanOut = if (playbackIsNormallyPlaying()) 2 else 6
+                            val verifyFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8
                             for (chunk in candidates.chunked(verifyFanOut)) {
                                 val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
                                     SystemClock.elapsedRealtime()
@@ -2178,7 +2183,7 @@ internal fun DiscogsDirectVersionBrowser(
                             val imageBudget = stopAt - SystemClock.elapsedRealtime()
                             if (imageBudget > 0L && thumbnails.isNotEmpty()) {
                                 withTimeoutOrNull(imageBudget) {
-                                    val gate = Semaphore(if (playbackIsNormallyPlaying()) 2 else 4)
+                                    val gate = Semaphore(if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 4)
                                     thumbnails.map { url ->
                                         async(Dispatchers.IO) {
                                             gate.withPermit {
