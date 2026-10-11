@@ -9,7 +9,7 @@ const stageEnd=b.indexOf('\n        } else {\n        searchJob =',stageStart);
 assert.ok(stageStart>=0&&stageEnd>stageStart);
 const stage=b.slice(stageStart,stageEnd);
 const initial=b.slice(b.indexOf('val stopAt = turboCommandStartedAt + TURBO_BURST_DEADLINE_MS'),stageStart);
-const final=stage.slice(stage.indexOf('val finalVideoSnapshots = publishedCoverSnapshots.mapNotNull'));
+const final=stage.slice(stage.indexOf('val finalVideoSnapshots = sortGroup('));
 function atomicPrune(posterCount, validIds){
  const posters=Array.from({length:Math.min(50,posterCount)},(_,i)=>({id:'p'+i,score:20-(i%20)}));
  const final=posters.filter(x=>validIds.has(x.id)).slice(0,50);
@@ -36,7 +36,7 @@ test('VIDEO 04 candidate verification uses the native MusicLab verified metadata
  assert.match(stage,/!hasPublishableVideo\(it\)/);
 });
 test('VIDEO 05 at ten seconds only verified playback video cards remain; missing cards disappear',()=>{
- assert.match(stage,/val finalVideoSnapshots = publishedCoverSnapshots\.mapNotNull \{ poster ->/);
+ assert.match(stage,/val finalVideoSnapshots = sortGroup\(\s*publishedCoverSnapshots\.mapNotNull \{ poster ->/);
  assert.match(stage,/if \(resolved != null && hasPublishableVideo\(resolved\)\)/);
  assert.match(stage,/else \{\s*null\s*\}/);
  assert.match(stage,/\.take\(TURBO_RESULT_QUOTA\)/);
@@ -47,10 +47,11 @@ test('VIDEO 06 video updates all remaining cards together without gradual public
  assert.equal(stage.includes('loadNextPage()'),false);
  assert.match(final,/session\.turboFinished = true/);
 });
-test('VIDEO 07 verify keeps rank and original set order, never promotes new poster',()=>{
+test('VIDEO 07 only original poster membership remains, final survivors rank 20-to-1',()=>{
  assert.match(stage,/val byFingerprint = results\.associateBy \{ it\.fingerprint \}/);
  assert.match(stage,/publishedCoverSnapshots\.mapNotNull \{ poster ->/);
  assert.match(stage,/poster\.copy\(/);
+ assert.match(stage,/DirectVersionSort\.RELEVANCE/);
  assert.ok(stage.indexOf('publishedCoverSnapshots.mapNotNull')<stage.indexOf('publishedCoverSnapshots = finalVideoSnapshots'));
 });
 test('VIDEO 08 no new source-discovery calls start after five-second poster seal',()=>{
