@@ -1973,6 +1973,9 @@ internal fun DiscogsDirectVersionBrowser(
                             // Compose state stays on the owning UI dispatcher;
                             // user sees only the final atomic snapshot.
                             val streamingVerifier = launch {
+                                // Each distinct recording/video binding is examined once
+                                // per burst, even if no more source callbacks arrive.
+                                val examinedBindings = hashSetOf<String>()
                                 while (isActive && SystemClock.elapsedRealtime() < stopAt - TURBO_THUMBNAIL_RESERVE_MS) {
                                     // Every runner delivers an immutable batch. Never
                                     // wait for Cover.Info, Discogs, Cloud or Apple/iTunes
@@ -1993,16 +1996,24 @@ internal fun DiscogsDirectVersionBrowser(
                                         }.toList()
                                     val cloudSeedsNow = supplementalSeeds.tryReceive().getOrNull().orEmpty()
                                     val seeds = documentedSeeds + cloudSeedsNow
-                                    if (seeds.isEmpty()) continue
-                                    results = mergePage(results, seeds, replace = false)
-                                    session.results = results
-                                    rebuildStableOrder()
-                                    rankingFrozen = true
-                                    originalSectionFrozen = true
-                                    session.rankingFrozen = true
-                                    session.originalSectionFrozen = true
+                                    if (seeds.isNotEmpty()) {
+                                        results = mergePage(results, seeds, replace = false)
+                                        session.results = results
+                                        rebuildStableOrder()
+                                        rankingFrozen = true
+                                        originalSectionFrozen = true
+                                        session.rankingFrozen = true
+                                        session.originalSectionFrozen = true
+                                    }
+                                    // Discogs can update the same shared result pool
+                                    // without a source-channel callback. Keep verifying
+                                    // the next candidate instead of idling on the channel.
                                     val pending = coverCandidatePool()
                                         .filter { !hasPublishableVideo(it) && playableTrack(it) != null }
+                                        .filter { seed ->
+                                            val key = seed.fingerprint + "|" + seed.resolvedVideoId.orEmpty()
+                                            key !in examinedBindings
+                                        }
                                         // Verify attached video IDs before doing a slower
                                         // blind video search; keep quality order within lanes.
                                         .sortedWith(
@@ -2014,6 +2025,11 @@ internal fun DiscogsDirectVersionBrowser(
                                     val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
                                         SystemClock.elapsedRealtime()
                                     if (remaining > 120L && pending.isNotEmpty()) {
+                                        pending.forEach { seed ->
+                                            examinedBindings.add(
+                                                seed.fingerprint + "|" + seed.resolvedVideoId.orEmpty()
+                                            )
+                                        }
                                         withTimeoutOrNull(minOf(remaining, 1_250L)) {
                                             resolveVideoChunk(pending)
                                         }
