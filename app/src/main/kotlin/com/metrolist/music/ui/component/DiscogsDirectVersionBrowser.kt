@@ -2439,15 +2439,22 @@ internal fun DiscogsDirectVersionBrowser(
                                 if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8
                             for (chunk in pending.chunked(videoFanOut)) {
                                 if (!isActive || SystemClock.elapsedRealtime() >= videoStopAt) break
+                                // Existing source+video discovery started at T0,
+                                // alongside all the cover runners; this is just
+                                // the second half of the SAME video verification
+                                // race, not a new video-search start at T+5s.
                                 resolveVideoChunk(chunk)
                             }
                         }
                     } finally {
                         if (isActive && activeCriteria == criteria) {
-                            // One atomic update attaches all VIDEO metadata
-                            // while preserving poster membership, order and art.
+                            // LAB08 hard VIDEO gate: at most one atomic list
+                            // replacement at T+10s, keeping only REAL metadata-
+                            // verified video bindings. Any poster without a video
+                            // disappears; no unloaded/blank cards can remain.
+                            // Poster membership and rank are frozen at T+5s.
                             val byFingerprint = results.associateBy { it.fingerprint }
-                            val finalVideoSnapshots = publishedCoverSnapshots.map { poster ->
+                            val finalVideoSnapshots = publishedCoverSnapshots.mapNotNull { poster ->
                                 val resolved = byFingerprint[poster.fingerprint]
                                 if (resolved != null && hasPublishableVideo(resolved)) {
                                     poster.copy(
@@ -2457,17 +2464,15 @@ internal fun DiscogsDirectVersionBrowser(
                                         videoResolutionChecked = true,
                                     )
                                 } else {
-                                    // Never present an unverified ID as playable.
-                                    poster.copy(
-                                        resolvedVideoId = null,
-                                        resolvedVideoTitle = null,
-                                        resolvedVideoSource = null,
-                                        videoResolutionChecked = true,
-                                    )
+                                    null
                                 }
-                            }
+                            }.take(TURBO_RESULT_QUOTA)
+                            // Compose observes a single immutable batch; do
+                            // not progressively append, page, or reshuffle rows.
                             publishedCoverSnapshots = finalVideoSnapshots
                             session.publishedCoverSnapshots = finalVideoSnapshots
+                            publishedReadyLimit = finalVideoSnapshots.size
+                            session.publishedReadyLimit = finalVideoSnapshots.size
                             session.turboFinished = true
                             verificationJob?.cancel()
                             paginationJob?.cancel()
