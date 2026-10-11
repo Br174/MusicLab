@@ -373,7 +373,12 @@ internal fun DiscogsDirectVersionBrowser(
 
     DisposableEffect(sessionKey) {
         if (mode == DiscogsDirectMode.COVER) {
-            playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
+            // Turbo LAB05: reopening a completed burst is cache-only.  The
+            // playback governor must not be kept active for a sealed session.
+            playerConnection?.service?.setCoverPerformanceLoad(
+                active = !isTurbo || !session.turboFinished,
+                heavy = false,
+            )
         }
         onDispose {
             // LAB57 hard Cover lifecycle barrier: leaving this screen cancels every
@@ -387,6 +392,7 @@ internal fun DiscogsDirectVersionBrowser(
             videoPreloadJob?.cancel()
             backgroundResumeJob?.cancel()
             if (mode == DiscogsDirectMode.COVER) {
+                if (isTurbo) CloudMusicDiscovery.cancelArchiveRequests()
                 playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
             }
         }
@@ -1511,6 +1517,13 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun resumeCoverBackgroundAfterPlaybackBurst() {
         backgroundResumeJob?.cancel()
+        // Turbo LAB05: once all cards are published, a Cover tap must NEVER
+        // wake discovery, metadata verification, or a performance governor.
+        if (isTurbo && mode == DiscogsDirectMode.COVER && session.turboFinished) {
+            backgroundPausedForPlayback = false
+            playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
+            return
+        }
         backgroundResumeJob =
             scope.launch {
                 while (playbackIsCritical()) {
@@ -1618,9 +1631,18 @@ internal fun DiscogsDirectVersionBrowser(
 
     suspend fun playResolvedContext(selectedFingerprint: String) {
         val connection = playerConnection ?: return
+        // Turbo LAB05: re-entry must play the immutable, previously certified
+        // card, even if a transient catalog refresh changes the mutable pool.
         var selectedSeed =
-            orderedResults(results)
-                .firstOrNull { it.fingerprint == selectedFingerprint && !it.resolvedVideoId.isNullOrBlank() }
+            (if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                publishedCoverSnapshots.firstOrNull {
+                    it.fingerprint == selectedFingerprint && !it.resolvedVideoId.isNullOrBlank()
+                }
+            } else null)
+                ?: orderedResults(results)
+                    .firstOrNull {
+                        it.fingerprint == selectedFingerprint && !it.resolvedVideoId.isNullOrBlank()
+                    }
                 ?: return
         var selectedId = selectedSeed.resolvedVideoId?.trim().orEmpty()
         if (selectedId.isBlank()) return
@@ -1659,13 +1681,22 @@ internal fun DiscogsDirectVersionBrowser(
         val queueTitle =
             if (mode == DiscogsDirectMode.COVER) "Cover · $title" else "Originali · $title"
 
-        connection.playQueue(
-            ListQueue(
-                title = queueTitle,
-                items = listOf(selectedItem),
-                startIndex = 0,
-            ),
-        )
+        if (isTurbo && mode == DiscogsDirectMode.COVER &&
+            connection.service.playerInitialized.value) {
+            // Turbo LAB05: a tapped verified recording goes directly through
+            // the existing native playNow path.  playQueue asynchronously
+            // filters and resolves a new queue; a filtered/late result could
+            // silently keep the preceding song playing on re-entry.
+            connection.playNow(selectedItem)
+        } else {
+            connection.playQueue(
+                ListQueue(
+                    title = queueTitle,
+                    items = listOf(selectedItem),
+                    startIndex = 0,
+                ),
+            )
+        }
         // Swipe navigation is exclusive to COVER performer rows, not the
         // original performer, the standalone player, or another app screen.
         if (mode == DiscogsDirectMode.COVER && !isOriginalPerformerVersion(selectedSeed)) {
@@ -2165,8 +2196,10 @@ internal fun DiscogsDirectVersionBrowser(
                         paginationJob?.cancel()
                         videoPreloadJob?.cancel()
                         CloudMusicDiscovery.cancelArchiveRequests()
+                        // Full shutdown is separate from remaining on the Cover
+                        // screen.  Audio reverts to its ordinary governor state.
                         playerConnection?.service?.setCoverPerformanceLoad(
-                            active = true, heavy = false,
+                            active = false, heavy = false,
                         )
                     }
                 }
@@ -2800,7 +2833,11 @@ internal fun DiscogsDirectVersionBrowser(
 
         playbackLaunchJob = scope.launch {
             var currentSeed =
-                results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
+                (if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                    publishedCoverSnapshots.firstOrNull { it.fingerprint == seed.fingerprint }
+                } else null)
+                    ?: results.firstOrNull { it.fingerprint == seed.fingerprint }
+                    ?: seed
 
             if (currentSeed.resolvedVideoId.isNullOrBlank()) {
                 // LAB63: a previously verified recording starts immediately,
