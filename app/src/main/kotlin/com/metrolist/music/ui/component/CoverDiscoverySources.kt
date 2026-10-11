@@ -835,31 +835,53 @@ internal object CoverDiscoverySources {
         // independent priority lane. The old sequential HTTP calls consumed
         // most of the bounded provider window before relations even started.
         val turbo = BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01"
-        val searchResponses = coroutineScope {
-            searchTerms.map { term ->
-                async(Dispatchers.IO) {
-                    val url = "https://cover.info/en/search".toHttpUrl().newBuilder()
-                        .addQueryParameter("find", term)
-                        .addQueryParameter("per-page-songs", "200")
-                        .build().toString()
-                    val html = fetchHtml(url) ?: return@async null
-                    val parsed = runCatching { Jsoup.parse(html, "https://cover.info") }
-                        .getOrNull() ?: return@async null
-                    // Keep every first-page match on the Turbo evidence lane.
-                    // Even if detail pages time out these candidates survive.
-                    if (parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty()) {
-                        val pageCandidates = parseCoverInfoDocument(parsed)
-                            .filter { seed ->
-                                sameBaseTitle(title, seed.title) &&
-                                    modeAcceptsArtist(mode, seed.artist, originalArtist) &&
-                                    (turbo || !seed.playbackVideoId.isNullOrBlank())
-                            }.map { seed -> toCoverInfoCandidate(seed, title) }
-                        if (pageCandidates.isNotEmpty()) onEarlyVideoCandidates(pageCandidates)
-                    }
-                    term to parsed
-                }
-            }.awaitAll()
+        // LAB07: a Turbo user starts one Cover search at a time.
+        // Sending both broad and artist-specific queries concurrently for
+        // every song produced HTTP 503 under the real 50-song load probe.
+        // Use the precise query first, retry title-only ONLY when it has no
+        // matching musical work. Ordinary non-Turbo logic stays untouched.
+        suspend fun readSearchTerm(term: String): Pair<String, org.jsoup.nodes.Document>? {
+            val url = "https://cover.info/en/search".toHttpUrl().newBuilder()
+                .addQueryParameter("find", term)
+                .addQueryParameter("per-page-songs", "200")
+                .build().toString()
+            val html = fetchHtml(url) ?: return null
+            val parsed = runCatching { Jsoup.parse(html, "https://cover.info") }
+                .getOrNull() ?: return null
+            if (parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty()) {
+                val pageCandidates = parseCoverInfoDocument(parsed)
+                    .filter { seed ->
+                        sameBaseTitle(title, seed.title) &&
+                            modeAcceptsArtist(mode, seed.artist, originalArtist) &&
+                            (turbo || !seed.playbackVideoId.isNullOrBlank())
+                    }.map { seed -> toCoverInfoCandidate(seed, title) }
+                if (pageCandidates.isNotEmpty()) onEarlyVideoCandidates(pageCandidates)
+            }
+            return term to parsed
         }
+        val searchResponses =
+            if (turbo) {
+                val precise = withContext(Dispatchers.IO) {
+                    readSearchTerm(searchTerms.first())
+                }
+                val matchesWork = precise?.second?.let { page ->
+                    parseCoverInfoDocument(page).any { sameBaseTitle(title, it.title) }
+                } == true
+                if (matchesWork) {
+                    listOfNotNull(precise)
+                } else {
+                    val fallback = searchTerms.getOrNull(1)?.let { term ->
+                        withContext(Dispatchers.IO) { readSearchTerm(term) }
+                    }
+                    listOfNotNull(precise, fallback)
+                }
+            } else {
+                coroutineScope {
+                    searchTerms.map { term ->
+                        async(Dispatchers.IO) { readSearchTerm(term) }
+                    }.awaitAll().filterNotNull()
+                }
+
         val searchDocuments = searchResponses.filterNotNull()
             .filter { (_, parsed) -> parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty() }
         val publicSearchReachable = searchResponses.any { it != null }
