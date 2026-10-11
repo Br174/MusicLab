@@ -32,8 +32,10 @@ test('WIN 04 translated titles are admitted only when COVER.INFO confirms work r
  assert.match(admit,/seed\.workRelationConfirmed &&\s*seed\.sourceNames\.any \{ it\.equals\("COVER.INFO", ignoreCase = true\) \}/);
  assert.match(admit,/return independentServices >= 2 \|\|/);
 });
-test('WIN 05 first search still requires work-title match, preventing arbitrary songs',()=>{
+test('WIN 05 first search requires work-title match and documented COVER.INFO query operators',()=>{
  assert.match(coverInfo,/sameBaseTitle\(title, seed\.title\) &&\s*modeAcceptsArtist/);
+ assert.ok(sources.includes('"""song:"$cleanTitle" artist:"$cleanArtist""""'));
+ assert.ok(sources.includes('"""song:"$cleanTitle""""'));
 });
 test('WIN 06 related versions enter early callback even when titles are foreign translations',()=>{
  assert.match(coverInfo,/val partial = seeds\.filter \{ seed ->\s*seed\.directRelation &&\s*modeAcceptsArtist/);
