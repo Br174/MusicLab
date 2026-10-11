@@ -136,7 +136,7 @@ test('strategy 08: a production mix never demands more than two active verifiers
 });
 test('strategy 09: current Kotlin callback pipeline does not wait for all providers before attempting verification',()=>{
  const stream=browser.indexOf('val streamingVerifier = launch');
- const firstAwait=browser.indexOf('val cloudSeeds = archiveDeferred.await()');
+ const firstAwait=browser.indexOf('archiveDeferred.await()');
  assert.ok(stream>0&&firstAwait>stream);
  assert.match(browser,/streamingCandidates\.trySend\(quick\)/);
  assert.match(browser,/streamingCandidates\.trySend\(items\)/);
