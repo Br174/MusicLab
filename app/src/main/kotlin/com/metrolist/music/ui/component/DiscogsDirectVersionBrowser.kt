@@ -84,6 +84,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -1836,7 +1837,7 @@ internal fun DiscogsDirectVersionBrowser(
         // verification begins after several network catalog requests.
         val turboCommandStartedAt = SystemClock.elapsedRealtime()
         val repeatSameWork = activeCriteria?.title?.equals(criteria.title, ignoreCase = true) == true
-        if (isTurbo && repeatSameWork && session.turboFinished) {
+        if (isTurbo && repeatSameWork && session.turboFinished && session.publishedCoverSnapshots.isNotEmpty()) {
             // Re-enter a completed 50-result burst without re-querying providers.
             loading = false
             sourceDiscoveryLoading = false
@@ -1926,6 +1927,7 @@ internal fun DiscogsDirectVersionBrowser(
                 // Source callbacks retain completed findings even if the whole
                 // aggregate discovery reaches its bounded deadline.
                 val sourceEvidence = ConcurrentLinkedQueue<CoverSourceCandidate>()
+                val streamingCandidates = Channel<List<CoverSourceCandidate>>(Channel.UNLIMITED)
                 val sourceStatus = ConcurrentHashMap<String, CoverSourceDiagnostic>()
                 val sourceOriginalYear = AtomicReference<Int?>(null)
                 val cloudArchiveCount = java.util.concurrent.atomic.AtomicInteger(-1)
@@ -1936,6 +1938,47 @@ internal fun DiscogsDirectVersionBrowser(
                         (stopAt - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
                     ) {
                         coroutineScope {
+                            // LAB07 Pollicino: the verifier consumes provider callbacks
+                            // while slow catalog/cloud lanes are still running.
+                            // Compose state stays on the owning UI dispatcher;
+                            // user sees only the final atomic snapshot.
+                            val streamingVerifier = launch {
+                                while (isActive && SystemClock.elapsedRealtime() < stopAt - TURBO_THUMBNAIL_RESERVE_MS) {
+                                    val incoming = withTimeoutOrNull(160L) {
+                                        streamingCandidates.receive()
+                                    } ?: continue
+                                    if (incoming.isEmpty() || activeCriteria != criteria) continue
+                                    val seeds = incoming.asSequence()
+                                        .filter { it.title.isNotBlank() && it.artist.isNotBlank() }
+                                        .distinctBy { it.title.lowercase() + "|" + it.artist.lowercase() }
+                                        .take(TURBO_MAX_RANK_CANDIDATES)
+                                        .map { item ->
+                                            DiscogsVersionSource.externalSeed(
+                                                candidate = item,
+                                                targetTitle = criteria.title,
+                                                originalArtist = resolvedOriginalArtist,
+                                            )
+                                        }.toList()
+                                    if (seeds.isEmpty()) continue
+                                    results = mergePage(results, seeds, replace = false)
+                                    session.results = results
+                                    rebuildStableOrder()
+                                    rankingFrozen = true
+                                    originalSectionFrozen = true
+                                    session.rankingFrozen = true
+                                    session.originalSectionFrozen = true
+                                    val pending = coverCandidatePool()
+                                        .filter { !hasPublishableVideo(it) && playableTrack(it) != null }
+                                        .take(if (playbackIsNormallyPlaying()) 2 else 4)
+                                    val remaining = stopAt - TURBO_THUMBNAIL_RESERVE_MS -
+                                        SystemClock.elapsedRealtime()
+                                    if (remaining > 120L && pending.isNotEmpty()) {
+                                        withTimeoutOrNull(minOf(remaining, 1_250L)) {
+                                            resolveVideoChunk(pending)
+                                        }
+                                    }
+                                }
+                            }
                             val archiveDeferred = async(Dispatchers.IO) {
                                 val items = withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
                                     foreignScoutConfig?.let { config ->
@@ -1979,6 +2022,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying()) 2 else 5,
                                         onEarlyVideoCandidates = { quick ->
                                             sourceEvidence.addAll(quick)
+                                            if (quick.isNotEmpty()) streamingCandidates.trySend(quick)
                                             if (quick.isNotEmpty()) {
                                                 sourceStatus["COVER.INFO"] = CoverSourceDiagnostic(
                                                     "COVER.INFO", true, quick.size,
@@ -1988,6 +2032,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         },
                                         onSourceCompleted = { items, diagnostic, originalYear ->
                                             sourceEvidence.addAll(items)
+                                            if (items.isNotEmpty()) streamingCandidates.trySend(items)
                                             sourceStatus[diagnostic.name] = diagnostic
                                             if (originalYear != null) sourceOriginalYear.set(originalYear)
                                         },
@@ -2133,6 +2178,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     }.awaitAll()
                                 }
                             }
+                            streamingVerifier.cancel()
                         }
                     }
                 } finally {
@@ -2161,6 +2207,8 @@ internal fun DiscogsDirectVersionBrowser(
                         session.originalSectionFrozen = true
                         session.sourceDiscoveryComplete = true
                         session.turboFinished = true
+                        // An empty snapshot is a transient result, never an
+                        // immutable cache hit: another tap may retry the providers.
                         // Separate results of each consulted source: no longer
                         // report Discogs as if it were the only provider.
                         val externalNames = listOf(
@@ -3407,7 +3455,11 @@ internal fun DiscogsDirectVersionBrowser(
                         if (!rankingFrozen) {
                             "Certifico opera, data, crediti e punteggio prima di pubblicare la graduatoria…"
                         } else {
-                            "Verifico gli ID video per il prossimo blocco di 5 canzoni…"
+                            if (isTurbo) {
+                                "Raccolgo e verifico tutte le cover disponibili entro 5 secondi…"
+                            } else {
+                                "Verifico gli ID video per il prossimo blocco di 5 canzoni…"
+                            }
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
