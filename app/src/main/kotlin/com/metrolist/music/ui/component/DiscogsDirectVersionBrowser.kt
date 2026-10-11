@@ -3740,14 +3740,19 @@ internal fun DiscogsDirectVersionBrowser(
             ) {
                 item(key = "discogs_direct_preparing_cover") {
                     Text(
-                        if (!rankingFrozen) {
+                        if (isTurbo) {
+                            when {
+                                session.turboFinished ->
+                                    "Nessuna cover con video verificato entro 10 secondi."
+                                loading || !rankingFrozen ->
+                                    "Raccolgo le locandine in un unico blocco (massimo 5 secondi)…"
+                                else ->
+                                    "Collego i video alle locandine (massimo 10 secondi)…"
+                            }
+                        } else if (!rankingFrozen) {
                             "Certifico opera, data, crediti e punteggio prima di pubblicare la graduatoria…"
                         } else {
-                            if (isTurbo) {
-                                "Raccolgo e verifico tutte le cover disponibili entro 5 secondi…"
-                            } else {
-                                "Verifico gli ID video per il prossimo blocco di 5 canzoni…"
-                            }
+                            "Verifico gli ID video per il prossimo blocco di 5 canzoni…"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
