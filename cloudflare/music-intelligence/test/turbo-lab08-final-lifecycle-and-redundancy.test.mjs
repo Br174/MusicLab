@@ -61,7 +61,7 @@ test('AUDIT08 06 tapping provisional unverified video does NOT start playback or
  assert.ok(play.indexOf('if (!hasPublishableVideo(latest))')<play.indexOf('playerConnection?.beginPlaybackPriorityBurst'));
  assert.match(retry,/if \(isTurbo && mode == DiscogsDirectMode\.COVER\)[\s\S]*?return/);
 });
-test('AUDIT08 07 playback uses latest VERIFIED binding, never immutable poster's stale ID',()=>{
+test("AUDIT08 07 playback uses latest VERIFIED binding, never immutable poster's stale ID",()=>{
  assert.match(playback,/val admitted = publishedCoverSnapshots\.any \{ it\.fingerprint == selectedFingerprint \}/);
  assert.match(playback,/results\.firstOrNull \{[\s\S]*?hasPublishableVideo\(it\)/);
  assert.match(playback,/if \(isTurbo && mode == DiscogsDirectMode\.COVER && !hasPublishableVideo\(selectedSeed\)\) return/);
