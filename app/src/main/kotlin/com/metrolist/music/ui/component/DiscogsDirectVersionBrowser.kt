@@ -1682,7 +1682,7 @@ internal fun DiscogsDirectVersionBrowser(
             if (mode == DiscogsDirectMode.COVER) "Cover · $title" else "Originali · $title"
 
         if (isTurbo && mode == DiscogsDirectMode.COVER &&
-            connection.service.playerInitialized.value) {
+            connection.service.isPlayerReady.value) {
             // Turbo LAB05: a tapped verified recording goes directly through
             // the existing native playNow path.  playQueue asynchronously
             // filters and resolves a new queue; a filtered/late result could
