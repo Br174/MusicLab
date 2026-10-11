@@ -33,8 +33,8 @@ test('Every other supported provider reports independent completed results',()=>
   assert.match(browser,/external\?\.diagnostics\?\.forEach/);
 });
 test('COVER.INFO retains entire early search page including candidates without video IDs',()=>{
-  assert.match(sources,/val partial = parseCoverInfoDocument\(parsed\)/);
-  assert.match(sources,/if \(partial\.isNotEmpty\(\)\) onEarlyVideoCandidates\(partial\)/);
+  assert.match(sources,/val pageCandidates = parseCoverInfoDocument\(parsed\)/);
+  assert.match(sources,/if \(pageCandidates\.isNotEmpty\(\)\) onEarlyVideoCandidates\(pageCandidates\)/);
   assert.match(browser,/sourceStatus\["COVER.INFO"\] = CoverSourceDiagnostic/);
 });
 test('Documentary dates remain part of 20-to-1 ranking',()=>{
