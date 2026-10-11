@@ -126,7 +126,7 @@ internal object CoverDiscoverySources {
 
         // LAB57: bounded fan-out. All sources still participate, but a Cover
         // search must not create an unbounded network/CPU burst beside playback.
-        val sourceGate = Semaphore(maxNetworkFanOut.coerceIn(1, 3))
+        val sourceGate = Semaphore(maxNetworkFanOut.coerceIn(1, if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") 5 else 3))
         suspend fun reportResult(
             lane: Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic>,
             year: Int? = null,
@@ -830,46 +830,38 @@ internal object CoverDiscoverySources {
                 """song="$cleanTitle"""",
             ).distinct()
 
-        val searchDocuments = mutableListOf<Pair<String, org.jsoup.nodes.Document>>()
-        var publicSearchReachable = false
-        for (term in searchTerms) {
-            val url =
-                "https://cover.info/en/search".toHttpUrl().newBuilder()
-                    .addQueryParameter("find", term)
-                    // COVER.INFO exposes up to 200 rows through this public selector.
-                    // Pull the widest page so MusicLab does not silently stop at the
-                    // first 10/25 entries when a work has many covers/adaptations.
-                    .addQueryParameter("per-page-songs", "200")
-                    .build()
-                    .toString()
-            val html = fetchHtml(url) ?: continue
-            val parsed = runCatching { Jsoup.parse(html, "https://cover.info") }.getOrNull() ?: continue
-            publicSearchReachable = true
-            if (parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty()) {
-                searchDocuments += term to parsed
-                // LAB60 Pollicino: publish embedded video thumbnails as soon as the
-                // first search page arrives, BEFORE expanding related-song pages.
-                val quickVideos = parseCoverInfoDocument(parsed)
-                    .filter { seed ->
-                        sameBaseTitle(title, seed.title) &&
-                            modeAcceptsArtist(mode, seed.artist, originalArtist) &&
-                            !seed.playbackVideoId.isNullOrBlank()
+        // LAB04: both COVER.INFO search variants start concurrently, in an
+        // independent priority lane. The old sequential HTTP calls consumed
+        // most of the bounded provider window before relations even started.
+        val turbo = BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01"
+        val searchResponses = coroutineScope {
+            searchTerms.map { term ->
+                async(Dispatchers.IO) {
+                    val url = "https://cover.info/en/search".toHttpUrl().newBuilder()
+                        .addQueryParameter("find", term)
+                        .addQueryParameter("per-page-songs", "200")
+                        .build().toString()
+                    val html = fetchHtml(url) ?: return@async null
+                    val parsed = runCatching { Jsoup.parse(html, "https://cover.info") }
+                        .getOrNull() ?: return@async null
+                    // Keep every first-page match on the Turbo evidence lane.
+                    // Even if detail pages time out these candidates survive.
+                    if (parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty()) {
+                        val pageCandidates = parseCoverInfoDocument(parsed)
+                            .filter { seed ->
+                                sameBaseTitle(title, seed.title) &&
+                                    modeAcceptsArtist(mode, seed.artist, originalArtist) &&
+                                    (turbo || !seed.playbackVideoId.isNullOrBlank())
+                            }.map { seed -> toCoverInfoCandidate(seed, title) }
+                        if (pageCandidates.isNotEmpty()) onEarlyVideoCandidates(pageCandidates)
                     }
-                    .map { seed -> toCoverInfoCandidate(seed, title) }
-                if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
-                    // LAB03: retain all COVER.INFO first-page candidates even
-                    // if related-page expansion exceeds the provider budget.
-                    val partial = parseCoverInfoDocument(parsed)
-                        .filter { seed ->
-                            sameBaseTitle(title, seed.title) &&
-                                modeAcceptsArtist(mode, seed.artist, originalArtist)
-                        }.map { seed -> toCoverInfoCandidate(seed, title) }
-                    if (partial.isNotEmpty()) onEarlyVideoCandidates(partial)
-                } else if (quickVideos.isNotEmpty()) {
-                    onEarlyVideoCandidates(quickVideos)
+                    term to parsed
                 }
-            }
+            }.awaitAll()
         }
+        val searchDocuments = searchResponses.filterNotNull()
+            .filter { (_, parsed) -> parsed.select(COVER_INFO_SONG_SELECTOR).isNotEmpty() }
+        val publicSearchReachable = searchResponses.any { it != null }
 
         if (searchDocuments.isEmpty()) {
             return emptyList<CoverSourceCandidate>() to CoverSourceDiagnostic(
@@ -904,21 +896,30 @@ internal object CoverDiscoverySources {
                 }
                 .take(COVER_INFO_RELATION_ROOT_LIMIT)
 
-        // LAB60 Pollicino: preserve all relationship roots, but issue their
-        // HTTP requests in at most two concurrent lanes instead of one long chain.
-        val related = mutableListOf<CoverInfoSeed>()
-        for (roots in relationRoots.chunked(2)) {
-            val batch = coroutineScope {
-                roots.map { root ->
-                    async(Dispatchers.IO) {
-                        val html = fetchHtml(root.url) ?: return@async emptyList<CoverInfoSeed>()
+        // LAB04: bounded parallel relationship expansion, not serialized
+        // batches of two. Each completed page forwards usable candidates
+        // before another page can stall the entire source.
+        val related = coroutineScope {
+            val gate = Semaphore(if (turbo) 6 else 2)
+            relationRoots.map { root ->
+                async(Dispatchers.IO) {
+                    gate.withPermit {
+                        val html = fetchHtml(root.url) ?: return@withPermit emptyList<CoverInfoSeed>()
                         val page = runCatching { Jsoup.parse(html, "https://cover.info") }
-                            .getOrNull() ?: return@async emptyList<CoverInfoSeed>()
-                        parseCoverInfoDocument(page).map { it.copy(directRelation = true) }
+                            .getOrNull() ?: return@withPermit emptyList<CoverInfoSeed>()
+                        val seeds = parseCoverInfoDocument(page)
+                            .map { it.copy(directRelation = true) }
+                        if (turbo && seeds.isNotEmpty()) {
+                            val partial = seeds.filter { seed ->
+                                sameBaseTitle(title, seed.title) &&
+                                    modeAcceptsArtist(mode, seed.artist, originalArtist)
+                            }.map { seed -> toCoverInfoCandidate(seed, title) }
+                            if (partial.isNotEmpty()) onEarlyVideoCandidates(partial)
+                        }
+                        seeds
                     }
-                }.map { it.await() }.flatten()
-            }
-            related += batch
+                }
+            }.awaitAll().flatten()
         }
 
         val mergedSeeds =
