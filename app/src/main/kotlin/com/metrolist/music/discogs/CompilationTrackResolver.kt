@@ -306,6 +306,7 @@ internal object CompilationTrackResolver {
     internal fun isHardCompatible(
         track: DiscogsTrack,
         song: SongItem,
+        documentedPerformerMatch: Boolean = false,
     ): Boolean {
         val targetTitle = normalize(track.title)
         val songTitle = normalize(song.title)
@@ -336,7 +337,10 @@ internal object CompilationTrackResolver {
             // Exact Recording rule: an explicit target performer must be evidenced either
             // by YouTube Music metadata or by the video title. A same-title recording by
             // another performer is not a playable match.
-            if (!artistFieldMatch && !titleNamesTargetArtist) return false
+            // A documentary relation can certify the actual performer when
+            // the uploader/channel is a record label. Title, version markers,
+            // duration and exact bound video ID still need to pass independently.
+            if (!artistFieldMatch && !titleNamesTargetArtist && !documentedPerformerMatch) return false
         }
 
         val expected = track.durationSeconds
