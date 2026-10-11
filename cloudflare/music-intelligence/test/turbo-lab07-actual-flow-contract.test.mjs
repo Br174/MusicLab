@@ -19,8 +19,8 @@ test('flow 11: five seconds is a wall-clock budget, not five seconds per provide
 });
 test('flow 12: every provider callback enters the nonblocking bounded verifier queue',()=>{
  assert.match(flow(),/val streamingCandidates = Channel<List<CoverSourceCandidate>>\(Channel\.UNLIMITED\)/);
- assert.match(flow(),/onEarlyVideoCandidates = \{ quick ->\s*sourceEvidence\.addAll\(quick\)\s*if \(quick\.isNotEmpty\(\)\) streamingCandidates\.trySend\(quick\)/);
- assert.match(flow(),/onSourceCompleted = \{ items, diagnostic, originalYear ->\s*sourceEvidence\.addAll\(items\)\s*if \(items\.isNotEmpty\(\)\) streamingCandidates\.trySend\(items\)/);
+ assert.match(flow(),/onEarlyVideoCandidates = \{ quick ->\s*val fresh = quick\.filter \{ sourceEvidence\.add\(it\) \}\s*if \(fresh\.isNotEmpty\(\)\) streamingCandidates\.trySend\(fresh\)/);
+ assert.match(flow(),/onSourceCompleted = \{ items, diagnostic, originalYear ->\s*val fresh = items\.filter \{ sourceEvidence\.add\(it\) \}\s*if \(fresh\.isNotEmpty\(\)\) streamingCandidates\.trySend\(fresh\)/);
 });
 test('flow 13: verified video lookup begins before serial await of cloud/archive',()=>{
  const f=flow(),first=f.indexOf('val streamingVerifier = launch'),awaitAll=f.indexOf('archiveDeferred.await()');
