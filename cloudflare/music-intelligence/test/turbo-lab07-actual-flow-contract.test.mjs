@@ -64,5 +64,5 @@ test('flow 20: original audio engine exact byte content and bounded cancellable 
  const blob=Buffer.concat([Buffer.from('blob '+player.length+'\0'),player]);
  assert.equal(createHash('sha1').update(blob).digest('hex'),'03138a7b0d6771e4c7dde0ecc9ab11a8046990ff');
  assert.match(c,/continuation\.invokeOnCancellation \{ call\.cancel\(\) \}/);
- assert.match(b,/val verifyFanOut = if \(playbackIsNormallyPlaying\(\)\) 2 else 6/);
+ assert.match(b,/val verifyFanOut = if \(playbackIsNormallyPlaying\(\) \|\| playbackIsCritical\(\)\) 2 else 8/);
 });
