@@ -73,13 +73,13 @@ test('LAB60 COVER.INFO publishes thumbnail candidates before following slow rela
   const done = sources.indexOf('private data class CoverInfoSeed(');
   const scan = sources.slice(begin, done);
   const early = scan.indexOf('if (partial.isNotEmpty()) onEarlyVideoCandidates(partial)');
-  const relation = scan.indexOf('relationRoots.chunked(2)');
+  const relation = scan.indexOf('relationRoots.map { root ->');
   assert.ok(early > 0 && relation > early);
   assert.match(scan, /toCoverInfoCandidate\(seed, title\)/);
 });
 
 test('LAB60 uses same update family signature and a higher version code', () => {
   assert.match(updateFamily, /UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
-  assert.match(updateFamily, /UAB_UPDATE_FAMILY_VERSION_CODE="1003"/);
+  assert.match(updateFamily, /UAB_UPDATE_FAMILY_VERSION_CODE="1004"/);
   assert.match(updateFamily, /UAB_UPDATE_FAMILY_SIGNING_PROFILE="musiclab-turbo-family-02-test-reuses-lab-test-key"/);
 });
