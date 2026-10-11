@@ -27,3 +27,5 @@ jobs:
         run: node --test cloudflare/music-intelligence/test/turbo-lab07-live-coverinfo-probe.test.mjs
       - name: Test full real search-to-YouTube metadata chain under 5000ms
         run: node --test cloudflare/music-intelligence/test/turbo-lab07-live-video-chain.test.mjs
+      - name: Compare ten real COVER.INFO queries across five independent songs
+        run: node --test cloudflare/music-intelligence/test/turbo-lab07-five-song-query-variants.test.mjs
