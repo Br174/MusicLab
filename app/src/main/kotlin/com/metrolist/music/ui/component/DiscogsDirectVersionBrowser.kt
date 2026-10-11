@@ -102,12 +102,12 @@ private const val DIRECT_VERSION_PAGE_SIZE = 20
 private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
 private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
-private const val TURBO_BURST_DEADLINE_MS = 5_000L
+private const val TURBO_BURST_DEADLINE_MS = 10_000L
 private const val TURBO_VIDEO_DEADLINE_MS = 10_000L
 private const val TURBO_THUMBNAIL_RESERVE_MS = 400L
-private const val TURBO_SOURCE_WAIT_MS = 2_500L
-private const val TURBO_COVER_INFO_WAIT_MS = 4_100L
-private const val TURBO_ARCHIVE_TIMEOUT_MS = 1_800L
+private const val TURBO_SOURCE_WAIT_MS = 8_200L
+private const val TURBO_COVER_INFO_WAIT_MS = 8_200L
+private const val TURBO_ARCHIVE_TIMEOUT_MS = 6_500L
 private const val TURBO_COVER_ORIGINAL_GATE_MS = 900L
 private const val DIRECT_COVER_PAGE_SIZE = 10
 private const val DIRECT_VERSION_SOURCE_FETCH_SIZE = 30
@@ -362,6 +362,7 @@ internal fun DiscogsDirectVersionBrowser(
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var backgroundResumeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var playbackLaunchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    var manualVideoSearchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var backgroundPausedForPlayback by remember(sessionKey) { mutableStateOf(false) }
     var sourcePrefetchedForVisibleLimit by remember(sessionKey) { mutableStateOf(-1) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
@@ -386,6 +387,7 @@ internal fun DiscogsDirectVersionBrowser(
             // LAB57 hard Cover lifecycle barrier: leaving this screen cancels every
             // owned coroutine and releases the playback-quality governor.
             playbackLaunchJob?.cancel()
+            manualVideoSearchJob?.cancel()
             coverSwipeJob?.cancel()
             CoverSwipeBridge.clear(sessionKey)
             searchJob?.cancel()
@@ -1905,6 +1907,7 @@ internal fun DiscogsDirectVersionBrowser(
         val retainedResults = if (repeatSameWork) results else emptyList()
         val retainedOrder = if (repeatSameWork) session.stableOrder else emptyList()
         searchJob?.cancel()
+        manualVideoSearchJob?.cancel()
         paginationJob?.cancel()
         verificationJob?.cancel()
         videoPreloadJob?.cancel()
@@ -2353,15 +2356,14 @@ internal fun DiscogsDirectVersionBrowser(
                             session.results = results
                             rebuildStableOrder()
                         }
-                        val rankedPosters = coverCandidatePool().filter(::modeAcceptsSeed)
-                        // Prefer the highest-ranked cover ALREADY bearing a video
-                        // ID: a ready 12/20 moves ahead of a pending 19/20.
-                        // Reserve remaining poster slots for ID-missing covers by
-                        // score 20→1. All fifty posters publish at once at T+5s.
-                        val finalRanked = videoLookupPriority(rankedPosters.filter { seed ->
-                            !seed.coverUrl.isNullOrBlank() ||
-                                !seed.resolvedVideoId.isNullOrBlank()
-                        }).take(TURBO_RESULT_QUOTA)
+                        // LAB09: prefer the user's 20/20 -> 1/20 ranking.
+                        // Poster publication NEVER depends on a linked video.
+                        // A real candidate with no artwork keeps its row as an
+                        // explicit image-unavailable state rather than vanishing.
+                        val finalRanked = sortGroup(
+                            coverCandidatePool().filter(::modeAcceptsSeed),
+                            DirectVersionSort.RELEVANCE,
+                        ).take(TURBO_RESULT_QUOTA)
                         publishedCoverSnapshots = finalRanked
                         session.publishedCoverSnapshots = finalRanked
                         publishedOriginalSnapshots = emptyList()
@@ -2377,9 +2379,9 @@ internal fun DiscogsDirectVersionBrowser(
                         originalSectionFrozen = true
                         session.originalSectionFrozen = true
                         session.sourceDiscoveryComplete = true
-                        // The posters are sealed at five seconds; video IDs still
-                        // have their own deadline at ten seconds.
-                        session.turboFinished = false
+                        // Discovery ends now, at or before T+10s. Video lookup
+                        // from this point is user-triggered and cancellable.
+                        session.turboFinished = true
                         // An empty snapshot is a transient result, never an
                         // immutable cache hit: another tap may retry the providers.
                         // Separate results of each consulted source: no longer
@@ -2432,85 +2434,9 @@ internal fun DiscogsDirectVersionBrowser(
                     supplementalSeeds.cancel()
                 }
 
-                // LAB08 Pollicino: from the poster seal until T+10s only
-                // metadata verification of those SAME 50 cards may continue.
-                // No new catalog search, no pagination and no new posters.
-                if (isActive && activeCriteria == criteria) {
-                    try {
-                        val videoStopAt = turboCommandStartedAt + TURBO_VIDEO_DEADLINE_MS
-                        withTimeoutOrNull(
-                            (videoStopAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
-                        ) {
-                            val frozenFingerprints =
-                                publishedCoverSnapshots.mapTo(HashSet<String>()) { it.fingerprint }
-                            val pending = results
-                                .filter { it.fingerprint in frozenFingerprints }
-                                .filter { !hasPublishableVideo(it) && playableTrack(it) != null }
-                                .let(::videoLookupPriority)
-                            val videoFanOut =
-                                if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 8
-                            for (chunk in pending.chunked(videoFanOut)) {
-                                if (!isActive || SystemClock.elapsedRealtime() >= videoStopAt) break
-                                // Video discovery began at T0. The next five
-                                // seconds extend that same concurrent lookup
-                                // without adding more cover cards or sources.
-                                resolveVideoChunk(chunk)
-                            }
-                            // Keep pending provisional posters visible until the
-                            // complete T+10 allowance has elapsed. If every
-                            // published poster is verified sooner, seal at once.
-                            // No polling or extra provider traffic is needed
-                            // while waiting for this exact removal boundary.
-                            if (publishedCoverSnapshots.any { poster ->
-                                    results.firstOrNull { it.fingerprint == poster.fingerprint }
-                                        ?.let { !hasPublishableVideo(it) } ?: true
-                                }) {
-                                val remaining = videoStopAt - SystemClock.elapsedRealtime()
-                                if (remaining > 0L) delay(remaining)
-                            }
-                        }
-                    } finally {
-                        if (isActive && activeCriteria == criteria) {
-                            // LAB08 hard VIDEO gate: at most one atomic list
-                            // replacement at T+10s, keeping only REAL metadata-
-                            // verified video bindings. Any poster without a video
-                            // disappears; no unloaded/blank cards can remain.
-                            // Poster membership and rank are frozen at T+5s.
-                            val byFingerprint = results.associateBy { it.fingerprint }
-                            val finalVideoSnapshots = sortGroup(
-                                publishedCoverSnapshots.mapNotNull { poster ->
-                                    val resolved = byFingerprint[poster.fingerprint]
-                                    if (resolved != null && hasPublishableVideo(resolved)) {
-                                        poster.copy(
-                                            resolvedVideoId = resolved.resolvedVideoId,
-                                            resolvedVideoTitle = resolved.resolvedVideoTitle,
-                                            resolvedVideoSource = resolved.resolvedVideoSource,
-                                            videoResolutionChecked = true,
-                                        )
-                                    } else {
-                                        null
-                                    }
-                                },
-                                DirectVersionSort.RELEVANCE,
-                            ).take(TURBO_RESULT_QUOTA)
-                            // Compose observes a single immutable batch; do
-                            // not progressively append, page, or reshuffle rows.
-                            publishedCoverSnapshots = finalVideoSnapshots
-                            session.publishedCoverSnapshots = finalVideoSnapshots
-                            publishedReadyLimit = finalVideoSnapshots.size
-                            session.publishedReadyLimit = finalVideoSnapshots.size
-                            session.turboFinished = true
-                            verificationJob?.cancel()
-                            paginationJob?.cancel()
-                            videoPreloadJob?.cancel()
-                            backgroundResumeJob?.cancel()
-                            CloudMusicDiscovery.cancelArchiveRequests()
-                            playerConnection?.service?.setCoverPerformanceLoad(
-                                active = false, heavy = false,
-                            )
-                        }
-                    }
-                }
+                // LAB09: NO second automatic publication or video-only prune.
+                // All poster rows stay available for explicit tap-to-search.
+
             }
         } else {
         searchJob =
@@ -3635,9 +3561,8 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (isTurbo) {
                                         "Locandine: ${visibleTrueCovers.size}/50 · " +
                                             "Video verificati: ${visibleTrueCovers.count(::hasPublishableVideo)} · " +
-                                            if (loading) "Raccolta in corso (max 5 s)"
-                                            else if (!session.turboFinished) "Video in verifica (max 10 s)"
-                                            else "Verifica video conclusa"
+                                            if (loading) "Raccolta locandine e video (max 10 s)"
+                                            else "Tocca una locandina senza video per cercarlo"
                                     } else {
                                         "Risultati certificati: ${publishPool.size} · " +
                                             "Cover in pagina: ${visibleTrueCovers.size}/$visibleLimit" +
@@ -3743,11 +3668,9 @@ internal fun DiscogsDirectVersionBrowser(
                         if (isTurbo) {
                             when {
                                 session.turboFinished ->
-                                    "Nessuna cover con video verificato entro 10 secondi."
-                                loading || !rankingFrozen ->
-                                    "Raccolgo le locandine in un unico blocco (massimo 5 secondi)…"
+                                    "Nessuna locandina confermata. Riprova o cambia titolo."
                                 else ->
-                                    "Collego i video alle locandine (massimo 10 secondi)…"
+                                    "Raccolgo fino a 50 locandine in un unico blocco (massimo 10 secondi)…"
                             }
                         } else if (!rankingFrozen) {
                             "Certifico opera, data, crediti e punteggio prima di pubblicare la graduatoria…"
