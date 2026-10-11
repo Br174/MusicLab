@@ -9,14 +9,14 @@ const env = read('uab-project.env');
 
 test('Turbo 03 retains read-only separated package update and forty-second global ceiling',()=>{
   assert.match(env,/UAB_UPDATE_FAMILY_APPLICATION_ID="it\.verlezza\.musiclab\.turbo01"/);
-  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1003"/);
+  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1004"/);
   assert.match(browser,/TURBO_BURST_DEADLINE_MS = 40_000L/);
   assert.match(browser,/val stopAt = turboCommandStartedAt \+ TURBO_BURST_DEADLINE_MS/);
 });
 test('COVER.INFO dedicated priority lane, no Last.fm or Wikidata requests',()=>{
   assert.match(sources,/val coverInfo = async\(Dispatchers\.IO\)/);
   assert.match(sources,/val lane = reportResult\(discoverCoverInfo\(/);
-  assert.match(sources,/val sourceGate = Semaphore\(maxNetworkFanOut\.coerceIn\(1, 3\)\)/);
+  assert.match(sources,/val sourceGate = Semaphore\(maxNetworkFanOut\.coerceIn\(1, if \(BuildConfig\.APPLICATION_ID/);
   const active = sources.slice(sources.indexOf('suspend fun discover('), sources.indexOf('val resolvedMusicBrainz ='));
   assert.doesNotMatch(active,/discoverLastFm\(/);
   assert.doesNotMatch(active,/discoverWikidata\(/);
@@ -56,5 +56,5 @@ test('All top fifty validated video cards are revealed in one atomic publication
 test('Category switches stay local; original player untouched',()=>{
   assert.match(browser,/if \(isTurbo && mode == DiscogsDirectMode\.COVER\) \{\s*\/\/ LAB03: local category changes/);
   assert.match(browser,/publishedCoverSnapshots\.filterNot\(::isHiddenForCurrentCover\)/);
-  assert.match(env,/MUSICLAB_VERSION_CODE="1003"/);
+  assert.match(env,/MUSICLAB_VERSION_CODE="1004"/);
 });
