@@ -20,7 +20,7 @@ test('POSTER 02 each actual artwork/attached thumbnail is eligible WITHOUT video
  assert.ok(!poster.includes('.filter(::hasPublishableVideo).take(TURBO_RESULT_QUOTA)'));
 });
 test('POSTER 03 ranks at most 50 posters and never creates fictitious blank cards',()=>{
- assert.match(poster,/val finalRanked = rankedPosters\.filter \{ seed ->[\s\S]*?\}\.take\(TURBO_RESULT_QUOTA\)/);
+ assert.match(poster,/val finalRanked = videoLookupPriority\(rankedPosters\.filter \{ seed ->[\s\S]*?\}\)\.take\(TURBO_RESULT_QUOTA\)/);
  assert.match(b,/TURBO_RESULT_QUOTA = 50/);
  assert.equal((poster.match(/publishedCoverSnapshots = finalRanked/g)||[]).length,2);
 });
@@ -42,8 +42,10 @@ test('POSTER 06 Compose reveals all posters after loading=false before videos ar
  assert.match(poster,/session\.turboFinished = false/);
  assert.match(b,/mode == DiscogsDirectMode\.COVER && \(!isTurbo \|\| !loading\)/);
 });
-test('POSTER 07 already published top-50 poster order remains unchanged after metadata verification',()=>{
- assert.match(video,/publishedCoverSnapshots\.map \{ poster ->/);
+test('POSTER 07 only existing poster membership can survive; final sort restores 20-to-1 ranking',()=>{
+ assert.match(video,/publishedCoverSnapshots\.mapNotNull \{ poster ->/);
+ assert.match(video,/sortGroup\(/);
+ assert.match(video,/DirectVersionSort\.RELEVANCE/);
  assert.match(video,/poster\.copy\(/);
  assert.equal(video.includes('take(visibleLimit + pageSize)'),false);
 });
