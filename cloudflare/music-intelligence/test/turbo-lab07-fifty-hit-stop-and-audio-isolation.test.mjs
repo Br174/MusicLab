@@ -12,6 +12,8 @@ const warm=interval('// Thumbnail warming never extends the burst','streamingVer
 
 test('QUOTA 01 native maximum is fifty, not fifty per source',()=>{
  assert.match(b,/TURBO_RESULT_QUOTA = 50/);
+ const cacheLimit=Number(b.match(/DIRECT_PREPARED_VIDEO_CACHE_LIMIT = (\d+)/)?.[1]);
+ assert.ok(cacheLimit>=50 && cacheLimit<=64,'Video metadata cache must retain every published card without unbounded RAM use');
  assert.match(quota,/coverCandidatePool\(\)\.count\(::hasPublishableVideo\) < TURBO_RESULT_QUOTA/);
 });
 test('QUOTA 02 first fifty verified recordings immediately activate early shutdown',()=>{
