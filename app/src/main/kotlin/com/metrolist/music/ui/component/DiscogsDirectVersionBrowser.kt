@@ -104,6 +104,8 @@ private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
 private const val TURBO_BURST_DEADLINE_MS = 10_000L
 private const val TURBO_VIDEO_DEADLINE_MS = 10_000L
+// LAB10: 20s is a PRIORITY window from the tap, never a video-publication cutoff.
+private const val TURBO_AUTO_VIDEO_PRIORITY_WINDOW_MS = 20_000L
 private const val TURBO_THUMBNAIL_RESERVE_MS = 400L
 private const val TURBO_SOURCE_WAIT_MS = 8_200L
 private const val TURBO_COVER_INFO_WAIT_MS = 8_200L
@@ -960,6 +962,31 @@ internal fun DiscogsDirectVersionBrowser(
             }
 
         session.results = results
+        // LAB10: freeze poster membership, artwork and ranking, NOT playback bindings.
+        // Publish each verified ID into its existing visible card immediately.
+        if (isTurbo && mode == DiscogsDirectMode.COVER && publishedCoverSnapshots.isNotEmpty()) {
+            val refreshed = results.firstOrNull { it.fingerprint == merged.fingerprint }
+            if (refreshed != null && publishedCoverSnapshots.any { it.fingerprint == refreshed.fingerprint }) {
+                val changed = publishedCoverSnapshots.any { poster ->
+                    poster.fingerprint == refreshed.fingerprint &&
+                        (poster.resolvedVideoId != refreshed.resolvedVideoId ||
+                            poster.videoResolutionChecked != refreshed.videoResolutionChecked)
+                }
+                if (changed) {
+                    publishedCoverSnapshots = publishedCoverSnapshots.map { poster ->
+                        if (poster.fingerprint == refreshed.fingerprint) {
+                            poster.copy(
+                                resolvedVideoId = refreshed.resolvedVideoId,
+                                resolvedVideoTitle = refreshed.resolvedVideoTitle,
+                                resolvedVideoSource = refreshed.resolvedVideoSource,
+                                videoResolutionChecked = refreshed.videoResolutionChecked,
+                            )
+                        } else poster
+                    }
+                    session.publishedCoverSnapshots = publishedCoverSnapshots
+                }
+            }
+        }
         // LAB66 Pollicino: a confirmed video URL does NOT change recording
         // identity or any committed rank. Avoid O(n log n) ranking rebuilds
         // and whole-screen Compose churn on every metadata-only update.
@@ -1551,6 +1578,53 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
+    // LAB10: automatic VIDEO discovery is independent of the 10-second poster seal.
+    // Reuse the existing bounded metadata resolver; never request audio streams here.
+    // Foreground playback and manual recovery always have priority.
+    fun startTurboAutomaticVideoLookup() {
+        if (!isTurbo || mode != DiscogsDirectMode.COVER ||
+            !session.turboFinished || publishedCoverSnapshots.isEmpty() ||
+            activeCriteria == null || videoPreloadJob?.isActive == true
+        ) return
+        val ownerCriteria = activeCriteria ?: return
+        videoPreloadJob = scope.launch {
+            while (isActive && activeCriteria == ownerCriteria && session.turboFinished) {
+                if (backgroundPausedForPlayback || playbackIsCritical() ||
+                    manualVideoSearchJob?.isActive == true) {
+                    delay(250L)
+                    continue
+                }
+                val pending = sortGroup(publishedCoverSnapshots, DirectVersionSort.RELEVANCE)
+                    .mapNotNull { poster ->
+                        results.firstOrNull { it.fingerprint == poster.fingerprint } ?: poster
+                    }
+                    .filter(::needsAutomaticVideo)
+                if (pending.isEmpty()) break
+
+                // T+20s changes only the rate of remaining automatic retries.
+                val elapsed = SystemClock.elapsedRealtime() - session.turboBurstStartedAtMs
+                val fastWindow = session.turboBurstStartedAtMs > 0L &&
+                    elapsed < TURBO_AUTO_VIDEO_PRIORITY_WINDOW_MS
+                val batchSize = if (fastWindow && !playbackIsNormallyPlaying()) 2 else 1
+                val batch = pending.take(batchSize)
+                batch.forEach { seed ->
+                    session.automaticVideoAttempts[seed.fingerprint] =
+                        (session.automaticVideoAttempts[seed.fingerprint] ?: 0) + 1
+                }
+                // Per-attempt timeout, NOT a global video timeout or admission gate.
+                // resolveVideoChunk merges verified results independently per row.
+                withTimeoutOrNull(if (fastWindow) 4_200L else 4_000L) {
+                    resolveVideoChunk(batch)
+                }
+                delay(
+                    if (playbackIsNormallyPlaying()) 1_000L
+                    else if (fastWindow) 80L
+                    else 650L,
+                )
+            }
+        }
+    }
+
     fun pauseCoverBackgroundForPlayback() {
         // LAB54: only the short playback-start critical lane owns the network.
         // Discovery/pagination survive because Cover must remain usable while music plays.
@@ -1570,6 +1644,7 @@ internal fun DiscogsDirectVersionBrowser(
             backgroundPausedForPlayback = false
             if (session.turboFinished) {
                 playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
+                startTurboAutomaticVideoLookup()
             }
             return
         }
@@ -1663,21 +1738,14 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
-    // LAB63 Pollicino: lock the very first visible artwork per ranked recording.
-    // It is not changed when video searches discover an alternative URL.
-    fun stableArtworkFor(seed: DiscogsVersionSeed): String? {
-        // LAB67: video preview is taken from the verified video's ID,
-        // never a potentially unrelated Discogs album/release poster.
-        // Already-published Cover cards keep their video IDs immutable.
-        val videoId = seed.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
-        if (mode == DiscogsDirectMode.COVER && videoId != null &&
-            (!isTurbo || hasPublishableVideo(seed))) {
-            return "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+    // LAB10: editorial artwork has its own persisted key. Video thumbnails are NEVER
+    // an alternate poster, even after YouTube has supplied playable metadata.
+    fun stableArtworkFor(seed: DiscogsVersionSeed): String? =
+        if (mode == DiscogsDirectMode.COVER) {
+            CoverPlaybackMemory.editorialArtwork(context, seed.fingerprint, seed.coverUrl)
+        } else {
+            CoverPlaybackMemory.stableArtwork(context, seed.fingerprint, seed.coverUrl)
         }
-        val candidate = seed.coverUrl?.takeIf(String::isNotBlank)
-            ?: videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
-        return CoverPlaybackMemory.stableArtwork(context, seed.fingerprint, candidate)
-    }
 
     suspend fun playResolvedContext(selectedFingerprint: String) {
         val connection = playerConnection ?: return
@@ -1719,10 +1787,10 @@ internal fun DiscogsDirectVersionBrowser(
 
         val selectedArtwork = stableArtworkFor(selectedSeed)
         if (!selectedArtwork.isNullOrBlank()) {
-            CoverPlaybackMemory.pinVideoArtwork(context, selectedId, selectedArtwork)
+            CoverPlaybackMemory.pinEditorialVideoArtwork(context, selectedId, selectedArtwork)
         }
         val selectedItem =
-            selectedSong?.toMediaMetadata()?.copy(thumbnailUrl = selectedArtwork ?: selectedSong?.thumbnail)
+            selectedSong?.toMediaMetadata()?.copy(thumbnailUrl = selectedArtwork)
                 ?.toMediaItem()
                 ?: MediaMetadata(
                     id = selectedId,
@@ -2379,8 +2447,8 @@ internal fun DiscogsDirectVersionBrowser(
                         originalSectionFrozen = true
                         session.originalSectionFrozen = true
                         session.sourceDiscoveryComplete = true
-                        // Discovery ends now, at or before T+10s. Video lookup
-                        // from this point is user-triggered and cancellable.
+                        // LAB10: seal the 50 editorial posters at T+10s.
+                        // Automatic video lookups continue in their separate lane.
                         session.turboFinished = true
                         // An empty snapshot is a transient result, never an
                         // immutable cache hit: another tap may retry the providers.
@@ -2429,6 +2497,7 @@ internal fun DiscogsDirectVersionBrowser(
                         playerConnection?.service?.setCoverPerformanceLoad(
                             active = false, heavy = false,
                         )
+                        startTurboAutomaticVideoLookup()
                     }
                     streamingCandidates.cancel()
                     supplementalSeeds.cancel()
@@ -3456,6 +3525,14 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
+    // LAB10: if a cached Cover session is reopened, resume only unverified IDs.
+    // Leaving Cover still cancels every session-owned job in DisposableEffect.
+    LaunchedEffect(sessionKey, publishedCoverSnapshots.size, loading) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER && !loading &&
+            session.turboFinished && publishedCoverSnapshots.isNotEmpty()
+        ) startTurboAutomaticVideoLookup()
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
             modifier =
@@ -4181,10 +4258,20 @@ private fun DiscogsVersionCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val videoId = seed.resolvedVideoId?.trim().orEmpty()
-            if (showVideoPreview) {
-                // LAB62 Pollicino: one image slot per Cover. Video ID wins.
-                // While video matching is pending, a verified release image
-                // temporarily fills the SAME slot; never create a second poster.
+            if (stableArtworkUrl.isNullOrBlank()) {
+                // LAB10: missing editorial image is explicit, not a YouTube thumbnail.
+                Surface(
+                    modifier = Modifier.size(if (showVideoPreview) 144.dp else 76.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                        Text("♫", style = MaterialTheme.typography.headlineLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            } else if (showVideoPreview) {
+                // LAB10: one independently selected and permanently stable poster.
                 AsyncImage(
                     model = artworkRequest,
                     contentDescription = seed.resolvedVideoTitle ?: "Anteprima versione musicale",
@@ -4260,8 +4347,25 @@ private fun DiscogsVersionCard(
                 } else if (showVideoPreview) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
+                        Text(
+                            when {
+                                !seed.resolvedVideoId.isNullOrBlank() -> "Video pronto"
+                                seed.videoResolutionChecked -> "Video non trovato · Tocca per cercare"
+                                else -> "Ricerca video automatica…"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (!seed.resolvedVideoId.isNullOrBlank()) {
+                                Color(0xFF2E7D32)
+                            } else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f).then(
+                                if (seed.videoResolutionChecked && seed.resolvedVideoId.isNullOrBlank()) {
+                                    Modifier.clickable(onClick = onRetryVideo)
+                                } else Modifier
+                            ),
+                        )
                         TextButton(onClick = onDetails) {
                             Text("Dettagli")
                         }
