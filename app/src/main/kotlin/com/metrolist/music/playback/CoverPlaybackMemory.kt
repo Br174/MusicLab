@@ -43,6 +43,32 @@ internal object CoverPlaybackMemory {
         return proposed
     }
 
+    /**
+     * LAB10: immutable editorial poster namespace. It cannot inherit old
+     * YouTube thumbnail pins written by earlier Turbo builds.
+     */
+    fun editorialArtwork(context: Context, fingerprint: String, candidate: String?): String? {
+        val k = "poster:" + key(fingerprint)
+        get(context, k)?.takeIf(String::isNotBlank)?.let { return it }
+        val poster = candidate?.trim()?.takeIf { url ->
+            url.isNotBlank() &&
+                !url.contains("ytimg.com", ignoreCase = true) &&
+                !url.contains("youtube.com", ignoreCase = true)
+        } ?: return null
+        put(context, k, poster)
+        return poster
+    }
+
+    /** Explicit Cover poster overrides stale LAB09 Youtube-art pins in both players. */
+    fun pinEditorialVideoArtwork(context: Context, videoId: String, artwork: String) {
+        val id = videoId.trim().takeIf(String::isNotBlank) ?: return
+        val poster = artwork.trim().takeIf { it.isNotBlank() &&
+            !it.contains("ytimg.com", ignoreCase = true)
+        } ?: return
+        val k = "videoart:" + key(id)
+        if (get(context, k) != poster) put(context, k, poster)
+    }
+
     /** These IDs are verified by playback, not merely by YouTube search. */
     fun verifiedVideo(context: Context, fingerprint: String): String? =
         get(context, "verified:" + key(fingerprint))?.takeIf(String::isNotBlank)
