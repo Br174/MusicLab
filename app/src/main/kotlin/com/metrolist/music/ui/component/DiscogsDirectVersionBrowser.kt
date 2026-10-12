@@ -3828,6 +3828,7 @@ internal fun DiscogsDirectVersionBrowser(
                         DiscogsVersionCard(
                             seed = seed,
                             showVideoPreview = true,
+                            videoReadyVerified = hasPublishableVideo(seed),
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
@@ -3856,6 +3857,7 @@ internal fun DiscogsDirectVersionBrowser(
                         DiscogsVersionCard(
                             seed = seed,
                             showVideoPreview = true,
+                            videoReadyVerified = hasPublishableVideo(seed),
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
@@ -4214,6 +4216,7 @@ private fun DirectFilterField(
 private fun DiscogsVersionCard(
     seed: DiscogsVersionSeed,
     showVideoPreview: Boolean,
+    videoReadyVerified: Boolean = false,
     stableArtworkUrl: String?,
     showConfidence: Boolean,
     selected: Boolean,
@@ -4352,12 +4355,12 @@ private fun DiscogsVersionCard(
                     ) {
                         Text(
                             when {
-                                !seed.resolvedVideoId.isNullOrBlank() -> "Video pronto"
+                                videoReadyVerified -> "Video pronto"
                                 seed.videoResolutionChecked -> "Video non trovato · Tocca per cercare"
                                 else -> "Ricerca video automatica…"
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (!seed.resolvedVideoId.isNullOrBlank()) {
+                            color = if (videoReadyVerified) {
                                 Color(0xFF2E7D32)
                             } else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f).then(
