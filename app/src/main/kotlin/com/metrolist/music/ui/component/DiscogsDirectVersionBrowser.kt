@@ -2374,6 +2374,32 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             var merged = mergePage(results, cloudSeeds + memorySeeds + externalSeeds, replace = false)
                             val workTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
+                            // Original-work fallback when the user started
+                            // from a COVER and no archive/memory attribution was
+                            // verified: compare discographic issue years, NEVER
+                            // YouTube upload dates. A unique earliest candidate
+                            // requires at least two independent providers.
+                            if (explicitArtistHint.isNullOrBlank() &&
+                                archiveOriginalArtist.get().isNullOrBlank() &&
+                                memoryState?.discovery?.original?.artist.isNullOrBlank()) {
+                                val workYear = sourceOriginalYear.get()
+                                    ?: external?.originalYear
+                                val earliest = merged.filter { seed ->
+                                    seed.year != null &&
+                                        seed.kind == DiscogsVersionKind.STUDIO &&
+                                        seed.sourceNames.distinct().size >= 2 &&
+                                        TitleMeaningResolver.matchesBaseTitle(workTitle, seed.trackTitle)
+                                }.sortedBy { it.year }
+                                val first = earliest.firstOrNull()
+                                val second = earliest.firstOrNull {
+                                    !TitleMeaningResolver.sameArtist(it.artist, first?.artist.orEmpty())
+                                }
+                                if (first?.year != null &&
+                                    (second?.year == null || first.year < second.year) &&
+                                    (workYear == null || first.year <= workYear + 1)) {
+                                    resolvedOriginalArtist = first.artist
+                                }
+                            }
                             // Use documentary original chronology even if another
                             // service times out. Unknown dates never become invented.
                             val originalYear = sourceOriginalYear.get()
