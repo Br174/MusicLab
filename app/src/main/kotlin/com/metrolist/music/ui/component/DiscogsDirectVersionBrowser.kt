@@ -2088,6 +2088,7 @@ internal fun DiscogsDirectVersionBrowser(
                 val supplementalSeeds = Channel<List<DiscogsVersionSeed>>(Channel.UNLIMITED)
                 val sourceStatus = ConcurrentHashMap<String, CoverSourceDiagnostic>()
                 val sourceOriginalYear = AtomicReference<Int?>(null)
+                val archiveOriginalArtist = AtomicReference<String?>(null)
                 val cloudArchiveCount = java.util.concurrent.atomic.AtomicInteger(-1)
                 val cloudMemoryCount = java.util.concurrent.atomic.AtomicInteger(-1)
                 try {
@@ -2106,20 +2107,20 @@ internal fun DiscogsDirectVersionBrowser(
                             // when 50 candidates arrive, or at T+1.8s if at
                             // least 40 have arrived. Never reflow the block.
                             fun sealPostersOnce() {
-                                if (publishedCoverSnapshots.isNotEmpty() || activeCriteria != criteria) return
-                                val ranked = sortGroup(
-                                    coverCandidatePool().filter(::modeAcceptsSeed),
-                                    DirectVersionSort.RELEVANCE,
-                                ).take(TURBO_RESULT_QUOTA)
-                                if (ranked.isEmpty()) return
-                                if (ranked.size < TURBO_RESULT_QUOTA &&
-                                    (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK ||
-                                        SystemClock.elapsedRealtime() - turboCommandStartedAt <
-                                            TURBO_FIRST_POSTER_DEADLINE_MS)) return
-                                publishedCoverSnapshots = ranked
-                                session.publishedCoverSnapshots = ranked
-                                publishedOriginalSnapshots = emptyList()
-                                session.publishedOriginalSnapshots = emptyList()
+                                if (publishedCoverSnapshots.isNotEmpty() ||
+                                    publishedOriginalSnapshots.isNotEmpty() || activeCriteria != criteria) return
+                                val ranked = turboRankedPool()
+                                    .filter(::modeAcceptsSeed)
+                                    .take(TURBO_RESULT_QUOTA)
+                                // No partial 40-card freeze while stronger
+                                // archive/original evidence is still arriving.
+                                if (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK ||
+                                    SystemClock.elapsedRealtime() - turboCommandStartedAt <
+                                        TURBO_FIRST_POSTER_DEADLINE_MS) return
+                                publishedOriginalSnapshots = ranked.filter(::isDistinctOriginalVersion)
+                                session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                                publishedCoverSnapshots = ranked.filterNot(::isDistinctOriginalVersion)
+                                session.publishedCoverSnapshots = publishedCoverSnapshots
                                 visibleLimit = TURBO_RESULT_QUOTA
                                 session.visibleLimit = TURBO_RESULT_QUOTA
                                 publishedReadyLimit = ranked.size
@@ -2128,10 +2129,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 session.rankingFrozen = true
                                 originalSectionFrozen = true
                                 session.originalSectionFrozen = true
-                                // All subsequent video work is restricted to
-                                // the sealed ranked poster membership.
-                                quotaReached = true
-                                providerJobs.forEach { it.cancel() }
+                                // A full poster snapshot freezes membership,
+                                // NOT the remaining parallel video lookups.
+                                // The global ten-second scope owns cancellation.
                                 loading = false
                             }
                             fun stopAtFullQuota(): Boolean {
@@ -2180,11 +2180,12 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                     // Even without a callback, Discogs can update the pool.
                                     sealPostersOnce()
-                                    val pending = (if (publishedCoverSnapshots.isNotEmpty()) {
-                                        publishedCoverSnapshots.mapNotNull { poster ->
+                                    val pending = (if (publishedCoverSnapshots.isNotEmpty() ||
+                                        publishedOriginalSnapshots.isNotEmpty()) {
+                                        (publishedOriginalSnapshots + publishedCoverSnapshots).mapNotNull { poster ->
                                             results.firstOrNull { it.fingerprint == poster.fingerprint }
                                         }
-                                    } else coverCandidatePool())
+                                    } else turboRankedPool())
                                         .filter { !hasPublishableVideo(it) && playableTrack(it) != null }
                                         .filter { seed ->
                                             val key = seed.fingerprint + "|" + seed.resolvedVideoId.orEmpty()
@@ -2220,6 +2221,11 @@ internal fun DiscogsDirectVersionBrowser(
                                     }.orEmpty()
                                 }.orEmpty()
                                 cloudArchiveCount.set(items.size)
+                                items.filter {
+                                    it.originalArtist.isNotBlank() && (it.sameWorkScore ?: 0) >= 70
+                                }.groupBy { it.originalArtist.trim() }
+                                    .maxByOrNull { it.value.size }
+                                    ?.key?.let { archiveOriginalArtist.set(it) }
                             val seeds = items.mapNotNull { item ->
                                 val work = item.workTitle.ifBlank { item.title }
                                 if (!TitleMeaningResolver.matchesBaseTitle(criteria.title, work) &&
@@ -2241,6 +2247,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         playbackVideoId = item.playbackVideoId,
                                         playbackVideoTitle = item.playbackVideoTitle,
                                         playbackVideoSource = item.playbackVideoSource,
+                                        workRelationConfirmed = (item.sameWorkScore ?: 0) >= 70,
                                         evidenceScore =
                                             (((item.sameWorkScore ?: 30) +
                                                 (item.versionTypeScore ?: 30)) / 10).coerceIn(1, 20),
@@ -2350,6 +2357,15 @@ internal fun DiscogsDirectVersionBrowser(
                                 memoryState?.discovery?.original?.artist
                                     ?.takeIf(String::isNotBlank)?.let { resolvedOriginalArtist = it }
                             }
+                            // A search may have started from another singer's
+                            // cover. The archive's verified work identity takes
+                            // precedence over the supplied performer's identity.
+                            if (explicitArtistHint.isNullOrBlank()) {
+                                (archiveOriginalArtist.get()
+                                    ?: memoryState?.discovery?.original?.artist
+                                        ?.takeIf(String::isNotBlank))
+                                    ?.let { resolvedOriginalArtist = it }
+                            }
                             val memorySeeds = memoryState?.discovery?.versions
                                 .orEmpty().map(::memoryCandidateToSeed)
                             // Do not throw away already-completed providers if a
@@ -2401,11 +2417,12 @@ internal fun DiscogsDirectVersionBrowser(
                             // Already verified IDs are reused without a new probe.
                             // All remote verification remains inside this single
                             // hard global deadline and never probes audio streams.
-                            val candidates = (if (publishedCoverSnapshots.isNotEmpty()) {
-                                publishedCoverSnapshots.mapNotNull { poster ->
+                            val candidates = (if (publishedCoverSnapshots.isNotEmpty() ||
+                                publishedOriginalSnapshots.isNotEmpty()) {
+                                (publishedOriginalSnapshots + publishedCoverSnapshots).mapNotNull { poster ->
                                     results.firstOrNull { it.fingerprint == poster.fingerprint }
                                 }
-                            } else coverCandidatePool())
+                            } else turboRankedPool())
                                 .filter { seed ->
                                     !hasPublishableVideo(seed) && playableTrack(seed) != null
                                 }
@@ -2421,7 +2438,7 @@ internal fun DiscogsDirectVersionBrowser(
 
                             // Prime Coil's existing image memory/disk caches, rather
                             // than creating 50 extra full-size bitmap copies.
-                            val ready = coverCandidatePool()
+                            val ready = turboRankedPool()
                                 .filter(::hasPublishableVideo).take(TURBO_RESULT_QUOTA)
                             val thumbnails = ready.mapNotNull { seed ->
                                 seed.resolvedVideoId?.takeIf(String::isNotBlank)?.let { id ->
@@ -2495,17 +2512,16 @@ internal fun DiscogsDirectVersionBrowser(
                         // Poster publication NEVER depends on a linked video.
                         // A real candidate with no artwork keeps its row as an
                         // explicit image-unavailable state rather than vanishing.
-                        val finalRanked = sortGroup(
-                            coverCandidatePool().filter(::modeAcceptsSeed),
-                            DirectVersionSort.RELEVANCE,
-                        ).take(TURBO_RESULT_QUOTA)
-                        if (publishedCoverSnapshots.isEmpty()) {
-                            publishedCoverSnapshots = finalRanked
-                            session.publishedCoverSnapshots = finalRanked
+                        val finalRanked = turboRankedPool()
+                            .filter(::modeAcceptsSeed)
+                            .take(TURBO_RESULT_QUOTA)
+                        if (publishedCoverSnapshots.isEmpty() && publishedOriginalSnapshots.isEmpty()) {
+                            publishedOriginalSnapshots = finalRanked.filter(::isDistinctOriginalVersion)
+                            session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                            publishedCoverSnapshots = finalRanked.filterNot(::isDistinctOriginalVersion)
+                            session.publishedCoverSnapshots = publishedCoverSnapshots
                         }
-                        publishedOriginalSnapshots = emptyList()
-                        session.publishedOriginalSnapshots = emptyList()
-                        publishedReadyLimit = publishedCoverSnapshots.size
+                        publishedReadyLimit = publishedOriginalSnapshots.size + publishedCoverSnapshots.size
                         session.publishedReadyLimit = publishedCoverSnapshots.size
                         visibleLimit = TURBO_RESULT_QUOTA
                         session.visibleLimit = TURBO_RESULT_QUOTA
