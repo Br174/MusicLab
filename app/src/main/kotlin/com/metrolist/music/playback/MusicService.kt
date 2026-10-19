@@ -3076,6 +3076,13 @@ class MusicService :
                     "buffering_count=%d priority=%b",
                     lab62BufferingCount, playbackPriorityBurstActive,
                 )
+                // LAB16: read-only latency/underflow evidence. No new HTTP,
+                // decoder, buffer or user-facing UI work.
+                Timber.tag("MusicLabLAB16Audio").d(
+                    "state=BUFFERING buffered_ms=%d cover_active=%b priority=%b",
+                    player.totalBufferedDuration, coverSectionActive,
+                    playbackPriorityBurstActive,
+                )
             }
             Player.STATE_READY -> {
                 val started = lab62PlaybackStartAtMs
@@ -3083,6 +3090,10 @@ class MusicService :
                     Timber.tag("MusicLabLAB62Audio").d(
                         "ready_elapsed_ms=%d buffering_count=%d",
                         now - started, lab62BufferingCount,
+                    )
+                    Timber.tag("MusicLabLAB16Audio").d(
+                        "state=READY tap_to_ready_ms=%d buffered_ms=%d cover_active=%b",
+                        now - started, player.totalBufferedDuration, coverSectionActive,
                     )
                     lab62PlaybackStartAtMs = 0L
                 }
@@ -5240,6 +5251,9 @@ class MusicService :
             Timber.tag(TAG).i(
                 "FETCHING STREAM: $mediaId | quality=${effectiveAudioQuality()} userQuality=$audioQuality | priorityBurst=$playbackPriorityBurstActive"
             )
+            // LAB16: measure the real stream-resolution bottleneck before
+            // changing a single buffering or source-priority constant.
+            val resolveStartedAt = android.os.SystemClock.elapsedRealtime()
             val playbackData =
                 runBlocking(Dispatchers.IO) {
                     val song = database.songEntity(mediaId)
@@ -5251,7 +5265,13 @@ class MusicService :
                             isExplicit = song?.explicit,
                             isUploaded = song?.isUploaded,
                         ),
-                    )
+                    ).also { outcome ->
+                        Timber.tag("MusicLabLAB16Audio").d(
+                            "stream_source=REMOTE resolve_ms=%d success=%b cover_active=%b",
+                            android.os.SystemClock.elapsedRealtime() - resolveStartedAt,
+                            outcome.isSuccess, coverSectionActive,
+                        )
+                    }
                 }.getOrElse { throwable ->
                     when (throwable) {
                         is PlaybackException -> {
