@@ -103,8 +103,8 @@ private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
 private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
 private const val TURBO_BURST_DEADLINE_MS = 10_000L
-private const val TURBO_FIRST_POSTER_DEADLINE_MS = 1_800L
-private const val TURBO_MIN_EARLY_POSTER_BLOCK = 40
+private const val TURBO_FIRST_POSTER_DEADLINE_MS = 2_800L
+private const val TURBO_MIN_EARLY_POSTER_BLOCK = 50
 private const val TURBO_STREAM_PROBE_MS = 850L
 private const val TURBO_VIDEO_DEADLINE_MS = 10_000L
 private const val TURBO_THUMBNAIL_RESERVE_MS = 400L
@@ -834,6 +834,22 @@ internal fun DiscogsDirectVersionBrowser(
             resolvedOriginalArtist.isNotBlank() &&
             TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
 
+    // LAB12: an album reissue isn't a new version. The alternate
+    // interpretation must be explicit or have a verified recording kind.
+    val originalVariantMarker = Regex(
+        """\b(live|dal vivo|concert|concerto|acoustic|acustic[oa]|unplugged|remix|rework|alternate take|alternative take|demo|duet|duetto|feat\.?|featuring|instrumental|guitar|chitarra|piano version|re.recorded|new recording|session|performance)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    fun isDistinctOriginalVersion(seed: DiscogsVersionSeed): Boolean {
+        if (!isOriginalPerformerVersion(seed)) return false
+        val description = listOf(seed.trackTitle, seed.releaseTitle, seed.resolvedVideoTitle.orEmpty())
+            .joinToString(" ")
+        return seed.kind == DiscogsVersionKind.LIVE ||
+            seed.kind == DiscogsVersionKind.REMIX ||
+            seed.kind == DiscogsVersionKind.ACOUSTIC ||
+            originalVariantMarker.containsMatchIn(description)
+    }
+
     fun sortGroup(source: List<DiscogsVersionSeed>, selectedSort: DirectVersionSort): List<DiscogsVersionSeed> =
         when (selectedSort) {
             DirectVersionSort.RELEVANCE ->
@@ -1124,6 +1140,7 @@ internal fun DiscogsDirectVersionBrowser(
                                             excludedVideoIds = excluded,
                                             searchRound = CoverPlaybackMemory.nextSearchRound(context, current.fingerprint),
                                             preferLive = current.kind == DiscogsVersionKind.LIVE,
+                                            turboFastOnly = isTurbo && mode == DiscogsDirectMode.COVER,
                                         )
                                     }
                                 } catch (cancel: CancellationException) {
@@ -1276,6 +1293,23 @@ internal fun DiscogsDirectVersionBrowser(
         val used = committed.mapTo(HashSet<String>()) { it.fingerprint }
         val pending = sortGroup(candidates.filterNot { it.fingerprint in used }, DirectVersionSort.RELEVANCE)
         return committed + pending
+    }
+
+    // Canonical global ranking: confirmed original variations first,
+    // then other artists' cover recordings. The UI will freeze the order.
+    fun turboRankedPool(): List<DiscogsVersionSeed> {
+        val originalVariants = originalCandidatePool()
+            .filter(::isDistinctOriginalVersion)
+            .map { seed ->
+                seed.copy(
+                    confidenceScore = 20,
+                    confidenceReasons = (seed.confidenceReasons +
+                        "Versione alternativa confermata dell'interprete originale").distinct(),
+                )
+            }
+        return (sortGroup(originalVariants, DirectVersionSort.RELEVANCE) +
+            sortGroup(coverCandidatePool(), DirectVersionSort.RELEVANCE))
+            .distinctBy(DiscogsVersionSource::recordingIdentityKey)
     }
 
     fun remainingCoverPool(): List<DiscogsVersionSeed> {
@@ -3714,8 +3748,8 @@ internal fun DiscogsDirectVersionBrowser(
                             Text(
                                 text =
                                     if (isTurbo) {
-                                        "Locandine: ${visibleTrueCovers.size}/50 · " +
-                                            "Flussi audio trovati: ${visibleTrueCovers.count(::hasTurboStreamReady)} · " +
+                                        "Locandine: ${visibleTrueCovers.size + visibleOriginalVersions.size}/50 · " +
+                                            "Video verificati: ${(visibleTrueCovers + visibleOriginalVersions).count(::hasPublishableVideo)} · " +
                                             if (loading) "Raccolta locandine e video (max 10 s)"
                                             else "Tocca una locandina senza video per cercarlo"
                                     } else {
