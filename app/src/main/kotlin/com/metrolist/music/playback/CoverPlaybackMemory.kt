@@ -119,6 +119,29 @@ internal object CoverPlaybackMemory {
         put(context, "rejected:" + key(fingerprint), next.joinToString(","))
     }
 
+    /**
+     * LAB17: a user's Approva/Disapprova action must work offline and without
+     * a configured Cloud endpoint. The record is scoped to the musical work
+     * and concrete artist/title/category, not to an arbitrary album release.
+     * Cloud sync is best-effort; this local decision is immediately authoritative.
+     */
+    fun editorialDecision(context: Context, workKey: String, candidateKey: String): String? =
+        get(context, "decision:" + key(workKey.trim().lowercase() + "|" + candidateKey))
+            ?.takeIf { it == "approved" || it == "rejected" }
+
+    fun saveEditorialDecision(
+        context: Context,
+        workKey: String,
+        candidateKey: String,
+        approved: Boolean,
+    ) {
+        put(
+            context,
+            "decision:" + key(workKey.trim().lowercase() + "|" + candidateKey),
+            if (approved) "approved" else "rejected",
+        )
+    }
+
     /** Round-robin through alternative search phrases on repeated attempts. */
     fun nextSearchRound(context: Context, fingerprint: String): Int {
         val k = "round:" + key(fingerprint)
