@@ -1803,14 +1803,22 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     }
                 } else null
-                val fromSearch = if (known == null) {
+                val verifiedKnown = known?.takeIf {
+                    CompilationTrackResolver.isHardCompatible(track, it)
+                }
+                // A mismatched stored ID is NOT a reason to abandon this
+                // alternative recording: try another verified video for the
+                // replacement, excluding the incorrect stored ID.
+                val fromSearch = if (verifiedKnown == null) {
                     withTimeoutOrNull(4_200L) {
                         withContext(Dispatchers.IO) {
                             CompilationTrackResolver.resolveTrack(
                                 track = track,
                                 discogsVideos = seed.videos,
                                 fastFirst = true,
-                                excludedVideoIds = visibleIds + rejectedIds,
+                                excludedVideoIds = visibleIds + rejectedIds +
+                                    (if (known != null && verifiedKnown == null)
+                                        setOf(known.id) else emptySet()),
                                 searchRound = CoverPlaybackMemory.nextSearchRound(
                                     context, seed.fingerprint,
                                 ),
@@ -1820,7 +1828,7 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     }
                 } else null
-                val song = (known ?: fromSearch) ?: return null
+                val song = (verifiedKnown ?: fromSearch) ?: return null
                 if (!CompilationTrackResolver.isHardCompatible(track, song)) return null
                 if (song.id in visibleIds || song.id in rejectedIds) return null
                 rememberPreparedVideoSong(song)
