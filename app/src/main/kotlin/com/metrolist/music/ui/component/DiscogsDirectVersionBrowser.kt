@@ -103,9 +103,10 @@ private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
 private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
 private const val TURBO_BURST_DEADLINE_MS = 10_000L
+private const val TURBO_FIRST_POSTER_DEADLINE_MS = 1_800L
+private const val TURBO_MIN_EARLY_POSTER_BLOCK = 40
+private const val TURBO_STREAM_PROBE_MS = 850L
 private const val TURBO_VIDEO_DEADLINE_MS = 10_000L
-// LAB10: 20s is a PRIORITY window from the tap, never a video-publication cutoff.
-private const val TURBO_AUTO_VIDEO_PRIORITY_WINDOW_MS = 20_000L
 private const val TURBO_THUMBNAIL_RESERVE_MS = 400L
 private const val TURBO_SOURCE_WAIT_MS = 8_200L
 private const val TURBO_COVER_INFO_WAIT_MS = 8_200L
@@ -233,6 +234,7 @@ private data class DirectVersionSession(
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
     val knownVideoBindings: MutableMap<String, Triple<String, String, String>> = linkedMapOf(),
     val preparedVideoSongs: MutableMap<String, SongItem> = ConcurrentHashMap(),
+    val turboStreamReadyIds: MutableSet<String> = ConcurrentHashMap.newKeySet(),
     val playReadyVideoIds: MutableSet<String> = ConcurrentHashMap.newKeySet(),
     val transientVideoRetries: MutableMap<String, Int> = ConcurrentHashMap(),
     val automaticVideoAttempts: MutableMap<String, Int> = ConcurrentHashMap(),
@@ -357,6 +359,7 @@ internal fun DiscogsDirectVersionBrowser(
     var publishedReadyLimit by remember(sessionKey) { mutableStateOf(session.publishedReadyLimit) }
     var publishedOriginalSnapshots by remember(sessionKey) { mutableStateOf(session.publishedOriginalSnapshots) }
     var publishedCoverSnapshots by remember(sessionKey) { mutableStateOf(session.publishedCoverSnapshots) }
+    var turboStreamProofVersion by remember(sessionKey) { mutableIntStateOf(0) }
     var originalSectionFrozen by remember(sessionKey) { mutableStateOf(session.originalSectionFrozen) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -1168,6 +1171,31 @@ internal fun DiscogsDirectVersionBrowser(
 
                     replaceSeed(updated)
                     val readyId = updated.resolvedVideoId?.trim().orEmpty()
+                    // LAB11: a valid YouTube ID is only metadata, not a stream.
+                    // Probe a bounded audio stream independently; never hold
+                    // artwork publication or pin a failed stream to memory.
+                    if (isTurbo && verified != null && readyId.isNotBlank() &&
+                        !playbackIsNormallyPlaying() && !playbackIsCritical()) {
+                        val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+                        val remaining = session.turboBurstStartedAtMs + TURBO_BURST_DEADLINE_MS -
+                            SystemClock.elapsedRealtime()
+                        if (connectivity != null && remaining > 200L) {
+                            val audioReady = withTimeoutOrNull(
+                                minOf(TURBO_STREAM_PROBE_MS, remaining - 120L)
+                            ) {
+                                withContext(Dispatchers.IO) {
+                                    com.metrolist.music.utils.InnerTubeXPlayer.playerResponseForPlayback(
+                                        videoId = readyId,
+                                        audioQuality = com.metrolist.music.constants.AudioQuality.AUTO,
+                                        connectivityManager = connectivity,
+                                    ).isSuccess
+                                }
+                            } == true
+                            if (audioReady && session.turboStreamReadyIds.add(readyId)) {
+                                turboStreamProofVersion++
+                            }
+                        }
+                    }
                     if (
                         readyId.isNotBlank() &&
                         readyId in session.playReadyVideoIds &&
@@ -1222,6 +1250,12 @@ internal fun DiscogsDirectVersionBrowser(
         return id in session.playReadyVideoIds ||
             CoverPlaybackMemory.verifiedVideo(context, seed.fingerprint) == id ||
             CoverPlaybackMemory.metadataVerifiedVideo(context, seed.fingerprint) == id
+    }
+
+    fun hasTurboStreamReady(seed: DiscogsVersionSeed): Boolean {
+        val proofVersion = turboStreamProofVersion
+        return isTurbo && proofVersion >= 0 && !seed.resolvedVideoId.isNullOrBlank() &&
+            seed.resolvedVideoId in session.turboStreamReadyIds
     }
 
     fun originalCandidatePool(): List<DiscogsVersionSeed> =
@@ -1581,49 +1615,7 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB10: automatic VIDEO discovery is independent of the 10-second poster seal.
     // Reuse the existing bounded metadata resolver; never request audio streams here.
     // Foreground playback and manual recovery always have priority.
-    fun startTurboAutomaticVideoLookup() {
-        if (!isTurbo || mode != DiscogsDirectMode.COVER ||
-            !session.turboFinished || publishedCoverSnapshots.isEmpty() ||
-            activeCriteria == null || videoPreloadJob?.isActive == true
-        ) return
-        val ownerCriteria = activeCriteria ?: return
-        videoPreloadJob = scope.launch {
-            while (isActive && activeCriteria == ownerCriteria && session.turboFinished) {
-                if (backgroundPausedForPlayback || playbackIsCritical() ||
-                    manualVideoSearchJob?.isActive == true) {
-                    delay(250L)
-                    continue
-                }
-                val pending = sortGroup(publishedCoverSnapshots, DirectVersionSort.RELEVANCE)
-                    .mapNotNull { poster ->
-                        results.firstOrNull { it.fingerprint == poster.fingerprint } ?: poster
-                    }
-                    .filter(::needsAutomaticVideo)
-                if (pending.isEmpty()) break
-
-                // T+20s changes only the rate of remaining automatic retries.
-                val elapsed = SystemClock.elapsedRealtime() - session.turboBurstStartedAtMs
-                val fastWindow = session.turboBurstStartedAtMs > 0L &&
-                    elapsed < TURBO_AUTO_VIDEO_PRIORITY_WINDOW_MS
-                val batchSize = if (fastWindow && !playbackIsNormallyPlaying()) 2 else 1
-                val batch = pending.take(batchSize)
-                batch.forEach { seed ->
-                    session.automaticVideoAttempts[seed.fingerprint] =
-                        (session.automaticVideoAttempts[seed.fingerprint] ?: 0) + 1
-                }
-                // Per-attempt timeout, NOT a global video timeout or admission gate.
-                // resolveVideoChunk merges verified results independently per row.
-                withTimeoutOrNull(if (fastWindow) 4_200L else 4_000L) {
-                    resolveVideoChunk(batch)
-                }
-                delay(
-                    if (playbackIsNormallyPlaying()) 1_000L
-                    else if (fastWindow) 80L
-                    else 650L,
-                )
-            }
-        }
-    }
+    // LAB11: obsolete background video worker removed.
 
     fun pauseCoverBackgroundForPlayback() {
         // LAB54: only the short playback-start critical lane owns the network.
@@ -1644,7 +1636,7 @@ internal fun DiscogsDirectVersionBrowser(
             backgroundPausedForPlayback = false
             if (session.turboFinished) {
                 playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
-                startTurboAutomaticVideoLookup()
+                // LAB11: cached sessions remain idle on re-entry.
             }
             return
         }
@@ -1970,7 +1962,7 @@ internal fun DiscogsDirectVersionBrowser(
             return
         }
         session.turboFinished = false
-        session.turboBurstStartedAtMs = 0L
+        session.turboBurstStartedAtMs = if (isTurbo && mode == DiscogsDirectMode.COVER) turboCommandStartedAt else 0L
         session.turboArchiveMatches = 0
         val retainedResults = if (repeatSameWork) results else emptyList()
         val retainedOrder = if (repeatSameWork) session.stableOrder else emptyList()
@@ -2040,6 +2032,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.knownVideoBindings.clear()
             session.preparedVideoSongs.clear()
             session.playReadyVideoIds.clear()
+            session.turboStreamReadyIds.clear()
             session.transientVideoRetries.clear()
             session.automaticVideoAttempts.clear()
         }
@@ -2074,6 +2067,38 @@ internal fun DiscogsDirectVersionBrowser(
                             // user sees only the final atomic snapshot.
                             var quotaReached = false
                             val providerJobs = mutableListOf<Job>()
+                            // LAB11: the initial block is atomically published
+                            // when 50 candidates arrive, or at T+1.8s if at
+                            // least 40 have arrived. Never reflow the block.
+                            fun sealPostersOnce() {
+                                if (publishedCoverSnapshots.isNotEmpty() || activeCriteria != criteria) return
+                                val ranked = sortGroup(
+                                    coverCandidatePool().filter(::modeAcceptsSeed),
+                                    DirectVersionSort.RELEVANCE,
+                                ).take(TURBO_RESULT_QUOTA)
+                                if (ranked.isEmpty()) return
+                                if (ranked.size < TURBO_RESULT_QUOTA &&
+                                    (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK ||
+                                        SystemClock.elapsedRealtime() - turboCommandStartedAt <
+                                            TURBO_FIRST_POSTER_DEADLINE_MS)) return
+                                publishedCoverSnapshots = ranked
+                                session.publishedCoverSnapshots = ranked
+                                publishedOriginalSnapshots = emptyList()
+                                session.publishedOriginalSnapshots = emptyList()
+                                visibleLimit = TURBO_RESULT_QUOTA
+                                session.visibleLimit = TURBO_RESULT_QUOTA
+                                publishedReadyLimit = ranked.size
+                                session.publishedReadyLimit = ranked.size
+                                rankingFrozen = true
+                                session.rankingFrozen = true
+                                originalSectionFrozen = true
+                                session.originalSectionFrozen = true
+                                // All subsequent video work is restricted to
+                                // the sealed ranked poster membership.
+                                quotaReached = true
+                                providerJobs.forEach { it.cancel() }
+                                loading = false
+                            }
                             fun stopAtFullQuota(): Boolean {
                                 if (coverCandidatePool().count(::hasPublishableVideo) < TURBO_RESULT_QUOTA) return false
                                 if (!quotaReached) {
@@ -2118,10 +2143,13 @@ internal fun DiscogsDirectVersionBrowser(
                                         session.rankingFrozen = true
                                         session.originalSectionFrozen = true
                                     }
-                                    // Discogs can update the same shared result pool
-                                    // without a source-channel callback. Keep verifying
-                                    // the next candidate instead of idling on the channel.
-                                    val pending = coverCandidatePool()
+                                    // Even without a callback, Discogs can update the pool.
+                                    sealPostersOnce()
+                                    val pending = (if (publishedCoverSnapshots.isNotEmpty()) {
+                                        publishedCoverSnapshots.mapNotNull { poster ->
+                                            results.firstOrNull { it.fingerprint == poster.fingerprint }
+                                        }
+                                    } else coverCandidatePool())
                                         .filter { !hasPublishableVideo(it) && playableTrack(it) != null }
                                         .filter { seed ->
                                             val key = seed.fingerprint + "|" + seed.resolvedVideoId.orEmpty()
@@ -2338,7 +2366,11 @@ internal fun DiscogsDirectVersionBrowser(
                             // Already verified IDs are reused without a new probe.
                             // All remote verification remains inside this single
                             // hard global deadline and never probes audio streams.
-                            val candidates = coverCandidatePool()
+                            val candidates = (if (publishedCoverSnapshots.isNotEmpty()) {
+                                publishedCoverSnapshots.mapNotNull { poster ->
+                                    results.firstOrNull { it.fingerprint == poster.fingerprint }
+                                }
+                            } else coverCandidatePool())
                                 .filter { seed ->
                                     !hasPublishableVideo(seed) && playableTrack(seed) != null
                                 }
@@ -2432,12 +2464,14 @@ internal fun DiscogsDirectVersionBrowser(
                             coverCandidatePool().filter(::modeAcceptsSeed),
                             DirectVersionSort.RELEVANCE,
                         ).take(TURBO_RESULT_QUOTA)
-                        publishedCoverSnapshots = finalRanked
-                        session.publishedCoverSnapshots = finalRanked
+                        if (publishedCoverSnapshots.isEmpty()) {
+                            publishedCoverSnapshots = finalRanked
+                            session.publishedCoverSnapshots = finalRanked
+                        }
                         publishedOriginalSnapshots = emptyList()
                         session.publishedOriginalSnapshots = emptyList()
-                        publishedReadyLimit = finalRanked.size
-                        session.publishedReadyLimit = finalRanked.size
+                        publishedReadyLimit = publishedCoverSnapshots.size
+                        session.publishedReadyLimit = publishedCoverSnapshots.size
                         visibleLimit = TURBO_RESULT_QUOTA
                         session.visibleLimit = TURBO_RESULT_QUOTA
                         resultPageIndex = 0
@@ -2447,8 +2481,7 @@ internal fun DiscogsDirectVersionBrowser(
                         originalSectionFrozen = true
                         session.originalSectionFrozen = true
                         session.sourceDiscoveryComplete = true
-                        // LAB10: seal the 50 editorial posters at T+10s.
-                        // Automatic video lookups continue in their separate lane.
+                        // LAB11: end of the sole ten-second Turbo execution.
                         session.turboFinished = true
                         // An empty snapshot is a transient result, never an
                         // immutable cache hit: another tap may retry the providers.
@@ -2497,7 +2530,7 @@ internal fun DiscogsDirectVersionBrowser(
                         playerConnection?.service?.setCoverPerformanceLoad(
                             active = false, heavy = false,
                         )
-                        startTurboAutomaticVideoLookup()
+                        // No post-deadline automatic video requests.
                     }
                     streamingCandidates.cancel()
                     supplementalSeeds.cancel()
@@ -3525,13 +3558,7 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
-    // LAB10: if a cached Cover session is reopened, resume only unverified IDs.
-    // Leaving Cover still cancels every session-owned job in DisposableEffect.
-    LaunchedEffect(sessionKey, publishedCoverSnapshots.size, loading) {
-        if (isTurbo && mode == DiscogsDirectMode.COVER && !loading &&
-            session.turboFinished && publishedCoverSnapshots.isNotEmpty()
-        ) startTurboAutomaticVideoLookup()
-    }
+    // LAB11: do not restart automatic search when reopening a sealed session.
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
@@ -3687,7 +3714,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 text =
                                     if (isTurbo) {
                                         "Locandine: ${visibleTrueCovers.size}/50 · " +
-                                            "Video verificati: ${visibleTrueCovers.count(::hasPublishableVideo)} · " +
+                                            "Flussi audio trovati: ${visibleTrueCovers.count(::hasTurboStreamReady)} · " +
                                             if (loading) "Raccolta locandine e video (max 10 s)"
                                             else "Tocca una locandina senza video per cercarlo"
                                     } else {
@@ -3829,6 +3856,7 @@ internal fun DiscogsDirectVersionBrowser(
                             seed = seed,
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
+                            audioReadyVerified = hasTurboStreamReady(seed),
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
@@ -3858,6 +3886,7 @@ internal fun DiscogsDirectVersionBrowser(
                             seed = seed,
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
+                            audioReadyVerified = hasTurboStreamReady(seed),
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
@@ -4217,6 +4246,7 @@ private fun DiscogsVersionCard(
     seed: DiscogsVersionSeed,
     showVideoPreview: Boolean,
     videoReadyVerified: Boolean = false,
+    audioReadyVerified: Boolean = false,
     stableArtworkUrl: String?,
     showConfidence: Boolean,
     selected: Boolean,
@@ -4355,7 +4385,8 @@ private fun DiscogsVersionCard(
                     ) {
                         Text(
                             when {
-                                videoReadyVerified -> "Video pronto"
+                                audioReadyVerified -> "Flusso audio trovato"
+                                videoReadyVerified -> "Video trovato · audio non confermato"
                                 seed.videoResolutionChecked -> "Video non trovato · Tocca per cercare"
                                 else -> "Ricerca video automatica…"
                             },
