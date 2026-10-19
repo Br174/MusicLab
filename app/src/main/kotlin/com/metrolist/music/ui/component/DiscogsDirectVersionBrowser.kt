@@ -1764,11 +1764,17 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
-    // LAB10: editorial artwork has its own persisted key. Video thumbnails are NEVER
-    // an alternate poster, even after YouTube has supplied playable metadata.
+    // LAB13: retain a genuine editorial image whenever present. Archive entries
+    // may contain a video ID but no editorial coverUrl; without this fallback
+    // they become permanent empty poster slots on every cached search.
+    // The video thumbnail is NOT pinned into the editorial-artwork namespace.
     fun stableArtworkFor(seed: DiscogsVersionSeed): String? =
         if (mode == DiscogsDirectMode.COVER) {
             CoverPlaybackMemory.editorialArtwork(context, seed.fingerprint, seed.coverUrl)
+                ?: seed.resolvedVideoId?.takeIf { id ->
+                    "Archivio Cloud" in seed.sourceNames &&
+                        id.matches(Regex("[A-Za-z0-9_-]{11}"))
+                }?.let { id -> "https://i.ytimg.com/vi/$id/hqdefault.jpg" }
         } else {
             CoverPlaybackMemory.stableArtwork(context, seed.fingerprint, seed.coverUrl)
         }
@@ -2203,7 +2209,13 @@ internal fun DiscogsDirectVersionBrowser(
                                                 seed.fingerprint + "|" + seed.resolvedVideoId.orEmpty()
                                             )
                                         }
-                                        withTimeoutOrNull(minOf(remaining, 1_250L)) {
+                                        // LAB12 cancelled a 3.05s native search
+                                        // after just 1.25s, preventing most
+                                        // video bindings from ever completing.
+                                        // Let a full bounded fast-search round
+                                        // complete, still inside the global
+                                        // absolute ten-second deadline.
+                                        withTimeoutOrNull(minOf(remaining, 3_450L)) {
                                             resolveVideoChunk(pending)
                                         }
                                         if (stopAtFullQuota()) break
@@ -2247,7 +2259,9 @@ internal fun DiscogsDirectVersionBrowser(
                                         playbackVideoId = item.playbackVideoId,
                                         playbackVideoTitle = item.playbackVideoTitle,
                                         playbackVideoSource = item.playbackVideoSource,
-                                        workRelationConfirmed = (item.sameWorkScore ?: 0) >= 70,
+                                        // Search archive has already anchored this
+                                        // approved recording to the queried work.
+                                        workRelationConfirmed = true,
                                         evidenceScore =
                                             (((item.sameWorkScore ?: 30) +
                                                 (item.versionTypeScore ?: 30)) / 10).coerceIn(1, 20),
@@ -2262,11 +2276,21 @@ internal fun DiscogsDirectVersionBrowser(
                             val memoryDeferred = async(Dispatchers.IO) {
                                 val memory = withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
                                     foreignScoutConfig?.let { config ->
+                                        // An incoming cover's artist is not always
+                                        // the original work artist. Reuse the archive
+                                        // attribution if it arrives promptly, before
+                                        // deciding that Cloud memory is empty.
+                                        val archiveArtist = withTimeoutOrNull(800L) {
+                                            archiveDeferred.await()
+                                            archiveOriginalArtist.get()
+                                        }
+                                        val memoryArtist = archiveArtist?.takeIf(String::isNotBlank)
+                                            ?: resolvedOriginalArtist
                                         CloudMusicDiscovery.cachedMemoryState(
                                             context = context, title = criteria.title,
-                                            artist = resolvedOriginalArtist, config = config,
+                                            artist = memoryArtist, config = config,
                                         ) ?: CloudMusicDiscovery.discoverMemoryState(
-                                            title = criteria.title, artist = resolvedOriginalArtist,
+                                            title = criteria.title, artist = memoryArtist,
                                             config = config, limit = 150, cacheContext = context,
                                         )
                                     }
@@ -2552,7 +2576,18 @@ internal fun DiscogsDirectVersionBrowser(
                             session.publishedCoverSnapshots = publishedCoverSnapshots
                         }
                         publishedReadyLimit = publishedOriginalSnapshots.size + publishedCoverSnapshots.size
-                        session.publishedReadyLimit = publishedCoverSnapshots.size
+                        session.publishedReadyLimit = publishedReadyLimit
+                        // LAB13: discard the unselected documentary pool at the
+                        // end of the burst. Only the 50 immutable cards remain
+                        // in the screen session; no hidden search rankings should
+                        // be recomputed during subsequent music playback.
+                        val frozenIds = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                            .mapTo(HashSet<String>()) { it.fingerprint }
+                        val frozenResults = results.filter { it.fingerprint in frozenIds }
+                        results = frozenResults
+                        session.results = frozenResults
+                        session.stableOrder = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                            .map { it.fingerprint }
                         visibleLimit = TURBO_RESULT_QUOTA
                         session.visibleLimit = TURBO_RESULT_QUOTA
                         resultPageIndex = 0
