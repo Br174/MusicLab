@@ -318,6 +318,9 @@ internal fun DiscogsDirectVersionBrowser(
     val session = remember(sessionKey) {
         DirectVersionSessionStore.get(sessionKey, initialTitle)
     }
+    // LAB12: protect UI/audio and source quotas from an unbounded 50-way
+    // metadata burst. Four verifiers may run; providers retain own limits.
+    val turboVideoCheckGate = remember(sessionKey) { Semaphore(4) }
 
     var title by remember(sessionKey) { mutableStateOf(session.title) }
     var resolvedOriginalArtist by remember(sessionKey) { mutableStateOf(lockedArtist) }
@@ -1049,10 +1052,11 @@ internal fun DiscogsDirectVersionBrowser(
 
     suspend fun resolveVideoChunk(chunk: List<DiscogsVersionSeed>) = coroutineScope {
         if (chunk.isEmpty()) return@coroutineScope
-        // LAB60 Pollicino: discovery never requests playback stream URLs.
+        // LAB12: each job is IO-only and respects a shared four-slot budget.
         val jobs =
             chunk.map { seed ->
                 launch {
+                    turboVideoCheckGate.withPermit {
                     val current =
                         results.firstOrNull { it.fingerprint == seed.fingerprint }
                             ?: return@launch
@@ -1186,32 +1190,10 @@ internal fun DiscogsDirectVersionBrowser(
 
                     replaceSeed(updated)
                     val readyId = updated.resolvedVideoId?.trim().orEmpty()
-                    // LAB11: a valid YouTube ID is only metadata, not a stream.
-                    // Probe a bounded audio stream independently; never hold
-                    // artwork publication or pin a failed stream to memory.
-                    if (isTurbo && verified != null && readyId.isNotBlank() &&
-                        !backgroundPausedForPlayback &&
-                        playerConnection?.isEffectivelyPlaying?.value != true) {
-                        val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
-                        val remaining = session.turboBurstStartedAtMs + TURBO_BURST_DEADLINE_MS -
-                            SystemClock.elapsedRealtime()
-                        if (connectivity != null && remaining > 200L) {
-                            val audioReady = withTimeoutOrNull(
-                                minOf(TURBO_STREAM_PROBE_MS, remaining - 120L)
-                            ) {
-                                withContext(Dispatchers.IO) {
-                                    com.metrolist.music.utils.InnerTubeXPlayer.playerResponseForPlayback(
-                                        videoId = readyId,
-                                        audioQuality = com.metrolist.music.constants.AudioQuality.AUTO,
-                                        connectivityManager = connectivity,
-                                    ).isSuccess
-                                }
-                            } == true
-                            if (audioReady && session.turboStreamReadyIds.add(readyId)) {
-                                turboStreamProofVersion++
-                            }
-                        }
-                    }
+                    // LAB12: do not open 50 audio streams while another song
+                    // is playing. Fast HARD-compatible metadata is enough
+                    // to show the video; only the native player opens audio
+                    // after an explicit tap on the card.
                     if (
                         readyId.isNotBlank() &&
                         readyId in session.playReadyVideoIds &&
@@ -1223,6 +1205,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 persistCloudPlaybackBinding(updated)
                             }
                         }
+                    }
                     }
                 }
             }
@@ -2298,7 +2281,10 @@ internal fun DiscogsDirectVersionBrowser(
                                         aiConfig = foreignScoutConfig,
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 5,
                                         onEarlyVideoCandidates = { quick ->
-                                            val fresh = quick.filter { sourceEvidence.add(it) }
+                                            // Fast per-source Top-N before global
+                                            // cross-provider 1–20 certification.
+                                            val fresh = quick.sortedByDescending { it.evidenceScore }
+                                                .take(24).filter { sourceEvidence.add(it) }
                                             if (fresh.isNotEmpty()) streamingCandidates.trySend(fresh)
                                             if (quick.isNotEmpty()) {
                                                 sourceStatus["COVER.INFO"] = CoverSourceDiagnostic(
@@ -2308,7 +2294,8 @@ internal fun DiscogsDirectVersionBrowser(
                                             }
                                         },
                                         onSourceCompleted = { items, diagnostic, originalYear ->
-                                            val fresh = items.filter { sourceEvidence.add(it) }
+                                            val fresh = items.sortedByDescending { it.evidenceScore }
+                                                .take(24).filter { sourceEvidence.add(it) }
                                             if (fresh.isNotEmpty()) streamingCandidates.trySend(fresh)
                                             sourceStatus[diagnostic.name] = diagnostic
                                             if (originalYear != null) sourceOriginalYear.set(originalYear)
