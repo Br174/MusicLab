@@ -1739,11 +1739,57 @@ internal fun DiscogsDirectVersionBrowser(
             val claims = hashSetOf<String>()
             // One shared fair permit per HTTP attempt, never per 25s slot.
             val gate = Semaphore(TURBO_BACKGROUND_PARALLELISM)
+            // LAB17: one shared bounded fallback when the first 10s produced
+            // no spare recording. Reuse CoverDiscoverySources' existing cache
+            // and APIs; never launch another 50-poster search or Cloud write.
+            var refill: kotlinx.coroutines.Deferred<List<CoverSourceCandidate>>? = null
+            val refillScope = this
+
+            suspend fun refillReserveOnce(): List<DiscogsVersionSeed> {
+                if (refill == null && isAudioProtected()) return emptyList()
+                val request = refill ?: refillScope.async(Dispatchers.IO) {
+                    val searchTitle = activeCriteria?.title.orEmpty()
+                    if (searchTitle.isBlank()) emptyList()
+                    else withTimeoutOrNull(7_000L) {
+                        CoverDiscoverySources.discover(
+                            title = searchTitle,
+                            originalArtist = resolvedOriginalArtist,
+                            mode = mode,
+                            aiConfig = foreignScoutConfig,
+                            maxNetworkFanOut = 1,
+                        ).candidates
+                    }.orEmpty()
+                }.also { refill = it }
+                val candidates = request.await()
+                    .map { source ->
+                        DiscogsVersionSource.externalSeed(
+                            candidate = source,
+                            targetTitle = activeCriteria?.title.orEmpty(),
+                            originalArtist = resolvedOriginalArtist,
+                        )
+                    }
+                    .filter(::modeAcceptsSeed)
+                val currentIds = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                    .mapTo(HashSet<String>()) { DiscogsVersionSource.recordingIdentityKey(it) }
+                session.turboReserve =
+                    (session.turboReserve + candidates)
+                        .filterNot { DiscogsVersionSource.recordingIdentityKey(it) in currentIds }
+                        .distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                        .take(TURBO_RESERVE_MAX)
+                return session.turboReserve
+            }
 
             suspend fun verifyReserve(seed: DiscogsVersionSeed): DiscogsVersionSeed? {
                 val track = playableTrack(seed) ?: return null
                 val storedId = seed.resolvedVideoId?.trim().orEmpty()
-                val known = if (storedId.isNotBlank()) {
+                // Existing off-screen IDs are NOT used by visible cards. The
+                // old global usedVideoIds set also contained IDs from the
+                // reserve itself, incorrectly discarding valid replacements.
+                val visibleIds = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                    .mapNotNullTo(HashSet<String>()) {
+                        it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
+                    }
+                val known = if (storedId.isNotBlank() && storedId !in visibleIds) {
                     session.preparedVideoSongs[storedId] ?: withTimeoutOrNull(1_500L) {
                         withContext(Dispatchers.IO) {
                             YouTube.queue(videoIds = listOf(storedId)).getOrNull()?.firstOrNull()
@@ -1757,7 +1803,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 track = track,
                                 discogsVideos = seed.videos,
                                 fastFirst = true,
-                                excludedVideoIds = session.usedVideoIds.toSet(),
+                                excludedVideoIds = visibleIds,
                                 searchRound = CoverPlaybackMemory.nextSearchRound(
                                     context, seed.fingerprint,
                                 ),
@@ -1769,7 +1815,7 @@ internal fun DiscogsDirectVersionBrowser(
                 } else null
                 val song = (known ?: fromSearch) ?: return null
                 if (!CompilationTrackResolver.isHardCompatible(track, song)) return null
-                if (song.id in session.usedVideoIds) return null
+                if (song.id in visibleIds) return null
                 rememberPreparedVideoSong(song)
                 session.playReadyVideoIds.add(song.id)
                 session.usedVideoIds.add(song.id)
@@ -1777,7 +1823,7 @@ internal fun DiscogsDirectVersionBrowser(
                     context, seed.fingerprint, song.id,
                 )
                 return DiscogsVersionSource.markVideoResolved(
-                    seed, song.id, song.title, "MusicLab · Turbo LAB14",
+                    seed, song.id, song.title, "MusicLab · Turbo LAB17 replacement",
                 )
             }
 
@@ -1852,21 +1898,31 @@ internal fun DiscogsDirectVersionBrowser(
                                             DiscogsVersionSource.recordingIdentityKey(it)
                                         }
                                 // Score 16 seeks 16, then 15/17, 14/18, etc.
-                                val reserve = session.turboReserve
-                                    .filter {
-                                        it.fingerprint !in claims &&
-                                        isDistinctOriginalVersion(it) == originalSide &&
-                                        DiscogsVersionSource.recordingIdentityKey(it) !in chosenIdentities &&
-                                        playableTrack(it) != null
-                                    }
-                                    .sortedWith(
+                                // LAB17: first prefer already collected,
+                                // score-near spare recordings. If none qualify,
+                                // one shared, bounded, cache-aware discovery
+                                // may provide NEW interpretations for replacement.
+                                fun rankEligibleSpare(pool: List<DiscogsVersionSeed>) =
+                                    pool.filter { spare ->
+                                        spare.fingerprint !in claims &&
+                                        !isRejected(spare) &&
+                                        DiscogsVersionSource.recordingIdentityKey(spare) !in chosenIdentities &&
+                                        playableTrack(spare) != null &&
+                                        modeAcceptsSeed(spare)
+                                    }.sortedWith(
                                         compareBy<DiscogsVersionSeed> {
+                                            if (isDistinctOriginalVersion(it) == originalSide) 0 else 1
+                                        }.thenBy {
                                             kotlin.math.abs(it.confidenceScore - old.confidenceScore)
                                         }.thenByDescending { it.confidenceScore },
                                     )
+                                var reserve = rankEligibleSpare(session.turboReserve)
+                                if (reserve.isEmpty() && !isAudioProtected()) {
+                                    reserve = rankEligibleSpare(refillReserveOnce())
+                                }
                                 // Bounded replacement probes: never flood shared
                                 // HTTP/CPU while music is playing.
-                                for (spare in reserve.take(4)) {
+                                for (spare in reserve.take(6)) {
                                     if (!isActive || !session.turboFinished) return@launch
                                     if (selectedFingerprint == fingerprint &&
                                         playbackIsNormallyPlaying()) return@launch
@@ -1891,7 +1947,12 @@ internal fun DiscogsDirectVersionBrowser(
                                     val change: (DiscogsVersionSeed) -> DiscogsVersionSeed = {
                                         if (it.fingerprint == fingerprint) verified else it
                                     }
-                                    if (originalSide) {
+                                    // Preserve the occupied UI slot exactly.
+                                    // Never change the poster/image/video fields
+                                    // independently: replacement is a WHOLE seed.
+                                    if (publishedOriginalSnapshots.any {
+                                            it.fingerprint == fingerprint
+                                        }) {
                                         publishedOriginalSnapshots =
                                             publishedOriginalSnapshots.map(change)
                                         session.publishedOriginalSnapshots = publishedOriginalSnapshots
@@ -1901,6 +1962,10 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                     results = results.map(change)
                                     session.results = results
+                                    // A newly adopted card begins a fresh clock.
+                                    session.turboPosterPublishedAtMs.remove(fingerprint)
+                                    session.turboPosterPublishedAtMs[verified.fingerprint] =
+                                        SystemClock.elapsedRealtime()
                                     session.stableOrder = session.stableOrder.map {
                                         if (it == fingerprint) verified.fingerprint else it
                                     }
