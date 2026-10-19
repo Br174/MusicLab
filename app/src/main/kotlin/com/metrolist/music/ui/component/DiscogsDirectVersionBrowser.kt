@@ -359,7 +359,7 @@ internal fun DiscogsDirectVersionBrowser(
     var publishedReadyLimit by remember(sessionKey) { mutableStateOf(session.publishedReadyLimit) }
     var publishedOriginalSnapshots by remember(sessionKey) { mutableStateOf(session.publishedOriginalSnapshots) }
     var publishedCoverSnapshots by remember(sessionKey) { mutableStateOf(session.publishedCoverSnapshots) }
-    var turboStreamProofVersion by remember(sessionKey) { mutableIntStateOf(0) }
+    var turboStreamProofVersion by remember(sessionKey) { mutableStateOf(0) }
     var originalSectionFrozen by remember(sessionKey) { mutableStateOf(session.originalSectionFrozen) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
