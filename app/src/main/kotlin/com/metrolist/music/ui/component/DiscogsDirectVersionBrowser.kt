@@ -983,27 +983,25 @@ internal fun DiscogsDirectVersionBrowser(
         session.results = results
         // LAB10: freeze poster membership, artwork and ranking, NOT playback bindings.
         // Publish each verified ID into its existing visible card immediately.
-        if (isTurbo && mode == DiscogsDirectMode.COVER && publishedCoverSnapshots.isNotEmpty()) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER &&
+            (publishedCoverSnapshots.isNotEmpty() || publishedOriginalSnapshots.isNotEmpty())) {
             val refreshed = results.firstOrNull { it.fingerprint == merged.fingerprint }
-            if (refreshed != null && publishedCoverSnapshots.any { it.fingerprint == refreshed.fingerprint }) {
-                val changed = publishedCoverSnapshots.any { poster ->
-                    poster.fingerprint == refreshed.fingerprint &&
-                        (poster.resolvedVideoId != refreshed.resolvedVideoId ||
-                            poster.videoResolutionChecked != refreshed.videoResolutionChecked)
-                }
-                if (changed) {
-                    publishedCoverSnapshots = publishedCoverSnapshots.map { poster ->
-                        if (poster.fingerprint == refreshed.fingerprint) {
-                            poster.copy(
-                                resolvedVideoId = refreshed.resolvedVideoId,
-                                resolvedVideoTitle = refreshed.resolvedVideoTitle,
-                                resolvedVideoSource = refreshed.resolvedVideoSource,
-                                videoResolutionChecked = refreshed.videoResolutionChecked,
-                            )
-                        } else poster
-                    }
-                    session.publishedCoverSnapshots = publishedCoverSnapshots
-                }
+            if (refreshed != null) {
+                // Video IDs may arrive after ranking is frozen; keep cards,
+                // editorial artwork and their 1–20 scores unchanged.
+                fun videoBindingOnly(poster: DiscogsVersionSeed): DiscogsVersionSeed =
+                    if (poster.fingerprint == refreshed.fingerprint) {
+                        poster.copy(
+                            resolvedVideoId = refreshed.resolvedVideoId,
+                            resolvedVideoTitle = refreshed.resolvedVideoTitle,
+                            resolvedVideoSource = refreshed.resolvedVideoSource,
+                            videoResolutionChecked = refreshed.videoResolutionChecked,
+                        )
+                    } else poster
+                publishedCoverSnapshots = publishedCoverSnapshots.map(::videoBindingOnly)
+                publishedOriginalSnapshots = publishedOriginalSnapshots.map(::videoBindingOnly)
+                session.publishedCoverSnapshots = publishedCoverSnapshots
+                session.publishedOriginalSnapshots = publishedOriginalSnapshots
             }
         }
         // LAB66 Pollicino: a confirmed video URL does NOT change recording
@@ -1301,10 +1299,15 @@ internal fun DiscogsDirectVersionBrowser(
         val originalVariants = originalCandidatePool()
             .filter(::isDistinctOriginalVersion)
             .map { seed ->
+                val documented = seed.workRelationConfirmed ||
+                    seed.discogsVerificationChecked ||
+                    seed.sourceNames.distinct().size >= 2 ||
+                    !seed.resolvedVideoId.isNullOrBlank()
                 seed.copy(
-                    confidenceScore = 20,
+                    confidenceScore = if (documented) 20 else seed.confidenceScore.coerceAtMost(17),
                     confidenceReasons = (seed.confidenceReasons +
-                        "Versione alternativa confermata dell'interprete originale").distinct(),
+                        if (documented) "Variante originale documentata"
+                        else "Variante originale: prova in attesa").distinct(),
                 )
             }
         return (sortGroup(originalVariants, DirectVersionSort.RELEVANCE) +
@@ -1990,7 +1993,8 @@ internal fun DiscogsDirectVersionBrowser(
         // verification begins after several network catalog requests.
         val turboCommandStartedAt = SystemClock.elapsedRealtime()
         val repeatSameWork = activeCriteria?.title?.equals(criteria.title, ignoreCase = true) == true
-        if (isTurbo && repeatSameWork && session.turboFinished && session.publishedCoverSnapshots.isNotEmpty()) {
+        if (isTurbo && repeatSameWork && session.turboFinished &&
+            (session.publishedCoverSnapshots.isNotEmpty() || session.publishedOriginalSnapshots.isNotEmpty())) {
             // Re-enter a completed 50-result burst without re-querying providers.
             loading = false
             sourceDiscoveryLoading = false
@@ -3198,7 +3202,8 @@ internal fun DiscogsDirectVersionBrowser(
                 var failedRounds = 0
                 try {
                     while (isActive && activeCriteria != null &&
-                        publishedCoverSnapshots.any { it.fingerprint == seed.fingerprint }) {
+                        (publishedCoverSnapshots + publishedOriginalSnapshots)
+                            .any { it.fingerprint == seed.fingerprint }) {
                         val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
                         if (hasPublishableVideo(current)) {
                             val updated = publishedCoverSnapshots.map { poster ->
@@ -3206,6 +3211,10 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             publishedCoverSnapshots = updated
                             session.publishedCoverSnapshots = updated
+                            publishedOriginalSnapshots = publishedOriginalSnapshots.map { poster ->
+                                if (poster.fingerprint == seed.fingerprint) current else poster
+                            }
+                            session.publishedOriginalSnapshots = publishedOriginalSnapshots
                             Toast.makeText(context, "Video trovato! Tocca per ascoltare.", Toast.LENGTH_SHORT).show()
                             break
                         }
@@ -3228,6 +3237,10 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             publishedCoverSnapshots = updated
                             session.publishedCoverSnapshots = updated
+                            publishedOriginalSnapshots = publishedOriginalSnapshots.map { poster ->
+                                if (poster.fingerprint == seed.fingerprint) newest else poster
+                            }
+                            session.publishedOriginalSnapshots = publishedOriginalSnapshots
                             Toast.makeText(context, "Video trovato! Tocca per ascoltare.", Toast.LENGTH_SHORT).show()
                             break
                         }
