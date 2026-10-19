@@ -150,7 +150,7 @@ test('LAB14 switches to an alternate recording after 25s without changing positi
   assert.match(cover, /kotlin\.math\.abs\(it\.confidenceScore - old\.confidenceScore\)/);
   assert.match(cover, /val verified = verifyReserve\(spare\) \?: continue/);
   assert.match(cover, /publishedCoverSnapshots = publishedCoverSnapshots\.map\(change\)/);
-  assert.match(cover, /publishedOriginalSnapshots = publishedOriginalSnapshots\.map\(change\)/);
+  assert.match(cover, /publishedOriginalSnapshots\s*=\s*publishedOriginalSnapshots\.map\(change\)/);
   assert.match(cover, /session\.stableOrder = session\.stableOrder\.map/);
 });
 test('LAB14 no holes, no false video, no video swap during manual play', () => {
