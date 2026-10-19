@@ -1973,74 +1973,86 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun saveDecision(seed: DiscogsVersionSeed, status: AiBrainDecisionStatus) {
-        val config = foreignScoutConfig
-        if (config == null || config.cloudEndpoint.isBlank()) {
-            Toast.makeText(context, "Archivio cloud non configurato.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (resolvedOriginalArtist.isBlank() || title.isBlank()) {
-            Toast.makeText(context, "Opera originale non identificata.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        decisionSavingFingerprint = seed.fingerprint
-        scope.launch {
-            val candidate = seedToBrainCandidate(seed)
-            val saved =
-                CloudMusicDiscovery.saveBrainDecision(
-                    originalTitle = title,
-                    originalArtist = resolvedOriginalArtist,
-                    candidate = candidate,
-                    status = status,
-                    config = config,
-                    categoryOverride =
-                        if (mode == DiscogsDirectMode.ORIGINAL) {
-                            cloudCategory(seed)
-                        } else {
-                            null
-                        },
-                )
-            decisionSavingFingerprint = null
-            if (!saved) {
-                Toast.makeText(context, "Salvataggio cloud non riuscito.", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
+        if (decisionSavingFingerprint != null) return
+        if (status != AiBrainDecisionStatus.APPROVED &&
+            status != AiBrainDecisionStatus.REJECTED) return
 
-            if (status == AiBrainDecisionStatus.REJECTED) {
-                session.approvedKeys -= rejectionKey(seed)
-                session.rejectedKeys += rejectionKey(seed)
-                val hidden =
-                    seed.copy(
-                        confidenceReasons =
-                            (seed.confidenceReasons + "Disapprovata manualmente per questa specifica ricerca").distinct(),
-                        manuallyApproved = false,
+        // LAB17: the editorial action must work OFFLINE and cannot be held
+        // hostage by optional Cloud endpoints. Store the user's decision first,
+        // using exactly the same work-and-candidate identity as the UI filter.
+        val approved = status == AiBrainDecisionStatus.APPROVED
+        CoverPlaybackMemory.saveEditorialDecision(
+            context,
+            TitleMeaningResolver.workAnchorTitle(title),
+            rejectionKey(seed),
+            approved,
+        )
+        if (approved) {
+            session.rejectedKeys.remove(rejectionKey(seed))
+            session.approvedKeys.add(rejectionKey(seed))
+            replaceSeed(
+                seed.copy(
+                    confidenceScore = 20,
+                    confidenceReasons =
+                        (seed.confidenceReasons + "Versione approvata manualmente").distinct(),
+                    manuallyApproved = true,
+                ),
+            )
+        } else {
+            session.approvedKeys.remove(rejectionKey(seed))
+            session.rejectedKeys.add(rejectionKey(seed))
+            replaceSeed(
+                seed.copy(
+                    confidenceScore = 1,
+                    confidenceReasons =
+                        (seed.confidenceReasons + "Versione disapprovata manualmente").distinct(),
+                    manuallyApproved = false,
+                ),
+            )
+        }
+        // The dialog and filtered list react immediately, regardless of
+        // provider status. This never deletes Cloud data or changes the player.
+        detailSeed = null
+        Toast.makeText(
+            context,
+            if (approved) "Approvata: decisione salvata sul telefono."
+            else "Disapprovata: esclusa dalle cover sul telefono.",
+            Toast.LENGTH_LONG,
+        ).show()
+
+        // Preserve existing Cloud collaboration when available, but make it
+        // strictly best-effort. Local decisions persist across app restarts.
+        val config = foreignScoutConfig
+        if (config != null && config.cloudEndpoint.isNotBlank() &&
+            resolvedOriginalArtist.isNotBlank() && title.isNotBlank()) {
+            decisionSavingFingerprint = seed.fingerprint
+            scope.launch {
+                val saved = try {
+                    CloudMusicDiscovery.saveBrainDecision(
+                        originalTitle = title,
+                        originalArtist = resolvedOriginalArtist,
+                        candidate = seedToBrainCandidate(seed),
+                        status = status,
+                        config = config,
+                        categoryOverride =
+                            if (mode == DiscogsDirectMode.ORIGINAL) {
+                                cloudCategory(seed)
+                            } else null,
                     )
-                replaceSeed(hidden)
-                detailSeed = null
-                rebuildStableOrder()
-                scheduleVideoPreload()
-                Toast.makeText(
-                    context,
-                    "Disapprovata: non comparirà più tra le cover di questa canzone.",
-                    Toast.LENGTH_LONG,
-                ).show()
-            } else if (status == AiBrainDecisionStatus.APPROVED) {
-                session.rejectedKeys -= rejectionKey(seed)
-                session.approvedKeys += rejectionKey(seed)
-                val approved =
-                    seed.copy(
-                        confidenceScore = 20,
-                        confidenceReasons =
-                            (seed.confidenceReasons + "Approvata manualmente e salvata nel cloud").distinct(),
-                        sourceNames = (seed.sourceNames + "Archivio Cloud").distinct(),
-                        manuallyApproved = true,
-                    )
-                replaceSeed(approved)
-                detailSeed = null
-                Toast.makeText(
-                    context,
-                    "Approvata e salvata nell'Archivio MusicLab.",
-                    Toast.LENGTH_LONG,
-                ).show()
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    false
+                } finally {
+                    decisionSavingFingerprint = null
+                }
+                if (!saved) {
+                    Toast.makeText(
+                        context,
+                        "Decisione locale conservata. Cloud non sincronizzato.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
             }
         }
     }
