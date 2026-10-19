@@ -2430,15 +2430,13 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                                 return true
                             }
-                            val streamingVerifier = launch {
-                                // Each distinct recording/video binding is examined once
-                                // per burst, even if no more source callbacks arrive.
-                                val examinedBindings = hashSetOf<String>()
-                                while (isActive && SystemClock.elapsedRealtime() < stopAt - TURBO_THUMBNAIL_RESERVE_MS) {
-                                    if (stopAtFullQuota()) break
-                                    // Every runner delivers an immutable batch. Never
-                                    // wait for Cover.Info, Discogs, Cloud or Apple/iTunes
-                                    // to finish before verifying another runner's IDs.
+                            // LAB16: metadata ingestion and 25+25 publication
+                            // own a separate UI-dispatcher child job. A slow
+                            // YouTube verification must NEVER delay a finished
+                            // batch of real documentary poster candidates.
+                            val posterCollector = launch {
+                                while (isActive && SystemClock.elapsedRealtime() <
+                                    stopAt - TURBO_THUMBNAIL_RESERVE_MS) {
                                     val early = withTimeoutOrNull(110L) {
                                         streamingCandidates.receive()
                                     }
@@ -2467,6 +2465,17 @@ internal fun DiscogsDirectVersionBrowser(
                                     // Even without a callback, Discogs can update the pool.
                                     sealPostersOnce()
                                     sealSecondPostersOnce()
+                                }
+                            }
+                            val streamingVerifier = launch {
+                                // Preserve LAB15 video checks and their existing
+                                // metadata resolver/quality gates, but keep them
+                                // separate from the poster publication lane.
+                                val examinedBindings = hashSetOf<String>()
+                                while (isActive && SystemClock.elapsedRealtime() <
+                                    stopAt - TURBO_THUMBNAIL_RESERVE_MS) {
+                                    if (stopAtFullQuota()) break
+                                    delay(120L)
                                     val pending = (if (publishedCoverSnapshots.isNotEmpty() ||
                                         publishedOriginalSnapshots.isNotEmpty()) {
                                         (publishedOriginalSnapshots + publishedCoverSnapshots).mapNotNull { poster ->
@@ -2809,6 +2818,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
                             streamingVerifier.cancel()
+                            posterCollector.cancel()
                         }
                     }
                 } finally {
