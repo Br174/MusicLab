@@ -1175,7 +1175,8 @@ internal fun DiscogsDirectVersionBrowser(
                     // Probe a bounded audio stream independently; never hold
                     // artwork publication or pin a failed stream to memory.
                     if (isTurbo && verified != null && readyId.isNotBlank() &&
-                        !playbackIsNormallyPlaying() && !playbackIsCritical()) {
+                        !backgroundPausedForPlayback &&
+                        playerConnection?.isEffectivelyPlaying?.value != true) {
                         val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
                         val remaining = session.turboBurstStartedAtMs + TURBO_BURST_DEADLINE_MS -
                             SystemClock.elapsedRealtime()
