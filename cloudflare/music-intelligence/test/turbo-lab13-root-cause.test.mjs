@@ -117,3 +117,12 @@ test('LAB13 after-burst state only retains selected cards instead of all discove
   assert.match(cover, /session\.results = frozenResults/);
   assert.match(cover, /session\.turboFinished = true/);
 });
+
+test('LAB13 original artist videos and archived legacy thumbnails are reachable without altering the player', () => {
+  assert.match(cover, /val published = publishedOriginalSnapshots \+ publishedCoverSnapshots/);
+  assert.match(cover, /val admitted = published\.any \{ it\.fingerprint == selectedFingerprint \}/);
+  assert.match(cover, /published\.firstOrNull \{/);
+  assert.doesNotMatch(cover, /val admitted = publishedCoverSnapshots\.any \{/);
+  assert.match(cover, /url\.contains\("ytimg\.com", ignoreCase = true\)/);
+  assert.match(cover, /seed\.resolvedVideoId\?\.takeIf/);
+});
