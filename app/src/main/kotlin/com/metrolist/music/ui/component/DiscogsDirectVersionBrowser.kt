@@ -1909,6 +1909,10 @@ internal fun DiscogsDirectVersionBrowser(
                                     pool.filter { spare ->
                                         spare.fingerprint !in claims &&
                                         !isRejected(spare) &&
+                                        // Never replace a cover with the unchanged
+                                        // studio recording of the original artist.
+                                        (!isOriginalPerformerVersion(spare) ||
+                                            isDistinctOriginalVersion(spare)) &&
                                         DiscogsVersionSource.recordingIdentityKey(spare) !in chosenIdentities &&
                                         playableTrack(spare) != null &&
                                         modeAcceptsSeed(spare)
