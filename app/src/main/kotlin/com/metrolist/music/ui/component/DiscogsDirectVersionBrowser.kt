@@ -963,6 +963,9 @@ internal fun DiscogsDirectVersionBrowser(
             } else {
                 mergedEvidence
             }
+        // LAB12 frame pacing: no new Compose list instance for identical
+        // evidence; this matters most while music and LazyColumn are active.
+        if (merged == current) return
         val relevanceChanged =
             merged.confidenceScore != current.confidenceScore ||
                 merged.originalWorkReference != current.originalWorkReference
@@ -1001,10 +1004,20 @@ internal fun DiscogsDirectVersionBrowser(
                             videoResolutionChecked = refreshed.videoResolutionChecked,
                         )
                     } else poster
-                publishedCoverSnapshots = publishedCoverSnapshots.map(::videoBindingOnly)
-                publishedOriginalSnapshots = publishedOriginalSnapshots.map(::videoBindingOnly)
-                session.publishedCoverSnapshots = publishedCoverSnapshots
-                session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                fun bindingChanged(poster: DiscogsVersionSeed): Boolean =
+                    poster.fingerprint == refreshed.fingerprint &&
+                        (poster.resolvedVideoId != refreshed.resolvedVideoId ||
+                            poster.resolvedVideoTitle != refreshed.resolvedVideoTitle ||
+                            poster.resolvedVideoSource != refreshed.resolvedVideoSource ||
+                            poster.videoResolutionChecked != refreshed.videoResolutionChecked)
+                if (publishedCoverSnapshots.any(::bindingChanged)) {
+                    publishedCoverSnapshots = publishedCoverSnapshots.map(::videoBindingOnly)
+                    session.publishedCoverSnapshots = publishedCoverSnapshots
+                }
+                if (publishedOriginalSnapshots.any(::bindingChanged)) {
+                    publishedOriginalSnapshots = publishedOriginalSnapshots.map(::videoBindingOnly)
+                    session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                }
             }
         }
         // LAB66 Pollicino: a confirmed video URL does NOT change recording
