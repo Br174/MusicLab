@@ -45,7 +45,7 @@ test('LAB13 original work from archive, memory, and corroborated earliest disc i
 test('LAB13 native MusicLab search lane: parallel, bounded, no long chain', () => {
   assert.match(nativeSearch,/turboFastOnly: Boolean = false/);
   assert.match(nativeSearch,/private val turboSearchGate = Semaphore\(4\)/);
-  assert.match(nativeSearch,/fastMusicLabRace\(track, chosen, excludedVideoIds\)/);
+  assert.match(nativeSearch,/fastMusicLabRace\\(track, chosen, excludedVideoIds, turboWindow = true\\)/);
   assert.match(nativeSearch,/YouTube\.searchSummary\(query\)/);
   assert.match(nativeSearch,/YouTube\.search\(query, YouTube\.SearchFilter\.FILTER_SONG\)/);
   assert.match(cover,/turboFastOnly = isTurbo && mode == DiscogsDirectMode\.COVER/);
