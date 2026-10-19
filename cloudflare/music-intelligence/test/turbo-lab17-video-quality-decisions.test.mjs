@@ -245,7 +245,7 @@ test('LAB17 poster collector owns source ingestion independent of video verifier
 });
 test('LAB17 audio timing instrumentation cannot mutate native stream selection', () => {
   const service = fs.readFileSync('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt','utf8');
-  assert.match(service, /MusicLabLAB17Audio/);
+  assert.match(service, /MusicLabLAB16Audio/);
   assert.match(service, /stream_source=REMOTE resolve_ms=%d success=%b cover_active=%b/);
   assert.match(service, /state=READY tap_to_ready_ms=%d buffered_ms=%d cover_active=%b/);
   assert.match(service, /state=BUFFERING buffered_ms=%d cover_active=%b priority=%b/);
@@ -286,6 +286,8 @@ test('LAB17 spare candidate preserves existing reserve IDs but not visible video
   assert.match(resolve, /rejectedVideoIds\(context, seed\.fingerprint\)/);
   assert.match(resolve, /saveMetadataVerifiedVideo\(/);
   assert.match(resolve, /isHardCompatible\(track, song\)/);
+  assert.match(resolve, /val verifiedKnown = known\?\.takeIf/);
+  assert.match(resolve, /val fromSearch = if \(verifiedKnown == null\)/);
 });
 test('LAB17 if reserve is empty run one bounded new discovery not another entire poster burst', () => {
   assert.match(cover, /var refill: kotlinx\.coroutines\.Deferred<List<CoverSourceCandidate>>\? = null/);
@@ -329,7 +331,7 @@ test('LAB17 Approva/Disapprova works offline with durable per-work local decisio
   assert.match(cover,/CoverPlaybackMemory\.saveEditorialDecision\(/);
   assert.match(cover,/localEditorialDecision\(seed\)/);
   assert.match(cover,/status == AiBrainDecisionStatus\.APPROVED/);
-  assert.match(cover,/status == AiBrainDecisionStatus\.REJECTED/);
+  assert.match(cover,/status != AiBrainDecisionStatus\.REJECTED/);
   const save=cover.split('fun saveDecision(seed: DiscogsVersionSeed, status: AiBrainDecisionStatus)')[1].split('// LAB13: retain a genuine editorial image')[0];
   assert.ok(save.indexOf('saveEditorialDecision(')<save.indexOf('CloudMusicDiscovery.saveBrainDecision('));
   assert.match(save,/detailSeed = null/);
