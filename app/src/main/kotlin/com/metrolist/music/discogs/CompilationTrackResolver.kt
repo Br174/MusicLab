@@ -53,7 +53,17 @@ internal object CompilationTrackResolver {
             val chosen = search.getOrNull(searchRound.mod(search.size.coerceAtLeast(1)))
                 ?: return@withContext null
             return@withContext turboSearchGate.withPermit {
-                fastMusicLabRace(track, chosen, excludedVideoIds)
+                fastMusicLabRace(track, chosen, excludedVideoIds, turboWindow = true)
+                    // The normal MusicLab search includes dedicated video
+                    // results; LAB12 Turbo only searched Songs/Summary and
+                    // rejected genuine cover performances with no song entry.
+                    ?: withTimeoutOrNull(950L) {
+                        YouTube.search(chosen, YouTube.SearchFilter.FILTER_VIDEO)
+                            .getOrNull()?.items?.filterIsInstance<SongItem>().orEmpty()
+                    }?.let { videoItems ->
+                        bestSong(track, videoItems, relaxedArtist = true, excludedVideoIds = excludedVideoIds)
+                            ?.let { CompilationResolvedTrack(track, it, "MusicLab · video rapido", false) }
+                    }
                     ?: bestDiscogsTrackVideo(track, discogsVideos, excludedVideoIds)
                         ?.let { video ->
                             extractYouTubeId(video.uri)?.let { videoId ->
@@ -177,6 +187,7 @@ internal object CompilationTrackResolver {
         track: DiscogsTrack,
         query: String,
         excludedVideoIds: Set<String>,
+        turboWindow: Boolean = false,
     ): CompilationResolvedTrack? = coroutineScope {
         val winner = CompletableDeferred<CompilationResolvedTrack?>()
         val jobs = mutableListOf<Job>()
@@ -214,7 +225,7 @@ internal object CompilationTrackResolver {
             }
         }
 
-        val result = withTimeoutOrNull(3_050L) { winner.await() }
+        val result = withTimeoutOrNull(if (turboWindow) 2_250L else 3_050L) { winner.await() }
         jobs.forEach { it.cancel() }
         result
     }
