@@ -416,6 +416,22 @@ class MusicService :
         )
     }
 
+    /**
+     * LAB14: read-only playback reserve feedback for the independent Cover
+     * discovery coordinator. Never changes the player, its buffer policy, cache,
+     * audio quality, queue or ExoPlayer media source.
+     *
+     * A brief Cover metadata pause while an active song is rebuffering is
+     * preferable to launching more concurrent external HTTP requests.
+     */
+    fun isCoverAudioAtRisk(): Boolean {
+        if (!::player.isInitialized || !player.playWhenReady) return false
+        if (playbackPriorityBurstActive) return true
+        return player.playbackState == Player.STATE_BUFFERING ||
+            (player.playbackState == Player.STATE_READY &&
+                player.totalBufferedDuration < 3_000L)
+    }
+
     private fun effectiveAudioQuality(): com.metrolist.music.constants.AudioQuality =
         if (coverSectionActive && coverHeavyLoad) {
             com.metrolist.music.constants.AudioQuality.LOW
