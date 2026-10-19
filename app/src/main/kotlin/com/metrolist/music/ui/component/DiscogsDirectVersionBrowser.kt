@@ -473,11 +473,28 @@ internal fun DiscogsDirectVersionBrowser(
             category = cloudCategory(seed),
         )
 
+    // LAB17: local editor verdict wins over stale Cloud memory or stale
+    // per-screen flags. A decision also works when offline/no Cloud endpoint.
+    fun localEditorialDecision(seed: DiscogsVersionSeed): String? =
+        CoverPlaybackMemory.editorialDecision(
+            context,
+            TitleMeaningResolver.workAnchorTitle(title),
+            rejectionKey(seed),
+        )
+
     fun isRejected(seed: DiscogsVersionSeed): Boolean =
-        rejectionKey(seed) in session.rejectedKeys
+        when (localEditorialDecision(seed)) {
+            "rejected" -> true
+            "approved" -> false
+            else -> rejectionKey(seed) in session.rejectedKeys
+        }
 
     fun isApproved(seed: DiscogsVersionSeed): Boolean =
-        seed.manuallyApproved || rejectionKey(seed) in session.approvedKeys
+        when (localEditorialDecision(seed)) {
+            "approved" -> true
+            "rejected" -> false
+            else -> seed.manuallyApproved || rejectionKey(seed) in session.approvedKeys
+        }
 
     fun isHiddenForCurrentCover(seed: DiscogsVersionSeed): Boolean =
         mode == DiscogsDirectMode.COVER && isRejected(seed)
@@ -1279,6 +1296,41 @@ internal fun DiscogsDirectVersionBrowser(
             CoverPlaybackMemory.metadataVerifiedVideo(context, seed.fingerprint) == id
     }
 
+    /**
+     * LAB17: the historic 1..20 number is documentary evidence, NOT a
+     * guaranteed match between the chosen recording and a YouTube video.
+     * Keep the native discographic ranking, but show a conservative display
+     * confidence until a metadata-verified video independently agrees on
+     * song, performer, version and duration.
+     *
+     * Never relabel low-proof videos as 20/20 just because a release exists
+     * in a catalogue or has been editorially approved.
+     */
+    fun videoCalibratedDisplaySeed(seed: DiscogsVersionSeed): DiscogsVersionSeed {
+        val raw = seed.confidenceScore.coerceIn(1, 20)
+        val videoId = seed.resolvedVideoId?.trim().orEmpty()
+        val match = playableTrack(seed)?.let { track ->
+            if (videoId.isBlank() || !hasPublishableVideo(seed)) null
+            else session.preparedVideoSongs[videoId]?.takeIf {
+                CompilationTrackResolver.isHardCompatible(track, it)
+            }?.let { CompilationTrackResolver.scoreSong(track, it) }
+        }
+        val verifiedCeiling = when {
+            match == null && hasPublishableVideo(seed) -> 15
+            match == null -> 12
+            match >= 110 -> 20
+            match >= 98 -> 18
+            match >= 88 -> 16
+            else -> 14
+        }
+        val calibrated = minOf(raw, verifiedCeiling)
+        return if (calibrated == raw) seed else seed.copy(
+            confidenceScore = calibrated,
+            confidenceReasons = (seed.confidenceReasons +
+                "Punteggio video prudenziale: conferma interprete/versione non ancora completa").distinct(),
+        )
+    }
+
     fun hasTurboStreamReady(seed: DiscogsVersionSeed): Boolean {
         val proofVersion = turboStreamProofVersion
         return isTurbo && proofVersion >= 0 && !seed.resolvedVideoId.isNullOrBlank() &&
@@ -1679,8 +1731,7 @@ internal fun DiscogsDirectVersionBrowser(
      */
     fun startTurboVideoBackground() {
         if (!isTurbo || mode != DiscogsDirectMode.COVER ||
-            !session.turboFinished || session.turboVideoComplete ||
-            turboVideoJob?.isActive == true) return
+            !session.turboFinished || turboVideoJob?.isActive == true) return
 
         turboVideoJob = scope.launch {
             val positions = (publishedOriginalSnapshots + publishedCoverSnapshots)
@@ -1764,7 +1815,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     // 25s is WALL CLOCK since visible publication,
                                     // not summed query time. Permit released after
                                     // every request: later rows cannot starve.
-                                    if (attempts < 2) {
+                                    // LAB17: four independent rotated searches
+                                    // in the same 25s window; no manual tap needed.
+                                    if (attempts < 4) {
                                         gate.withPermit {
                                             if (!isAudioProtected()) {
                                                 withTimeoutOrNull(4_200L) {
@@ -1781,7 +1834,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     // Bounded backpressure for rate-limited sources,
                                     // never a cosmetic delay before a found video.
                                     if (SystemClock.elapsedRealtime() - firstShownAtMs <
-                                        TURBO_VIDEO_SKIP_MS) delay(250L)
+                                        TURBO_VIDEO_SKIP_MS) delay(550L)
                                 }
 
                                 // Skip only once a different, same-work recording
@@ -1811,7 +1864,9 @@ internal fun DiscogsDirectVersionBrowser(
                                             kotlin.math.abs(it.confidenceScore - old.confidenceScore)
                                         }.thenByDescending { it.confidenceScore },
                                     )
-                                for (spare in reserve.take(18)) {
+                                // Bounded replacement probes: never flood shared
+                                // HTTP/CPU while music is playing.
+                                for (spare in reserve.take(4)) {
                                     if (!isActive || !session.turboFinished) return@launch
                                     if (selectedFingerprint == fingerprint &&
                                         playbackIsNormallyPlaying()) return@launch
@@ -1866,9 +1921,13 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     LaunchedEffect(sessionKey) {
-        // Re-entering a sealed cached search restarts only pending video checks,
-        // never its poster discovery.
-        if (session.turboFinished && !session.turboVideoComplete) {
+        // LAB17: a sealed result can still contain video-less cards even if a
+        // previous bounded auto round ended. Retry ONLY video metadata on
+        // re-entry, without restarting the 25+25 poster source collection.
+        if (session.turboFinished &&
+            (publishedCoverSnapshots + publishedOriginalSnapshots).any {
+                !hasPublishableVideo(it)
+            }) {
             startTurboVideoBackground()
         }
     }
@@ -3884,11 +3943,16 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB65: only committed, validated, immutable rows reach Compose.
     val visibleOriginalVersions =
         if (mode == DiscogsDirectMode.COVER) publishedOriginalSnapshots
+            .filterNot(::isHiddenForCurrentCover)
+            .map(::videoCalibratedDisplaySeed)
         else emptyList()
     val visibleTrueCovers =
         if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading)) {
             (if (isTurbo) publishedCoverSnapshots
-             else publishedCoverSnapshots).take(visibleLimit)
+             else publishedCoverSnapshots)
+                .filterNot(::isHiddenForCurrentCover)
+                .take(visibleLimit)
+                .map(::videoCalibratedDisplaySeed)
         } else emptyList()
     val visibleResults =
         if (mode == DiscogsDirectMode.COVER) {
