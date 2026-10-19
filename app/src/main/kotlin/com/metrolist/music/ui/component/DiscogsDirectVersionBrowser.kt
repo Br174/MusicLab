@@ -1744,18 +1744,23 @@ internal fun DiscogsDirectVersionBrowser(
             // and APIs; never launch another 50-poster search or Cloud write.
             var refill: kotlinx.coroutines.Deferred<List<CoverSourceCandidate>>? = null
             val refillScope = this
+            suspend fun isAudioProtected(): Boolean =
+                playbackIsCritical() || backgroundPausedForPlayback ||
+                    playerConnection?.service?.isCoverAudioAtRisk() == true
 
             suspend fun refillReserveOnce(): List<DiscogsVersionSeed> {
                 if (refill == null && isAudioProtected()) return emptyList()
+                val searchTitle = activeCriteria?.title.orEmpty()
+                val searchArtist = resolvedOriginalArtist
+                val config = foreignScoutConfig
                 val request = refill ?: refillScope.async(Dispatchers.IO) {
-                    val searchTitle = activeCriteria?.title.orEmpty()
                     if (searchTitle.isBlank()) emptyList()
                     else withTimeoutOrNull(7_000L) {
                         CoverDiscoverySources.discover(
                             title = searchTitle,
-                            originalArtist = resolvedOriginalArtist,
+                            originalArtist = searchArtist,
                             mode = mode,
-                            aiConfig = foreignScoutConfig,
+                            aiConfig = config,
                             maxNetworkFanOut = 1,
                         ).candidates
                     }.orEmpty()
@@ -1764,8 +1769,8 @@ internal fun DiscogsDirectVersionBrowser(
                     .map { source ->
                         DiscogsVersionSource.externalSeed(
                             candidate = source,
-                            targetTitle = activeCriteria?.title.orEmpty(),
-                            originalArtist = resolvedOriginalArtist,
+                            targetTitle = searchTitle,
+                            originalArtist = searchArtist,
                         )
                     }
                     .filter(::modeAcceptsSeed)
@@ -1789,7 +1794,9 @@ internal fun DiscogsDirectVersionBrowser(
                     .mapNotNullTo(HashSet<String>()) {
                         it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
                     }
-                val known = if (storedId.isNotBlank() && storedId !in visibleIds) {
+                val rejectedIds = CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)
+                val known = if (storedId.isNotBlank() &&
+                    storedId !in visibleIds && storedId !in rejectedIds) {
                     session.preparedVideoSongs[storedId] ?: withTimeoutOrNull(1_500L) {
                         withContext(Dispatchers.IO) {
                             YouTube.queue(videoIds = listOf(storedId)).getOrNull()?.firstOrNull()
@@ -1803,7 +1810,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 track = track,
                                 discogsVideos = seed.videos,
                                 fastFirst = true,
-                                excludedVideoIds = visibleIds,
+                                excludedVideoIds = visibleIds + rejectedIds,
                                 searchRound = CoverPlaybackMemory.nextSearchRound(
                                     context, seed.fingerprint,
                                 ),
@@ -1815,7 +1822,7 @@ internal fun DiscogsDirectVersionBrowser(
                 } else null
                 val song = (known ?: fromSearch) ?: return null
                 if (!CompilationTrackResolver.isHardCompatible(track, song)) return null
-                if (song.id in visibleIds) return null
+                if (song.id in visibleIds || song.id in rejectedIds) return null
                 rememberPreparedVideoSong(song)
                 session.playReadyVideoIds.add(song.id)
                 session.usedVideoIds.add(song.id)
@@ -1826,10 +1833,6 @@ internal fun DiscogsDirectVersionBrowser(
                     seed, song.id, song.title, "MusicLab · Turbo LAB17 replacement",
                 )
             }
-
-            suspend fun isAudioProtected(): Boolean =
-                playbackIsCritical() || backgroundPausedForPlayback ||
-                    playerConnection?.service?.isCoverAudioAtRisk() == true
 
             try {
                 coroutineScope {
@@ -1917,12 +1920,16 @@ internal fun DiscogsDirectVersionBrowser(
                                         }.thenByDescending { it.confidenceScore },
                                     )
                                 var reserve = rankEligibleSpare(session.turboReserve)
-                                if (reserve.isEmpty() && !isAudioProtected()) {
+                                // A shallow reserve of one or two candidates
+                                // frequently contains unsuitable videos. Top up
+                                // once before attempting adoption, preserving
+                                // the existing candidates and audio priority.
+                                if (reserve.size < 4 && !isAudioProtected()) {
                                     reserve = rankEligibleSpare(refillReserveOnce())
                                 }
                                 // Bounded replacement probes: never flood shared
                                 // HTTP/CPU while music is playing.
-                                for (spare in reserve.take(6)) {
+                                for (spare in reserve.take(8)) {
                                     if (!isActive || !session.turboFinished) return@launch
                                     if (selectedFingerprint == fingerprint &&
                                         playbackIsNormallyPlaying()) return@launch
