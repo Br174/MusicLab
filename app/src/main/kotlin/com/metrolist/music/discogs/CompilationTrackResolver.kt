@@ -10,6 +10,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.text.Normalizer
 import kotlin.math.abs
 
@@ -27,6 +29,10 @@ internal data class CompilationFullAudio(
 )
 
 internal object CompilationTrackResolver {
+    // LAB12: bound only Cover Turbo's fast catalog searches. Two parallel
+    // lookups per recording, four simultaneous recordings maximum. This is
+    // separate from the native player's normal search/playback pipeline.
+    private val turboSearchGate = Semaphore(4)
     suspend fun resolveTrack(
         track: DiscogsTrack,
         discogsVideos: List<DiscogsVideo>,
@@ -34,7 +40,34 @@ internal object CompilationTrackResolver {
         excludedVideoIds: Set<String> = emptySet(),
         searchRound: Int = 0,
         preferLive: Boolean = false,
+        turboFastOnly: Boolean = false,
     ): CompilationResolvedTrack? = withContext(Dispatchers.IO) {
+        if (turboFastOnly) {
+            // A single fast search round with the same native YouTube Music
+            // functions used in MusicLab search. No serial deep/web fallbacks
+            // can consume the entire ten-second Cover burst.
+            val query = (if (preferLive) {
+                listOf(track.title + " " + track.artists.joinToString(" ") + " live")
+            } else emptyList()) + searchQueries(track)
+            val search = query.filter(String::isNotBlank).distinct()
+            val chosen = search.getOrNull(searchRound.mod(search.size.coerceAtLeast(1)))
+                ?: return@withContext null
+            return@withContext turboSearchGate.withPermit {
+                fastMusicLabRace(track, chosen, excludedVideoIds)
+                    ?: bestDiscogsTrackVideo(track, discogsVideos, excludedVideoIds)
+                        ?.let { video ->
+                            extractYouTubeId(video.uri)?.let { videoId ->
+                                withTimeoutOrNull(1_100L) {
+                                    YouTube.queue(videoIds = listOf(videoId))
+                                        .getOrNull()?.firstOrNull()
+                                }?.takeIf { isHardCompatible(track, it) }
+                                    ?.let {
+                                        CompilationResolvedTrack(track, it, "Discogs → MusicLab", true)
+                                    }
+                            }
+                        }
+            }
+        }
         // Fast lane: direct Discogs video first, then a bounded race between the
         // two MusicLab sources that most often resolve a playable track quickly.
         val directVideo = bestDiscogsTrackVideo(track, discogsVideos, excludedVideoIds)
