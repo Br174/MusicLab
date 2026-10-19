@@ -1771,9 +1771,18 @@ internal fun DiscogsDirectVersionBrowser(
     fun stableArtworkFor(seed: DiscogsVersionSeed): String? =
         if (mode == DiscogsDirectMode.COVER) {
             CoverPlaybackMemory.editorialArtwork(context, seed.fingerprint, seed.coverUrl)
-                ?: seed.resolvedVideoId?.takeIf { id ->
+                // Some Cloud records already hold a real YouTube poster URL,
+                // which LAB10's editorial-only cache deliberately rejects.
+                ?: seed.coverUrl?.takeIf { url ->
                     "Archivio Cloud" in seed.sourceNames &&
-                        id.matches(Regex("[A-Za-z0-9_-]{11}"))
+                        url.startsWith("https://", ignoreCase = true) &&
+                        (url.contains("ytimg.com", ignoreCase = true) ||
+                            url.contains("youtube.com", ignoreCase = true))
+                }
+                // Last resort: the playback video's own poster, not a second
+                // full-resolution bitmap nor a new hidden web search.
+                ?: seed.resolvedVideoId?.takeIf { id ->
+                    id.matches(Regex("[A-Za-z0-9_-]{11}"))
                 }?.let { id -> "https://i.ytimg.com/vi/$id/hqdefault.jpg" }
         } else {
             CoverPlaybackMemory.stableArtwork(context, seed.fingerprint, seed.coverUrl)
@@ -1789,11 +1798,15 @@ internal fun DiscogsDirectVersionBrowser(
                 // T+5..10, the mutable recording may acquire a different ID.
                 // Play only the new metadata-verified binding, never a stale
                 // unverified ID retained by the original artwork card.
-                val admitted = publishedCoverSnapshots.any { it.fingerprint == selectedFingerprint }
+                // LAB13: the original-performer variants and the foreign
+                // covers share the same verified player path. LAB12 checked
+                // only publishedCoverSnapshots, leaving originals unplayable.
+                val published = publishedOriginalSnapshots + publishedCoverSnapshots
+                val admitted = published.any { it.fingerprint == selectedFingerprint }
                 if (admitted) {
                     results.firstOrNull {
                         it.fingerprint == selectedFingerprint && hasPublishableVideo(it)
-                    } ?: publishedCoverSnapshots.firstOrNull {
+                    } ?: published.firstOrNull {
                         it.fingerprint == selectedFingerprint && hasPublishableVideo(it)
                     }
                 } else null
