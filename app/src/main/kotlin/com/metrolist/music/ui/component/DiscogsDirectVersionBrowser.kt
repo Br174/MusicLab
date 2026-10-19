@@ -1851,14 +1851,15 @@ internal fun DiscogsDirectVersionBrowser(
                                     ?: return@launch
                                 if (hasPublishableVideo(original)) return@launch
 
-                                // A row gets its own 25s of eligible video search.
-                                // Time spent yielding to an audio rebuffer does not
-                                // count as a failed video search.
-                                val firstShownAtMs = session.turboPosterPublishedAtMs[fingerprint]
-                                    ?: SystemClock.elapsedRealtime()
+                                // LAB18: account only actual network work per card.
+                                // Waiting behind the fair semaphore or yielding to audio
+                                // must not consume another card's verification budget.
+                                // Stop after four bounded checks rather than idling
+                                // until the 25-second publication wall clock expires.
+                                var eligibleSearchMs = 0L
                                 var attempts = 0
                                 while (isActive && session.turboFinished &&
-                                    SystemClock.elapsedRealtime() - firstShownAtMs < TURBO_VIDEO_SKIP_MS) {
+                                    attempts < 4 && eligibleSearchMs < TURBO_VIDEO_SKIP_MS) {
                                     if (manualVideoSearchJob?.isActive == true &&
                                         resolvingFingerprint == fingerprint) return@launch
                                     if (isAudioProtected()) {
@@ -1869,19 +1870,20 @@ internal fun DiscogsDirectVersionBrowser(
                                         it.fingerprint == fingerprint
                                     } ?: return@launch
                                     if (hasPublishableVideo(current)) return@launch
-                                    // 25s is WALL CLOCK since visible publication,
-                                    // not summed query time. Permit released after
-                                    // every request: later rows cannot starve.
-                                    // LAB17: four independent rotated searches
-                                    // in the same 25s window; no manual tap needed.
-                                    if (attempts < 4) {
-                                        gate.withPermit {
-                                            if (!isAudioProtected()) {
-                                                withTimeoutOrNull(4_200L) {
-                                                    resolveVideoChunk(listOf(current))
-                                                }
-                                                attempts++
+                                    // LAB18: time starts ONLY after acquiring a
+                                    // network permit and confirming audio is safe.
+                                    // Keep three concurrent verifiers, release the
+                                    // permit after each short attempt and advance
+                                    // the fallback as soon as four checks fail.
+                                    gate.withPermit {
+                                        if (!isAudioProtected()) {
+                                            val acquiredAt = SystemClock.elapsedRealtime()
+                                            withTimeoutOrNull(4_200L) {
+                                                resolveVideoChunk(listOf(current))
                                             }
+                                            eligibleSearchMs +=
+                                                SystemClock.elapsedRealtime() - acquiredAt
+                                            attempts++
                                         }
                                     }
                                     val updated = results.firstOrNull {
@@ -1890,8 +1892,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (hasPublishableVideo(updated)) return@launch
                                     // Bounded backpressure for rate-limited sources,
                                     // never a cosmetic delay before a found video.
-                                    if (SystemClock.elapsedRealtime() - firstShownAtMs <
-                                        TURBO_VIDEO_SKIP_MS) delay(550L)
+                                    if (attempts < 4 && eligibleSearchMs < TURBO_VIDEO_SKIP_MS) {
+                                        delay(550L)
+                                    }
                                 }
 
                                 // Skip only once a different, same-work recording
@@ -4874,14 +4877,39 @@ private fun DiscogsVersionCard(
     val imagePixels = with(LocalDensity.current) {
         (if (showVideoPreview) 144.dp else 76.dp).roundToPx()
     }
-    val artworkRequest = remember(imageContext, stableArtworkUrl, imagePixels) {
+    // LAB18: use a small, deterministic fallback chain only when an image
+    // fails. Never fetch more artwork than the one visible card needs.
+    // Editorial image stays first; video thumbnails do not overwrite its cache.
+    val posterFallbacks = remember(stableArtworkUrl, seed.coverUrl, seed.resolvedVideoId) {
+        buildList {
+            stableArtworkUrl?.takeIf { it.startsWith("https://", ignoreCase = true) }?.let(::add)
+            seed.coverUrl?.takeIf { it.startsWith("https://", ignoreCase = true) }?.let(::add)
+            seed.resolvedVideoId?.trim()?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+                ?.let { id ->
+                    add("https://i.ytimg.com/vi/$id/hqdefault.jpg")
+                    add("https://i.ytimg.com/vi/$id/mqdefault.jpg")
+                }
+        }.distinct()
+    }
+    var posterIndex by remember(seed.fingerprint, posterFallbacks) {
+        androidx.compose.runtime.mutableIntStateOf(0)
+    }
+    var posterUnavailable by remember(seed.fingerprint, posterFallbacks) {
+        mutableStateOf(false)
+    }
+    val currentPosterUrl = posterFallbacks.getOrNull(posterIndex)
+    val artworkRequest = remember(imageContext, currentPosterUrl, imagePixels) {
         ImageRequest.Builder(imageContext)
-            .data(stableArtworkUrl)
+            .data(currentPosterUrl)
             .size(Size(imagePixels, imagePixels))
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
             .build()
+    }
+    val onArtworkError: (coil3.compose.AsyncImagePainter.State.Error) -> Unit = {
+        if (posterIndex < posterFallbacks.lastIndex) posterIndex++
+        else posterUnavailable = true
     }
     Surface(
         modifier =
@@ -4903,7 +4931,7 @@ private fun DiscogsVersionCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val videoId = seed.resolvedVideoId?.trim().orEmpty()
-            if (stableArtworkUrl.isNullOrBlank()) {
+            if (currentPosterUrl.isNullOrBlank() || posterUnavailable) {
                 // LAB10: missing editorial image is explicit, not a YouTube thumbnail.
                 Surface(
                     modifier = Modifier.size(if (showVideoPreview) 144.dp else 76.dp),
@@ -4919,6 +4947,7 @@ private fun DiscogsVersionCard(
                 // LAB10: one independently selected and permanently stable poster.
                 AsyncImage(
                     model = artworkRequest,
+                    onError = onArtworkError,
                     contentDescription = seed.resolvedVideoTitle ?: "Anteprima versione musicale",
                     modifier =
                         Modifier
@@ -4929,6 +4958,7 @@ private fun DiscogsVersionCard(
             } else {
                 AsyncImage(
                     model = artworkRequest,
+                    onError = onArtworkError,
                     contentDescription = null,
                     modifier = Modifier.size(76.dp),
                     contentScale = ContentScale.Crop,
