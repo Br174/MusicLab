@@ -310,7 +310,7 @@ test('LAB18 replacement is distinct, similar score, bounded and respects audio',
   assert.match(cover, /TURBO_VIDEO_SKIP_MS = 25_000L/);
 });
 test('LAB18 auto video discovery is not limited to two checks or to manual tap', () => {
-  assert.match(cover, /if \(attempts < 4\)/);
+  assert.match(cover, /attempts < 4 && eligibleSearchMs < TURBO_VIDEO_SKIP_MS/);
   assert.match(cover, /TURBO_BACKGROUND_PARALLELISM = 3/);
   assert.match(cover, /session\.turboFinished &&\s+\(publishedCoverSnapshots \+ publishedOriginalSnapshots\)\.any/);
   assert.match(cover, /startTurboVideoBackground\(\)/);
