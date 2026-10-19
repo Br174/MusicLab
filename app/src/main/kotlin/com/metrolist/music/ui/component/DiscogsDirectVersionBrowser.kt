@@ -2385,10 +2385,40 @@ internal fun DiscogsDirectVersionBrowser(
                                 session.rankingFrozen = true
                                 originalSectionFrozen = true
                                 session.originalSectionFrozen = true
-                                // A full poster snapshot freezes membership,
-                                // NOT the remaining parallel video lookups.
+                                // The first 25 positions are immutable while
+                                // metadata discovery prepares the second group.
+                                // Video bindings remain independently updateable.
                                 // The global ten-second scope owns cancellation.
                                 loading = false
+                            }
+                            // LAB15: the second 25 may appear immediately
+                            // after the 5-second boundary if already discovered.
+                            // Never insert before or rerank committed first rows.
+                            fun sealSecondPostersOnce() {
+                                if (activeCriteria != criteria ||
+                                    publishedOriginalSnapshots.size + publishedCoverSnapshots.size !=
+                                        TURBO_MIN_EARLY_POSTER_BLOCK) return
+                                if (SystemClock.elapsedRealtime() - turboCommandStartedAt <
+                                    TURBO_FIRST_POSTER_TARGET_MS) return
+                                val committedKeys = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                                    .mapTo(HashSet<String>()) {
+                                        DiscogsVersionSource.recordingIdentityKey(it)
+                                    }
+                                val next = turboRankedPool()
+                                    .filter(::modeAcceptsSeed)
+                                    .filterNot {
+                                        DiscogsVersionSource.recordingIdentityKey(it) in committedKeys
+                                    }
+                                    .take(TURBO_POSTER_SECOND_BLOCK)
+                                if (next.size < TURBO_POSTER_SECOND_BLOCK) return
+                                // Late original variants stay at the tail so
+                                // cards 1..25 NEVER move or disappear.
+                                publishedCoverSnapshots = publishedCoverSnapshots + next
+                                session.publishedCoverSnapshots = publishedCoverSnapshots
+                                val shown = SystemClock.elapsedRealtime()
+                                next.forEach { session.turboPosterPublishedAtMs[it.fingerprint] = shown }
+                                publishedReadyLimit = TURBO_RESULT_QUOTA
+                                session.publishedReadyLimit = TURBO_RESULT_QUOTA
                             }
                             fun stopAtFullQuota(): Boolean {
                                 if (coverCandidatePool().count(::hasPublishableVideo) < TURBO_RESULT_QUOTA) return false
@@ -2436,6 +2466,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                     // Even without a callback, Discogs can update the pool.
                                     sealPostersOnce()
+                                    sealSecondPostersOnce()
                                     val pending = (if (publishedCoverSnapshots.isNotEmpty() ||
                                         publishedOriginalSnapshots.isNotEmpty()) {
                                         (publishedOriginalSnapshots + publishedCoverSnapshots).mapNotNull { poster ->
@@ -2818,12 +2849,12 @@ internal fun DiscogsDirectVersionBrowser(
                         // explicit image-unavailable state rather than vanishing.
                         val finalRanked = turboRankedPool()
                             .filter(::modeAcceptsSeed)
-                            .take(TURBO_RESULT_QUOTA)
                         if (publishedCoverSnapshots.isEmpty() && publishedOriginalSnapshots.isEmpty()) {
                             // Low-yield search: publish only real found candidates.
-                            publishedOriginalSnapshots = finalRanked.filter(::isDistinctOriginalVersion)
+                            val completeBlock = finalRanked.take(TURBO_RESULT_QUOTA)
+                            publishedOriginalSnapshots = completeBlock.filter(::isDistinctOriginalVersion)
                             session.publishedOriginalSnapshots = publishedOriginalSnapshots
-                            publishedCoverSnapshots = finalRanked.filterNot(::isDistinctOriginalVersion)
+                            publishedCoverSnapshots = completeBlock.filterNot(::isDistinctOriginalVersion)
                             session.publishedCoverSnapshots = publishedCoverSnapshots
                         } else {
                             val committedKeys = (publishedOriginalSnapshots + publishedCoverSnapshots)
@@ -2837,7 +2868,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 .filterNot {
                                     DiscogsVersionSource.recordingIdentityKey(it) in committedKeys
                                 }
-                                .take(TURBO_POSTER_SECOND_BLOCK)
+                                .take(
+                                    (TURBO_RESULT_QUOTA -
+                                        publishedOriginalSnapshots.size -
+                                        publishedCoverSnapshots.size).coerceAtLeast(0)
+                                )
                             publishedCoverSnapshots = publishedCoverSnapshots + secondBlock
                             session.publishedCoverSnapshots = publishedCoverSnapshots
                         }
