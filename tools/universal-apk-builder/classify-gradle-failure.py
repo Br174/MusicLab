@@ -28,8 +28,8 @@ SIGNALS = (
      r"> Task :[^\n]*process[^\n]*Resources FAILED"),
     ("TEST", r"\bThere were failing tests\b|\bTests? failed\b|"
      r"\bAssertionError\b|\btest[A-Za-z0-9_]* FAILED\b|"
-     r"(?m)^# fail [1-9][0-9]*\b|"
-     r"(?m)^.+Test > .+ FAILED$"),
+     r"^# fail [1-9][0-9]*\b|"
+     r"^.+Test > .+ FAILED$"),
     ("SIGNING", r"\bKeystore was tampered with\b|"
      r"\bCannot recover key\b|\bFailed to read key\b|"
      r"\bKeystore file\b[^\n]*\bnot found\b|"
@@ -63,7 +63,7 @@ def classify(log: str) -> tuple[str, str]:
     """Return category and user-facing reason. No arbitrary log text is echoed."""
     clean = ANSI.sub("", log)[-250_000:]
     for code, expression in SIGNALS:
-        if re.search(expression, clean, re.I):
+        if re.search(expression, clean, re.I | re.M):
             detail = ""
             if code in ("KOTLIN", "JAVA"):
                 match = (KOTLIN_LOCATION if code == "KOTLIN" else JAVA_LOCATION).search(clean)
