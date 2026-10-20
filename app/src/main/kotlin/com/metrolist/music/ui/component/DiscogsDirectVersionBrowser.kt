@@ -390,7 +390,7 @@ internal fun DiscogsDirectVersionBrowser(
     val turboReplacementClaims = remember(sessionKey) { mutableSetOf<String>() }
     val turboReplacementGate = remember(sessionKey) { Semaphore(1) }
     // A UI state tick makes the manual-swap prompt visible exactly when
-    // the automatic 11s clock closes, even if the row data is unchanged.
+    // the automatic 15s clock closes, even if the row data is unchanged.
     var turboAutoClosedTick by remember(sessionKey) { mutableStateOf(0) }
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var backgroundResumeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -1757,10 +1757,10 @@ internal fun DiscogsDirectVersionBrowser(
      * reserve is low, Cover yields its HTTP capacity immediately.
      */
     // LAB21 supersedes the previous 10-second/background worker and refill.
-    // All automatic video work is owned by the single 5+3+3 viewport coordinator.
+    // All automatic video work is owned by the single 5+5+5 viewport coordinator.
 
     /**
-     * LAB22 authoritative 5+5+5 rule, superseding the old 5+3+3:
+     * LAB22 authoritative 5+5+5 rule; earlier automatic timer proposals are obsolete:
      *   0..5s   primary matching video, with priority over all replacement work
      *   5..10s  second bounded lookup for the SAME recording if still missing
      *   10..15s alternate COVER recording, thumbnail and verified video
@@ -1823,7 +1823,7 @@ internal fun DiscogsDirectVersionBrowser(
                 }
         }.collect { visible ->
             // collectLatest would cancel child video jobs whenever the user
-            // scrolls. collect preserves the original absolute 5+3+3 clock.
+            // scrolls. collect preserves the original absolute 5+5+5 clock.
             for (fingerprint in visible) {
                 if (session.turboAutoClosedFingerprints.contains(fingerprint) ||
                     session.turboFirstVisibleAtMs.containsKey(fingerprint)) continue
@@ -2873,7 +2873,7 @@ internal fun DiscogsDirectVersionBrowser(
                             // All remote verification remains inside this single
                             // hard global deadline and never probes audio streams.
                             // LAB21: no competing legacy ten-second global
-                            // video lookup. The 5+3+3 per-visible coordinator
+                            // video lookup. The 5+5+5 per-visible coordinator
                             // owns every automatic video search and cancellation.
                             // Prime Coil's existing image memory/disk caches, rather
                             // than creating 50 extra full-size bitmap copies.
@@ -3067,7 +3067,7 @@ internal fun DiscogsDirectVersionBrowser(
                         // LAB14: the poster producer stops at 10 seconds.
                         // A separate, lifecycle-owned VIDEO resolver continues
                         // against only the already sealed 50 positions.
-                        // LAB21: video ownership remains with the per-visible 5+3+3 coordinator.
+                        // LAB21: video ownership remains with the per-visible 5+5+5 coordinator.
                     }
                     streamingCandidates.cancel()
                     supplementalSeeds.cancel()
