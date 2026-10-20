@@ -138,9 +138,9 @@ test('LAB20 separates video completion from ten second poster discovery', () => 
   assert.match(cover, /if \(session\.turboFinished &&/);
 });
 test('LAB20 videos prioritize row positions and have bounded concurrent searches', () => {
-  assert.match(cover, /val positions = \(publishedOriginalSnapshots \+ publishedCoverSnapshots\)/);
+  assert.match(cover, /val publishedPositions = \(publishedOriginalSnapshots \+ publishedCoverSnapshots\)/);
   assert.match(cover, /val gate = Semaphore\(TURBO_BACKGROUND_PARALLELISM\)/);
-  assert.match(cover, /positions\.map \{ fingerprint ->/);
+  assert.match(cover, /next\.map \{ fingerprint ->/);
   assert.match(cover, /gate\.withPermit \{/);
   assert.match(cover, /TURBO_BACKGROUND_PARALLELISM = 3/);
   assert.match(cover, /withTimeoutOrNull\(4_200L\)/);
@@ -447,10 +447,10 @@ test('LAB20 prioritizes visible slots and certified spare before cloud network r
  assert.match(worker,/val onScreenKeys = listState\.layoutInfo\.visibleItemsInfo/);
  assert.match(worker,/val positions = visiblePositions \+ publishedPositions\.filterNot/);
  assert.match(worker,/val deadlineAtMs = publishedAtMs \+ TURBO_VIDEO_SKIP_MS/);
- assert.match(worker,/val wasVisible = fingerprint in visiblePositions/);
+ assert.match(worker,/val wasVisible = listState\.layoutInfo\.visibleItemsInfo\.any/);
  assert.match(worker,/if \(reserve\.none\(::hasPublishableVideo\)/);
  assert.match(worker,/val readyReserve = reserve\.filter\(::hasPublishableVideo\)/);
- assert.match(worker,/if \(hasPublishableVideo\(seed\)\) return seed/);
+ assert.match(worker,/hasPublishableVideo\(seed\)\) return seed/);
  assert.match(worker,/if \(SystemClock\.elapsedRealtime\(\) >= deadlineAtMs\) break/);
 });
 test('LAB20 archived image and video links survive and player remains read-only', () => {
@@ -461,4 +461,17 @@ test('LAB20 archived image and video links survive and player remains read-only'
  assert.match(cover,/selectedFingerprint == fingerprint &&\s+playbackIsNormallyPlaying\(\)/);
  assert.match(env,/UAB_UPDATE_FAMILY_VERSION_CODE="1020"/);
  assert.doesNotMatch(cover,/InnerTubeXPlayer\.playerResponseForPlayback\(/);
+});
+
+
+test('LAB20 scroll priority is refreshed at every three-slot batch rather than frozen for fifty', () => {
+  const worker = cover.split('fun startTurboVideoBackground() {')[1].split('LaunchedEffect(sessionKey)')[0];
+  assert.match(worker, /val pending = positions\.toMutableSet\(\)/);
+  assert.match(worker, /while \(isActive && pending\.isNotEmpty\(\)\)/);
+  assert.match(worker, /val nowVisible = listState\.layoutInfo\.visibleItemsInfo/);
+  assert.match(worker, /val next = pending\.sortedWith\(/);
+  assert.match(worker, /pending\.removeAll\(next\.toSet\(\)\)/);
+  assert.match(worker, /next\.map \{ fingerprint ->/);
+  assert.match(worker, /take\(TURBO_BACKGROUND_PARALLELISM\)/);
+  assert.doesNotMatch(worker, /positions\.map \{ fingerprint ->/);
 });
