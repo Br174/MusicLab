@@ -83,6 +83,10 @@ jobs:
           if-no-files-found: ignore
 
       - name: Build and Lint FOSS Debug APK
+        # The five recorded legacy unit failures remain visible and blocking;
+        # compile the LAB code anyway so Kotlin/Android regressions are diagnosed.
+        if: always() && !cancelled()
+        id: lab20_compile
         run: ./gradlew --console=plain assembleFossDebug :app:lintFossDebug --warning-mode summary
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -94,6 +98,7 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
 
       - name: Upload APK
+        if: always() && steps.lab20_compile.outcome == 'success'
         uses: actions/upload-artifact@v6
         with:
           name: app-universal-debug-pr-${{ github.event.number }}
