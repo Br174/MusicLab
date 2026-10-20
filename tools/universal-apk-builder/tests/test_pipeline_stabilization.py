@@ -147,5 +147,97 @@ class GuardCases(unittest.TestCase):
         script = (TOOL / "verify-changed-files.py").read_text()
         self.assertIn('"diff", "--name-only", "-z"', script)
 
+
+class RealUabShellIntegration(unittest.TestCase):
+    """Run the real build-apk.sh with an isolated fake JDK/SDK/Gradle, zero APK build."""
+
+    @staticmethod
+    def fake_build(log, failcode=42, include_classifier=True):
+        import os
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="uab-lab-test-") as root:
+            project = pathlib.Path(root)
+            sdk = project / "fake-sdk"
+            sdk.mkdir()
+            binpath = project / "fake-bin"
+            binpath.mkdir()
+            fake_java = binpath / "java"
+            fake_java.write_text('#!/bin/sh\nprintf \'openjdk version "21.0.6"\\n\' >&2\n')
+            fake_java.chmod(0o755)
+            gradle = project / "gradlew"
+            gradle.write_text('#!/bin/sh\nprintf "%s\\n" "$UAB_TEST_LOG"\nexit "$UAB_TEST_RC"\n')
+            gradle.chmod(0o755)
+            debug_key = project / "debug.keystore"
+            debug_key.write_text("FAKE ISOLATED TEST ONLY")
+            if include_classifier:
+                tool = project / "tools/universal-apk-builder"
+                tool.mkdir(parents=True)
+                shutil.copyfile(TOOL / "classify-gradle-failure.py", tool / "classify-gradle-failure.py")
+            env = os.environ.copy()
+            env.update({
+                "PATH": str(binpath) + os.pathsep + env["PATH"],
+                "ANDROID_SDK_ROOT": str(sdk),
+                "ANDROID_HOME": str(sdk),
+                "UAB_TASK": ":app:assembleDebug",
+                "UAB_TEST_LOG": log,
+                "UAB_TEST_RC": str(failcode),
+                "UAB_DEBUG_KEYSTORE": str(debug_key),
+                "UAB_PARALLEL_INSTALL": "off",
+                "UAB_OUTPUT_DIR": str(project / "dist"),
+                "UAB_CONFIG_FILE": str(project / "nonexistent.env"),
+            })
+            return subprocess.run(["bash", str(TOOL / "build-apk.sh"), str(project)],
+                                  text=True, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, env=env,
+                                  timeout=15)
+
+SHELL_CASES = [
+    ("real_kotlin_with_signing_setup", "Preparing signingConfig release\nKeystore restored\n"
+     "e: file:///tmp/Library.kt:77:11 Unresolved reference 'artist'", "errore di compilazione Kotlin (Library.kt:77)"),
+    ("real_java_error", "Signing setup\nMain.java:12: error: bad statement", "errore di compilazione Java (Main.java:12)"),
+    ("real_signing_failure", "Keystore was tampered with, or password incorrect", "problema reale di firma/keystore"),
+    ("real_test_failure", "signingConfig ready\nThere were failing tests", "test automatici falliti"),
+    ("real_sdk_failure", "SDK location not found", "Android SDK non configurato"),
+    ("real_network_failure", "Could not resolve dependency artifacts", "dipendenza o rete non disponibile"),
+    ("real_unknown_has_signing_word", "signingConfig debug initialized\nBUILD FAILED", "errore Gradle non classificato"),
+    ("real_resources_failure", "Android resource linking failed", "errore delle risorse Android"),
+    ("real_out_of_space", "No space left on device", "risorse del runner insufficienti"),
+]
+
+def register_shell_case(name, fake_log, expected):
+    def test(self):
+        proc = RealUabShellIntegration.fake_build(fake_log)
+        self.assertEqual(proc.returncode, 42, msg=proc.stdout[-1500:])
+        self.assertIn("[UAB][FAILED] " + expected, proc.stdout)
+        self.assertIn("[UAB][LOG]", proc.stdout)
+        self.assertNotIn("[UAB] BUILD OK", proc.stdout)
+    test.__name__ = "test_" + name
+    setattr(RealUabShellIntegration, test.__name__, test)
+
+for _name, _log, _expected in SHELL_CASES:
+    register_shell_case(_name, _log, _expected)
+
+class RealUabFailureModes(unittest.TestCase):
+    def test_preserves_custom_gradle_exit_code(self):
+        proc = RealUabShellIntegration.fake_build("Compilation error", failcode=23)
+        self.assertEqual(proc.returncode, 23, msg=proc.stdout[-1000:])
+    def test_missing_classifier_falls_back_and_preserves_failure(self):
+        proc = RealUabShellIntegration.fake_build("Compilation error", failcode=53,
+                                                   include_classifier=False)
+        self.assertEqual(proc.returncode, 53)
+        self.assertIn("[UAB][FAILED] errore Gradle non classificato", proc.stdout)
+    def test_bash_shell_syntax(self):
+        proc = subprocess.run(["bash", "-n", str(TOOL / "build-apk.sh")],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+    def test_existing_family_signing_code_unchanged(self):
+        code = (TOOL / "build-apk.sh").read_text()
+        self.assertIn('setup_family_signing\nensure_debug_keystore', code)
+        self.assertIn('METROLIST_DEBUG_KEYSTORE_PATH', code)
+    def test_existing_zip_integrity_code_unchanged(self):
+        code = (TOOL / "build-apk.sh").read_text()
+        self.assertIn('unzip -tq "$OUTPUT_DIR/', code)
+
 if __name__ == "__main__":
     unittest.main()
