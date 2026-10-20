@@ -283,5 +283,22 @@ class ReusableApkBuildContract(unittest.TestCase):
         self.assertIn("uab-build/musiclab-turbo-lab27-video-first-batch-refill-family-02", wf)
         self.assertIn("bash tools/universal-apk-builder/build-apk.sh .", wf)
 
+
+class LabBranchIsolationContract(unittest.TestCase):
+    def test_apk_build_ref_locked_to_isolated_lab(self):
+        caller = (ROOT / ".github/workflows/motorlab-musiclab-pipeline-lab.yml").read_text()
+        self.assertIn("github.ref == 'refs/heads/motorlab/musiclab-pipeline-stabilization-lab-20261020'", caller)
+    def test_no_production_writes_or_deploy(self):
+        caller = (ROOT / ".github/workflows/motorlab-musiclab-pipeline-lab.yml").read_text()
+        self.assertNotIn("deploy", caller.lower())
+        self.assertNotIn("contents: write", caller)
+    def test_shared_validation_exposes_no_secrets(self):
+        shared = (ROOT / ".github/workflows/motorlab-musiclab-shared-validation.yml").read_text()
+        self.assertNotIn("secrets.", shared)
+    def test_app_source_unchanged_gate_is_mandatory(self):
+        shared = (ROOT / ".github/workflows/motorlab-musiclab-shared-validation.yml").read_text()
+        self.assertIn("git diff --quiet", shared)
+        self.assertIn("app/src/main app/build.gradle.kts gradle.properties uab-project.env", shared)
+
 if __name__ == "__main__":
     unittest.main()

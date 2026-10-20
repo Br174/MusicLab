@@ -37,7 +37,7 @@ jobs:
 
   apk-build:
     # Artifact-first: skip compilation unless an explicit LAB-only build is approved.
-    if: ${{ (github.event_name == 'push' && contains(github.event.head_commit.message, '[MOTORLAB_BUILD_APK_LAB_ONCE]')) || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true) }}
+    if: ${{ github.ref == 'refs/heads/motorlab/musiclab-pipeline-stabilization-lab-20261020' && ((github.event_name == 'push' && contains(github.event.head_commit.message, '[MOTORLAB_BUILD_APK_LAB_ONCE]')) || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true)) }}
     needs: regression
     uses: ./.github/workflows/motorlab-musiclab-reusable-apk-build.yml
     with:

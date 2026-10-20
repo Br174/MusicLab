@@ -32,3 +32,14 @@
 - Legacy LAB27 workflow remains unchanged. Runtime and signed Android app sources are unchanged. No new APK compilation ordered because LAB27 signed artifact from run 39471277566 is compatible.
 - Integration harness uses nine simulated Gradle failures through real UAB shell; GitHub run 39478743110 87/87 Python + 49/49 Turbo = 136/136.
 - Validate this change on the LAB CI before claiming this new candidate is verified. No merging or promotion.
+
+## Validation readback of reusable APK candidate (GitHub Actions)
+- Candidate commit: fa9257e327a3cdb14cd64c79368236db4e5e9d01
+- GitHub CI: https://github.com/Br174/MusicLab/actions/runs/39479333157
+- Tests: 96 Python / 96 passed + 49 MusicLab Turbo Node / 49 passed = 145/145.
+- Exact scope check: 8/8 changed paths in allowlist, no app/src/main or signing modifications.
+- apk-build reusable job: **skipped** on ordinary push (verified); no APK compilation occurred and zero unnecessary artifact duplicates.
+- Existing LAB27 signed APK+ZIP: artifact ID 12288021731, SHA256 9f566cc94ff027182445ac12543c9e7f06002c14775c2513813daab53833295c, not expired at check. Source d49ecba0f670579b1f1c3fb9a4e9fb24113aae4e.
+- Main head 4b21330a1cb170c16c8dde8b0d515e3b3f13dab0 and original LAB27 head d49ecba0f670579b1f1c3fb9a4e9fb24113aae4e unchanged at verification.
+- Final hardening: opt-in APK job additionally requires exact isolated LAB ref; prevents execution on an unexpected ref even if a workflow is later copied or dispatched.
+- No actual Android installation/device test or new APK produced; classification, runner shell simulations and workflow contract are what is verified.
