@@ -89,3 +89,16 @@ test('LAB24 update identity uses exactly the existing signing family',()=>{
   assert.match(stamp,/MusicLab-Turbo-LAB24/);
   assert.doesNotMatch(stamp,/keytool|newkey/);
 });
+
+test('global playback recovers transient expired URLs outside Cover', () => {
+  const service=fs.readFileSync('app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt','utf8');
+  const retry=service.split('private fun refreshStreamAndRetry(')[1].split('private fun handleFileNotFoundError(')[0];
+  assert.match(retry,/val positionDrift = positionNow - retryPosition/);
+  assert.match(retry,/positionDrift > 2_000L \|\| positionDrift < -2_000L/);
+  assert.match(retry,/player\.playbackState == Player\.STATE_READY/);
+  assert.match(retry,/player\.currentMediaItem\?\.mediaId != mediaId/);
+  assert.match(retry,/player\.playWhenReady != retryPlayWhenReady/);
+  assert.doesNotMatch(retry,/player\.currentPosition != retryPosition/);
+  assert.match(service,/MusicLabLAB24Audio/);
+  assert.match(service,/fatal_source_error=/);
+});
