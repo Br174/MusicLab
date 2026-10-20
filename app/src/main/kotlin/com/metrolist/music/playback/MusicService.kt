@@ -3700,6 +3700,14 @@ class MusicService :
 
         val mediaId = player.currentMediaItem?.mediaId
         val failedStreamClient = mediaId?.let(songUrlCache::clientName)
+        // LAB24: diagnose failures even after Cover has been closed for hours.
+        // Use existing Timber only; never inspect private URLs or credentials.
+        Timber.tag("MusicLabLAB24Audio").w(
+            "fatal_source_error=%s media=%s ready=%b state=%d buffer_ms=%d cover=%b focus=%d network=%b",
+            error.errorCodeName, mediaId, player.playWhenReady,
+            player.playbackState, player.totalBufferedDuration,
+            coverSectionActive, lastAudioFocusState, isNetworkConnected.value,
+        )
         Timber
             .tag(TAG)
             .w(error, "Player error occurred for $mediaId: errorCode=${error.errorCode}, message=${error.message}")
@@ -4063,17 +4071,27 @@ class MusicService :
             scope.launch {
                 delay(RETRY_DELAY_MS)
 
-                if (player.currentMediaItem?.mediaId != mediaId ||
+                // LAB24: ExoPlayer can move the playhead slightly between a
+                // fatal stream error and this delayed retry. Exact equality
+                // silently abandons a valid 403/410 recovery. Still reject any
+                // changed song, explicit pause, real seek or already-ready player.
+                val positionNow = player.currentPosition
+                val positionDrift = positionNow - retryPosition
+                val changedSelection =
+                    player.currentMediaItem?.mediaId != mediaId ||
                     player.currentMediaItemIndex != retryIndex ||
-                    player.currentPosition != retryPosition ||
-                    player.playWhenReady != retryPlayWhenReady
-                ) {
-                    Timber.tag(TAG).d("Skipping stale retry for $mediaId after $retryReason")
+                    player.playWhenReady != retryPlayWhenReady ||
+                    positionDrift > 2_000L || positionDrift < -2_000L
+                if (changedSelection || player.playbackState == Player.STATE_READY) {
+                    Timber.tag("MusicLabLAB24Audio").d(
+                        "stale_stream_retry=%s media=%s state=%d drift_ms=%d",
+                        retryReason, mediaId, player.playbackState, positionDrift,
+                    )
                     return@launch
                 }
 
                 retryJob = null
-                player.seekTo(retryIndex, retryPosition)
+                player.seekTo(retryIndex, positionNow.coerceAtLeast(0L))
                 player.prepare()
 
                 Timber.tag(TAG).d("Retrying playback for $mediaId after $retryReason")
