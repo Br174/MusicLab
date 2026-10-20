@@ -2148,7 +2148,8 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode == DiscogsDirectMode.COVER) {
             // LAB22 manual substitute shows its own verified video thumbnail,
             // never a persisted image belonging to an older recording.
-            if (isTurbo && "MusicLab LAB22 video poster" in seed.sourceNames) {
+            if (isTurbo && ("MusicLab LAB22 video poster" in seed.sourceNames ||
+                    "MusicLab LAB23 video poster" in seed.sourceNames)) {
                 seed.coverUrl
             } else CoverPlaybackMemory.editorialArtwork(context, seed.fingerprint, seed.coverUrl)
                 // LAB14: previously archived songs may have only an older
