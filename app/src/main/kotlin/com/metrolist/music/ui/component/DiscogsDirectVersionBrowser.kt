@@ -66,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -4687,7 +4688,7 @@ internal fun DiscogsDirectVersionBrowser(
                 },
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Row(
@@ -4700,6 +4701,7 @@ internal fun DiscogsDirectVersionBrowser(
                             modifier = Modifier.clickable { navController.popBackStack() }
                                 .padding(horizontal = 5.dp),
                             style = MaterialTheme.typography.headlineLarge,
+                            fontSize = 36.sp,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Surface(
@@ -4724,20 +4726,14 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
                         }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Originale di riferimento",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                resolvedOriginalArtist.ifBlank { lockedArtist.ifBlank { "Artista originale" } },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        Text(
+                            resolvedOriginalArtist.ifBlank { lockedArtist.ifBlank { "Artista originale" } },
+                            modifier = Modifier.weight(1f).padding(top = 3.dp),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         Box {
                             Text(
                                 "⋮",
@@ -5688,13 +5684,17 @@ private fun DiscogsVersionCard(
                 .padding(horizontal = 12.dp, vertical = 2.dp)
                 .clickable(onClick = onPlay),
             shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(
-                if (selected) 1.2.dp else 0.4.dp,
-                if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
-            ),
-            tonalElevation = if (selected) 3.dp else 1.dp,
+            // LAB30: exactly the same themed selection treatment as MusicLab
+            // library songs: a softly tinted fill, absolutely no outline.
+            // This recalculates from the current MaterialTheme whenever the
+            // user changes MusicLab's selected accent or light/dark theme.
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                    .compositeOver(MaterialTheme.colorScheme.surface)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            tonalElevation = 0.dp,
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(10.dp),
