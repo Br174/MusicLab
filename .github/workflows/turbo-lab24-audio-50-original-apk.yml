@@ -25,7 +25,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Verify targeted LAB24 contracts (10 fast tests)
+      - name: Verify targeted LAB24 contracts (11 fast tests)
         shell: bash
         run: node --test cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs
 
@@ -37,7 +37,7 @@ jobs:
           cat /tmp/lab24-changed.txt
           while IFS= read -r f; do
             case "$f" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs|tools/universal-apk-builder/prepare-turbo-lab24-env.py|.github/workflows/turbo-lab24-audio-50-original-apk.yml) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt|cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs|tools/universal-apk-builder/prepare-turbo-lab24-env.py|.github/workflows/turbo-lab24-audio-50-original-apk.yml) ;;
               *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
             esac
           done < /tmp/lab24-changed.txt
