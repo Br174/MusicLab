@@ -109,7 +109,6 @@ private const val TURBO_PRIMARY_GRACE_MS = 3_000L
 private const val TURBO_REPLACEMENT_VIDEO_MS = 3_000L
 private const val TURBO_AUTO_TOTAL_MS =
     TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS + TURBO_REPLACEMENT_VIDEO_MS
-private const val TURBO_BACKGROUND_PARALLELISM = 3
 private const val TURBO_RESERVE_MAX = 100
 private const val TURBO_FIRST_POSTER_DEADLINE_MS = 1_200L
 private const val TURBO_FIRST_POSTER_TARGET_MS = 5_000L
@@ -1502,8 +1501,8 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     suspend fun resolveNextVideoBatch(limit: Int = DIRECT_VIDEO_BATCH_SIZE) {
-        // Do not let malformed/discographically incomplete seeds permanently
-        // block the 5+5 queue; keep their ranking evidence for later inspection.
+        // The non-Turbo legacy batch retains incomplete candidates for inspection.
+        // Turbo LAB21 does not use this path for automatic video resolution.
         videoPreparationPool()
             .filter { !hasPublishableVideo(it) && playableTrack(it) == null }
             .take(limit)
@@ -3634,6 +3633,10 @@ internal fun DiscogsDirectVersionBrowser(
                 Toast.makeText(context, "Attendi il blocco locandine (massimo 10 secondi).", Toast.LENGTH_SHORT).show()
                 return
             }
+            // LAB21: an explicit tap cancels the automatic per-row clock.
+            // Manual recovery is user-owned and never silently restarts 5+3+3.
+            turboVisibleJobs.remove(seed.fingerprint)?.cancel()
+            session.turboAutoClosedFingerprints.add(seed.fingerprint)
             if (manualVideoSearchJob?.isActive == true &&
                 resolvingFingerprint == seed.fingerprint) {
                 manualVideoSearchJob?.cancel()
