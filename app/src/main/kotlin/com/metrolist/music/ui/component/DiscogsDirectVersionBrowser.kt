@@ -4050,7 +4050,8 @@ internal fun DiscogsDirectVersionBrowser(
     // snapshot, not recalculated for every player tick / scroll frame.
     // Video verification still updates the touched snapshot immutably.
     val visibleOriginalVersions = remember(
-        mode, publishedOriginalSnapshots, results, turboStreamProofVersion,
+        mode, isTurbo, publishedOriginalSnapshots, turboStreamProofVersion,
+        if (isTurbo) null else results,
     ) {
         if (mode == DiscogsDirectMode.COVER) publishedOriginalSnapshots
             .filterNot(::isHiddenForCurrentCover)
@@ -4059,7 +4060,7 @@ internal fun DiscogsDirectVersionBrowser(
     }
     val visibleTrueCovers = remember(
         mode, isTurbo, loading, publishedCoverSnapshots, visibleLimit,
-        results, turboStreamProofVersion,
+        turboStreamProofVersion, if (isTurbo) null else results,
     ) {
         if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading)) {
             publishedCoverSnapshots
