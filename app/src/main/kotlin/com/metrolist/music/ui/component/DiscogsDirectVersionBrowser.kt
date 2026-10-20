@@ -1884,7 +1884,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 val publishedAtMs = session.turboPosterPublishedAtMs[fingerprint]
                                     ?: SystemClock.elapsedRealtime()
                                 val deadlineAtMs = publishedAtMs + TURBO_VIDEO_SKIP_MS
-                                val wasVisible = fingerprint in visiblePositions
+                                // Re-check actual on-screen membership at dispatch
+                                // time: a user may have scrolled since the burst ended.
+                                val wasVisible = listState.layoutInfo.visibleItemsInfo.any { item ->
+                                    item.key.toString().endsWith("_$fingerprint")
+                                }
                                 var attempts = 0
                                 // LAB20: ten seconds from *publication*, not ten
                                 // seconds of network work after waiting for 49 rows.
