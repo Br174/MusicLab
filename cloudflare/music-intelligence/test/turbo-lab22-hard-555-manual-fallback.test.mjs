@@ -78,6 +78,8 @@ test('manual retries truly work: preload, existing videos then online new cover 
   assert.match(manual,/adoptFrom\(session\.turboReserve \+ turboRankedPool\(\)\)/);
   assert.match(manual,/adoptFrom\(results\)/);
   assert.match(manual,/CoverDiscoverySources\.discover\(/);
+  assert.match(manual,/forceRefresh = true/);
+  assert.match(manual,/earlyCandidates\.addAll\(quick\)/);
   assert.match(manual,/withTimeoutOrNull\(12_000L\)/);
   assert.match(manual,/adoptFrom\(fresh\)/);
 });
@@ -123,6 +125,17 @@ test('archived original cover handoff and poster/video cache reused',()=>{
   assert.match(archive,/CloudMusicDiscovery\.rememberArchiveSelection\(item, endpoint\)/);
   assert.match(ui,/val earlyArchiveSeeds = archiveSeeds\(listOfNotNull\(selectedArchiveItem\)\)/);
   assert.match(ui,/playbackVideoId = item\.playbackVideoId/);
+});
+test('automatic replacement forces its verified video poster, never retained editorial art',()=>{
+  assert.match(first,/val videoPoster =\s+"https:\/\/i\.ytimg\.com\/vi\/\$videoId\/hqdefault\.jpg"/);
+  assert.match(first,/val replacement = verified\.copy\(/);
+  assert.match(first,/if \(it\.fingerprint == fingerprint\) replacement else it/);
+});
+test('online manual provider refresh is explicit, legacy auto cache remains unchanged',()=>{
+  const sources=fs.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt','utf8');
+  assert.match(sources,/forceRefresh: Boolean = false/);
+  assert.match(sources,/if \(!forceRefresh\) cache\[key\]/);
+  assert.match(manual,/forceRefresh = true/);
 });
 test('APK stays update-in-place with same Turbo signing and versionCode 1022',()=>{
   assert.match(stamp,/TURBO_LAB22/);
