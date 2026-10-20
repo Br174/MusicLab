@@ -135,3 +135,52 @@ test('APK identity is LAB21 1021, same install family and no signing manipulatio
   assert.match(stamp, /it\.verlezza\.musiclab\.turbo01/);
   assert.doesNotMatch(stamp, /keytool|newkey|jks\.b64"\s*:/);
 });
+
+test('manual mode appears only after 11 seconds, never on a verified video', () => {
+  assert.match(ui, /fun manualSwapReady\(seed: DiscogsVersionSeed\)/);
+  assert.match(ui, /seed\.fingerprint in session\.turboAutoClosedFingerprints/);
+  assert.match(ui, /SystemClock\.elapsedRealtime\(\) - it >= TURBO_AUTO_TOTAL_MS/);
+  assert.match(ui, /!hasPublishableVideo\(seed\)/);
+  assert.match(ui, /automaticVideoManaged = isTurbo/);
+  assert.match(ui, /manualSwitchAvailable = isTurbo && manualSwapReady\(seed\)/);
+  assert.match(ui, /automaticVideoManaged && manualSwitchAvailable ->\s+"Video assente · Tocca per cambiare cover"/);
+  assert.match(ui, /videoReadyVerified -> "Video trovato/);
+});
+test('manual tap never performs internet searches for the failed original card', () => {
+  const manual = ui.split('fun retryMissingVideo(seed: DiscogsVersionSeed) {')[1].split('if (resolvingFingerprint == seed.fingerprint) return')[0];
+  assert.match(manual, /val alternatives = session\.turboReserve/);
+  assert.match(manual, /CoverPlaybackMemory\.metadataVerifiedVideo\(context, candidate\.fingerprint\)/);
+  assert.match(manual, /val winner = replacement/);
+  assert.match(manual, /if \(winner == null\) \{/);
+  assert.doesNotMatch(manual, /resolveVideoChunk|CompilationTrackResolver\.resolveTrack|YouTube\.queue|CloudMusicDiscovery\.searchArchive/);
+  assert.doesNotMatch(manual, /while \(isActive|delay\(/);
+});
+test('manual replacement rotates distinct preloaded verified covers, no repeated candidates', () => {
+  const manual = ui.split('fun retryMissingVideo(seed: DiscogsVersionSeed) {')[1].split('if (resolvingFingerprint == seed.fingerprint) return')[0];
+  assert.match(manual, /session\.turboManualTriedSpareIds/);
+  assert.match(manual, /candidate\.fingerprint !in tried/);
+  assert.match(manual, /tried\.add\(candidate\.fingerprint\)/);
+  assert.match(manual, /hasPublishableVideo\(ready\)/);
+  assert.match(manual, /ready\.resolvedVideoId in usedIds/);
+  assert.match(manual, /DiscogsVersionSource\.recordingIdentityKey\(candidate\) !in occupied/);
+  assert.match(manual, /freshArtwork == current\.coverUrl/);
+  assert.match(manual, /winner\.fingerprint/);
+});
+test('manual outcome updates entire poster, ID and source atomically or leaves card intact', () => {
+  const manual = ui.split('fun retryMissingVideo(seed: DiscogsVersionSeed) {')[1].split('if (resolvingFingerprint == seed.fingerprint) return')[0];
+  assert.match(manual, /val change: \(DiscogsVersionSeed\) -> DiscogsVersionSeed = \{/);
+  assert.match(manual, /publishedCoverSnapshots = publishedCoverSnapshots\.map\(change\)/);
+  assert.match(manual, /publishedOriginalSnapshots = publishedOriginalSnapshots\.map\(change\)/);
+  assert.match(manual, /results = results\.map\(change\)/);
+  assert.match(manual, /session\.stableOrder = session\.stableOrder\.map/);
+  assert.match(manual, /session\.turboAutoClosedFingerprints\.add\(winner\.fingerprint\)/);
+  assert.match(manual, /"Nessun'altra cover con video già pronto\."/);
+});
+test('scroll does not cancel an active 5+3+3 timer and manual swap does not restart auto', () => {
+  assert.match(c, /\}\.collect \{ visible ->/);
+  assert.doesNotMatch(c, /\}\.collectLatest \{ visible ->/);
+  assert.match(ui, /session\.turboManualTriedSpareIds\.clear\(\)/);
+  assert.match(ui, /turboAutoClosedTick\+\+/);
+  assert.match(ui, /Modifier\.clickable\(onClick = onRetryVideo\)/);
+  assert.match(ui, /automaticVideoManaged\) manualSwitchAvailable/);
+});
