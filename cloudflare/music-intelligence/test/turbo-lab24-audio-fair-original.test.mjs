@@ -20,7 +20,7 @@ test('LAB24 uses the existing coordinator, no parallel automatic search engine',
 test('playback priority cancels background queries and never restarts a fresh clock', () => {
   assert.match(play, /backgroundPausedForPlayback = true/);
   assert.match(play, /turboAutoVideoJob\?\.cancel\(\)/);
-  assert.match(play, /SystemClock\.elapsedRealtime\(\) < session\.turboAutoStartedAtMs \+ TURBO_AUTO_TOTAL_MS/);
+  assert.match(play, /SystemClock\.elapsedRealtime\(\) < maxOf\(/);
   assert.match(play, /turboSearchGeneration\+\+/);
   assert.match(automatic, /val globalStart = session\.turboPosterPublishedAtMs\.values\.minOrNull\(\)/);
 });
@@ -53,7 +53,7 @@ test('all 50 candidates have a fair initial lane including the final 25', () => 
 
 test('each automatic video attempt has a bounded sub-deadline', () => {
   assert.match(automatic,/remaining\.coerceAtMost\(2_200L\)/);
-  assert.match(automatic,/SystemClock\.elapsedRealtime\(\) < globalEnd/);
+  assert.match(automatic,/SystemClock\.elapsedRealtime\(\) < currentVideoEndMs\(\)/);
   assert.match(automatic,/turboReplacementGate\.withPermit/);
   assert.match(automatic,/TURBO_RESULT_QUOTA/);
 });

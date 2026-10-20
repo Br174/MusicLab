@@ -22,7 +22,7 @@ test('reopening an incomplete work automatically triggers bounded repair',()=>{
 });
 test('archive metadata remains in read-only Cloud and is not deleted',()=>{
   assert.match(source, /CloudMusicDiscovery\.searchArchive\(/);
-  assert.match(source, /sourceNames = listOf\("Archivio Cloud"\)/);
+  assert.match(source, /sources = listOf\("Archivio Cloud"\)/);
   assert.match(cloud, /\/api\/v1\/archive\/search/);
   assert.match(cloud, /fun recentArchiveSelection\(/);
 });
