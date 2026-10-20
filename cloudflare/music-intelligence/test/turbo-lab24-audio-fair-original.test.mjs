@@ -102,3 +102,15 @@ test('global playback recovers transient expired URLs outside Cover', () => {
   assert.match(service,/MusicLabLAB24Audio/);
   assert.match(service,/fatal_source_error=/);
 });
+
+test('LAB24 Android labels must never reuse LAB23 after runner stamping',()=>{
+  const stamp = fs.readFileSync('tools/universal-apk-builder/prepare-turbo-lab24-env.py','utf8');
+  const workflow = fs.readFileSync('.github/workflows/turbo-lab24-audio-50-original-apk.yml','utf8');
+  assert.match(stamp, /'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 19"': 'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 24"'/);
+  assert.match(stamp, /'export METROLIST_APP_NAME="MusicLab Turbo LAB 19"': 'export METROLIST_APP_NAME="MusicLab Turbo LAB 24"'/);
+  assert.doesNotMatch(stamp, /Turbo LAB 23/);
+  assert.match(workflow, /UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 24"/);
+  assert.match(workflow, /export METROLIST_APP_NAME="MusicLab Turbo LAB 24"/);
+  assert.match(workflow, /application-label:'MusicLab Turbo LAB 24'/);
+  assert.doesNotMatch(workflow, /Turbo LAB 23/);
+});
