@@ -91,6 +91,8 @@ internal data class DiscogsCompilationDetail(
     val tracks: List<DiscogsTrack>,
     val videos: List<DiscogsVideo>,
     val credits: List<DiscogsCredit> = emptyList(),
+    // Discogs release collection ownership, NOT sales or artist streams.
+    val collectorHave: Int? = null,
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$id"
