@@ -1,0 +1,134 @@
+name: MotorLab reusable MusicLab Turbo LAB27 APK build (controlled)
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  build-update:
+    name: build-update-first
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload_update.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_update.outputs.artifact-digest }}
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact pinned Turbo LAB27 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm immutable input source SHA
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          test "$(git hash-object app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt)" = "03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+          cache-overwrite-existing: true
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK and Last.fm inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          fi
+
+      - name: Prepare LAB27 version metadata in runner checkout
+        run: python3 tools/universal-apk-builder/prepare-turbo-lab27-env.py
+
+      - name: UAB preflight diagnostics
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build Turbo LAB27
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verify Turbo LAB27 update identity and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="dist/uab/apk/MusicLab-Turbo-LAB27.apk"
+          ZIP="dist/uab/MusicLab-Turbo-LAB27-APK.zip"
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='1027'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab Turbo LAB 27'"
+
+          EXPECTED="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          APK_CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$APK_CERT" = "$EXPECTED"
+
+          {
+            echo "UPDATE_FAMILY_ID=turbo01"
+            echo "APPLICATION_ID=it.verlezza.musiclab.turbo01"
+            echo "VERSION_CODE=1027"
+            echo "SIGNING_CERT_SHA256=$APK_CERT"
+            echo "MELD_ORIGINAL_PLAYER_BLOB_SHA=03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
+            echo "MELD_UPSTREAM_COMMIT=9cb6105a5fe9077c6d4430b978209556f9405da3"
+            echo "PAIRED_SAFETY=LAB68 unchanged; independent Turbo experimental family"
+          } > dist/uab/UPDATE_FAMILY.txt
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Upload Turbo LAB27 immediately
+        id: upload_update
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB27
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB27.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-Turbo-LAB27-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/UPDATE_FAMILY.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload separate diagnostics if present
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB27-build-diagnostics
+          path: dist/uab/logs/*.log
+          if-no-files-found: ignore

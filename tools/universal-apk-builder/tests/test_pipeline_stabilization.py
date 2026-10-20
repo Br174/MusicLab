@@ -239,5 +239,49 @@ class RealUabFailureModes(unittest.TestCase):
         code = (TOOL / "build-apk.sh").read_text()
         self.assertIn('unzip -tq "$OUTPUT_DIR/', code)
 
+
+class ReusableApkBuildContract(unittest.TestCase):
+    def test_lab_caller_calls_reusable_build_once(self):
+        caller = (ROOT / ".github/workflows/motorlab-musiclab-pipeline-lab.yml").read_text()
+        self.assertEqual(caller.count("uses: ./.github/workflows/motorlab-musiclab-reusable-apk-build.yml"), 1)
+        self.assertIn("needs: regression", caller)
+    def test_build_opt_in_and_not_on_every_push(self):
+        caller = (ROOT / ".github/workflows/motorlab-musiclab-pipeline-lab.yml").read_text()
+        self.assertIn("default: false", caller)
+        self.assertIn("[MOTORLAB_BUILD_APK_LAB_ONCE]", caller)
+        self.assertIn("inputs.build_apk == true", caller)
+    def test_build_pins_sha(self):
+        wf = (ROOT / ".github/workflows/motorlab-musiclab-reusable-apk-build.yml").read_text()
+        self.assertIn("ref: $" + "{{ inputs.source_sha }}", wf)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"', wf)
+        self.assertIn("persist-credentials: false", wf)
+    def test_original_family_and_signature_check_preserved(self):
+        wf = (ROOT / ".github/workflows/motorlab-musiclab-reusable-apk-build.yml").read_text()
+        self.assertIn("it.verlezza.musiclab.turbo01", wf)
+        self.assertIn("versionCode='1027'", wf)
+        self.assertIn("9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749", wf)
+        self.assertIn('unzip -tq "$ZIP"', wf)
+    def test_build_keeps_original_player_hash(self):
+        wf = (ROOT / ".github/workflows/motorlab-musiclab-reusable-apk-build.yml").read_text()
+        self.assertIn("03138a7b0d6771e4c7dde0ecc9ab11a8046990ff", wf)
+    def test_one_apk_compilation_and_no_unrelated_unit_suite(self):
+        wf = (ROOT / ".github/workflows/motorlab-musiclab-reusable-apk-build.yml").read_text()
+        self.assertEqual(wf.count("bash tools/universal-apk-builder/build-apk.sh ."), 1)
+        self.assertNotIn(":app:testFossDebugUnitTest", wf)
+    def test_callable_build_cannot_run_itself_on_push(self):
+        wf = (ROOT / ".github/workflows/motorlab-musiclab-reusable-apk-build.yml").read_text()
+        self.assertIn("workflow_call:", wf)
+        self.assertNotIn("workflow_dispatch:", wf)
+        self.assertNotIn("  push:", wf)
+    def test_build_permissions_read_only(self):
+        wf = (ROOT / ".github/workflows/motorlab-musiclab-reusable-apk-build.yml").read_text()
+        self.assertIn("contents: read", wf)
+        self.assertNotIn("contents: write", wf)
+        self.assertNotIn("actions: write", wf)
+    def test_legacy_lab27_workflow_still_exists(self):
+        wf = (ROOT / ".github/workflows/turbo-lab27-video-first-batch-refill-apk.yml").read_text()
+        self.assertIn("uab-build/musiclab-turbo-lab27-video-first-batch-refill-family-02", wf)
+        self.assertIn("bash tools/universal-apk-builder/build-apk.sh .", wf)
+
 if __name__ == "__main__":
     unittest.main()

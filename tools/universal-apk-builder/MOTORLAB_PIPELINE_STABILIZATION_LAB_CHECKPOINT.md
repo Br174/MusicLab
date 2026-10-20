@@ -25,3 +25,10 @@
 - No inherited historical Turbo workflow was rewritten. Reusable validation is exercised by this isolated LAB caller; future migration to other LABs remains a separately controlled, compatibility-guarded integration decision.
 - No deployment, merge, production/main/MADRE write, secrets or paid providers used.
 - Checkpoint write itself is control-plane-only; if it re-triggers the isolated validation workflow, that subsequent run should also be read back before final closure.
+
+## Next LAB adoption candidate — 2026-10-20
+- New workflow_call build job mirrors the existing LAB27 signed APK+ZIP build; its checkout is pinned to caller SHA and it is reachable only after the reusable 87+49 validation gate.
+- Artifact-first default: compiling is skipped on ordinary pushes; explicit one-shot commit marker [MOTORLAB_BUILD_APK_LAB_ONCE] or positive workflow dispatch selection is needed.
+- Legacy LAB27 workflow remains unchanged. Runtime and signed Android app sources are unchanged. No new APK compilation ordered because LAB27 signed artifact from run 39471277566 is compatible.
+- Integration harness uses nine simulated Gradle failures through real UAB shell; GitHub run 39478743110 87/87 Python + 49/49 Turbo = 136/136.
+- Validate this change on the LAB CI before claiming this new candidate is verified. No merging or promotion.

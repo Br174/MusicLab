@@ -4,6 +4,12 @@ on:
     branches:
       - motorlab/musiclab-pipeline-stabilization-lab-20261020
   workflow_dispatch:
+    inputs:
+      build_apk:
+        description: Explicit LAB APK rebuild when signed artifact cannot be reused
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -21,9 +27,19 @@ jobs:
         tools/universal-apk-builder/tests/test_pipeline_stabilization.py
         .github/workflows/motorlab-musiclab-shared-validation.yml
         .github/workflows/motorlab-musiclab-pipeline-lab.yml
+        .github/workflows/motorlab-musiclab-reusable-apk-build.yml
         tools/universal-apk-builder/MOTORLAB_PIPELINE_STABILIZATION_LAB_CHECKPOINT.md
       node_test_files: >-
         cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs
         cloudflare/music-intelligence/test/turbo-lab25-archive-refresh-video-fair.test.mjs
         cloudflare/music-intelligence/test/turbo-lab26-video-coverage-scheduler.test.mjs
         cloudflare/music-intelligence/test/turbo-lab27-video-first-batch-refill.test.mjs
+
+  apk-build:
+    # Artifact-first: skip compilation unless an explicit LAB-only build is approved.
+    if: ${{ (github.event_name == 'push' && contains(github.event.head_commit.message, '[MOTORLAB_BUILD_APK_LAB_ONCE]')) || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true) }}
+    needs: regression
+    uses: ./.github/workflows/motorlab-musiclab-reusable-apk-build.yml
+    with:
+      source_sha: ${{ github.sha }}
+    secrets: inherit
