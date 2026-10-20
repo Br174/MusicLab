@@ -3,7 +3,30 @@ package com.metrolist.music.ui.component
 import android.widget.Toast
 import android.os.SystemClock
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -418,7 +441,16 @@ internal fun DiscogsDirectVersionBrowser(
     var backgroundPausedForPlayback by remember(sessionKey) { mutableStateOf(false) }
     var sourcePrefetchedForVisibleLimit by remember(sessionKey) { mutableStateOf(-1) }
     var decisionSavingFingerprint by remember(sessionKey) { mutableStateOf<String?>(null) }
+    // LAB29: direct manipulation of the expanded controls, finger-following
+    // while dragging. Only the release snaps with a gentle spring.
+    val coverHeaderMotion = remember(sessionKey) {
+        Animatable(if (session.headerExpanded) 1f else 0f)
+    }
     var headerSwipeDistance by remember(sessionKey) { mutableStateOf(0f) }
+    var coverHeaderDragging by remember(sessionKey) { mutableStateOf(false) }
+    var coverHeaderDragProgress by remember(sessionKey) {
+        mutableFloatStateOf(if (session.headerExpanded) 1f else 0f)
+    }
     var coverSwipeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
 
     val listState = rememberLazyListState(
@@ -4475,8 +4507,13 @@ internal fun DiscogsDirectVersionBrowser(
                 index > previousIndex ||
                     (index == previousIndex && offset > previousOffset + 8)
             if (movingForward) {
-                headerExpanded = false
-                session.headerExpanded = false
+                if (headerExpanded) {
+                    headerExpanded = false
+                    session.headerExpanded = false
+                    if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                        scope.launch { coverHeaderMotion.animateTo(0f, tween(180)) }
+                    }
+                }
             }
             previousIndex = index
             previousOffset = offset
@@ -4590,7 +4627,259 @@ internal fun DiscogsDirectVersionBrowser(
 
     // Fully verified sessions remain cache-only; incomplete sessions can repair.
 
+    val musiclabCoverMotionPx = with(LocalDensity.current) { 62.dp.toPx() }
+    val musiclabCoverExpandedProgress =
+        if (coverHeaderDragging) coverHeaderDragProgress else coverHeaderMotion.value
+    val musiclabIsPlaying = playerConnection?.isPlaying?.collectAsState()?.value == true
+    var musiclabSortMenu by remember(sessionKey) { mutableStateOf(false) }
+    var musiclabSourcesMenu by remember(sessionKey) { mutableStateOf(false) }
+    var musiclabArtistMenu by remember(sessionKey) { mutableStateOf(false) }
+    val musiclabArtistPoster = visibleOriginalVersions.firstOrNull()?.coverUrl
+        ?: results.firstOrNull {
+            it.artist.equals(resolvedOriginalArtist, ignoreCase = true)
+        }?.coverUrl
+
     Column(modifier = Modifier.fillMaxSize()) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth().pointerInput(sessionKey, musiclabCoverMotionPx) {
+                    detectVerticalDragGestures(
+                        onDragStart = {
+                            coverHeaderDragProgress = coverHeaderMotion.value
+                            coverHeaderDragging = true
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            coverHeaderDragProgress =
+                                (coverHeaderDragProgress + dragAmount / musiclabCoverMotionPx)
+                                    .coerceIn(0f, 1f)
+                        },
+                        onDragEnd = {
+                            val release = coverHeaderDragProgress
+                            val dest = if (release >= 0.5f) 1f else 0f
+                            scope.launch {
+                                coverHeaderMotion.snapTo(release)
+                                coverHeaderDragging = false
+                                headerExpanded = dest > 0.5f
+                                session.headerExpanded = headerExpanded
+                                coverHeaderMotion.animateTo(
+                                    dest,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow,
+                                    ),
+                                )
+                            }
+                        },
+                        onDragCancel = {
+                            scope.launch {
+                                coverHeaderMotion.snapTo(coverHeaderDragProgress)
+                                coverHeaderDragging = false
+                                coverHeaderMotion.animateTo(
+                                    if (headerExpanded) 1f else 0f,
+                                    animationSpec = tween(180),
+                                )
+                            }
+                        },
+                    )
+                },
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(58.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        Text(
+                            "‹",
+                            modifier = Modifier.clickable { navController.popBackStack() }
+                                .padding(horizontal = 5.dp),
+                            style = MaterialTheme.typography.headlineLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.size(46.dp),
+                        ) {
+                            if (!musiclabArtistPoster.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = musiclabArtistPoster,
+                                    contentDescription = "Artista originale",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        resolvedOriginalArtist.take(1).uppercase(),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.titleLarge,
+                                    )
+                                }
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Originale di riferimento",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                resolvedOriginalArtist.ifBlank { lockedArtist.ifBlank { "Artista originale" } },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Box {
+                            Text(
+                                "⋮",
+                                modifier = Modifier.clickable { musiclabArtistMenu = true }
+                                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                                fontSize = 24.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            DropdownMenu(
+                                expanded = musiclabArtistMenu,
+                                onDismissRequest = { musiclabArtistMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Archivio") },
+                                    onClick = {
+                                        musiclabArtistMenu = false
+                                        navController.navigate(MusicLabArchiveNavigationBridge.ROUTE)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    // Content retains its full layout size behind a moving clip;
+                    // the clip's height changes on each drag pixel, not on release.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height((62f * musiclabCoverExpandedProgress).dp)
+                            .clipToBounds(),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().requiredHeight(62.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Box {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.clickable { musiclabSortMenu = true },
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    ) {
+                                        Text("Ordina per", style = MaterialTheme.typography.labelSmall)
+                                        Text(
+                                            when (sortMode) {
+                                                DirectVersionSort.RELEVANCE -> "Punteggio"
+                                                DirectVersionSort.OLDEST -> "Più vecchi"
+                                                DirectVersionSort.NEWEST -> "Più nuovi"
+                                            } + " ▾",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = musiclabSortMenu,
+                                    onDismissRequest = { musiclabSortMenu = false },
+                                ) {
+                                    listOf(
+                                        DirectVersionSort.RELEVANCE to "Punteggio",
+                                        DirectVersionSort.OLDEST to "Più vecchi",
+                                        DirectVersionSort.NEWEST to "Più nuovi",
+                                    ).forEach { (value, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = {
+                                                musiclabSortMenu = false
+                                                if (sortMode != value) {
+                                                    sortMode = value
+                                                    session.sortMode = value
+                                                    scope.launch { listState.scrollToItem(0) }
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            Box {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.clickable { musiclabSourcesMenu = true },
+                                ) {
+                                    Text(
+                                        "Fonti ▾",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp),
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = musiclabSourcesMenu,
+                                    onDismissRequest = { musiclabSourcesMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Tutte le fonti") },
+                                        onClick = { musiclabSourcesMenu = false },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Dettagli delle fonti") },
+                                        onClick = {
+                                            musiclabSourcesMenu = false
+                                            showSourceDiagnostics = true
+                                        },
+                                    )
+                                }
+                            }
+                            OutlinedTextField(
+                                value = title,
+                                onValueChange = { title = it },
+                                placeholder = { Text("Cerca cover…", maxLines = 1) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f).height(54.dp),
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                                trailingIcon = {
+                                    Text(
+                                        "⌕",
+                                        modifier = Modifier.clickable {
+                                            if (!loading) runSearch()
+                                        }.padding(horizontal = 4.dp),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    // This row is *always* visible. The source/sort/search row is
+                    // the only part controlled by the drag gesture.
+                    DirectCategorySelector(
+                        selected = category,
+                        results = results,
+                        onSelected = { selected ->
+                            category = selected
+                            session.category = selected
+                            scope.launch { listState.scrollToItem(0) }
+                        },
+                    )
+                }
+            }
+        } else {
         Surface(
             modifier =
                 Modifier
@@ -4811,6 +5100,7 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
         }
+        }
 
         LazyColumn(
             state = listState,
@@ -4870,7 +5160,7 @@ internal fun DiscogsDirectVersionBrowser(
 
             if (mode == DiscogsDirectMode.COVER) {
                 if (visibleOriginalVersions.isNotEmpty()) {
-                    item(key = "discogs_direct_original_versions_header") {
+                    if (!isTurbo) item(key = "discogs_direct_original_versions_header") {
                         Text(
                             "Versioni di ${resolvedOriginalArtist.ifBlank { "interprete originale" }}",
                             style = MaterialTheme.typography.titleMedium,
@@ -4887,6 +5177,8 @@ internal fun DiscogsDirectVersionBrowser(
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
                             audioReadyVerified = hasTurboStreamReady(seed),
+                            modernCoverCard = isTurbo,
+                            isPlaying = musiclabIsPlaying && seed.fingerprint == selectedFingerprint,
                             automaticVideoManaged = isTurbo,
                             automaticVideoSearching = isTurbo && turboAutoVideoJob?.isActive == true,
                             manualSwitchAvailable = isTurbo && manualSwapReady(seed),
@@ -4903,7 +5195,7 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                 }
                 if (visibleTrueCovers.isNotEmpty()) {
-                    item(key = "discogs_direct_true_covers_header") {
+                    if (!isTurbo) item(key = "discogs_direct_true_covers_header") {
                         Text(
                             "Cover di altri interpreti",
                             style = MaterialTheme.typography.titleMedium,
@@ -4920,6 +5212,8 @@ internal fun DiscogsDirectVersionBrowser(
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
                             audioReadyVerified = hasTurboStreamReady(seed),
+                            modernCoverCard = isTurbo,
+                            isPlaying = musiclabIsPlaying && seed.fingerprint == selectedFingerprint,
                             automaticVideoManaged = isTurbo,
                             automaticVideoSearching = isTurbo && turboAutoVideoJob?.isActive == true,
                             manualSwitchAvailable = isTurbo && manualSwapReady(seed),
@@ -5278,11 +5572,63 @@ private fun DirectFilterField(
 }
 
 @Composable
+private fun MusicLabPlaybackBars(
+    animated: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val transition = rememberInfiniteTransition(label = "MusicLab cover playback")
+    val first by transition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(360), repeatMode = RepeatMode.Reverse,
+        ),
+        label = "first playback bar",
+    )
+    val second by transition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            tween(520), repeatMode = RepeatMode.Reverse,
+        ),
+        label = "second playback bar",
+    )
+    val third by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(420), repeatMode = RepeatMode.Reverse,
+        ),
+        label = "third playback bar",
+    )
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        listOf(first, second, third).forEach { level ->
+            Box(
+                modifier = Modifier.width(3.dp)
+                    .height((6f + (if (animated) level else 0.45f) * 11f).dp)
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(
+                            alpha = if (animated) 1f else 0.60f,
+                        ),
+                        RoundedCornerShape(3.dp),
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
 private fun DiscogsVersionCard(
     seed: DiscogsVersionSeed,
     showVideoPreview: Boolean,
     videoReadyVerified: Boolean = false,
     audioReadyVerified: Boolean = false,
+    modernCoverCard: Boolean = false,
+    isPlaying: Boolean = false,
     automaticVideoManaged: Boolean = false,
     automaticVideoSearching: Boolean = false,
     manualSwitchAvailable: Boolean = false,
@@ -5334,6 +5680,157 @@ private fun DiscogsVersionCard(
     val onArtworkError: (coil3.compose.AsyncImagePainter.State.Error) -> Unit = {
         if (posterIndex < posterFallbacks.lastIndex) posterIndex++
         else posterUnavailable = true
+    }
+    if (modernCoverCard) {
+        var cardMenuExpanded by remember(seed.fingerprint) { mutableStateOf(false) }
+        Surface(
+            modifier = Modifier.fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 2.dp)
+                .clickable(onClick = onPlay),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(
+                if (selected) 1.2.dp else 0.4.dp,
+                if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+            ),
+            tonalElevation = if (selected) 3.dp else 1.dp,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(126.dp).clip(RoundedCornerShape(11.dp))
+                        .clickable(onClick = onPlay),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!currentPosterUrl.isNullOrBlank() && !posterUnavailable) {
+                        AsyncImage(
+                            model = artworkRequest,
+                            onError = onArtworkError,
+                            contentDescription = seed.trackTitle,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("♫", style = MaterialTheme.typography.headlineMedium)
+                            }
+                        }
+                    }
+                    if (selected) {
+                        Box(
+                            modifier = Modifier.fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.11f)),
+                        )
+                        MusicLabPlaybackBars(
+                            animated = isPlaying,
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        seed.trackTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        seed.artist,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val shownYear = seed.releaseDate?.take(4)?.takeIf(String::isNotBlank)
+                        ?: seed.displayDate?.take(4)?.takeIf(String::isNotBlank) ?: "—"
+                    Text(
+                        shownYear + " · " + primaryDiscoverySource(seed),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (showConfidence) {
+                        Text(
+                            "★  " + seed.confidenceScore + "/20",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Text(
+                        when (directDisplayCategory(seed)) {
+                            DirectVersionCategory.LIVE -> "Live"
+                            DirectVersionCategory.REMIX -> "Mix/Remix"
+                            DirectVersionCategory.FOREIGN -> "Stranieri"
+                            else -> "Studio"
+                        },
+                        modifier = Modifier.background(
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            RoundedCornerShape(12.dp),
+                        ).padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.height(115.dp),
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (videoReadyVerified) Color(0xFF22C871)
+                            else Color(0xFFFA5757),
+                        modifier = Modifier.size(11.dp),
+                    ) { }
+                    Box {
+                        Text(
+                            "⋮",
+                            modifier = Modifier.clickable { cardMenuExpanded = true }
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                            fontSize = 22.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        DropdownMenu(
+                            expanded = cardMenuExpanded,
+                            onDismissRequest = { cardMenuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Dettagli") },
+                                onClick = {
+                                    cardMenuExpanded = false
+                                    onDetails()
+                                },
+                            )
+                            if (!videoReadyVerified && (manualSwitchAvailable ||
+                                seed.videoResolutionChecked)) {
+                                DropdownMenuItem(
+                                    text = { Text("Cerca video / cambia cover") },
+                                    onClick = {
+                                        cardMenuExpanded = false
+                                        onRetryVideo()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return
     }
     Surface(
         modifier =
