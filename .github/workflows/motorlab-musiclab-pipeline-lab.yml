@@ -1,0 +1,29 @@
+name: MotorLab MusicLab LAB pipeline stabilization tests
+on:
+  push:
+    branches:
+      - motorlab/musiclab-pipeline-stabilization-lab-20261020
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: motorlab-musiclab-pipeline-stabilization-lab
+  cancel-in-progress: false
+jobs:
+  regression:
+    uses: ./.github/workflows/motorlab-musiclab-shared-validation.yml
+    with:
+      baseline_sha: d49ecba0f670579b1f1c3fb9a4e9fb24113aae4e
+      allowed_paths: |
+        tools/universal-apk-builder/build-apk.sh
+        tools/universal-apk-builder/classify-gradle-failure.py
+        tools/universal-apk-builder/verify-changed-files.py
+        tools/universal-apk-builder/tests/test_pipeline_stabilization.py
+        .github/workflows/motorlab-musiclab-shared-validation.yml
+        .github/workflows/motorlab-musiclab-pipeline-lab.yml
+        tools/universal-apk-builder/MOTORLAB_PIPELINE_STABILIZATION_LAB_CHECKPOINT.md
+      node_test_files: >-
+        cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs
+        cloudflare/music-intelligence/test/turbo-lab25-archive-refresh-video-fair.test.mjs
+        cloudflare/music-intelligence/test/turbo-lab26-video-coverage-scheduler.test.mjs
+        cloudflare/music-intelligence/test/turbo-lab27-video-first-batch-refill.test.mjs

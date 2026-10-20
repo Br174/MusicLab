@@ -247,11 +247,15 @@ BUILD_RC=${PIPESTATUS[0]}
 set -e
 
 if (( BUILD_RC != 0 )); then
-  REASON="errore Gradle non classificato"
-  grep -Eqi 'SDK location not found|ANDROID_HOME|ANDROID_SDK_ROOT' "$LOG_FILE" && REASON="Android SDK non configurato"
-  grep -Eqi 'Could not resolve|Could not GET|Could not HEAD|UnknownHostException|Connection timed out' "$LOG_FILE" && REASON="dipendenza o rete non disponibile"
-  grep -Eqi 'Compilation error|e: file:|error: ' "$LOG_FILE" && REASON="errore di compilazione nel codice"
-  grep -Eqi 'Keystore|signing|storeFile|validateSigning' "$LOG_FILE" && REASON="problema di firma/keystore"
+  # LAB-only stabilization: classify the actual Gradle failure, never a setup
+  # mention of signing/keystore. Preserve the original Gradle exit code.
+  CLASSIFIER="$PROJECT_ROOT/tools/universal-apk-builder/classify-gradle-failure.py"
+  if [[ -f "$CLASSIFIER" ]]; then
+    REASON="$(python3 "$CLASSIFIER" "$LOG_FILE" 2>/dev/null)" || REASON=""
+  else
+    REASON=""
+  fi
+  [[ -n "$REASON" ]] || REASON="errore Gradle non classificato (consultare log)"
   printf '[UAB][FAILED] %s\n[UAB][LOG] %s\n' "$REASON" "$LOG_FILE" >&2
   exit "$BUILD_RC"
 fi

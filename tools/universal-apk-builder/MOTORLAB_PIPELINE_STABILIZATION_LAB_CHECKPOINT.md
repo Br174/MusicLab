@@ -1,0 +1,14 @@
+# MotorLab MusicLab pipeline stabilization LAB
+- Date: 2026-10-20 (Europe/Rome)
+- Operation: musiclab-pipeline-stabilization-20261020
+- Scope: isolated branch `motorlab/musiclab-pipeline-stabilization-lab-20261020`
+- Base source SHA: `d49ecba0f670579b1f1c3fb9a4e9fb24113aae4e`; immutable original LAB27 branch untouched.
+- CORE: MotorLab r37. Project satellite: r37 verified.
+- Preflight: last LAB27 APK+ZIP workflow 39471277566 succeeded. No reason to rebuild unchanged Android source just for diagnostic tooling.
+- Root cause: old UAB Gradle failure block sequentially overwrote compiler classification with broad "Keystore|signing" match from non-failing setup lines.
+- Remediation: one deterministic Python classifier linked to existing UAB build script; no app code changes; original Gradle status preserved.
+- Workflow convergence: introduce one read-only reusable validation workflow and a single isolated LAB caller, preserving project-specific existing Turbo workflow. No modification of historical approved workflows, main or MADRE.
+- Tests: Python failure-classification & negative guard matrix plus 49 existing Turbo Node contracts on exact LAB27 source. GitHub CI evidence must be recorded before calling gate verified.
+- Build decision: Android source, package identity, player, signing and runtime untouched, so full APK+ZIP recompilation is not required for this LAB control-plane-only validation. A future APK needs a separately approved build scope only when meaningful.
+- No production deploy, paid service, new secret, release, merge, or promotion.
+- Next: independent GitHub Actions readback of new LAB validation, verify positive/negative counts and exact changed-file paths, then report limits.

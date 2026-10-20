@@ -1,0 +1,54 @@
+name: MotorLab MusicLab LAB reusable validation
+on:
+  workflow_call:
+    inputs:
+      baseline_sha:
+        required: true
+        type: string
+      allowed_paths:
+        required: true
+        type: string
+      node_test_files:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  validate:
+    name: fast-tests-and-scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact caller SHA (no submodules or credentials)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+          persist-credentials: false
+      - name: Python UAB diagnostics and security regression suite
+        run: python3 -m unittest discover -s tools/universal-apk-builder/tests -p 'test_pipeline_stabilization.py' -v
+      - name: Existing MusicLab Turbo Node behavior contracts
+        env:
+          NODE_TEST_FILES: ${{ inputs.node_test_files }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r -a files <<< "$NODE_TEST_FILES"
+          (("${#files[@]}" > 0))
+          for f in "${files[@]}"; do
+            case "$f" in
+              cloudflare/music-intelligence/test/*.test.mjs) test -f "$f" ;;
+              *) echo "FORBIDDEN TEST PATH: $f" >&2; exit 1 ;;
+            esac
+          done
+          node --test "${files[@]}"
+      - name: Exact changed-file allowlist guard
+        env:
+          UAB_BASELINE: ${{ inputs.baseline_sha }}
+          UAB_ALLOWED: ${{ inputs.allowed_paths }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$UAB_ALLOWED" | python3 tools/universal-apk-builder/verify-changed-files.py "$UAB_BASELINE"
+          test "$(git hash-object app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt)" = "03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
+          git diff --quiet "$UAB_BASELINE" HEAD -- app/src/main app/build.gradle.kts gradle.properties uab-project.env
