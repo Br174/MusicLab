@@ -3633,8 +3633,19 @@ internal fun DiscogsDirectVersionBrowser(
             }
     }
 
-    // LAB63 Pollicino: Retry shares the same hard 3-second cap as tapping
-    // a missing Cover video. No unbounded cloud/COVER.INFO/YouTube chain on UI.
+    // LAB21: The manual cover-swap action only appears after the original
+    // viewport clock closes at 11 seconds. Reading the state tick ensures
+    // Compose redraws the label when the automatic search ends.
+    fun manualSwapReady(seed: DiscogsVersionSeed): Boolean {
+        val version = turboAutoClosedTick
+        return version >= 0 && seed.fingerprint in session.turboAutoClosedFingerprints &&
+            !hasPublishableVideo(seed) &&
+            session.turboFirstVisibleAtMs[seed.fingerprint]?.let {
+                SystemClock.elapsedRealtime() - it >= TURBO_AUTO_TOTAL_MS
+            } == true
+    }
+
+    // LAB21: manual tap chooses only an already verified alternative bundle.
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
             val current = (publishedOriginalSnapshots + publishedCoverSnapshots)
@@ -4420,6 +4431,8 @@ internal fun DiscogsDirectVersionBrowser(
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
                             audioReadyVerified = hasTurboStreamReady(seed),
+                            automaticVideoManaged = isTurbo,
+                            manualSwitchAvailable = isTurbo && manualSwapReady(seed),
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
@@ -4450,6 +4463,8 @@ internal fun DiscogsDirectVersionBrowser(
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
                             audioReadyVerified = hasTurboStreamReady(seed),
+                            automaticVideoManaged = isTurbo,
+                            manualSwitchAvailable = isTurbo && manualSwapReady(seed),
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
@@ -4810,6 +4825,8 @@ private fun DiscogsVersionCard(
     showVideoPreview: Boolean,
     videoReadyVerified: Boolean = false,
     audioReadyVerified: Boolean = false,
+    automaticVideoManaged: Boolean = false,
+    manualSwitchAvailable: Boolean = false,
     stableArtworkUrl: String?,
     showConfidence: Boolean,
     selected: Boolean,
@@ -4977,6 +4994,9 @@ private fun DiscogsVersionCard(
                             when {
                                 audioReadyVerified -> "Flusso audio trovato"
                                 videoReadyVerified -> "Video trovato · audio non confermato"
+                                automaticVideoManaged && manualSwitchAvailable ->
+                                    "Video assente · Tocca per cambiare cover"
+                                automaticVideoManaged -> "Ricerca automatica 5+3+3…"
                                 seed.videoResolutionChecked -> "Video non trovato · Tocca per cercare"
                                 else -> "Ricerca video automatica…"
                             },
@@ -4985,7 +5005,9 @@ private fun DiscogsVersionCard(
                                 Color(0xFF2E7D32)
                             } else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f).then(
-                                if (seed.videoResolutionChecked && seed.resolvedVideoId.isNullOrBlank()) {
+                                if (!videoReadyVerified &&
+                                    (if (automaticVideoManaged) manualSwitchAvailable
+                                     else seed.videoResolutionChecked && seed.resolvedVideoId.isNullOrBlank())) {
                                     Modifier.clickable(onClick = onRetryVideo)
                                 } else Modifier
                             ),
