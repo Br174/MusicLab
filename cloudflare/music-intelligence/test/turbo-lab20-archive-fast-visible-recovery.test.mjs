@@ -475,3 +475,13 @@ test('LAB20 scroll priority is refreshed at every three-slot batch rather than f
   assert.match(worker, /take\(TURBO_BACKGROUND_PARALLELISM\)/);
   assert.doesNotMatch(worker, /positions\.map \{ fingerprint ->/);
 });
+
+test('LAB20 visible deadline never starts a slow unverified alternate lookup after ten seconds', () => {
+  const worker = cover.split('fun startTurboVideoBackground() {')[1].split('LaunchedEffect(sessionKey)')[0];
+  assert.match(worker, /if \(wasVisible && SystemClock\.elapsedRealtime\(\) >= deadlineAtMs &&/);
+  assert.match(worker, /!hasPublishableVideo\(spare\)\) continue/);
+  assert.match(worker, /val verified = \(if \(hasPublishableVideo\(spare\)\)/);
+  assert.match(worker, /if \(reserve\.none\(::hasPublishableVideo\)/);
+  assert.match(worker, /val next = pending\.sortedWith\(/);
+  assert.doesNotMatch(worker, /positions\.map \{ fingerprint ->/);
+});
