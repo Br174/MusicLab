@@ -104,10 +104,12 @@ private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
 private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
 private const val TURBO_BURST_DEADLINE_MS = 10_000L
-// LAB21 canonical rule: first 5s, in-flight grace 3s, substitute 3s, then STOP.
+// LAB22 canonical HARD deadlines per card's first real viewport appearance.
+// The first five seconds get first priority. The next five keep searching
+// for that same recording. Only the final five may adopt a different cover.
 private const val TURBO_PRIMARY_VIDEO_MS = 5_000L
-private const val TURBO_PRIMARY_GRACE_MS = 3_000L
-private const val TURBO_REPLACEMENT_VIDEO_MS = 3_000L
+private const val TURBO_PRIMARY_GRACE_MS = 5_000L
+private const val TURBO_REPLACEMENT_VIDEO_MS = 5_000L
 private const val TURBO_AUTO_TOTAL_MS =
     TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS + TURBO_REPLACEMENT_VIDEO_MS
 private const val TURBO_RESERVE_MAX = 100
@@ -1748,12 +1750,11 @@ internal fun DiscogsDirectVersionBrowser(
     // All automatic video work is owned by the single 5+3+3 viewport coordinator.
 
     /**
-     * LAB21 authoritative video rule, superseding every previous automatic
-     * 10s/10+5/5+5/manual-reentry proposal:
-     *   0..5s   first matching video, highest network priority
-     *   5..8s   only let the ALREADY started first attempt settle
-     *   8..11s  one bounded replacement lane (different artwork and recording)
-     *   11s     cancel child work and permanently close this automatic card
+     * LAB22 authoritative 5+5+5 rule, superseding the old 5+3+3:
+     *   0..5s   primary matching video, with priority over all replacement work
+     *   5..10s  second bounded lookup for the SAME recording if still missing
+     *   10..15s alternate COVER recording, thumbnail and verified video
+     *   15s     stop/cancel ALL automatic work for this row, including late writes
      *
      * T0 is the first actual LazyColumn viewport appearance. Scrolling or
      * re-entering never resets T0. Manual user requests remain independent.
@@ -1798,7 +1799,7 @@ internal fun DiscogsDirectVersionBrowser(
             context, seed.fingerprint, candidate.id,
         )
         return DiscogsVersionSource.markVideoResolved(
-            seed, candidate.id, candidate.title, "MusicLab · Turbo LAB21 5+3+3",
+            seed, candidate.id, candidate.title, "MusicLab · Turbo LAB22 5+5+5",
         )
     }
 
@@ -1827,40 +1828,36 @@ internal fun DiscogsDirectVersionBrowser(
                         val primaryEndsAt = firstSeenAt + TURBO_PRIMARY_VIDEO_MS
                         val graceEndsAt = primaryEndsAt + TURBO_PRIMARY_GRACE_MS
                         val autoEndsAt = graceEndsAt + TURBO_REPLACEMENT_VIDEO_MS
-                        // LAB21: no competing 50-item automatic global queue.
-                        // The existing four-slot verifier is reserved for FIRST
-                        // attempts; replacement searches get only one slot.
-                        val firstAttempt = async {
-                            try {
-                                var rounds = 0
-                                while (isActive && rounds < 2 &&
-                                    SystemClock.elapsedRealtime() < primaryEndsAt) {
-                                    val actual = results.firstOrNull { it.fingerprint == fingerprint }
-                                        ?: break
-                                    if (hasPublishableVideo(actual)) break
+                        // LAB22: each stage obeys the absolute timestamp set at
+                        // first visibility; semaphore wait and network time count.
+                        // Primary lookup has all four existing verifier permits;
+                        // one replacement gate may operate only in phase 3.
+                        suspend fun tryPrimaryUntil(deadline: Long, maxAttempts: Int) {
+                            var attempts = 0
+                            while (isActive && attempts < maxAttempts &&
+                                SystemClock.elapsedRealtime() < deadline) {
+                                val actual = results.firstOrNull { it.fingerprint == fingerprint }
+                                    ?: return
+                                if (hasPublishableVideo(actual)) return
+                                val left = deadline - SystemClock.elapsedRealtime()
+                                if (left <= 0L) return
+                                withTimeoutOrNull(left) {
                                     resolveVideoChunk(listOf(actual))
-                                    rounds++
                                 }
-                            } catch (cancel: CancellationException) {
-                                throw cancel
-                            } catch (_: Exception) {
-                                // Failed provider metadata never certifies a false video.
+                                attempts++
                             }
                         }
-                        val firstRemaining = primaryEndsAt - SystemClock.elapsedRealtime()
-                        if (firstRemaining > 0) {
-                            withTimeoutOrNull(firstRemaining) { firstAttempt.await() }
+                        // Spend the FIRST 5s on the fast matched-link path, not
+                        // on reserve refill, replacement image searches or audio.
+                        tryPrimaryUntil(primaryEndsAt, maxAttempts = 3)
+                        // Second 5s extends only the same recording's video
+                        // link lookup. It never starts replacement work early.
+                        if (isActive && SystemClock.elapsedRealtime() < graceEndsAt) {
+                            tryPrimaryUntil(graceEndsAt, maxAttempts = 2)
                         }
-                        // No NEW initial searches in this grace window. An HTTP
-                        // verification already in flight may finish until T+8s.
-                        val graceRemaining = graceEndsAt - SystemClock.elapsedRealtime()
-                        if (graceRemaining > 0 && firstAttempt.isActive) {
-                            withTimeoutOrNull(graceRemaining) { firstAttempt.await() }
-                        }
-                        firstAttempt.cancel()
-                        // A completed first pass does not shorten the 5..8s wait.
                         val waitForReplacement = graceEndsAt - SystemClock.elapsedRealtime()
-                        if (waitForReplacement > 0) delay(waitForReplacement)
+                        if (waitForReplacement > 0L) delay(waitForReplacement)
+                        if (!isActive) return@launch
                         val ready = results.firstOrNull { it.fingerprint == fingerprint }
                         if (ready == null || hasPublishableVideo(ready) ||
                             (manualVideoSearchJob?.isActive == true &&
@@ -1888,9 +1885,9 @@ internal fun DiscogsDirectVersionBrowser(
                                         DiscogsVersionSource.recordingIdentityKey(spare) !in occupied &&
                                         isDistinctOriginalVersion(spare) == originalSide &&
                                         playableTrack(spare) != null &&
-                                        (TitleMeaningResolver.matchesBaseTitle(
+                                        TitleMeaningResolver.matchesBaseTitle(
                                             workTitle, spare.trackTitle,
-                                        ) || spare.workRelationConfirmed) &&
+                                        ) &&
                                         (spare.coverUrl != original.coverUrl ||
                                             spare.resolvedVideoId != original.resolvedVideoId)
                                     }.sortedWith(
@@ -1905,6 +1902,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     // than the single replacement lane.
                                     if (!turboReplacementClaims.add(spare.fingerprint)) continue
                                     val verified = lab21VerifyAlternative(spare) ?: continue
+                                    // Hard 15s: a late provider reply may only
+                                    // update its safe cache, never the visible row.
+                                    if (!isActive || SystemClock.elapsedRealtime() >= autoEndsAt) break
                                     if (verified.resolvedVideoId == original.resolvedVideoId &&
                                         verified.coverUrl == original.coverUrl) continue
                                     val latest = (publishedOriginalSnapshots + publishedCoverSnapshots)
@@ -1930,7 +1930,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     session.turboReserve = session.turboReserve.filterNot {
                                         it.fingerprint == verified.fingerprint
                                     }
-                                    // A replacement cannot acquire a fresh 11s
+                                    // A replacement cannot acquire a fresh 15s
                                     // clock by changing its fingerprint.
                                     session.turboFirstVisibleAtMs[verified.fingerprint] = firstSeenAt
                                     session.turboAutoClosedFingerprints.add(verified.fingerprint)
@@ -1939,14 +1939,14 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                         }
                         // If the reserve is empty, do not unlock manual mode
-                        // before T+11. This timer performs NO network work.
+                        // before T+15. The final wait performs NO network work.
                         val remainingUntilStop = autoEndsAt - SystemClock.elapsedRealtime()
                         if (remainingUntilStop > 0) delay(remainingUntilStop)
                     } finally {
                         session.turboAutoClosedFingerprints.add(fingerprint)
                         turboVisibleJobs.remove(fingerprint)
                         turboAutoClosedTick++
-                        // No automatic retries on re-entry/scroll or after T+11s.
+                        // No automatic retries on re-entry/scroll or after T+15s.
                     }
                 }
             }
@@ -3637,8 +3637,8 @@ internal fun DiscogsDirectVersionBrowser(
             }
     }
 
-    // LAB21: The manual cover-swap action only appears after the original
-    // viewport clock closes at 11 seconds. Reading the state tick ensures
+    // LAB22: The manual cover-swap action only appears after the original
+    // viewport clock closes at 15 seconds. Reading the state tick ensures
     // Compose redraws the label when the automatic search ends.
     fun manualSwapReady(seed: DiscogsVersionSeed): Boolean {
         val version = turboAutoClosedTick
@@ -3661,7 +3661,7 @@ internal fun DiscogsDirectVersionBrowser(
             if (firstSeen == null ||
                 SystemClock.elapsedRealtime() - firstSeen < TURBO_AUTO_TOTAL_MS ||
                 current.fingerprint !in session.turboAutoClosedFingerprints) {
-                Toast.makeText(context, "Ricerca automatica 5+3+3 ancora attiva.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Ricerca automatica 5+5+5 ancora attiva.", Toast.LENGTH_SHORT).show()
                 return
             }
             // Manual action is INSTANT and OFFLINE: select an entirely new
@@ -4293,7 +4293,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (isTurbo) {
                                         "Locandine: ${visibleTrueCovers.size + visibleOriginalVersions.size}/50 · " +
                                             "Video verificati: ${(visibleTrueCovers + visibleOriginalVersions).count(::hasPublishableVideo)} · " +
-                                            if (loading) "Raccolta locandine · video 5+3+3 s per scheda visibile"
+                                            if (loading) "Raccolta locandine · video 5+5+5 s per scheda visibile"
                                             else "Tocca una locandina senza video per cercarlo"
                                     } else {
                                         "Risultati certificati: ${publishPool.size} · " +
@@ -5000,7 +5000,7 @@ private fun DiscogsVersionCard(
                                 videoReadyVerified -> "Video trovato · audio non confermato"
                                 automaticVideoManaged && manualSwitchAvailable ->
                                     "Video assente · Tocca per cambiare cover"
-                                automaticVideoManaged -> "Ricerca automatica 5+3+3…"
+                                automaticVideoManaged -> "Ricerca automatica 5+5+5…"
                                 seed.videoResolutionChecked -> "Video non trovato · Tocca per cercare"
                                 else -> "Ricerca video automatica…"
                             },
