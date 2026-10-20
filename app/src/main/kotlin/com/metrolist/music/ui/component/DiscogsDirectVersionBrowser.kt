@@ -1915,14 +1915,23 @@ internal fun DiscogsDirectVersionBrowser(
                                     // Hard 15s: a late provider reply may only
                                     // update its safe cache, never the visible row.
                                     if (!isActive || SystemClock.elapsedRealtime() >= autoEndsAt) break
-                                    if (verified.resolvedVideoId == original.resolvedVideoId &&
-                                        verified.coverUrl == original.coverUrl) continue
+                                    val videoId = verified.resolvedVideoId?.trim().orEmpty()
+                                    if (videoId.isBlank() ||
+                                        videoId == original.resolvedVideoId) continue
+                                    val videoPoster =
+                                        "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                                    if (videoPoster == original.coverUrl) continue
+                                    val replacement = verified.copy(
+                                        coverUrl = videoPoster,
+                                        sourceNames = (verified.sourceNames +
+                                            "MusicLab LAB22 video poster").distinct(),
+                                    )
                                     val latest = (publishedOriginalSnapshots + publishedCoverSnapshots)
                                         .firstOrNull { it.fingerprint == fingerprint }
                                         ?: break
                                     if (hasPublishableVideo(latest)) break
                                     val change: (DiscogsVersionSeed) -> DiscogsVersionSeed = {
-                                        if (it.fingerprint == fingerprint) verified else it
+                                        if (it.fingerprint == fingerprint) replacement else it
                                     }
                                     if (publishedOriginalSnapshots.any { it.fingerprint == fingerprint }) {
                                         publishedOriginalSnapshots = publishedOriginalSnapshots.map(change)
@@ -1935,15 +1944,15 @@ internal fun DiscogsDirectVersionBrowser(
                                         .distinctBy(DiscogsVersionSource::recordingIdentityKey)
                                     session.results = results
                                     session.stableOrder = session.stableOrder.map {
-                                        if (it == fingerprint) verified.fingerprint else it
+                                        if (it == fingerprint) replacement.fingerprint else it
                                     }
                                     session.turboReserve = session.turboReserve.filterNot {
-                                        it.fingerprint == verified.fingerprint
+                                        it.fingerprint == replacement.fingerprint
                                     }
                                     // A replacement cannot acquire a fresh 15s
                                     // clock by changing its fingerprint.
-                                    session.turboFirstVisibleAtMs[verified.fingerprint] = firstSeenAt
-                                    session.turboAutoClosedFingerprints.add(verified.fingerprint)
+                                    session.turboFirstVisibleAtMs[replacement.fingerprint] = firstSeenAt
+                                    session.turboAutoClosedFingerprints.add(replacement.fingerprint)
                                     break
                                 }
                             }
@@ -3798,6 +3807,9 @@ internal fun DiscogsDirectVersionBrowser(
                     if (adoptFrom(results)) return@launch
                     // Phase M3: user explicitly requested network fallback.
                     // No background loop; each tap owns one bounded discovery.
+                    val earlyCandidates = java.util.Collections.synchronizedList(
+                        mutableListOf<CoverSourceCandidate>(),
+                    )
                     val discovered = withTimeoutOrNull(12_000L) {
                         withContext(Dispatchers.IO) {
                             CoverDiscoverySources.discover(
@@ -3806,9 +3818,17 @@ internal fun DiscogsDirectVersionBrowser(
                                 mode = DiscogsDirectMode.COVER,
                                 aiConfig = foreignScoutConfig,
                                 maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
+                                // An explicit new tap MUST try fresh provider
+                                // discovery, even if the last query was cached.
+                                forceRefresh = true,
+                                onEarlyVideoCandidates = { quick ->
+                                    earlyCandidates.addAll(quick)
+                                },
                             ).candidates
                         }
-                    }.orEmpty()
+                    }.orEmpty() + synchronized(earlyCandidates) {
+                        earlyCandidates.toList()
+                    }
                     if (!isActive) return@launch
                     val fresh = withContext(Dispatchers.Default) {
                         discovered
