@@ -88,6 +88,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
@@ -243,6 +244,8 @@ private data class DirectVersionSession(
     // LAB21: first actual viewport appearance is immutable while scrolling.
     val turboFirstVisibleAtMs: MutableMap<String, Long> = linkedMapOf(),
     val turboAutoClosedFingerprints: MutableSet<String> = linkedSetOf(),
+    // LAB21: manual taps never retry the same rejected spare.
+    val turboManualTriedSpareIds: MutableMap<String, MutableSet<String>> = linkedMapOf(),
     val rejectedKeys: MutableSet<String> = linkedSetOf(),
     val approvedKeys: MutableSet<String> = linkedSetOf(),
     val usedVideoIds: MutableSet<String> = linkedSetOf(),
@@ -384,6 +387,9 @@ internal fun DiscogsDirectVersionBrowser(
     val turboVisibleJobs = remember(sessionKey) { mutableMapOf<String, Job>() }
     val turboReplacementClaims = remember(sessionKey) { mutableSetOf<String>() }
     val turboReplacementGate = remember(sessionKey) { Semaphore(1) }
+    // A UI state tick makes the manual-swap prompt visible exactly when
+    // the automatic 11s clock closes, even if the row data is unchanged.
+    var turboAutoClosedTick by remember(sessionKey) { mutableStateOf(0) }
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var backgroundResumeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var playbackLaunchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -1804,7 +1810,9 @@ internal fun DiscogsDirectVersionBrowser(
                 .filter { fingerprint ->
                     visibleKeys.any { key -> key.endsWith("_$fingerprint") }
                 }
-        }.collectLatest { visible ->
+        }.collect { visible ->
+            // collectLatest would cancel child video jobs whenever the user
+            // scrolls. collect preserves the original absolute 5+3+3 clock.
             for (fingerprint in visible) {
                 if (session.turboAutoClosedFingerprints.contains(fingerprint) ||
                     session.turboFirstVisibleAtMs.containsKey(fingerprint)) continue
@@ -1933,6 +1941,7 @@ internal fun DiscogsDirectVersionBrowser(
                     } finally {
                         session.turboAutoClosedFingerprints.add(fingerprint)
                         turboVisibleJobs.remove(fingerprint)
+                        turboAutoClosedTick++
                         // No automatic retries on re-entry/scroll or after T+11s.
                     }
                 }
@@ -2327,6 +2336,8 @@ internal fun DiscogsDirectVersionBrowser(
         session.turboPosterPublishedAtMs.clear()
         session.turboFirstVisibleAtMs.clear()
         session.turboAutoClosedFingerprints.clear()
+        session.turboManualTriedSpareIds.clear()
+        turboAutoClosedTick++
         turboVisibleJobs.values.forEach { it.cancel() }
         turboVisibleJobs.clear()
         turboReplacementClaims.clear()
@@ -3626,79 +3637,104 @@ internal fun DiscogsDirectVersionBrowser(
     // a missing Cover video. No unbounded cloud/COVER.INFO/YouTube chain on UI.
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
-            // LAB09: user owns this loop. It has NO total time limit.
-            // Tapping the same row again stops it; starting another row
-            // cancels the previous loop. Leaving Cover also cancels it.
-            if (loading) {
-                Toast.makeText(context, "Attendi il blocco locandine (massimo 10 secondi).", Toast.LENGTH_SHORT).show()
+            val current = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                .firstOrNull { it.fingerprint == seed.fingerprint } ?: return
+            // A verified video always goes to playback. Never expose a
+            // "search manually" path for a playable poster.
+            if (hasPublishableVideo(current)) return
+            val firstSeen = session.turboFirstVisibleAtMs[current.fingerprint]
+            if (firstSeen == null ||
+                SystemClock.elapsedRealtime() - firstSeen < TURBO_AUTO_TOTAL_MS ||
+                current.fingerprint !in session.turboAutoClosedFingerprints) {
+                Toast.makeText(context, "Ricerca automatica 5+3+3 ancora attiva.", Toast.LENGTH_SHORT).show()
                 return
             }
-            // LAB21: an explicit tap cancels the automatic per-row clock.
-            // Manual recovery is user-owned and never silently restarts 5+3+3.
-            turboVisibleJobs.remove(seed.fingerprint)?.cancel()
-            session.turboAutoClosedFingerprints.add(seed.fingerprint)
-            if (manualVideoSearchJob?.isActive == true &&
-                resolvingFingerprint == seed.fingerprint) {
-                manualVideoSearchJob?.cancel()
-                resolvingFingerprint = null
-                Toast.makeText(context, "Ricerca video interrotta.", Toast.LENGTH_SHORT).show()
-                return
-            }
-            manualVideoSearchJob?.cancel()
-            manualVideoSearchJob = scope.launch {
-                resolvingFingerprint = seed.fingerprint
-                var failedRounds = 0
-                try {
-                    while (isActive && activeCriteria != null &&
-                        (publishedCoverSnapshots + publishedOriginalSnapshots)
-                            .any { it.fingerprint == seed.fingerprint }) {
-                        val current = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
-                        if (hasPublishableVideo(current)) {
-                            val updated = publishedCoverSnapshots.map { poster ->
-                                if (poster.fingerprint == seed.fingerprint) current else poster
-                            }
-                            publishedCoverSnapshots = updated
-                            session.publishedCoverSnapshots = updated
-                            publishedOriginalSnapshots = publishedOriginalSnapshots.map { poster ->
-                                if (poster.fingerprint == seed.fingerprint) current else poster
-                            }
-                            session.publishedOriginalSnapshots = publishedOriginalSnapshots
-                            Toast.makeText(context, "Video trovato! Tocca per ascoltare.", Toast.LENGTH_SHORT).show()
-                            break
-                        }
-                        // New searchRound each iteration tries alternative
-                        // queries/sources. Provider refusals get a rising
-                        // backoff to protect COVER.INFO and YouTube rate limits.
-                        try {
-                            withTimeoutOrNull(8_000L) {
-                                resolveVideoChunk(listOf(current.copy(videoResolutionChecked = false)))
-                            }
-                        } catch (cancel: CancellationException) {
-                            throw cancel
-                        } catch (_: Exception) {
-                            // Transient network failure: continue after backoff.
-                        }
-                        val newest = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: current
-                        if (hasPublishableVideo(newest)) {
-                            val updated = publishedCoverSnapshots.map { poster ->
-                                if (poster.fingerprint == seed.fingerprint) newest else poster
-                            }
-                            publishedCoverSnapshots = updated
-                            session.publishedCoverSnapshots = updated
-                            publishedOriginalSnapshots = publishedOriginalSnapshots.map { poster ->
-                                if (poster.fingerprint == seed.fingerprint) newest else poster
-                            }
-                            session.publishedOriginalSnapshots = publishedOriginalSnapshots
-                            Toast.makeText(context, "Video trovato! Tocca per ascoltare.", Toast.LENGTH_SHORT).show()
-                            break
-                        }
-                        failedRounds++
-                        delay(minOf(30_000L, 2_000L + failedRounds * 2_500L))
+            // Manual action is INSTANT and OFFLINE: select an entirely new
+            // already-verified cover+poster+video bundle from the prepared
+            // reserve. Absolutely no YouTube/Cloud lookup on this path.
+            val oldKey = DiscogsVersionSource.recordingIdentityKey(current)
+            val occupied = (publishedCoverSnapshots + publishedOriginalSnapshots)
+                .mapTo(HashSet<String>()) { DiscogsVersionSource.recordingIdentityKey(it) }
+            val usedIds = (publishedCoverSnapshots + publishedOriginalSnapshots)
+                .mapNotNullTo(HashSet<String>()) { it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank) }
+            val tried = session.turboManualTriedSpareIds
+                .getOrPut(current.fingerprint) { linkedSetOf() }
+            val anchorTitle = activeCriteria?.title.orEmpty()
+            val originalSide = isDistinctOriginalVersion(current)
+            val alternatives = session.turboReserve
+                .distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                .filter { candidate ->
+                    candidate.fingerprint !in tried &&
+                        candidate.fingerprint != current.fingerprint &&
+                        !isRejected(candidate) && modeAcceptsSeed(candidate) &&
+                        DiscogsVersionSource.recordingIdentityKey(candidate) != oldKey &&
+                        DiscogsVersionSource.recordingIdentityKey(candidate) !in occupied &&
+                        isDistinctOriginalVersion(candidate) == originalSide &&
+                        (TitleMeaningResolver.matchesBaseTitle(anchorTitle, candidate.trackTitle) ||
+                            candidate.workRelationConfirmed)
+                }.sortedWith(
+                    compareByDescending<DiscogsVersionSeed> { hasPublishableVideo(it) }
+                        .thenByDescending { it.confidenceScore }
+                )
+            var replacement: DiscogsVersionSeed? = null
+            for (candidate in alternatives) {
+                tried.add(candidate.fingerprint)
+                val cachedId = CoverPlaybackMemory.verifiedVideo(context, candidate.fingerprint)
+                    ?: CoverPlaybackMemory.metadataVerifiedVideo(context, candidate.fingerprint)
+                val ready = if (hasPublishableVideo(candidate)) candidate else
+                    cachedId?.takeIf { id ->
+                        id !in CoverPlaybackMemory.rejectedVideoIds(context, candidate.fingerprint)
+                    }?.let { id ->
+                        DiscogsVersionSource.markVideoResolved(
+                            candidate, id, candidate.resolvedVideoTitle ?: candidate.trackTitle,
+                            "MusicLab · LAB21 già verificato",
+                        )
                     }
-                } finally {
-                    if (resolvingFingerprint == seed.fingerprint) resolvingFingerprint = null
-                }
+                if (ready == null || !hasPublishableVideo(ready) ||
+                    ready.resolvedVideoId in usedIds) continue
+
+                val videoId = ready.resolvedVideoId?.trim().orEmpty()
+                val proposedArtwork = ready.coverUrl?.takeIf {
+                    it.startsWith("https://", ignoreCase = true)
+                } ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                // The substitute must visually differ. When the editorial
+                // image is identical, show the verified video's own thumbnail.
+                val freshArtwork = if (proposedArtwork == current.coverUrl)
+                    "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                    else proposedArtwork
+                if (freshArtwork == current.coverUrl) continue
+                replacement = ready.copy(coverUrl = freshArtwork)
+                break
             }
+            val winner = replacement
+            if (winner == null) {
+                Toast.makeText(context, "Nessun'altra cover con video già pronto.", Toast.LENGTH_SHORT).show()
+                return
+            }
+            // Atomically change poster, song, video ID, and row identity.
+            // No provider search, no ranking reshuffle, no other row touched.
+            val change: (DiscogsVersionSeed) -> DiscogsVersionSeed = {
+                if (it.fingerprint == current.fingerprint) winner else it
+            }
+            if (publishedOriginalSnapshots.any { it.fingerprint == current.fingerprint }) {
+                publishedOriginalSnapshots = publishedOriginalSnapshots.map(change)
+                session.publishedOriginalSnapshots = publishedOriginalSnapshots
+            } else {
+                publishedCoverSnapshots = publishedCoverSnapshots.map(change)
+                session.publishedCoverSnapshots = publishedCoverSnapshots
+            }
+            results = results.map(change)
+            session.results = results
+            session.stableOrder = session.stableOrder.map {
+                if (it == current.fingerprint) winner.fingerprint else it
+            }
+            session.turboReserve = session.turboReserve.filterNot {
+                it.fingerprint == winner.fingerprint
+            }
+            session.turboFirstVisibleAtMs[winner.fingerprint] = firstSeen
+            session.turboAutoClosedFingerprints.add(winner.fingerprint)
+            turboAutoClosedTick++
+            Toast.makeText(context, "Cover e video sostituiti. Tocca per ascoltare.", Toast.LENGTH_SHORT).show()
             return
         }
         if (resolvingFingerprint == seed.fingerprint) return
