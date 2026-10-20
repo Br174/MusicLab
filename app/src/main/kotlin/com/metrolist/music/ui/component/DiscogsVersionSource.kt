@@ -82,6 +82,7 @@ internal data class DiscogsVersionSeed(
     val manuallyApproved: Boolean = false,
     val originalWorkReference: Boolean = false,
     val workRelationConfirmed: Boolean = false,
+    val collectorHave: Int? = null,
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
@@ -438,6 +439,16 @@ internal object DiscogsVersionSource {
         if (sharedCredits.isNotEmpty()) score += 3
         if (knownYear != null) score += 2
         score += ((sourceCount - 1).coerceAtLeast(0) * 2).coerceAtMost(4)
+        // LAB19: minor artist-led release prominence signal from the
+        // Discogs record already fetched for verification. Not retail sales.
+        val collectorBonus = if (seed.track != null && knownYear != null && chronologicallyPossible) {
+            when {
+                (seed.collectorHave ?: 0) >= 12_000 -> 2
+                (seed.collectorHave ?: 0) >= 1_500 -> 1
+                else -> 0
+            }
+        } else 0
+        score += collectorBonus
 
         val sourceText = seed.sourceNames.joinToString(" ").lowercase()
         if (sourceCount == 1 && "cover.info" in sourceText) score = score.coerceAtMost(13)
@@ -456,6 +467,7 @@ internal object DiscogsVersionSource {
                     add("Crediti opera coincidenti: " + sharedCredits.joinToString())
                 }
                 if (sourceCount >= 2) add("Conferme indipendenti: $sourceCount fonti")
+                if (collectorBonus > 0) add("Diffusione documentata Discogs: ${seed.collectorHave} collezioni (+$collectorBonus, non vendite)")
                 if (!chronologicallyPossible) add("Cronologia impossibile rispetto all'opera originale")
             }.distinct()
 
@@ -813,6 +825,11 @@ internal object DiscogsVersionSource {
                 fingerprint = fingerprint,
                 track = track,
                 videos = detail.videos,
+                // Only a release credited to the recording's artist contributes
+                // collection-count evidence; never use a compilation's totals.
+                collectorHave = detail.collectorHave?.takeIf {
+                    detail.artists.size == 1 && sameArtist(detail.artists.first(), artist)
+                },
                 sourceNames = listOf("Discogs"),
                 discogsVerificationChecked = true,
                 credits = (track.credits + detail.credits).distinctBy { credit ->
@@ -1313,6 +1330,7 @@ internal object DiscogsVersionSource {
             },
             language = base.language ?: other.language,
             confidenceScore = mergedScore,
+            collectorHave = listOfNotNull(existing.collectorHave, incoming.collectorHave).maxOrNull(),
             confidenceReasons = (existing.confidenceReasons + incoming.confidenceReasons).distinct(),
             resolvedVideoId = existing.resolvedVideoId ?: incoming.resolvedVideoId,
             resolvedVideoTitle = existing.resolvedVideoTitle ?: incoming.resolvedVideoTitle,
