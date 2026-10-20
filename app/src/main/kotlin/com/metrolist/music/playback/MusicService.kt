@@ -597,6 +597,42 @@ class MusicService :
     @Volatile private var lab62PlaybackStartAtMs: Long = 0L
     @Volatile private var lab62BufferingCount: Int = 0
 
+    // LAB31: bounded, read-only diagnostics. No network requests, no media IDs,
+    // no artwork/stream URLs, no extra player/cache jobs, no file I/O.
+    private val lab31AudioLock = Any()
+    private val lab31AudioEvents = java.util.ArrayDeque<String>()
+    @Volatile private var lab31CoverTapAtMs = 0L
+    @Volatile private var lab31BufferStartedAtMs = 0L
+
+    private fun lab31AudioEvent(event: String, detail: String = "") {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val relative = lab31CoverTapAtMs.takeIf { it > 0L }?.let { now - it }
+        synchronized(lab31AudioLock) {
+            if (lab31AudioEvents.size >= 48) lab31AudioEvents.removeFirst()
+            lab31AudioEvents.addLast(
+                (relative?.let { "t+${it}ms" } ?: "before-tap") +
+                    " | " + event + if (detail.isNotEmpty()) " | " + detail else "",
+            )
+        }
+    }
+
+    fun lab31BeginCoverTap() {
+        lab31CoverTapAtMs = android.os.SystemClock.elapsedRealtime()
+        lab31BufferStartedAtMs = 0L
+        lab31AudioEvent("COVER_TAP", "player_ready=" + playerInitialized.value)
+    }
+
+    fun lab31AudioDiagnosticReport(): String = synchronized(lab31AudioLock) {
+        buildString {
+            appendLine("MusicLab Turbo LAB31 - diagnostica audio (sola lettura)")
+            appendLine("Eventi in memoria: " + lab31AudioEvents.size)
+            appendLine("Tempi relativi all'ultimo tocco Cover; READY non prova audio udibile.")
+            appendLine("Non contiene ID video, indirizzi web o informazioni personali.")
+            if (lab31AudioEvents.isEmpty()) appendLine("Nessun evento. Avvia una locandina.")
+            lab31AudioEvents.forEach { appendLine(it) }
+        }
+    }
+
     // Cached preferences to avoid runBlocking DataStore reads in hot paths
     @Volatile
     private var cachedPersistentQueue = true
@@ -1620,6 +1656,7 @@ class MusicService :
     }
 
     private fun handleAudioFocusChange(focusChange: Int) {
+        lab31AudioEvent("AUDIO_FOCUS", "change=" + focusChange)
         // When focus handling is disabled we never own focus, so ignore stray callbacks.
         if (!audioFocusEnabled) return
         when (focusChange) {
@@ -2308,6 +2345,7 @@ class MusicService :
      * re-prepared; Media3 starts resolving the new item immediately.
      */
     fun beginPlaybackPriorityBurst(reason: String = "user-action") {
+        lab31AudioEvent("PRIORITY_START", "reason=" + reason)
         lab62PlaybackStartAtMs = android.os.SystemClock.elapsedRealtime()
         lab62BufferingCount = 0
         playbackPriorityBurstActive = true
@@ -2344,6 +2382,8 @@ class MusicService :
                 }
 
                 playbackPriorityBurstActive = false
+                lab31AudioEvent("PRIORITY_RELEASE", "buffer_ms=" +
+                    (if (::player.isInitialized) player.totalBufferedDuration else -1L))
                 Timber.tag(TAG).d(
                     "Player Veloce 1 burst release: buffer=%d state=%d",
                     if (::player.isInitialized) player.totalBufferedDuration else -1L,
@@ -2363,6 +2403,7 @@ class MusicService :
     fun isPlaybackPriorityBurstActive(): Boolean = playbackPriorityBurstActive
 
     fun playNow(item: MediaItem) {
+        lab31AudioEvent("PLAY_NOW", "player_state=" + player.playbackState)
         beginPlaybackPriorityBurst("play-now")
 
         if (player.currentMediaItem?.mediaId == item.mediaId) {
@@ -3063,6 +3104,10 @@ class MusicService :
         }
     }
 
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        lab31AudioEvent("PLAYING_FLAG", "value=" + isPlaying)
+    }
+
     override fun onPlaybackStateChanged(
         @Player.State playbackState: Int,
     ) {
@@ -3071,6 +3116,9 @@ class MusicService :
         val now = android.os.SystemClock.elapsedRealtime()
         when (playbackState) {
             Player.STATE_BUFFERING -> {
+                lab31BufferStartedAtMs = now
+                lab31AudioEvent("BUFFERING", "buffer_ms=" + player.totalBufferedDuration +
+                    " priority=" + playbackPriorityBurstActive)
                 lab62BufferingCount++
                 Timber.tag("MusicLabLAB62Audio").d(
                     "buffering_count=%d priority=%b",
@@ -3085,6 +3133,13 @@ class MusicService :
                 )
             }
             Player.STATE_READY -> {
+                val waitMs = lab31BufferStartedAtMs.takeIf { it > 0L }
+                    ?.let { now - it } ?: 0L
+                lab31BufferStartedAtMs = 0L
+                lab31AudioEvent("READY", "buffer_wait_ms=" + waitMs +
+                    " buffered_ms=" + player.totalBufferedDuration +
+                    " since_tap_ms=" +
+                    (lab31CoverTapAtMs.takeIf { it > 0L }?.let { now - it } ?: -1L))
                 val started = lab62PlaybackStartAtMs
                 if (started > 0L) {
                     Timber.tag("MusicLabLAB62Audio").d(
@@ -3195,6 +3250,7 @@ class MusicService :
         playWhenReady: Boolean,
         reason: Int,
     ) {
+        lab31AudioEvent("PLAY_WHEN_READY", "value=" + playWhenReady + " reason=" + reason)
         // Safety net: if local player tries to start while casting, immediately pause it
         if (playWhenReady && castConnectionHandler?.isCasting?.value == true) {
             player.pause()
@@ -3700,6 +3756,8 @@ class MusicService :
 
         val mediaId = player.currentMediaItem?.mediaId
         val failedStreamClient = mediaId?.let(songUrlCache::clientName)
+        lab31AudioEvent("PLAYER_ERROR", "code=" + error.errorCodeName +
+            " buffer_ms=" + player.totalBufferedDuration)
         // LAB24: diagnose failures even after Cover has been closed for hours.
         // Use existing Timber only; never inspect private URLs or credentials.
         Timber.tag("MusicLabLAB24Audio").w(
@@ -5284,6 +5342,9 @@ class MusicService :
                             isUploaded = song?.isUploaded,
                         ),
                     ).also { outcome ->
+                        lab31AudioEvent("STREAM_RESOLVE", "elapsed_ms=" +
+                            (android.os.SystemClock.elapsedRealtime() - resolveStartedAt) +
+                            " success=" + outcome.isSuccess)
                         Timber.tag("MusicLabLAB16Audio").d(
                             "stream_source=REMOTE resolve_ms=%d success=%b cover_active=%b",
                             android.os.SystemClock.elapsedRealtime() - resolveStartedAt,

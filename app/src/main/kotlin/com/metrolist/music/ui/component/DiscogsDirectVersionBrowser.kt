@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -4266,6 +4267,9 @@ internal fun DiscogsDirectVersionBrowser(
         // The selected row owns the device immediately. Activate playback priority
         // BEFORE any tapped-row lookup so resolver work, preload and list discovery
         // can never outrank first sound.
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            playerConnection?.service?.lab31BeginCoverTap()
+        }
         playerConnection?.beginPlaybackPriorityBurst("musiclab-version")
         playbackLaunchJob?.cancel()
         pauseCoverBackgroundForPlayback()
@@ -4635,6 +4639,8 @@ internal fun DiscogsDirectVersionBrowser(
     var musiclabSortMenu by remember(sessionKey) { mutableStateOf(false) }
     var musiclabSourcesMenu by remember(sessionKey) { mutableStateOf(false) }
     var musiclabArtistMenu by remember(sessionKey) { mutableStateOf(false) }
+    var showAudioDiagnostic by remember(sessionKey) { mutableStateOf(false) }
+    var audioDiagnosticText by remember(sessionKey) { mutableStateOf("") }
     val musiclabArtistPoster = visibleOriginalVersions.firstOrNull()?.coverUrl
         ?: results.firstOrNull {
             it.artist.equals(resolvedOriginalArtist, ignoreCase = true)
@@ -4751,6 +4757,16 @@ internal fun DiscogsDirectVersionBrowser(
                                     onClick = {
                                         musiclabArtistMenu = false
                                         navController.navigate(MusicLabArchiveNavigationBridge.ROUTE)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Diagnostica audio") },
+                                    onClick = {
+                                        musiclabArtistMenu = false
+                                        audioDiagnosticText =
+                                            playerConnection?.service?.lab31AudioDiagnosticReport()
+                                                ?: "Player non disponibile"
+                                        showAudioDiagnostic = true
                                     },
                                 )
                             }
@@ -5336,6 +5352,40 @@ internal fun DiscogsDirectVersionBrowser(
         SourceDiagnosticsDialog(
             diagnostics = sourceDiagnostics,
             onDismiss = { showSourceDiagnostics = false },
+        )
+    }
+    if (showAudioDiagnostic && isTurbo && mode == DiscogsDirectMode.COVER) {
+        AlertDialog(
+            onDismissRequest = { showAudioDiagnostic = false },
+            title = { Text("Diagnostica audio LAB31") },
+            text = {
+                Text(
+                    audioDiagnosticText,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .height(340.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(
+                            android.content.Context.CLIPBOARD_SERVICE,
+                        ) as? android.content.ClipboardManager
+                        clipboard?.setPrimaryClip(
+                            android.content.ClipData.newPlainText(
+                                "MusicLab LAB31 audio", audioDiagnosticText,
+                            ),
+                        )
+                        Toast.makeText(context, "Diagnostica copiata", Toast.LENGTH_SHORT).show()
+                        showAudioDiagnostic = false
+                    },
+                ) { Text("Copia") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAudioDiagnostic = false }) { Text("Chiudi") }
+            },
         )
     }
 
