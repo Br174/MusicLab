@@ -1995,6 +1995,12 @@ internal fun DiscogsDirectVersionBrowser(
                                 val fallbackOrder = readyReserve + reserve.filterNot(::hasPublishableVideo)
                                 for (spare in fallbackOrder.take(4)) {
                                     if (!isActive || !session.turboFinished) return@launch
+                                    // LAB20: after the visible row's absolute 10s
+                                    // deadline, use only a PREVIOUSLY verified
+                                    // replacement. Never start another 4.2s
+                                    // online candidate probe past that boundary.
+                                    if (wasVisible && SystemClock.elapsedRealtime() >= deadlineAtMs &&
+                                        !hasPublishableVideo(spare)) continue
                                     if (selectedFingerprint == fingerprint &&
                                         playbackIsNormallyPlaying()) return@launch
                                     // Reserve claims are made on the owning UI
