@@ -109,10 +109,12 @@ test('all automatic row jobs are cancelled on new real search or screen exit', (
   assert.match(c, /turboVisibleJobs\.remove\(fingerprint\)/);
 });
 
-test('manual retry remains explicit and preempts automatic work', () => {
+test('manual swap is only available after automatic 5+3+3 closes', () => {
   assert.match(ui, /fun retryMissingVideo\(seed: DiscogsVersionSeed\)/);
-  assert.match(ui, /turboVisibleJobs\.remove\(seed\.fingerprint\)\?\.cancel\(\)/);
-  assert.match(ui, /session\.turboAutoClosedFingerprints\.add\(seed\.fingerprint\)/);
+  assert.match(ui, /session\.turboFirstVisibleAtMs\[current\.fingerprint\]/);
+  assert.match(ui, /SystemClock\.elapsedRealtime\(\) - firstSeen < TURBO_AUTO_TOTAL_MS/);
+  assert.match(ui, /current\.fingerprint !in session\.turboAutoClosedFingerprints/);
+  assert.doesNotMatch(ui, /turboVisibleJobs\.remove\(seed\.fingerprint\)\?\.cancel\(\)/);
 });
 
 test('archive-first link and artwork reuse from LAB20 are preserved', () => {
