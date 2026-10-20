@@ -37,7 +37,7 @@ jobs:
           cat /tmp/lab30-changed.txt
           while IFS= read -r f; do
             case "$f" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs|tools/universal-apk-builder/prepare-turbo-lab30-env.py|.github/workflows/turbo-lab30-theme-selected-cover-ui-apk.yml) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab29-cover-ui-gesture.test.mjs|cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs|tools/universal-apk-builder/prepare-turbo-lab30-env.py|.github/workflows/turbo-lab30-theme-selected-cover-ui-apk.yml) ;;
               *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
             esac
           done < /tmp/lab30-changed.txt

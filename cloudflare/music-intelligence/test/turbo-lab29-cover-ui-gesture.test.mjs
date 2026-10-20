@@ -58,7 +58,9 @@ test('source menu preserves original diagnostics and archive action remains avai
 test('cover-only card has fixed position and compact poster 126dp',()=>{
   assert.match(src,/modernCoverCard = isTurbo/);
   assert.match(card,/Modifier\.size\(126\.dp\)/);
-  assert.match(card,/BorderStroke\(/);
+  // LAB30 approved theme-responsive fill supersedes LAB29 stroke.
+  assert.doesNotMatch(card,/BorderStroke\(/);
+  assert.match(card,/\.compositeOver\(MaterialTheme\.colorScheme\.surface\)/);
   assert.match(card,/Color\(0xFF22C871\)/);
   assert.match(card,/Color\(0xFFFA5757\)/);
   assert.match(card,/primaryDiscoverySource\(seed\)/);
