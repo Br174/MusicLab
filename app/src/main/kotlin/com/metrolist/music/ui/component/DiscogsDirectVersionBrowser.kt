@@ -103,7 +103,7 @@ private const val TURBO_PACKAGE = "it.verlezza.musiclab.turbo01"
 private const val TURBO_RESULT_QUOTA = 50
 private const val TURBO_MAX_RANK_CANDIDATES = 100
 private const val TURBO_BURST_DEADLINE_MS = 10_000L
-private const val TURBO_VIDEO_SKIP_MS = 25_000L
+private const val TURBO_VIDEO_SKIP_MS = 10_000L
 private const val TURBO_BACKGROUND_PARALLELISM = 3
 private const val TURBO_RESERVE_MAX = 100
 private const val TURBO_FIRST_POSTER_DEADLINE_MS = 1_200L
@@ -1878,7 +1878,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     gate.withPermit {
                                         if (!isAudioProtected()) {
                                             val acquiredAt = SystemClock.elapsedRealtime()
-                                            withTimeoutOrNull(4_200L) {
+                                            withTimeoutOrNull(minOf(3_000L, TURBO_VIDEO_SKIP_MS - eligibleSearchMs)) {
                                                 resolveVideoChunk(listOf(current))
                                             }
                                             eligibleSearchMs +=
@@ -1893,7 +1893,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     // Bounded backpressure for rate-limited sources,
                                     // never a cosmetic delay before a found video.
                                     if (attempts < 4 && eligibleSearchMs < TURBO_VIDEO_SKIP_MS) {
-                                        delay(550L)
+                                        delay(220L)
                                     }
                                 }
 
@@ -1930,9 +1930,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     }.sortedWith(
                                         compareBy<DiscogsVersionSeed> {
                                             if (isDistinctOriginalVersion(it) == originalSide) 0 else 1
-                                        }.thenBy {
-                                            kotlin.math.abs(it.confidenceScore - old.confidenceScore)
-                                        }.thenByDescending { it.confidenceScore },
+                                        }.thenByDescending { hasPublishableVideo(it) }
+                                            .thenBy { kotlin.math.abs(it.confidenceScore - old.confidenceScore) }
+                                            .thenByDescending { it.confidenceScore },
                                     )
                                 var reserve = rankEligibleSpare(session.turboReserve)
                                 // A shallow reserve of one or two candidates
@@ -1944,7 +1944,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                                 // Bounded replacement probes: never flood shared
                                 // HTTP/CPU while music is playing.
-                                for (spare in reserve.take(8)) {
+                                for (spare in reserve.take(4)) {
                                     if (!isActive || !session.turboFinished) return@launch
                                     if (selectedFingerprint == fingerprint &&
                                         playbackIsNormallyPlaying()) return@launch
@@ -2598,17 +2598,23 @@ internal fun DiscogsDirectVersionBrowser(
                                     val early = withTimeoutOrNull(110L) {
                                         streamingCandidates.receive()
                                     }
-                                    val documentedSeeds = early.orEmpty().asSequence()
-                                        .filter { it.title.isNotBlank() && it.artist.isNotBlank() }
-                                        .distinctBy { it.title.lowercase() + "|" + it.artist.lowercase() }
-                                        .take(TURBO_MAX_RANK_CANDIDATES)
-                                        .map { item ->
-                                            DiscogsVersionSource.externalSeed(
-                                                candidate = item,
-                                                targetTitle = criteria.title,
-                                                originalArtist = resolvedOriginalArtist,
-                                            )
-                                        }.toList()
+                                    // LAB19: parse and normalize provider rows OFF
+                                    // the Compose main thread; only final immutable
+                                    // results are published on the UI dispatcher.
+                                    val knownOriginalArtist = resolvedOriginalArtist
+                                    val documentedSeeds = withContext(Dispatchers.Default) {
+                                        early.orEmpty().asSequence()
+                                            .filter { it.title.isNotBlank() && it.artist.isNotBlank() }
+                                            .distinctBy { it.title.lowercase() + "|" + it.artist.lowercase() }
+                                            .take(TURBO_MAX_RANK_CANDIDATES)
+                                            .map { item ->
+                                                DiscogsVersionSource.externalSeed(
+                                                    candidate = item,
+                                                    targetTitle = criteria.title,
+                                                    originalArtist = knownOriginalArtist,
+                                                )
+                                            }.toList()
+                                    }
                                     val cloudSeedsNow = supplementalSeeds.tryReceive().getOrNull().orEmpty()
                                     val seeds = documentedSeeds + cloudSeedsNow
                                     if (seeds.isNotEmpty()) {
@@ -4040,19 +4046,28 @@ internal fun DiscogsDirectVersionBrowser(
             visibleMembershipPool
         }
     // LAB65: only committed, validated, immutable rows reach Compose.
-    val visibleOriginalVersions =
+    // LAB19: expensive per-card video scoring is memoized per published
+    // snapshot, not recalculated for every player tick / scroll frame.
+    // Video verification still updates the touched snapshot immutably.
+    val visibleOriginalVersions = remember(
+        mode, publishedOriginalSnapshots, results, turboStreamProofVersion,
+    ) {
         if (mode == DiscogsDirectMode.COVER) publishedOriginalSnapshots
             .filterNot(::isHiddenForCurrentCover)
             .map(::videoCalibratedDisplaySeed)
         else emptyList()
-    val visibleTrueCovers =
+    }
+    val visibleTrueCovers = remember(
+        mode, isTurbo, loading, publishedCoverSnapshots, visibleLimit,
+        results, turboStreamProofVersion,
+    ) {
         if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading)) {
-            (if (isTurbo) publishedCoverSnapshots
-             else publishedCoverSnapshots)
+            publishedCoverSnapshots
                 .filterNot(::isHiddenForCurrentCover)
                 .take(visibleLimit)
                 .map(::videoCalibratedDisplaySeed)
         } else emptyList()
+    }
     val visibleResults =
         if (mode == DiscogsDirectMode.COVER) {
             visibleOriginalVersions + visibleTrueCovers
