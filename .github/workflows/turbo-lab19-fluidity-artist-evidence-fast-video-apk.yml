@@ -1,0 +1,168 @@
+name: MusicLab Turbo LAB19 — Fluid Scroll + Popularity Evidence + Fast Videos APK + ZIP
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab19-fluidity-artist-evidence-fast-video-family-02
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-turbo-lab19-ten-second-playready-family-02
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate-once
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout LAB19 two-phase source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Focused LAB19 artwork/video tests (fast test-to-APK path)
+        run: node --test cloudflare/music-intelligence/test/turbo-lab19-fluidity-artist-evidence-fast-video.test.mjs
+
+      - name: Verify LAB19 signing identity, update-in-place and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="1019"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 19"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_CERT_SHA256="9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49"' uab-project.env
+          grep -Fq 'export METROLIST_APP_NAME="MusicLab Turbo LAB 19"' uab-project.env
+          grep -Fq 'export MUSICLAB_VERSION_CODE="1019"' uab-project.env
+          test "$(git hash-object app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt)" = "03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
+
+      - name: Prove experimental player is exact upstream Meld (no LAB41 alternate resolver)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLAYER_PATH="app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt"
+          MELD_BLOB="03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
+          test "$(git hash-object "$PLAYER_PATH")" = "$MELD_BLOB"
+          ! grep -q 'LAB07_FAST_LANE_TIMEOUT_MS' "$PLAYER_PATH"
+          grep -q 'bundle().extractor.extract(' "$PLAYER_PATH"
+
+
+
+  build-update:
+    name: build-update-first
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload_update.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_update.outputs.artifact-digest }}
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact Turbo LAB19 source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+          cache-overwrite-existing: true
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK and Last.fm inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          fi
+
+      - name: UAB preflight diagnostics
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build Turbo LAB19
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verify Turbo LAB19 update identity and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="dist/uab/apk/MusicLab-Turbo-LAB19.apk"
+          ZIP="dist/uab/MusicLab-Turbo-LAB19-APK.zip"
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='1019'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab Turbo LAB 19'"
+
+          EXPECTED="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          APK_CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$APK_CERT" = "$EXPECTED"
+
+          {
+            echo "UPDATE_FAMILY_ID=turbo01"
+            echo "APPLICATION_ID=it.verlezza.musiclab.turbo01"
+            echo "VERSION_CODE=1019"
+            echo "SIGNING_CERT_SHA256=$APK_CERT"
+            echo "MELD_ORIGINAL_PLAYER_BLOB_SHA=03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
+            echo "MELD_UPSTREAM_COMMIT=9cb6105a5fe9077c6d4430b978209556f9405da3"
+            echo "PAIRED_SAFETY=LAB68 unchanged; independent Turbo experimental family"
+          } > dist/uab/UPDATE_FAMILY.txt
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Upload Turbo LAB19 immediately
+        id: upload_update
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB19
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB19.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-Turbo-LAB19-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/UPDATE_FAMILY.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload separate diagnostics if present
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB19-build-diagnostics
+          path: dist/uab/logs/*.log
+          if-no-files-found: ignore
