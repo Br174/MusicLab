@@ -1938,6 +1938,10 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
                         }
+                        // If the reserve is empty, do not unlock manual mode
+                        // before T+11. This timer performs NO network work.
+                        val remainingUntilStop = autoEndsAt - SystemClock.elapsedRealtime()
+                        if (remainingUntilStop > 0) delay(remainingUntilStop)
                     } finally {
                         session.turboAutoClosedFingerprints.add(fingerprint)
                         turboVisibleJobs.remove(fingerprint)
