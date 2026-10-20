@@ -243,6 +243,8 @@ private data class DirectVersionSession(
     var turboArchiveMatches: Int = 0,
     var turboReserve: List<DiscogsVersionSeed> = emptyList(),
     var turboVideoComplete: Boolean = false,
+    // LAB25: one bounded automatic repair on re-entry, not an eternal cloud negative cache.
+    var turboLastAutoRepairAtMs: Long = 0L,
     var turboAutoStartedAtMs: Long = 0L,
     val turboVideoReasons: MutableMap<String, String> = linkedMapOf(),
     val turboPosterPublishedAtMs: MutableMap<String, Long> = linkedMapOf(),
@@ -1840,12 +1842,21 @@ internal fun DiscogsDirectVersionBrowser(
         val fallbackPasses = mutableSetOf<String>()
         fun postedRows(): List<DiscogsVersionSeed> =
             (publishedOriginalSnapshots + publishedCoverSnapshots).take(TURBO_RESULT_QUOTA)
+        fun currentVideoEndMs(): Long {
+            // LAB25: the last 25 arrive later. They own their own bounded
+            // 5+5+5 opportunity, not just the first block's remaining seconds.
+            val secondSealed = if (session.turboFinished &&
+                postedRows().size > TURBO_MIN_EARLY_POSTER_BLOCK
+            ) session.turboPosterPublishedAtMs.values.maxOrNull() else null
+            return maxOf(globalEnd, (secondSealed ?: globalStart) + TURBO_AUTO_TOTAL_MS)
+        }
         fun registerClock() {
             postedRows().forEach { row ->
-                session.turboFirstVisibleAtMs.putIfAbsent(row.fingerprint, globalStart)
+                val publishedAt = session.turboPosterPublishedAtMs[row.fingerprint] ?: globalStart
+                session.turboFirstVisibleAtMs.putIfAbsent(row.fingerprint, publishedAt)
             }
         }
-        if (SystemClock.elapsedRealtime() >= globalEnd) {
+        if (SystemClock.elapsedRealtime() >= currentVideoEndMs()) {
             registerClock()
             postedRows().forEach { session.turboAutoClosedFingerprints.add(it.fingerprint) }
             session.turboVideoComplete = true
@@ -1853,7 +1864,7 @@ internal fun DiscogsDirectVersionBrowser(
             return@LaunchedEffect
         }
         suspend fun tryReplacement(fingerprint: String) {
-            val autoEndsAt = globalEnd
+            val autoEndsAt = currentVideoEndMs()
                         val budgetMs = autoEndsAt - SystemClock.elapsedRealtime()
                         if (budgetMs <= 0L) return
                         withTimeoutOrNull(budgetMs) {
@@ -1942,7 +1953,7 @@ internal fun DiscogsDirectVersionBrowser(
         coroutineScope {
             val workers = (0 until 4).map { lane ->
                 launch {
-                    while (isActive && SystemClock.elapsedRealtime() < globalEnd) {
+                    while (isActive && SystemClock.elapsedRealtime() < currentVideoEndMs()) {
                         val now = SystemClock.elapsedRealtime()
                         registerClock()
                         if (backgroundWorkBlocked() ||
@@ -1974,10 +1985,15 @@ internal fun DiscogsDirectVersionBrowser(
                             else own.filter { it.fingerprint in visible } +
                                 own + rows.filterNot { it in own }
                         val slot = ordered.firstOrNull { candidate ->
-                            candidate.fingerprint !in activeRows &&
+                            val publishedAt = session.turboPosterPublishedAtMs[candidate.fingerprint]
+                                ?: globalStart
+                            val candidatePrimary = now < publishedAt +
+                                TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS
+                            now < publishedAt + TURBO_AUTO_TOTAL_MS &&
+                                candidate.fingerprint !in activeRows &&
                                 !hasPublishableVideo(candidate) &&
                                 playableTrack(candidate) != null &&
-                                (if (primary) {
+                                (if (candidatePrimary) {
                                     (firstPasses[candidate.fingerprint] ?: 0) < 3
                                 } else {
                                     candidate.fingerprint !in fallbackPasses
@@ -1991,9 +2007,13 @@ internal fun DiscogsDirectVersionBrowser(
                         activeRows.add(fingerprint)
                         session.turboVideoReasons[fingerprint] = "running"
                         try {
-                            if (primary) {
+                            val publishedAt = session.turboPosterPublishedAtMs[fingerprint]
+                                ?: globalStart
+                            val primaryDeadline = publishedAt +
+                                TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS
+                            if (SystemClock.elapsedRealtime() < primaryDeadline) {
                                 firstPasses[fingerprint] = (firstPasses[fingerprint] ?: 0) + 1
-                                val remaining = firstVideoEnds - SystemClock.elapsedRealtime()
+                                val remaining = primaryDeadline - SystemClock.elapsedRealtime()
                                 if (remaining > 0L) {
                                     withTimeoutOrNull(remaining.coerceAtMost(2_200L)) {
                                         resolveVideoChunk(listOf(slot))
@@ -2052,7 +2072,11 @@ internal fun DiscogsDirectVersionBrowser(
             // Resume only within the original 15-second window. Never reset
             // the poster deadline or compete with startup/rebuffering.
             if (!session.turboVideoComplete && session.turboAutoStartedAtMs > 0L &&
-                SystemClock.elapsedRealtime() < session.turboAutoStartedAtMs + TURBO_AUTO_TOTAL_MS) {
+                SystemClock.elapsedRealtime() < maxOf(
+                    session.turboAutoStartedAtMs + TURBO_AUTO_TOTAL_MS,
+                    (session.turboPosterPublishedAtMs.values.maxOrNull()
+                        ?: session.turboAutoStartedAtMs) + TURBO_AUTO_TOTAL_MS,
+                )) {
                 turboSearchGeneration++
             }
             if (session.turboFinished) {
@@ -2418,8 +2442,10 @@ internal fun DiscogsDirectVersionBrowser(
         val turboCommandStartedAt = SystemClock.elapsedRealtime()
         val repeatSameWork = activeCriteria?.title?.equals(criteria.title, ignoreCase = true) == true
         if (isTurbo && repeatSameWork && session.turboFinished &&
-            (session.publishedCoverSnapshots.isNotEmpty() || session.publishedOriginalSnapshots.isNotEmpty())) {
-            // Re-enter a completed 50-result burst without re-querying providers.
+            (session.publishedCoverSnapshots.isNotEmpty() || session.publishedOriginalSnapshots.isNotEmpty()) &&
+            (session.publishedCoverSnapshots + session.publishedOriginalSnapshots).all(::hasPublishableVideo)) {
+            // Only a fully linked, verified session may be replayed without refreshing.
+            // Missing videos are *retryable*, never a permanently cached negative.
             loading = false
             sourceDiscoveryLoading = false
             return
@@ -2756,10 +2782,22 @@ internal fun DiscogsDirectVersionBrowser(
                                         }
                                         val memoryArtist = archiveArtist?.takeIf(String::isNotBlank)
                                             ?: resolvedOriginalArtist
-                                        CloudMusicDiscovery.cachedMemoryState(
+                                        val cached = CloudMusicDiscovery.cachedMemoryState(
                                             context = context, title = criteria.title,
                                             artist = memoryArtist, config = config,
-                                        ) ?: CloudMusicDiscovery.discoverMemoryState(
+                                        )
+                                        // Keep archive documentary candidates, but do not
+                                        // let a seven-day snapshot containing only misses
+                                        // block a fresh *read-only* Cloud discovery.
+                                        cached?.takeIf { state ->
+                                            val versions = state.discovery?.versions.orEmpty()
+                                            val linked = versions.count { version ->
+                                                !version.playbackVideoId.isNullOrBlank()
+                                            }
+                                            // A single confirmed original cannot freeze
+                                            // forty-nine missing covers for seven days.
+                                            versions.isNotEmpty() && linked * 2 >= versions.size
+                                        } ?: CloudMusicDiscovery.discoverMemoryState(
                                             title = criteria.title, artist = memoryArtist,
                                             config = config, limit = 150, cacheContext = context,
                                         )
@@ -2787,6 +2825,9 @@ internal fun DiscogsDirectVersionBrowser(
                                         mode = mode,
                                         aiConfig = foreignScoutConfig,
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 5,
+                                        // LAB25: new automatic searches must not inherit a stale
+                                        // 30-minute provider miss from a previous engine revision.
+                                        forceRefresh = true,
                                         onEarlyVideoCandidates = { quick ->
                                             // Fast per-source Top-N before global
                                             // cross-provider 1–20 certification.
@@ -4338,15 +4379,26 @@ internal fun DiscogsDirectVersionBrowser(
 
 
     LaunchedEffect(sessionKey, discogsToken) {
-        if (
-            !session.initialized &&
-            initialTitle.isNotBlank()
-        ) {
+        if (!session.initialized && initialTitle.isNotBlank()) {
             runSearch()
+        } else if (isTurbo && mode == DiscogsDirectMode.COVER &&
+            session.turboFinished && initialTitle.isNotBlank() &&
+            (session.publishedCoverSnapshots + session.publishedOriginalSnapshots).any {
+                !hasPublishableVideo(it)
+            }) {
+            // LAB25: a cold/reopened archive search with missing links is
+            // incomplete. Revalidate at most once per 10 minutes per work.
+            // Verified bindings, ranking decisions and Cloud data are not deleted.
+            val now = SystemClock.elapsedRealtime()
+            if (session.turboLastAutoRepairAtMs == 0L ||
+                now - session.turboLastAutoRepairAtMs >= 600_000L) {
+                session.turboLastAutoRepairAtMs = now
+                runSearch()
+            }
         }
     }
 
-    // LAB11: do not restart automatic search when reopening a sealed session.
+    // Fully verified sessions remain cache-only; incomplete sessions can repair.
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
