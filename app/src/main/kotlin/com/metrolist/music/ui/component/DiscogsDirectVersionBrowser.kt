@@ -1734,8 +1734,15 @@ internal fun DiscogsDirectVersionBrowser(
             !session.turboFinished || turboVideoJob?.isActive == true) return
 
         turboVideoJob = scope.launch {
-            val positions = (publishedOriginalSnapshots + publishedCoverSnapshots)
+            val onScreenKeys = listState.layoutInfo.visibleItemsInfo.map { it.key.toString() }
+            val publishedPositions = (publishedOriginalSnapshots + publishedCoverSnapshots)
                 .map { it.fingerprint }
+            // LAB20: a user-visible row receives network priority before
+            // the other 50 published positions. No list reordering in Compose.
+            val visiblePositions = publishedPositions.filter { fingerprint ->
+                onScreenKeys.any { key -> key.endsWith("_$fingerprint") }
+            }
+            val positions = visiblePositions + publishedPositions.filterNot { it in visiblePositions }
             val claims = hashSetOf<String>()
             // One shared fair permit per HTTP attempt, never per 25s slot.
             val gate = Semaphore(TURBO_BACKGROUND_PARALLELISM)
@@ -1795,6 +1802,11 @@ internal fun DiscogsDirectVersionBrowser(
                         it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
                     }
                 val rejectedIds = CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)
+                // If this exact recording/ID already has a valid compatible
+                // verdict from prior listening or metadata (24h TTL), reuse it.
+                // Unverified archive IDs still go through YouTube metadata.
+                if (storedId.isNotBlank() && storedId !in visibleIds &&
+                    storedId !in rejectedIds && hasPublishableVideo(seed)) return seed
                 val known = if (storedId.isNotBlank() &&
                     storedId !in visibleIds && storedId !in rejectedIds) {
                     session.preparedVideoSongs[storedId] ?: withTimeoutOrNull(1_500L) {
@@ -1856,10 +1868,18 @@ internal fun DiscogsDirectVersionBrowser(
                                 // must not consume another card's verification budget.
                                 // Stop after four bounded checks rather than idling
                                 // until the 25-second publication wall clock expires.
-                                var eligibleSearchMs = 0L
+                                val publishedAtMs = session.turboPosterPublishedAtMs[fingerprint]
+                                    ?: SystemClock.elapsedRealtime()
+                                val deadlineAtMs = publishedAtMs + TURBO_VIDEO_SKIP_MS
+                                val wasVisible = fingerprint in visiblePositions
                                 var attempts = 0
-                                while (isActive && session.turboFinished &&
-                                    attempts < 4 && eligibleSearchMs < TURBO_VIDEO_SKIP_MS) {
+                                // LAB20: ten seconds from *publication*, not ten
+                                // seconds of network work after waiting for 49 rows.
+                                // Unseen rows get one best-effort background check
+                                // without delaying an onscreen verified replacement.
+                                while (isActive && session.turboFinished && attempts < 4 &&
+                                    (SystemClock.elapsedRealtime() < deadlineAtMs ||
+                                        (!wasVisible && attempts == 0))) {
                                     if (manualVideoSearchJob?.isActive == true &&
                                         resolvingFingerprint == fingerprint) return@launch
                                     if (isAudioProtected()) {
@@ -1877,13 +1897,17 @@ internal fun DiscogsDirectVersionBrowser(
                                     // the fallback as soon as four checks fail.
                                     gate.withPermit {
                                         if (!isAudioProtected()) {
-                                            val acquiredAt = SystemClock.elapsedRealtime()
-                                            withTimeoutOrNull(minOf(3_000L, TURBO_VIDEO_SKIP_MS - eligibleSearchMs)) {
-                                                resolveVideoChunk(listOf(current))
+                                            val remainingMs = deadlineAtMs -
+                                                SystemClock.elapsedRealtime()
+                                            val budgetMs = if (!wasVisible && attempts == 0 &&
+                                                remainingMs <= 0L) 1_800L
+                                                else minOf(1_800L, remainingMs)
+                                            if (budgetMs > 0L) {
+                                                withTimeoutOrNull(budgetMs) {
+                                                    resolveVideoChunk(listOf(current))
+                                                }
+                                                attempts++
                                             }
-                                            eligibleSearchMs +=
-                                                SystemClock.elapsedRealtime() - acquiredAt
-                                            attempts++
                                         }
                                     }
                                     val updated = results.firstOrNull {
@@ -1892,8 +1916,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (hasPublishableVideo(updated)) return@launch
                                     // Bounded backpressure for rate-limited sources,
                                     // never a cosmetic delay before a found video.
-                                    if (attempts < 4 && eligibleSearchMs < TURBO_VIDEO_SKIP_MS) {
-                                        delay(220L)
+                                    if (attempts < 4 &&
+                                        SystemClock.elapsedRealtime() < deadlineAtMs) {
+                                        delay(150L)
                                     }
                                 }
 
@@ -1939,12 +1964,18 @@ internal fun DiscogsDirectVersionBrowser(
                                 // frequently contains unsuitable videos. Top up
                                 // once before attempting adoption, preserving
                                 // the existing candidates and audio priority.
-                                if (reserve.size < 4 && !isAudioProtected()) {
+                                // LAB20: do not block an already verified spare
+                                // behind another potentially 7-second cloud call.
+                                if (reserve.none(::hasPublishableVideo) &&
+                                    reserve.size < 4 && !isAudioProtected() &&
+                                    !wasVisible) {
                                     reserve = rankEligibleSpare(refillReserveOnce())
                                 }
                                 // Bounded replacement probes: never flood shared
                                 // HTTP/CPU while music is playing.
-                                for (spare in reserve.take(4)) {
+                                val readyReserve = reserve.filter(::hasPublishableVideo)
+                                val fallbackOrder = readyReserve + reserve.filterNot(::hasPublishableVideo)
+                                for (spare in fallbackOrder.take(4)) {
                                     if (!isActive || !session.turboFinished) return@launch
                                     if (selectedFingerprint == fingerprint &&
                                         playbackIsNormallyPlaying()) return@launch
@@ -1954,7 +1985,12 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (!claims.add(spare.fingerprint)) continue
                                     while (isActive && isAudioProtected()) delay(200L)
                                     if (!isActive) return@launch
-                                    val verified = gate.withPermit {
+                                    val verified = if (hasPublishableVideo(spare)) {
+                                        // Cached documentary match never costs a
+                                        // semaphore turn; duplicate IDs are still
+                                        // guarded below in verifyReserve.
+                                        verifyReserve(spare)
+                                    } else gate.withPermit {
                                         if (isAudioProtected()) null else verifyReserve(spare)
                                     } ?: continue
                                     if (manualVideoSearchJob?.isActive == true &&
