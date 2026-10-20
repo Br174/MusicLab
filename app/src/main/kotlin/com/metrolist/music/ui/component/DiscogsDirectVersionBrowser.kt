@@ -2509,6 +2509,10 @@ internal fun DiscogsDirectVersionBrowser(
                             // while slow catalog/cloud lanes are still running.
                             // Compose state stays on the owning UI dispatcher;
                             // user sees only the final atomic snapshot.
+                            val selectedArchiveItem =
+                                CloudMusicDiscovery.recentArchiveSelection(
+                                    criteria.title, foreignScoutConfig?.cloudEndpoint.orEmpty(),
+                                )
                             var quotaReached = false
                             val providerJobs = mutableListOf<Job>()
                             // LAB11: the initial block is atomically published
@@ -2528,7 +2532,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 // its already known cover and video thumbnail.
                                 val selectedArchiveReady = selectedArchiveItem != null &&
                                     ranked.any { candidate ->
-                                        earlyArchiveSeeds.any { it.fingerprint == candidate.fingerprint }
+                                        "Archivio Cloud" in candidate.sourceNames &&
+                                            candidate.artist.equals(selectedArchiveItem.artist, ignoreCase = true) &&
+                                            candidate.trackTitle.equals(selectedArchiveItem.title, ignoreCase = true)
                                     }
                                 if ((ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK && !selectedArchiveReady) ||
                                     SystemClock.elapsedRealtime() - turboCommandStartedAt <
@@ -2717,10 +2723,6 @@ internal fun DiscogsDirectVersionBrowser(
                                     )
                                 }
 
-                            val selectedArchiveItem =
-                                CloudMusicDiscovery.recentArchiveSelection(
-                                    criteria.title, foreignScoutConfig?.cloudEndpoint.orEmpty(),
-                                )
                             // Already-selected archive records are published
                             // as soon as their own 1.2s poster boundary opens.
                             val earlyArchiveSeeds = archiveSeeds(listOfNotNull(selectedArchiveItem))
