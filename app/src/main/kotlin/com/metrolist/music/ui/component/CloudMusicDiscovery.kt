@@ -68,6 +68,43 @@ internal object CloudMusicDiscovery {
 
     private val activeArchiveCalls = ConcurrentHashMap.newKeySet<okhttp3.Call>()
 
+    // LAB20: a single bounded read-only archive handoff, not a new database,
+    // network service or background worker. An Archive tap can reuse its
+    // already downloaded metadata in Cover before a remote refresh completes.
+    private data class ArchiveSnapshot(
+        val endpoint: String, val query: String,
+        val items: List<CloudArchiveItem>, val validUntilMs: Long,
+    )
+    @Volatile private var lastArchiveSnapshot: ArchiveSnapshot? = null
+    @Volatile private var selectedArchiveItem: Pair<String, CloudArchiveItem>? = null
+    private const val ARCHIVE_HANDOFF_TTL_MS = 180_000L
+
+    private fun archiveKey(value: String): String =
+        value.trim().lowercase(java.util.Locale.ROOT)
+
+    fun rememberArchiveSelection(item: CloudArchiveItem, endpoint: String) {
+        selectedArchiveItem = endpoint.trim().trimEnd('/') to item
+    }
+
+    fun recentArchiveSelection(title: String, endpoint: String): CloudArchiveItem? {
+        val normalizedEndpoint = endpoint.trim().trimEnd('/')
+        val selected = selectedArchiveItem ?: return null
+        val recent = lastArchiveSnapshot
+        if (recent == null || recent.validUntilMs <= System.currentTimeMillis()) return null
+        if (selected.first != normalizedEndpoint || recent.endpoint != normalizedEndpoint) return null
+        if (recent.items.none { it == selected.second }) return null
+        return selected.second.takeIf { archiveKey(it.title) == archiveKey(title) }
+    }
+
+    private fun recentArchiveQuery(query: String, endpoint: String): List<CloudArchiveItem>? {
+        val recent = lastArchiveSnapshot ?: return null
+        return recent.items.takeIf {
+            recent.endpoint == endpoint.trim().trimEnd('/') &&
+                archiveKey(recent.query) == archiveKey(query) &&
+                recent.validUntilMs > System.currentTimeMillis()
+        }
+    }
+
     // LAB68 Pollicino: bounded on-disk Cloud snapshot, never an extra
     // in-memory mirror of 150 full candidates. SharedPreferences I/O is IO-only.
     private const val MEMORY_PREFS = "musiclab_lab68_cloud_snapshots"
@@ -354,6 +391,9 @@ internal object CloudMusicDiscovery {
     ): List<CloudArchiveItem> = withContext(Dispatchers.IO) {
         val endpoint = config.cloudEndpoint.trim().trimEnd('/')
         if (endpoint.isBlank()) return@withContext emptyList()
+        // Archive UI and Cover use identical canonical queries. A recent
+        // positive answer must not be downloaded and parsed twice.
+        recentArchiveQuery(query, endpoint)?.let { return@withContext it }
 
         val body = buildJsonObject {
             put("query", query.trim())
@@ -375,7 +415,7 @@ internal object CloudMusicDiscovery {
             }
         }.getOrNull() ?: return@withContext emptyList()
 
-        root["items"]
+        val archiveItems = root["items"]
             ?.runCatching { jsonArray }
             ?.getOrNull()
             ?.mapNotNull { element ->
@@ -401,6 +441,13 @@ internal object CloudMusicDiscovery {
                 )
             }
             .orEmpty()
+        if (archiveItems.isNotEmpty()) {
+            lastArchiveSnapshot = ArchiveSnapshot(
+                endpoint, query, archiveItems.take(100),
+                System.currentTimeMillis() + ARCHIVE_HANDOFF_TTL_MS,
+            )
+        }
+        archiveItems
     }
 
     internal fun memoryKey(
