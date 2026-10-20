@@ -1117,7 +1117,9 @@ internal fun DiscogsDirectVersionBrowser(
         // startup, rebuffering or a low current-song audio reserve. Discovery
         // remains resumable after the player recovers.
         if (isTurbo && mode == DiscogsDirectMode.COVER && !playbackPriority &&
-            (backgroundPausedForPlayback || playbackIsCritical() ||
+            (backgroundPausedForPlayback ||
+                playerConnection?.isPlaybackPriorityBurstActive() == true ||
+                playerConnection?.playbackState?.value == Player.STATE_BUFFERING ||
                 playerConnection?.service?.isCoverAudioAtRisk() == true)) return@coroutineScope
         // LAB12: each job is IO-only and respects a shared four-slot budget.
         val jobs =
