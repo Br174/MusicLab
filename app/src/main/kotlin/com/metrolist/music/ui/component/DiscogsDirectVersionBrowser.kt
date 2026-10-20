@@ -113,6 +113,11 @@ private const val TURBO_PRIMARY_GRACE_MS = 5_000L
 private const val TURBO_REPLACEMENT_VIDEO_MS = 5_000L
 private const val TURBO_AUTO_TOTAL_MS =
     TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS + TURBO_REPLACEMENT_VIDEO_MS
+// LAB26: 50 video probes cannot fit in 15 seconds with four network slots.
+// The 25+25 poster deadline remains unchanged; this is a separate, bounded
+// background verification window and yields immediately to audio rebuffering.
+private const val TURBO_VIDEO_COVERAGE_MAX_MS = 100_000L
+private const val TURBO_VIDEO_FIRST_ATTEMPT_MS = 3_400L
 private const val TURBO_RESERVE_MAX = 100
 private const val TURBO_FIRST_POSTER_DEADLINE_MS = 1_200L
 private const val TURBO_FIRST_POSTER_TARGET_MS = 5_000L
@@ -246,6 +251,7 @@ private data class DirectVersionSession(
     // LAB25: one bounded automatic repair on re-entry, not an eternal cloud negative cache.
     var turboLastAutoRepairAtMs: Long = 0L,
     var turboAutoStartedAtMs: Long = 0L,
+    val turboVideoFirstProbeAtMs: MutableMap<String, Long> = linkedMapOf(),
     val turboVideoReasons: MutableMap<String, String> = linkedMapOf(),
     val turboPosterPublishedAtMs: MutableMap<String, Long> = linkedMapOf(),
     // LAB21: first actual viewport appearance is immutable while scrolling.
@@ -1263,11 +1269,14 @@ internal fun DiscogsDirectVersionBrowser(
                     // safely populate metadata caches but must never change
                     // the visible poster after its T+10 primary window.
                     if (isTurbo && mode == DiscogsDirectMode.COVER && !playbackPriority) {
-                        val globalStartedAt = session.turboAutoStartedAtMs
-                        if (globalStartedAt > 0L && (
-                                !isActive || SystemClock.elapsedRealtime() >=
-                                    globalStartedAt + TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS
-                            )) return@launch
+                        // LAB26: validate against this row's *actual probe* clock.
+                        // The old global T+10 gate discarded correct videos from
+                        // the last 25 rows even when their search succeeded.
+                        val rowStartedAt = session.turboVideoFirstProbeAtMs[current.fingerprint]
+                            ?: session.turboPosterPublishedAtMs[current.fingerprint]
+                            ?: session.turboAutoStartedAtMs
+                        if (!isActive || SystemClock.elapsedRealtime() >=
+                            rowStartedAt + TURBO_AUTO_TOTAL_MS) return@launch
                     }
                     replaceSeed(updated)
                     val readyId = updated.resolvedVideoId?.trim().orEmpty()
@@ -1835,20 +1844,18 @@ internal fun DiscogsDirectVersionBrowser(
             ?: SystemClock.elapsedRealtime()
         val globalEnd = globalStart + TURBO_AUTO_TOTAL_MS
         session.turboAutoStartedAtMs = globalStart
-        val firstPriorityEnds = globalStart + TURBO_PRIMARY_VIDEO_MS
-        val firstVideoEnds = firstPriorityEnds + TURBO_PRIMARY_GRACE_MS
         val activeRows = mutableSetOf<String>()
-        val firstPasses = mutableMapOf<String, Int>()
+        // Persist attempt counts across a cancelled/resumed video coordinator.
+        val firstPasses = session.automaticVideoAttempts
         val fallbackPasses = mutableSetOf<String>()
         fun postedRows(): List<DiscogsVersionSeed> =
             (publishedOriginalSnapshots + publishedCoverSnapshots).take(TURBO_RESULT_QUOTA)
         fun currentVideoEndMs(): Long {
-            // LAB25: the last 25 arrive later. They own their own bounded
-            // 5+5+5 opportunity, not just the first block's remaining seconds.
-            val secondSealed = if (session.turboFinished &&
-                postedRows().size > TURBO_MIN_EARLY_POSTER_BLOCK
-            ) session.turboPosterPublishedAtMs.values.maxOrNull() else null
-            return maxOf(globalEnd, (secondSealed ?: globalStart) + TURBO_AUTO_TOTAL_MS)
+            // One bounded overall window, independent from the 10-second
+            // 25+25 poster publisher. Each row receives its own 5+5+5 clock
+            // from its first real verification attempt, not an expired clock
+            // inherited from the first group.
+            return globalStart + TURBO_VIDEO_COVERAGE_MAX_MS
         }
         fun registerClock() {
             postedRows().forEach { row ->
@@ -1864,7 +1871,11 @@ internal fun DiscogsDirectVersionBrowser(
             return@LaunchedEffect
         }
         suspend fun tryReplacement(fingerprint: String) {
-            val autoEndsAt = currentVideoEndMs()
+            val rowStartedAt = session.turboVideoFirstProbeAtMs[fingerprint]
+                ?: globalStart
+            val autoEndsAt = minOf(
+                currentVideoEndMs(), rowStartedAt + TURBO_AUTO_TOTAL_MS,
+            )
                         val budgetMs = autoEndsAt - SystemClock.elapsedRealtime()
                         if (budgetMs <= 0L) return
                         withTimeoutOrNull(budgetMs) {
@@ -1958,7 +1969,9 @@ internal fun DiscogsDirectVersionBrowser(
                         registerClock()
                         if (backgroundWorkBlocked() ||
                             playerConnection?.service?.isCoverAudioAtRisk() == true ||
-                            (playbackIsNormallyPlaying() && lane != 0)) {
+                            // Preserve two metadata lanes when audio is healthy,
+                            // zero during buffering/startup, four when idle.
+                            (playbackIsNormallyPlaying() && lane >= 2)) {
                             delay(120L)
                             continue
                         }
@@ -1968,9 +1981,8 @@ internal fun DiscogsDirectVersionBrowser(
                         val visible = rows.filter { row ->
                             visibleKeys.any { key -> key.endsWith("_" + row.fingerprint) }
                         }.mapTo(HashSet<String>()) { it.fingerprint }
-                        // Partition all 50 into 10/15/13/12. In the early window
-                        // every quarter receives its own worker, including the last 25.
-                        // The first 10 retain preference within their assigned lane.
+                        // LAB26: four fair partitions, including the last 25.
+                        // All unprobed positions precede every second attempt.
                         val partitions = listOf(
                             rows.take(10),
                             rows.drop(10).take(15),
@@ -1978,26 +1990,29 @@ internal fun DiscogsDirectVersionBrowser(
                             rows.drop(38),
                         )
                         val own = partitions[lane]
-                        val early = now < firstPriorityEnds
-                        val primary = now < firstVideoEnds
-                        val ordered: List<DiscogsVersionSeed> =
-                            if (early) own + rows.filterNot { it in own }
-                            else own.filter { it.fingerprint in visible } +
-                                own + rows.filterNot { it in own }
-                        val slot = ordered.firstOrNull { candidate ->
-                            val publishedAt = session.turboPosterPublishedAtMs[candidate.fingerprint]
-                                ?: globalStart
-                            val candidatePrimary = now < publishedAt +
-                                TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS
-                            now < publishedAt + TURBO_AUTO_TOTAL_MS &&
-                                candidate.fingerprint !in activeRows &&
+                        val ordered = own + rows.filterNot { it in own }
+                        val allFirstProbed = (rows.size == TURBO_RESULT_QUOTA ||
+                            session.turboFinished) && rows.all { candidate ->
+                                hasPublishableVideo(candidate) ||
+                                    (firstPasses[candidate.fingerprint] ?: 0) > 0 ||
+                                    playableTrack(candidate) == null
+                            }
+                        val firstQueue = ordered.filter { candidate ->
+                            (firstPasses[candidate.fingerprint] ?: 0) == 0
+                        }
+                        val retryQueue = if (allFirstProbed) ordered.filter { candidate ->
+                            (firstPasses[candidate.fingerprint] ?: 0) in 1..1
+                        } else emptyList()
+                        val replacementQueue = if (allFirstProbed) ordered.filter { candidate ->
+                            (firstPasses[candidate.fingerprint] ?: 0) >= 2 &&
+                                candidate.fingerprint !in fallbackPasses
+                        } else emptyList()
+                        val slot = (firstQueue + retryQueue + replacementQueue).firstOrNull { candidate ->
+                            candidate.fingerprint !in activeRows &&
                                 !hasPublishableVideo(candidate) &&
                                 playableTrack(candidate) != null &&
-                                (if (candidatePrimary) {
-                                    (firstPasses[candidate.fingerprint] ?: 0) < 3
-                                } else {
-                                    candidate.fingerprint !in fallbackPasses
-                                })
+                                // No row can start a new probe in the final moments.
+                                now + 750L < currentVideoEndMs()
                         }
                         if (slot == null) {
                             delay(100L)
@@ -2007,25 +2022,28 @@ internal fun DiscogsDirectVersionBrowser(
                         activeRows.add(fingerprint)
                         session.turboVideoReasons[fingerprint] = "running"
                         try {
-                            val publishedAt = session.turboPosterPublishedAtMs[fingerprint]
-                                ?: globalStart
-                            val primaryDeadline = publishedAt +
-                                TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS
-                            if (SystemClock.elapsedRealtime() < primaryDeadline) {
-                                firstPasses[fingerprint] = (firstPasses[fingerprint] ?: 0) + 1
-                                val remaining = primaryDeadline - SystemClock.elapsedRealtime()
-                                if (remaining > 0L) {
-                                    withTimeoutOrNull(remaining.coerceAtMost(2_200L)) {
-                                        resolveVideoChunk(listOf(slot))
-                                    }
+                            val attemptNo = firstPasses[fingerprint] ?: 0
+                            val rowStartedAt = session.turboVideoFirstProbeAtMs.getOrPut(fingerprint) {
+                                SystemClock.elapsedRealtime()
+                            }
+                            val rowDeadline = minOf(
+                                rowStartedAt + TURBO_AUTO_TOTAL_MS,
+                                currentVideoEndMs(),
+                            )
+                            val remaining = rowDeadline - SystemClock.elapsedRealtime()
+                            if (attemptNo < 2 && remaining > 0L) {
+                                firstPasses[fingerprint] = attemptNo + 1
+                                withTimeoutOrNull(remaining.coerceAtMost(TURBO_VIDEO_FIRST_ATTEMPT_MS)) {
+                                    resolveVideoChunk(listOf(slot))
                                 }
                                 val latest = postedRows().firstOrNull { it.fingerprint == fingerprint }
                                 session.turboVideoReasons[fingerprint] =
                                     if (latest != null && hasPublishableVideo(latest)) "verified_link"
                                     else "timeout_or_unverified"
                             } else {
+                                firstPasses[fingerprint] = maxOf(attemptNo, 2)
                                 fallbackPasses.add(fingerprint)
-                                tryReplacement(fingerprint)
+                                if (remaining > 0L) tryReplacement(fingerprint)
                                 val latest = postedRows().firstOrNull { it.fingerprint == fingerprint }
                                 session.turboVideoReasons[fingerprint] =
                                     if (latest == null) "cover_replaced"
@@ -2045,6 +2063,17 @@ internal fun DiscogsDirectVersionBrowser(
             session.turboAutoClosedFingerprints.add(row.fingerprint)
             session.turboVideoReasons.putIfAbsent(row.fingerprint, "deadline")
         }
+        // Counts only: no private titles, URLs or credentials in diagnostics.
+        val completedRows = postedRows()
+        android.util.Log.i(
+            "MusicLabLAB26Video",
+            "rows=%d probed=%d linked=%d zero_attempt=%d".format(
+                completedRows.size,
+                completedRows.count { (firstPasses[it.fingerprint] ?: 0) > 0 },
+                completedRows.count(::hasPublishableVideo),
+                completedRows.count { (firstPasses[it.fingerprint] ?: 0) == 0 },
+            ),
+        )
         session.turboVideoComplete = true
         turboAutoClosedTick++
     }
@@ -2069,14 +2098,11 @@ internal fun DiscogsDirectVersionBrowser(
             // LAB14: manual playback takes the critical lane only for startup,
             // then resumes the independent, bounded video-only worker.
             backgroundPausedForPlayback = false
-            // Resume only within the original 15-second window. Never reset
-            // the poster deadline or compete with startup/rebuffering.
+            // Resume within the original bounded coverage window; never
+            // restart its clock or compete with startup/rebuffering.
             if (!session.turboVideoComplete && session.turboAutoStartedAtMs > 0L &&
-                SystemClock.elapsedRealtime() < maxOf(
-                    session.turboAutoStartedAtMs + TURBO_AUTO_TOTAL_MS,
-                    (session.turboPosterPublishedAtMs.values.maxOrNull()
-                        ?: session.turboAutoStartedAtMs) + TURBO_AUTO_TOTAL_MS,
-                )) {
+                SystemClock.elapsedRealtime() <
+                    session.turboAutoStartedAtMs + TURBO_VIDEO_COVERAGE_MAX_MS) {
                 turboSearchGeneration++
             }
             if (session.turboFinished) {
@@ -2455,6 +2481,8 @@ internal fun DiscogsDirectVersionBrowser(
         session.turboPosterPublishedAtMs.clear()
         session.turboAutoStartedAtMs = 0L
         session.turboVideoReasons.clear()
+        session.turboVideoFirstProbeAtMs.clear()
+        session.automaticVideoAttempts.clear()
         session.turboFirstVisibleAtMs.clear()
         session.turboAutoClosedFingerprints.clear()
         session.turboManualTriedSpareIds.clear()

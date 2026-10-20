@@ -35,13 +35,12 @@ test('seven-day sparse memory snapshots do not outrank fresh read-only discovery
   assert.match(browser, /linked \* 2 >= versions\.size/);
   assert.match(browser, /CloudMusicDiscovery\.discoverMemoryState/);
 });
-test('last cards have a 15 second window from their own publication',()=>{
+test('each row has its own verification clock while the overall coverage run is bounded',()=>{
   assert.match(video,/fun currentVideoEndMs\(\)/);
-  assert.match(video,/val secondSealed/);
-  assert.match(video,/currentVideoEndMs\(\)/);
-  assert.match(video,/session\.turboPosterPublishedAtMs\[candidate\.fingerprint\]/);
-  assert.match(video,/now < publishedAt \+ TURBO_AUTO_TOTAL_MS/);
-  assert.match(video,/val primaryDeadline = publishedAt \+/);
+  assert.match(video,/globalStart \+ TURBO_VIDEO_COVERAGE_MAX_MS/);
+  assert.match(video,/session\.turboVideoFirstProbeAtMs\.getOrPut\(fingerprint\)/);
+  assert.match(video,/rowStartedAt \+ TURBO_AUTO_TOTAL_MS/);
+  assert.match(video,/firstPasses\[fingerprint\] = attemptNo \+ 1/);
 });
 test('a first and late card have independent bounded windows',()=>{
   const firstPublished=1_000, secondPublished=9_000, budget=15_000;

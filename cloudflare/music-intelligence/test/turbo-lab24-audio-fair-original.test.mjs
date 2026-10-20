@@ -20,7 +20,7 @@ test('LAB24 uses the existing coordinator, no parallel automatic search engine',
 test('playback priority cancels background queries and never restarts a fresh clock', () => {
   assert.match(play, /backgroundPausedForPlayback = true/);
   assert.match(play, /turboAutoVideoJob\?\.cancel\(\)/);
-  assert.match(play, /SystemClock\.elapsedRealtime\(\) < maxOf\(/);
+  assert.match(play, /SystemClock\.elapsedRealtime\(\) </);
   assert.match(play, /turboSearchGeneration\+\+/);
   assert.match(automatic, /val globalStart = session\.turboPosterPublishedAtMs\.values\.minOrNull\(\)/);
 });
@@ -28,7 +28,7 @@ test('playback priority cancels background queries and never restarts a fresh cl
 test('automatic queues pause on playback start, buffering and audio risk', () => {
   assert.match(automatic, /backgroundWorkBlocked\(\)/);
   assert.match(automatic, /isCoverAudioAtRisk\(\)/);
-  assert.match(automatic, /playbackIsNormallyPlaying\(\) && lane != 0/);
+  assert.match(automatic, /playbackIsNormallyPlaying\(\) && lane >= 2/);
   assert.match(resolution, /!playbackPriority/);
   assert.match(resolution, /Player\.STATE_BUFFERING/);
 });
@@ -52,7 +52,7 @@ test('all 50 candidates have a fair initial lane including the final 25', () => 
 });
 
 test('each automatic video attempt has a bounded sub-deadline', () => {
-  assert.match(automatic,/remaining\.coerceAtMost\(2_200L\)/);
+  assert.match(automatic,/remaining\.coerceAtMost\(TURBO_VIDEO_FIRST_ATTEMPT_MS\)/);
   assert.match(automatic,/SystemClock\.elapsedRealtime\(\) < currentVideoEndMs\(\)/);
   assert.match(automatic,/turboReplacementGate\.withPermit/);
   assert.match(automatic,/TURBO_RESULT_QUOTA/);
