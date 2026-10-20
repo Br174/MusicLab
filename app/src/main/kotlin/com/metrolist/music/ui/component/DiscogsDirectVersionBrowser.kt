@@ -1250,6 +1250,16 @@ internal fun DiscogsDirectVersionBrowser(
                             )
                         }
 
+                    // LAB22 hard primary deadline: late provider results may
+                    // safely populate metadata caches but must never change
+                    // the visible poster after its T+10 primary window.
+                    if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                        val firstSeenAt = session.turboFirstVisibleAtMs[current.fingerprint]
+                        if (firstSeenAt != null && (
+                                !isActive || SystemClock.elapsedRealtime() >=
+                                    firstSeenAt + TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS
+                            )) return@launch
+                    }
                     replaceSeed(updated)
                     val readyId = updated.resolvedVideoId?.trim().orEmpty()
                     // LAB12: do not open 50 audio streams while another song
