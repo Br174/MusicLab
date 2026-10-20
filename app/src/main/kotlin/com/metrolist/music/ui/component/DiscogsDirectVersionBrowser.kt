@@ -1883,6 +1883,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (manualVideoSearchJob?.isActive == true &&
                                         resolvingFingerprint == fingerprint) return@launch
                                     if (isAudioProtected()) {
+                                        if (SystemClock.elapsedRealtime() >= deadlineAtMs) break
                                         delay(200L)
                                         continue
                                     }
@@ -1985,14 +1986,14 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (!claims.add(spare.fingerprint)) continue
                                     while (isActive && isAudioProtected()) delay(200L)
                                     if (!isActive) return@launch
-                                    val verified = if (hasPublishableVideo(spare)) {
+                                    val verified = (if (hasPublishableVideo(spare)) {
                                         // Cached documentary match never costs a
                                         // semaphore turn; duplicate IDs are still
                                         // guarded below in verifyReserve.
                                         verifyReserve(spare)
                                     } else gate.withPermit {
                                         if (isAudioProtected()) null else verifyReserve(spare)
-                                    } ?: continue
+                                    }) ?: continue
                                     if (manualVideoSearchJob?.isActive == true &&
                                         resolvingFingerprint == fingerprint) return@launch
                                     val latest = (publishedOriginalSnapshots + publishedCoverSnapshots)
