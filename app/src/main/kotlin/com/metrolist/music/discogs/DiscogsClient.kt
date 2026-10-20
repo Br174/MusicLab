@@ -256,6 +256,8 @@ internal object DiscogsClient {
             tracks = tracks,
             videos = videos,
             credits = root.creditList(),
+            collectorHave = root.optJSONObject("community")
+                ?.optInt("have", -1)?.takeIf { it >= 0 },
         )
     }
 
