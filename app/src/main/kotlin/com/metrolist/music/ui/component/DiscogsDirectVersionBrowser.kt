@@ -87,6 +87,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -388,6 +389,7 @@ internal fun DiscogsDirectVersionBrowser(
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    var turboAutoVideoJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     val turboVisibleJobs = remember(sessionKey) { mutableMapOf<String, Job>() }
     val turboReplacementClaims = remember(sessionKey) { mutableSetOf<String>() }
     val turboReplacementGate = remember(sessionKey) { Semaphore(1) }
@@ -700,23 +702,19 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun consensusOriginalArtist(candidates: List<CoverSourceCandidate>): String? {
-        val strong =
-            candidates.filter { candidate ->
-                candidate.artist.isNotBlank() &&
-                    (candidate.originalWorkReference || candidate.workRelationConfirmed || candidate.evidenceScore >= 14)
-            }
-        if (strong.isEmpty()) return null
-
-        val groups =
-            strong.groupBy { TitleMeaningResolver.canonical(it.artist).removePrefix("the ") }
-                .filterKeys(String::isNotBlank)
+        // A cover performer can dominate search frequency or evidence score.
+        // Only explicit original-work attribution may choose the original artist.
+        val documented =
+            candidates.filter { it.artist.isNotBlank() && it.originalWorkReference }
+        if (documented.isEmpty()) return null
+        val groups = documented.groupBy {
+            TitleMeaningResolver.canonical(it.artist).removePrefix("the ")
+        }.filterKeys(String::isNotBlank)
         val ranked = groups.entries.sortedByDescending { it.value.size }
         val winner = ranked.firstOrNull() ?: return null
-        val total = strong.size.coerceAtLeast(1)
-        val second = ranked.getOrNull(1)?.value?.size ?: 0
-        val explicitOriginal = winner.value.any { it.originalWorkReference }
-        val enoughConsensus = winner.value.size >= 3 && winner.value.size * 100 / total >= 40 && winner.value.size > second
-        return if (explicitOriginal || enoughConsensus) winner.value.first().artist else null
+        // Conflicting documentary attributions must remain unresolved.
+        if (ranked.getOrNull(1)?.value?.size == winner.value.size) return null
+        return winner.value.first().artist
     }
     fun mergeDiscoveryOutcomes(
         primary: CoverSourceOutcome,
@@ -1110,13 +1108,17 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
 
-    suspend fun resolveVideoChunk(chunk: List<DiscogsVersionSeed>) = coroutineScope {
+    suspend fun resolveVideoChunk(
+        chunk: List<DiscogsVersionSeed>,
+        playbackPriority: Boolean = false,
+    ) = coroutineScope {
         if (chunk.isEmpty()) return@coroutineScope
         // LAB15 AUDIO FIRST: a video metadata lookup must not compete with
         // startup, rebuffering or a low current-song audio reserve. Discovery
         // remains resumable after the player recovers.
-        if (isTurbo && mode == DiscogsDirectMode.COVER &&
-            playerConnection?.service?.isCoverAudioAtRisk() == true) return@coroutineScope
+        if (isTurbo && mode == DiscogsDirectMode.COVER && !playbackPriority &&
+            (backgroundPausedForPlayback || playbackIsCritical() ||
+                playerConnection?.service?.isCoverAudioAtRisk() == true)) return@coroutineScope
         // LAB12: each job is IO-only and respects a shared four-slot budget.
         val jobs =
             chunk.map { seed ->
@@ -1256,7 +1258,7 @@ internal fun DiscogsDirectVersionBrowser(
                     // LAB22 hard primary deadline: late provider results may
                     // safely populate metadata caches but must never change
                     // the visible poster after its T+10 primary window.
-                    if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                    if (isTurbo && mode == DiscogsDirectMode.COVER && !playbackPriority) {
                         val globalStartedAt = session.turboAutoStartedAtMs
                         if (globalStartedAt > 0L && (
                                 !isActive || SystemClock.elapsedRealtime() >=
@@ -1816,10 +1818,11 @@ internal fun DiscogsDirectVersionBrowser(
         )
     }
 
-    // LAB23 single coordinator: 3 first-ten lanes + 1 other-40 lane
-    // in the first five seconds. No eager video streams, no scrolling gate.
+    // LAB24: one existing coordinator, four fair result partitions and
+    // immediate cancellation on playback start. Do not duplicate workers.
     LaunchedEffect(sessionKey, turboSearchGeneration) {
         if (!isTurbo || mode != DiscogsDirectMode.COVER) return@LaunchedEffect
+        turboAutoVideoJob = currentCoroutineContext()[Job]
         while (isActive && (publishedOriginalSnapshots + publishedCoverSnapshots).isEmpty()) {
             delay(50L)
         }
@@ -1940,7 +1943,9 @@ internal fun DiscogsDirectVersionBrowser(
                     while (isActive && SystemClock.elapsedRealtime() < globalEnd) {
                         val now = SystemClock.elapsedRealtime()
                         registerClock()
-                        if (playerConnection?.service?.isCoverAudioAtRisk() == true) {
+                        if (backgroundWorkBlocked() ||
+                            playerConnection?.service?.isCoverAudioAtRisk() == true ||
+                            (playbackIsNormallyPlaying() && lane != 0)) {
                             delay(120L)
                             continue
                         }
@@ -1950,17 +1955,22 @@ internal fun DiscogsDirectVersionBrowser(
                         val visible = rows.filter { row ->
                             visibleKeys.any { key -> key.endsWith("_" + row.fingerprint) }
                         }.mapTo(HashSet<String>()) { it.fingerprint }
-                        val firstTen = rows.take(10)
-                        val otherForty = rows.drop(10)
+                        // Partition all 50 into 10/15/13/12. In the early window
+                        // every quarter receives its own worker, including the last 25.
+                        // The first 10 retain preference within their assigned lane.
+                        val partitions = listOf(
+                            rows.take(10),
+                            rows.drop(10).take(15),
+                            rows.drop(25).take(13),
+                            rows.drop(38),
+                        )
+                        val own = partitions[lane]
                         val early = now < firstPriorityEnds
                         val primary = now < firstVideoEnds
-                        val ordered: List<DiscogsVersionSeed> = if (early) {
-                            if (lane == 3) otherForty else firstTen
-                        } else if (lane < 2) {
-                            firstTen + otherForty.filter { it.fingerprint in visible } + otherForty
-                        } else {
-                            otherForty.filter { it.fingerprint in visible } + otherForty + firstTen
-                        }
+                        val ordered: List<DiscogsVersionSeed> =
+                            if (early) own + rows.filterNot { it in own }
+                            else own.filter { it.fingerprint in visible } +
+                                own + rows.filterNot { it in own }
                         val slot = ordered.firstOrNull { candidate ->
                             candidate.fingerprint !in activeRows &&
                                 !hasPublishableVideo(candidate) &&
@@ -1983,7 +1993,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 firstPasses[fingerprint] = (firstPasses[fingerprint] ?: 0) + 1
                                 val remaining = firstVideoEnds - SystemClock.elapsedRealtime()
                                 if (remaining > 0L) {
-                                    withTimeoutOrNull(remaining) { resolveVideoChunk(listOf(slot)) }
+                                    withTimeoutOrNull(remaining.coerceAtMost(2_200L)) {
+                                        resolveVideoChunk(listOf(slot))
+                                    }
                                 }
                                 val latest = postedRows().firstOrNull { it.fingerprint == fingerprint }
                                 session.turboVideoReasons[fingerprint] =
@@ -2019,6 +2031,9 @@ internal fun DiscogsDirectVersionBrowser(
         // LAB54: only the short playback-start critical lane owns the network.
         // Discovery/pagination survive because Cover must remain usable while music plays.
         backgroundPausedForPlayback = true
+        // Cancel in-flight automatic provider calls, not just queued probes.
+        turboAutoVideoJob?.cancel()
+        turboAutoVideoJob = null
         verificationJob?.cancel()
         videoPreloadJob?.cancel()
         backgroundResumeJob?.cancel()
@@ -2032,6 +2047,12 @@ internal fun DiscogsDirectVersionBrowser(
             // LAB14: manual playback takes the critical lane only for startup,
             // then resumes the independent, bounded video-only worker.
             backgroundPausedForPlayback = false
+            // Resume only within the original 15-second window. Never reset
+            // the poster deadline or compete with startup/rebuffering.
+            if (!session.turboVideoComplete && session.turboAutoStartedAtMs > 0L &&
+                SystemClock.elapsedRealtime() < session.turboAutoStartedAtMs + TURBO_AUTO_TOTAL_MS) {
+                turboSearchGeneration++
+            }
             if (session.turboFinished) {
                 playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
                 // LAB11: cached sessions remain idle on re-entry.
@@ -3415,9 +3436,27 @@ internal fun DiscogsDirectVersionBrowser(
                     !workAnchor.equals(criteria.title, ignoreCase = true) &&
                     (!hasExplicitOriginalEvidence || weakCoverage)
 
-            if (needsAnchorFallback && !isTurbo) {
-                val fallback =
-                    runCatching {
+            // Starting from a cover may supply only the covering singer.
+            // Reuse documentary discovery with no presumed original performer,
+            // even if the plain work title is already identical.
+            val turboOriginalUncertain =
+                isTurbo && mode == DiscogsDirectMode.COVER &&
+                    explicitArtistHint.isNullOrBlank() && !hasExplicitOriginalEvidence &&
+                    archiveOriginalArtist.get().isNullOrBlank() &&
+                    memoryState?.discovery?.original?.artist.isNullOrBlank()
+            if ((needsAnchorFallback && !isTurbo) || turboOriginalUncertain) {
+                val fallback = try {
+                    if (isTurbo) {
+                        withTimeoutOrNull(1_500L) {
+                            CoverDiscoverySources.discover(
+                                title = workAnchor,
+                                originalArtist = "",
+                                mode = mode,
+                                aiConfig = foreignScoutConfig,
+                                maxNetworkFanOut = 1,
+                            )
+                        }
+                    } else {
                         CoverDiscoverySources.discover(
                             title = workAnchor,
                             originalArtist = resolvedOriginalArtist,
@@ -3425,15 +3464,20 @@ internal fun DiscogsDirectVersionBrowser(
                             aiConfig = foreignScoutConfig,
                             maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
                         )
-                    }.getOrElse { CoverSourceOutcome(emptyList(), emptyList()) }
-                external = mergeDiscoveryOutcomes(external, fallback)
-
+                    }
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    null
+                }
+                external = mergeDiscoveryOutcomes(
+                    external, fallback ?: CoverSourceOutcome(emptyList(), emptyList()),
+                )
                 if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
                     consensusOriginalArtist(external.candidates)
                         ?.let { resolvedOriginalArtist = it }
                 }
-
-                if (totalDiscogsResults == 0) {
+                if (!isTurbo && totalDiscogsResults == 0) {
                     loadPage(
                         criteria = criteria.copy(title = workAnchor),
                         page = 1,
@@ -3993,7 +4037,7 @@ internal fun DiscogsDirectVersionBrowser(
                 // to hold the playback lane indefinitely. Background discovery can
                 // continue after the priority burst if this quick attempt times out.
                 withTimeoutOrNull(DIRECT_TAPPED_ROW_RESOLVE_TIMEOUT_MS) {
-                    resolveVideoChunk(listOf(currentSeed))
+                    resolveVideoChunk(listOf(currentSeed), playbackPriority = true)
                 }
                 currentSeed =
                     results.firstOrNull { it.fingerprint == seed.fingerprint } ?: currentSeed
