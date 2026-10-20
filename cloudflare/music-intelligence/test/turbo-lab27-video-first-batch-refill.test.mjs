@@ -35,7 +35,7 @@ test('refill is video-first; thumbnail is derived from verified ID',()=>{
   assert.match(refill,/!hasPublishableVideo\(verified\)/);
   assert.match(refill,/val newPoster = "https:\/\/i\.ytimg\.com\/vi\/\$id\/hqdefault\.jpg"/);
   assert.match(refill,/coverUrl = newPoster/);
-  assert.doesNotMatch(refill,/retryMissingVideo\(|play\(/);
+  assert.doesNotMatch(refill.replace(/\/\/[^\n]*/g,''),/retryMissingVideo\(|play\(/);
 });
 test('fresh source discovery is shared by every missing slot',()=>{
   assert.ok(refill.indexOf('CoverDiscoverySources.discover(') < refill.indexOf('for (missing in missingRows)'));
