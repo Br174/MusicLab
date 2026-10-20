@@ -36,8 +36,8 @@ test('automatic queues pause on playback start, buffering and audio risk', () =>
 test('explicit user tap can resolve its own recording despite automatic timeouts', () => {
   assert.match(selected, /resolveVideoChunk\(listOf\(currentSeed\), playbackPriority = true\)/);
   assert.match(resolution, /&& !playbackPriority/);
-  assert.match(selected, /beginPlaybackPriorityBurst/);
-  assert.match(selected, /pauseCoverBackgroundForPlayback\(\)/);
+  assert.match(ui, /beginPlaybackPriorityBurst/);
+  assert.match(ui, /pauseCoverBackgroundForPlayback\(\)/);
 });
 
 test('all 50 candidates have a fair initial lane including the final 25', () => {
