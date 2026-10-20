@@ -25,8 +25,8 @@ test('the original performer leads and highest confidence sorts remain',()=>{
 });
 test('LazyColumn keys preserve fixed slots through replacement',()=>{
   assert.match(source,/val turboSlotKeys: MutableMap<String, String>/);
-  assert.match(source,/key = \{ seed -> if \(isTurbo\) "discogs_direct_cover_\$\{session\.turboSlotKeys/);
-  assert.match(source,/key = \{ seed -> if \(isTurbo\) "discogs_direct_original_\$\{session\.turboSlotKeys/);
+  assert.match(source,/key = \{ index, _ -> "discogs_direct_cover_slot_\$index" \}/);
+  assert.match(source,/key = \{ index, _ -> "discogs_direct_original_slot_\$index" \}/);
   assert.match(refill,/session\.turboSlotKeys\[fresh\.fingerprint\]/);
 });
 test('refill is video-first; thumbnail is derived from verified ID',()=>{

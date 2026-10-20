@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -2160,7 +2161,7 @@ internal fun DiscogsDirectVersionBrowser(
                         val fresh = verified.copy(
                             coverUrl = newPoster,
                             sourceNames = (verified.sourceNames +
-                                "MusicLab LAB27 verified video").distinct(),
+                                "MusicLab LAB28 verified video").distinct(),
                         )
                         swaps[missing.fingerprint] = fresh
                         noDuplicateVideo.add(id)
@@ -2377,7 +2378,9 @@ internal fun DiscogsDirectVersionBrowser(
             // LAB22 manual substitute shows its own verified video thumbnail,
             // never a persisted image belonging to an older recording.
             if (isTurbo && ("MusicLab LAB22 video poster" in seed.sourceNames ||
-                    "MusicLab LAB23 video poster" in seed.sourceNames)) {
+                    "MusicLab LAB23 video poster" in seed.sourceNames ||
+                    "MusicLab LAB27 verified video" in seed.sourceNames ||
+                    "MusicLab LAB28 verified video" in seed.sourceNames)) {
                 seed.coverUrl
             } else CoverPlaybackMemory.editorialArtwork(context, seed.fingerprint, seed.coverUrl)
                 // LAB14: previously archived songs may have only an older
@@ -2772,7 +2775,8 @@ internal fun DiscogsDirectVersionBrowser(
                                 // No artificial 1.2s minimum wait or video gate.
                                 // Original performer versions remain ranked first.
                                 if (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK) return
-                                val firstBlock = ranked.take(TURBO_MIN_EARLY_POSTER_BLOCK)
+                                val firstBlock = ranked.distinctBy { it.fingerprint }
+                                    .take(TURBO_MIN_EARLY_POSTER_BLOCK)
                                 publishedOriginalSnapshots = firstBlock.filter(::isDistinctOriginalVersion)
                                 session.publishedOriginalSnapshots = publishedOriginalSnapshots
                                 publishedCoverSnapshots = firstBlock.filterNot(::isDistinctOriginalVersion)
@@ -2807,11 +2811,15 @@ internal fun DiscogsDirectVersionBrowser(
                                     .mapTo(HashSet<String>()) {
                                         DiscogsVersionSource.recordingIdentityKey(it)
                                     }
+                                val committedFingerprints = (publishedOriginalSnapshots +
+                                    publishedCoverSnapshots).mapTo(HashSet<String>()) { it.fingerprint }
                                 val next = turboRankedPool()
                                     .filter(::modeAcceptsSeed)
                                     .filterNot {
-                                        DiscogsVersionSource.recordingIdentityKey(it) in committedKeys
+                                        DiscogsVersionSource.recordingIdentityKey(it) in committedKeys ||
+                                            it.fingerprint in committedFingerprints
                                     }
+                                    .distinctBy { it.fingerprint }
                                     .take(TURBO_POSTER_SECOND_BLOCK)
                                 if (next.size < TURBO_POSTER_SECOND_BLOCK) return
                                 // Append atomically; none of the first ten shifts.
@@ -3240,6 +3248,7 @@ internal fun DiscogsDirectVersionBrowser(
                         // explicit image-unavailable state rather than vanishing.
                         val finalRanked = turboRankedPool()
                             .filter(::modeAcceptsSeed)
+                            .distinctBy { it.fingerprint }
                         if (publishedCoverSnapshots.isEmpty() && publishedOriginalSnapshots.isEmpty()) {
                             // Low-yield search: publish only real found candidates.
                             val completeBlock = finalRanked.take(TURBO_RESULT_QUOTA)
@@ -3255,9 +3264,12 @@ internal fun DiscogsDirectVersionBrowser(
                             // Append, never insert before visible positions 1..25.
                             // The physical row order is frozen even when a late
                             // original-performer source arrives in the second batch.
+                            val committedFingerprints = (publishedOriginalSnapshots +
+                                publishedCoverSnapshots).mapTo(HashSet<String>()) { it.fingerprint }
                             val secondBlock = finalRanked
                                 .filterNot {
-                                    DiscogsVersionSource.recordingIdentityKey(it) in committedKeys
+                                    DiscogsVersionSource.recordingIdentityKey(it) in committedKeys ||
+                                        it.fingerprint in committedFingerprints
                                 }
                                 .take(
                                     (TURBO_RESULT_QUOTA -
@@ -4866,16 +4878,17 @@ internal fun DiscogsDirectVersionBrowser(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                         )
                     }
-                    items(
+                    itemsIndexed(
                         items = visibleOriginalVersions,
-                        key = { seed -> if (isTurbo) "discogs_direct_original_${session.turboSlotKeys[seed.fingerprint] ?: seed.fingerprint}" else "discogs_direct_original_${seed.fingerprint}" },
-                    ) { seed ->
+                        key = { index, _ -> "discogs_direct_original_slot_$index" },
+                    ) { _, seed ->
                         DiscogsVersionCard(
                             seed = seed,
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
                             audioReadyVerified = hasTurboStreamReady(seed),
                             automaticVideoManaged = isTurbo,
+                            automaticVideoSearching = isTurbo && turboAutoVideoJob?.isActive == true,
                             manualSwitchAvailable = isTurbo && manualSwapReady(seed),
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
@@ -4898,16 +4911,17 @@ internal fun DiscogsDirectVersionBrowser(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                         )
                     }
-                    items(
+                    itemsIndexed(
                         items = visibleTrueCovers,
-                        key = { seed -> if (isTurbo) "discogs_direct_cover_${session.turboSlotKeys[seed.fingerprint] ?: seed.fingerprint}" else "discogs_direct_cover_${seed.fingerprint}" },
-                    ) { seed ->
+                        key = { index, _ -> "discogs_direct_cover_slot_$index" },
+                    ) { _, seed ->
                         DiscogsVersionCard(
                             seed = seed,
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
                             audioReadyVerified = hasTurboStreamReady(seed),
                             automaticVideoManaged = isTurbo,
+                            automaticVideoSearching = isTurbo && turboAutoVideoJob?.isActive == true,
                             manualSwitchAvailable = isTurbo && manualSwapReady(seed),
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
@@ -4922,10 +4936,10 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                 }
             } else {
-                items(
+                itemsIndexed(
                     items = visibleResults,
-                    key = { seed -> "discogs_direct_originals_${seed.fingerprint}" },
-                ) { seed ->
+                    key = { index, _ -> "discogs_direct_originals_slot_$index" },
+                ) { _, seed ->
                     DiscogsVersionCard(
                         seed = seed,
                         showVideoPreview = false,
@@ -5270,6 +5284,7 @@ private fun DiscogsVersionCard(
     videoReadyVerified: Boolean = false,
     audioReadyVerified: Boolean = false,
     automaticVideoManaged: Boolean = false,
+    automaticVideoSearching: Boolean = false,
     manualSwitchAvailable: Boolean = false,
     stableArtworkUrl: String?,
     showConfidence: Boolean,
@@ -5440,7 +5455,10 @@ private fun DiscogsVersionCard(
                                 videoReadyVerified -> "Video trovato · audio non confermato"
                                 automaticVideoManaged && manualSwitchAvailable ->
                                     "Video assente · Tocca per cambiare cover"
-                                automaticVideoManaged -> "Ricerca automatica 5+5+5…"
+                                automaticVideoManaged && automaticVideoSearching ->
+                                    "Ricerca video in corso…"
+                                automaticVideoManaged ->
+                                    "Video non disponibile · Verifica conclusa o sospesa"
                                 seed.videoResolutionChecked -> "Video non trovato · Tocca per cercare"
                                 else -> "Ricerca video automatica…"
                             },
