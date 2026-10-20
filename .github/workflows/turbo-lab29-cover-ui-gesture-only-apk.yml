@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --name-only d49ecba0f670579b1f1c3fb9a4e9fb24113aae4e..HEAD | sort > /tmp/lab29-changed.txt
+          git diff --name-only ec256e7bc43f6d49ce02062fa96a8a77a9d6cee2..HEAD | sort > /tmp/lab29-changed.txt
           cat /tmp/lab29-changed.txt
           while IFS= read -r f; do
             case "$f" in
