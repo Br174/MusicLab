@@ -242,6 +242,8 @@ private data class DirectVersionSession(
     var turboArchiveMatches: Int = 0,
     var turboReserve: List<DiscogsVersionSeed> = emptyList(),
     var turboVideoComplete: Boolean = false,
+    var turboAutoStartedAtMs: Long = 0L,
+    val turboVideoReasons: MutableMap<String, String> = linkedMapOf(),
     val turboPosterPublishedAtMs: MutableMap<String, Long> = linkedMapOf(),
     // LAB21: first actual viewport appearance is immutable while scrolling.
     val turboFirstVisibleAtMs: MutableMap<String, Long> = linkedMapOf(),
@@ -392,6 +394,7 @@ internal fun DiscogsDirectVersionBrowser(
     // A UI state tick makes the manual-swap prompt visible exactly when
     // the automatic 15s clock closes, even if the row data is unchanged.
     var turboAutoClosedTick by remember(sessionKey) { mutableStateOf(0) }
+    var turboSearchGeneration by remember(sessionKey) { mutableStateOf(0) }
     var verificationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var backgroundResumeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var playbackLaunchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -1254,10 +1257,10 @@ internal fun DiscogsDirectVersionBrowser(
                     // safely populate metadata caches but must never change
                     // the visible poster after its T+10 primary window.
                     if (isTurbo && mode == DiscogsDirectMode.COVER) {
-                        val firstSeenAt = session.turboFirstVisibleAtMs[current.fingerprint]
-                        if (firstSeenAt != null && (
+                        val globalStartedAt = session.turboAutoStartedAtMs
+                        if (globalStartedAt > 0L && (
                                 !isActive || SystemClock.elapsedRealtime() >=
-                                    firstSeenAt + TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS
+                                    globalStartedAt + TURBO_PRIMARY_VIDEO_MS + TURBO_PRIMARY_GRACE_MS
                             )) return@launch
                     }
                     replaceSeed(updated)
@@ -1813,68 +1816,41 @@ internal fun DiscogsDirectVersionBrowser(
         )
     }
 
-    LaunchedEffect(sessionKey) {
+    // LAB23 single coordinator: 3 first-ten lanes + 1 other-40 lane
+    // in the first five seconds. No eager video streams, no scrolling gate.
+    LaunchedEffect(sessionKey, turboSearchGeneration) {
         if (!isTurbo || mode != DiscogsDirectMode.COVER) return@LaunchedEffect
-        snapshotFlow {
-            val visibleKeys = listState.layoutInfo.visibleItemsInfo.map { it.key.toString() }
-            (publishedOriginalSnapshots + publishedCoverSnapshots).map { it.fingerprint }
-                .filter { fingerprint ->
-                    visibleKeys.any { key -> key.endsWith("_$fingerprint") }
-                }
-        }.collect { visible ->
-            // collectLatest would cancel child video jobs whenever the user
-            // scrolls. collect preserves the original absolute 5+5+5 clock.
-            for (fingerprint in visible) {
-                if (session.turboAutoClosedFingerprints.contains(fingerprint) ||
-                    session.turboFirstVisibleAtMs.containsKey(fingerprint)) continue
-                val firstSeenAt = SystemClock.elapsedRealtime()
-                session.turboFirstVisibleAtMs[fingerprint] = firstSeenAt
-                turboVisibleJobs[fingerprint] = launch {
-                    try {
-                        val current = (publishedOriginalSnapshots + publishedCoverSnapshots)
-                            .firstOrNull { it.fingerprint == fingerprint } ?: return@launch
-                        if (hasPublishableVideo(current)) return@launch
-
-                        val primaryEndsAt = firstSeenAt + TURBO_PRIMARY_VIDEO_MS
-                        val graceEndsAt = primaryEndsAt + TURBO_PRIMARY_GRACE_MS
-                        val autoEndsAt = graceEndsAt + TURBO_REPLACEMENT_VIDEO_MS
-                        // LAB22: each stage obeys the absolute timestamp set at
-                        // first visibility; semaphore wait and network time count.
-                        // Primary lookup has all four existing verifier permits;
-                        // one replacement gate may operate only in phase 3.
-                        suspend fun tryPrimaryUntil(deadline: Long, maxAttempts: Int) {
-                            var attempts = 0
-                            while (isActive && attempts < maxAttempts &&
-                                SystemClock.elapsedRealtime() < deadline) {
-                                val actual = results.firstOrNull { it.fingerprint == fingerprint }
-                                    ?: return
-                                if (hasPublishableVideo(actual)) return
-                                val left = deadline - SystemClock.elapsedRealtime()
-                                if (left <= 0L) return
-                                withTimeoutOrNull(left) {
-                                    resolveVideoChunk(listOf(actual))
-                                }
-                                attempts++
-                            }
-                        }
-                        // Spend the FIRST 5s on the fast matched-link path, not
-                        // on reserve refill, replacement image searches or audio.
-                        tryPrimaryUntil(primaryEndsAt, maxAttempts = 3)
-                        // Second 5s extends only the same recording's video
-                        // link lookup. It never starts replacement work early.
-                        if (isActive && SystemClock.elapsedRealtime() < graceEndsAt) {
-                            tryPrimaryUntil(graceEndsAt, maxAttempts = 2)
-                        }
-                        val waitForReplacement = graceEndsAt - SystemClock.elapsedRealtime()
-                        if (waitForReplacement > 0L) delay(waitForReplacement)
-                        if (!isActive) return@launch
-                        val ready = results.firstOrNull { it.fingerprint == fingerprint }
-                        if (ready == null || hasPublishableVideo(ready) ||
-                            (manualVideoSearchJob?.isActive == true &&
-                                resolvingFingerprint == fingerprint)) return@launch
-
+        while (isActive && (publishedOriginalSnapshots + publishedCoverSnapshots).isEmpty()) {
+            delay(50L)
+        }
+        if (!isActive) return@LaunchedEffect
+        val globalStart = session.turboPosterPublishedAtMs.values.minOrNull()
+            ?: SystemClock.elapsedRealtime()
+        val globalEnd = globalStart + TURBO_AUTO_TOTAL_MS
+        session.turboAutoStartedAtMs = globalStart
+        val firstPriorityEnds = globalStart + TURBO_PRIMARY_VIDEO_MS
+        val firstVideoEnds = firstPriorityEnds + TURBO_PRIMARY_GRACE_MS
+        val activeRows = mutableSetOf<String>()
+        val firstPasses = mutableMapOf<String, Int>()
+        val fallbackPasses = mutableSetOf<String>()
+        fun postedRows(): List<DiscogsVersionSeed> =
+            (publishedOriginalSnapshots + publishedCoverSnapshots).take(TURBO_RESULT_QUOTA)
+        fun registerClock() {
+            postedRows().forEach { row ->
+                session.turboFirstVisibleAtMs.putIfAbsent(row.fingerprint, globalStart)
+            }
+        }
+        if (SystemClock.elapsedRealtime() >= globalEnd) {
+            registerClock()
+            postedRows().forEach { session.turboAutoClosedFingerprints.add(it.fingerprint) }
+            session.turboVideoComplete = true
+            turboAutoClosedTick++
+            return@LaunchedEffect
+        }
+        suspend fun tryReplacement(fingerprint: String) {
+            val autoEndsAt = globalEnd
                         val budgetMs = autoEndsAt - SystemClock.elapsedRealtime()
-                        if (budgetMs <= 0) return@launch
+                        if (budgetMs <= 0L) return
                         withTimeoutOrNull(budgetMs) {
                             turboReplacementGate.withPermit {
                                 val original = (publishedOriginalSnapshots + publishedCoverSnapshots)
@@ -1924,7 +1900,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     val replacement = verified.copy(
                                         coverUrl = videoPoster,
                                         sourceNames = (verified.sourceNames +
-                                            "MusicLab LAB22 video poster").distinct(),
+                                            "MusicLab LAB23 video poster").distinct(),
                                     )
                                     val latest = (publishedOriginalSnapshots + publishedCoverSnapshots)
                                         .firstOrNull { it.fingerprint == fingerprint }
@@ -1951,27 +1927,93 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                     // A replacement cannot acquire a fresh 15s
                                     // clock by changing its fingerprint.
-                                    session.turboFirstVisibleAtMs[replacement.fingerprint] = firstSeenAt
+                                    session.turboFirstVisibleAtMs[replacement.fingerprint] = globalStart
                                     session.turboAutoClosedFingerprints.add(replacement.fingerprint)
                                     break
                                 }
                             }
                         }
-                        // If the reserve is empty, do not unlock manual mode
-                        // before T+15. The final wait performs NO network work.
-                        val remainingUntilStop = autoEndsAt - SystemClock.elapsedRealtime()
-                        if (remainingUntilStop > 0) delay(remainingUntilStop)
-                    } finally {
-                        session.turboAutoClosedFingerprints.add(fingerprint)
-                        turboVisibleJobs.remove(fingerprint)
-                        turboAutoClosedTick++
-                        // No automatic retries on re-entry/scroll or after T+15s.
+        }
+        coroutineScope {
+            val workers = (0 until 4).map { lane ->
+                launch {
+                    while (isActive && SystemClock.elapsedRealtime() < globalEnd) {
+                        val now = SystemClock.elapsedRealtime()
+                        registerClock()
+                        if (playerConnection?.service?.isCoverAudioAtRisk() == true) {
+                            delay(120L)
+                            continue
+                        }
+                        val rows = postedRows()
+                        val visibleKeys = listState.layoutInfo.visibleItemsInfo
+                            .map { it.key.toString() }
+                        val visible = rows.filter { row ->
+                            visibleKeys.any { key -> key.endsWith("_" + row.fingerprint) }
+                        }.mapTo(HashSet<String>()) { it.fingerprint }
+                        val firstTen = rows.take(10)
+                        val otherForty = rows.drop(10)
+                        val early = now < firstPriorityEnds
+                        val primary = now < firstVideoEnds
+                        val ordered: List<DiscogsVersionSeed> = if (early) {
+                            if (lane == 3) otherForty else firstTen
+                        } else if (lane < 2) {
+                            firstTen + otherForty.filter { it.fingerprint in visible } + otherForty
+                        } else {
+                            otherForty.filter { it.fingerprint in visible } + otherForty + firstTen
+                        }
+                        val slot = ordered.firstOrNull { candidate ->
+                            candidate.fingerprint !in activeRows &&
+                                !hasPublishableVideo(candidate) &&
+                                playableTrack(candidate) != null &&
+                                (if (primary) {
+                                    (firstPasses[candidate.fingerprint] ?: 0) < 3
+                                } else {
+                                    candidate.fingerprint !in fallbackPasses
+                                })
+                        }
+                        if (slot == null) {
+                            delay(100L)
+                            continue
+                        }
+                        val fingerprint = slot.fingerprint
+                        activeRows.add(fingerprint)
+                        session.turboVideoReasons[fingerprint] = "running"
+                        try {
+                            if (primary) {
+                                firstPasses[fingerprint] = (firstPasses[fingerprint] ?: 0) + 1
+                                val remaining = firstVideoEnds - SystemClock.elapsedRealtime()
+                                if (remaining > 0L) {
+                                    withTimeoutOrNull(remaining) { resolveVideoChunk(listOf(slot)) }
+                                }
+                                val latest = postedRows().firstOrNull { it.fingerprint == fingerprint }
+                                session.turboVideoReasons[fingerprint] =
+                                    if (latest != null && hasPublishableVideo(latest)) "verified_link"
+                                    else "timeout_or_unverified"
+                            } else {
+                                fallbackPasses.add(fingerprint)
+                                tryReplacement(fingerprint)
+                                val latest = postedRows().firstOrNull { it.fingerprint == fingerprint }
+                                session.turboVideoReasons[fingerprint] =
+                                    if (latest == null) "cover_replaced"
+                                    else if (hasPublishableVideo(latest)) "verified_link"
+                                    else "no_verified_alternative"
+                            }
+                        } finally {
+                            activeRows.remove(fingerprint)
+                        }
                     }
                 }
             }
+            workers.forEach { it.join() }
         }
+        registerClock()
+        postedRows().forEach { row ->
+            session.turboAutoClosedFingerprints.add(row.fingerprint)
+            session.turboVideoReasons.putIfAbsent(row.fingerprint, "deadline")
+        }
+        session.turboVideoComplete = true
+        turboAutoClosedTick++
     }
-
 
     fun pauseCoverBackgroundForPlayback() {
         // LAB54: only the short playback-start critical lane owns the network.
@@ -2361,10 +2403,13 @@ internal fun DiscogsDirectVersionBrowser(
         session.turboFinished = false
         session.turboVideoComplete = false
         session.turboPosterPublishedAtMs.clear()
+        session.turboAutoStartedAtMs = 0L
+        session.turboVideoReasons.clear()
         session.turboFirstVisibleAtMs.clear()
         session.turboAutoClosedFingerprints.clear()
         session.turboManualTriedSpareIds.clear()
         turboAutoClosedTick++
+        turboSearchGeneration++
         turboVisibleJobs.values.forEach { it.cancel() }
         turboVisibleJobs.clear()
         turboReplacementClaims.clear()
