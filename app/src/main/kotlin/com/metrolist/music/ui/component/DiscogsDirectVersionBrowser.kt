@@ -3742,6 +3742,9 @@ internal fun DiscogsDirectVersionBrowser(
             manualVideoSearchJob = scope.launch {
                 resolvingFingerprint = current.fingerprint
                 try {
+                    // LAB23: the entire explicit retry, including cache,
+                    // provider lookup and verification, has one hard 5s clock.
+                    val finished = withTimeoutOrNull(5_000L) {
                     val anchor = activeCriteria?.title.orEmpty()
                     val chosenSide = isDistinctOriginalVersion(current)
                     val occupied = (publishedCoverSnapshots + publishedOriginalSnapshots)
@@ -3846,16 +3849,16 @@ internal fun DiscogsDirectVersionBrowser(
                     }
 
                     // Phase M1: cached/preloaded verified alternatives: fastest path.
-                    if (adoptFrom(session.turboReserve + turboRankedPool())) return@launch
+                    if (adoptFrom(session.turboReserve + turboRankedPool())) return@withTimeoutOrNull
                     // Phase M2: still use EXISTING discovered recordings whose
                     // video wasn't verified in the automatic fifteen seconds.
-                    if (adoptFrom(results)) return@launch
+                    if (adoptFrom(results)) return@withTimeoutOrNull
                     // Phase M3: user explicitly requested network fallback.
                     // No background loop; each tap owns one bounded discovery.
                     val earlyCandidates = java.util.Collections.synchronizedList(
                         mutableListOf<CoverSourceCandidate>(),
                     )
-                    val discovered = withTimeoutOrNull(12_000L) {
+                    val discovered = withTimeoutOrNull(2_500L) {
                         withContext(Dispatchers.IO) {
                             CoverDiscoverySources.discover(
                                 title = anchor,
@@ -3874,7 +3877,7 @@ internal fun DiscogsDirectVersionBrowser(
                     }.orEmpty() + synchronized(earlyCandidates) {
                         earlyCandidates.toList()
                     }
-                    if (!isActive) return@launch
+                    if (!isActive) return@withTimeoutOrNull
                     val fresh = withContext(Dispatchers.Default) {
                         discovered
                             .filter {
@@ -3898,6 +3901,10 @@ internal fun DiscogsDirectVersionBrowser(
                             context, "Nessuna nuova cover verificata. Tocca di nuovo per riprovare.",
                             Toast.LENGTH_LONG,
                         ).show()
+                    }
+                    } // hard 5s attempt
+                    if (finished == null) {
+                        Toast.makeText(context, "5 secondi terminati. Tocca per un nuovo tentativo.", Toast.LENGTH_SHORT).show()
                     }
                 } catch (cancel: CancellationException) {
                     throw cancel
