@@ -2523,7 +2523,14 @@ internal fun DiscogsDirectVersionBrowser(
                                 // LAB15: first 25 as soon as they are ready
                                 // (target <=5s); never block them waiting for 50
                                 // or a linked video. Second 25 arrive later.
-                                if (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK ||
+                                // LAB20: an explicit Archive tap must not wait
+                                // for 25 unrelated new candidates before showing
+                                // its already known cover and video thumbnail.
+                                val selectedArchiveReady = selectedArchiveItem != null &&
+                                    ranked.any { candidate ->
+                                        earlyArchiveSeeds.any { it.fingerprint == candidate.fingerprint }
+                                    }
+                                if ((ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK && !selectedArchiveReady) ||
                                     SystemClock.elapsedRealtime() - turboCommandStartedAt <
                                         TURBO_FIRST_POSTER_DEADLINE_MS) return
                                 val firstBlock = ranked.take(TURBO_MIN_EARLY_POSTER_BLOCK)
@@ -2676,6 +2683,49 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                 }
                             }
+                            // LAB20: share one validated archive conversion
+                            // between an instant Archive-screen handoff and the
+                            // asynchronous Cloud refresh. No extra search engine.
+                            fun archiveSeeds(items: List<CloudArchiveItem>): List<DiscogsVersionSeed> =
+                                items.mapNotNull { item ->
+                                    val work = item.workTitle.ifBlank { item.title }
+                                    if (!TitleMeaningResolver.matchesBaseTitle(criteria.title, work) &&
+                                        !TitleMeaningResolver.matchesBaseTitle(criteria.title, item.title)
+                                    ) return@mapNotNull null
+                                    val category = when (item.category.lowercase()) {
+                                        "live", "dal vivo" -> AiCoverCategory.LIVE
+                                        "remix", "mix", "rework" -> AiCoverCategory.REMIX
+                                        "foreign", "straniera", "adattamento" -> AiCoverCategory.FOREIGN
+                                        else -> AiCoverCategory.COVER
+                                    }
+                                    DiscogsVersionSource.externalSeed(
+                                        CoverSourceCandidate(
+                                            title = item.title, artist = item.artist,
+                                            sources = listOf("Archivio Cloud"),
+                                            year = item.year, album = item.album,
+                                            coverUrl = item.coverUrl, language = item.language,
+                                            category = category,
+                                            playbackVideoId = item.playbackVideoId,
+                                            playbackVideoTitle = item.playbackVideoTitle,
+                                            playbackVideoSource = item.playbackVideoSource,
+                                            workRelationConfirmed = true,
+                                            evidenceScore = (((item.sameWorkScore ?: 30) +
+                                                (item.versionTypeScore ?: 30)) / 10).coerceIn(1, 20),
+                                        ),
+                                        targetTitle = criteria.title,
+                                        originalArtist = resolvedOriginalArtist,
+                                    )
+                                }
+
+                            val selectedArchiveItem =
+                                CloudMusicDiscovery.recentArchiveSelection(
+                                    criteria.title, foreignScoutConfig?.cloudEndpoint.orEmpty(),
+                                )
+                            // Already-selected archive records are published
+                            // as soon as their own 1.2s poster boundary opens.
+                            val earlyArchiveSeeds = archiveSeeds(listOfNotNull(selectedArchiveItem))
+                            if (earlyArchiveSeeds.isNotEmpty()) supplementalSeeds.trySend(earlyArchiveSeeds)
+
                             val archiveDeferred = async(Dispatchers.IO) {
                                 val items = withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
                                     foreignScoutConfig?.let { config ->
@@ -2692,38 +2742,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 }.groupBy { it.originalArtist.trim() }
                                     .maxByOrNull { it.value.size }
                                     ?.key?.let { archiveOriginalArtist.set(it) }
-                            val seeds = items.mapNotNull { item ->
-                                val work = item.workTitle.ifBlank { item.title }
-                                if (!TitleMeaningResolver.matchesBaseTitle(criteria.title, work) &&
-                                    !TitleMeaningResolver.matchesBaseTitle(criteria.title, item.title)
-                                ) return@mapNotNull null
-                                val category = when (item.category.lowercase()) {
-                                    "live", "dal vivo" -> AiCoverCategory.LIVE
-                                    "remix", "mix", "rework" -> AiCoverCategory.REMIX
-                                    "foreign", "straniera", "adattamento" -> AiCoverCategory.FOREIGN
-                                    else -> AiCoverCategory.COVER
+                            val seeds = archiveSeeds(
+                                (listOfNotNull(selectedArchiveItem) + items).distinctBy {
+                                    listOf(it.title.lowercase(), it.artist.lowercase(), it.category.lowercase())
                                 }
-                                DiscogsVersionSource.externalSeed(
-                                    CoverSourceCandidate(
-                                        title = item.title, artist = item.artist,
-                                        sources = listOf("Archivio Cloud"),
-                                        year = item.year, album = item.album,
-                                        coverUrl = item.coverUrl, language = item.language,
-                                        category = category,
-                                        playbackVideoId = item.playbackVideoId,
-                                        playbackVideoTitle = item.playbackVideoTitle,
-                                        playbackVideoSource = item.playbackVideoSource,
-                                        // Search archive has already anchored this
-                                        // approved recording to the queried work.
-                                        workRelationConfirmed = true,
-                                        evidenceScore =
-                                            (((item.sameWorkScore ?: 30) +
-                                                (item.versionTypeScore ?: 30)) / 10).coerceIn(1, 20),
-                                    ),
-                                    targetTitle = criteria.title,
-                                    originalArtist = resolvedOriginalArtist,
-                                )
-                            }
+                            )
                                 if (seeds.isNotEmpty()) supplementalSeeds.trySend(seeds)
                                 seeds
                             }
