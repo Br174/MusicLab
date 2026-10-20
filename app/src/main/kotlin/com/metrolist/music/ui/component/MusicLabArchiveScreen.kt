@@ -153,6 +153,10 @@ internal fun MusicLabArchiveScreen(
                             Modifier
                                 .fillMaxWidth()
                                 .clickable {
+                                    // LAB20: pass through the exact already-fetched
+                                    // archive association, without altering routing
+                                    // or making an extra provider request.
+                                    CloudMusicDiscovery.rememberArchiveSelection(item, endpoint)
                                     navController.navigate(SearchRoutes.resultRoute(item.title))
                                 },
                         tonalElevation = 1.dp,
