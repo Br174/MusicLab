@@ -3444,8 +3444,7 @@ internal fun DiscogsDirectVersionBrowser(
             val turboOriginalUncertain =
                 isTurbo && mode == DiscogsDirectMode.COVER &&
                     explicitArtistHint.isNullOrBlank() && !hasExplicitOriginalEvidence &&
-                    memoryState?.discovery?.original?.artist.isNullOrBlank() &&
-                    session.turboArchiveMatches == 0
+                    memoryState?.discovery?.original?.artist.isNullOrBlank()
             if ((needsAnchorFallback && !isTurbo) || turboOriginalUncertain) {
                 val fallback = try {
                     if (isTurbo) {
