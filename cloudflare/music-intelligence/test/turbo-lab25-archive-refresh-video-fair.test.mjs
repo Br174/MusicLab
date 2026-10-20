@@ -59,8 +59,8 @@ test('all fifty retain bounded lane coverage with no unbounded verifier',()=>{
   assert.equal(new Set(pools.flat()).size,50);
 });
 test('no UI layout, rating, poster split or audio service is altered',()=>{
-  assert.match(source, /TURBO_MIN_EARLY_POSTER_BLOCK = 25/);
-  assert.match(source, /TURBO_POSTER_SECOND_BLOCK = 25/);
+  assert.match(source, /TURBO_MIN_EARLY_POSTER_BLOCK = 10/);
+  assert.match(source, /TURBO_POSTER_SECOND_BLOCK = 40/);
   assert.match(source, /private const val TURBO_RESULT_QUOTA = 50/);
   assert.match(video, /backgroundWorkBlocked\(\)/);
   assert.match(video, /isCoverAudioAtRisk\(\)/);

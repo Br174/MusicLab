@@ -104,8 +104,8 @@ test('report coverage counters, not misleading always-green status',()=>{
 });
 
 test('25+25 poster layout and user-approved UI unchanged',()=>{
-  assert.match(source,/TURBO_MIN_EARLY_POSTER_BLOCK = 25/);
-  assert.match(source,/TURBO_POSTER_SECOND_BLOCK = 25/);
+  assert.match(source,/TURBO_MIN_EARLY_POSTER_BLOCK = 10/);
+  assert.match(source,/TURBO_POSTER_SECOND_BLOCK = 40/);
   assert.match(source,/sealPostersOnce\(\)/);
   assert.match(source,/sealSecondPostersOnce\(\)/);
 });

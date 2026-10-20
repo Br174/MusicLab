@@ -121,8 +121,11 @@ private const val TURBO_VIDEO_FIRST_ATTEMPT_MS = 3_400L
 private const val TURBO_RESERVE_MAX = 100
 private const val TURBO_FIRST_POSTER_DEADLINE_MS = 1_200L
 private const val TURBO_FIRST_POSTER_TARGET_MS = 5_000L
-private const val TURBO_MIN_EARLY_POSTER_BLOCK = 25
-private const val TURBO_POSTER_SECOND_BLOCK = 25
+private const val TURBO_MIN_EARLY_POSTER_BLOCK = 10
+private const val TURBO_POSTER_SECOND_BLOCK = 40
+// LAB27: one final video-first, batch-published refill after normal verification.
+private const val TURBO_VIDEO_REFILL_MAX_MS = 45_000L
+private const val TURBO_VIDEO_REFILL_DISCOVERY_MS = 7_000L
 private const val TURBO_STREAM_PROBE_MS = 850L
 private const val TURBO_THUMBNAIL_RESERVE_MS = 400L
 private const val TURBO_SOURCE_WAIT_MS = 8_200L
@@ -254,6 +257,8 @@ private data class DirectVersionSession(
     val turboVideoFirstProbeAtMs: MutableMap<String, Long> = linkedMapOf(),
     val turboVideoReasons: MutableMap<String, String> = linkedMapOf(),
     val turboPosterPublishedAtMs: MutableMap<String, Long> = linkedMapOf(),
+    // Stable viewport slots survive a video-first recording replacement.
+    val turboSlotKeys: MutableMap<String, String> = linkedMapOf(),
     // LAB21: first actual viewport appearance is immutable while scrolling.
     val turboFirstVisibleAtMs: MutableMap<String, Long> = linkedMapOf(),
     val turboAutoClosedFingerprints: MutableSet<String> = linkedSetOf(),
@@ -1952,8 +1957,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     session.turboReserve = session.turboReserve.filterNot {
                                         it.fingerprint == replacement.fingerprint
                                     }
-                                    // A replacement cannot acquire a fresh 15s
-                                    // clock by changing its fingerprint.
+                                    // A replacement inherits exactly this viewport slot.
+                                    session.turboSlotKeys[replacement.fingerprint] =
+                                        session.turboSlotKeys[fingerprint] ?: fingerprint
                                     session.turboFirstVisibleAtMs[replacement.fingerprint] = globalStart
                                     session.turboAutoClosedFingerprints.add(replacement.fingerprint)
                                     break
@@ -2057,6 +2063,155 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
             workers.forEach { it.join() }
+        }
+
+        // LAB27: video-first refill is deliberately separate from the fast
+        // 10+40 poster publisher. It never triggers play() or synthetic taps.
+        // Prepared substitutions stay invisible until the full batch is ready.
+        val refillStartedAt = SystemClock.elapsedRealtime()
+        val originalRows = postedRows()
+        val missingRows = originalRows.filterNot(::hasPublishableVideo)
+        if (missingRows.isNotEmpty() && isActive) {
+            // Publish collected winners even at deadline; a timeout must not
+            // discard the successful part of an atomic replacement wave.
+            run {
+                val anchorTitle = activeCriteria?.title.orEmpty()
+                val owned = originalRows.mapTo(HashSet<String>()) {
+                    DiscogsVersionSource.recordingIdentityKey(it)
+                }
+                val usedIds = originalRows.mapNotNullTo(HashSet<String>()) {
+                    it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
+                }
+                val options = session.turboReserve.toMutableList()
+                // Single fresh discovery for ALL missing slots, not one expensive
+                // remote query per poster. Use the native multi-source engine.
+                if (options.count { !it.resolvedVideoId.isNullOrBlank() } < missingRows.size) {
+                    val found = withTimeoutOrNull(TURBO_VIDEO_REFILL_DISCOVERY_MS) {
+                        withContext(Dispatchers.IO) {
+                            CoverDiscoverySources.discover(
+                                title = anchorTitle,
+                                originalArtist = resolvedOriginalArtist,
+                                mode = DiscogsDirectMode.COVER,
+                                aiConfig = foreignScoutConfig,
+                                maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 3,
+                                forceRefresh = true,
+                            ).candidates
+                        }
+                    }.orEmpty()
+                    options.addAll(found.filter {
+                        TitleMeaningResolver.matchesBaseTitle(anchorTitle, it.title)
+                    }.map {
+                        DiscogsVersionSource.externalSeed(
+                            candidate = it,
+                            targetTitle = anchorTitle,
+                            originalArtist = resolvedOriginalArtist,
+                        )
+                    })
+                }
+                val replacementCandidates = options
+                    .distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                    .filter { candidate ->
+                        !isRejected(candidate) && modeAcceptsSeed(candidate) &&
+                            DiscogsVersionSource.recordingIdentityKey(candidate) !in owned &&
+                            TitleMeaningResolver.matchesBaseTitle(anchorTitle, candidate.trackTitle) &&
+                            playableTrack(candidate) != null
+                    }
+                val reserved = mutableSetOf<String>()
+                val swaps = linkedMapOf<String, DiscogsVersionSeed>()
+                val noDuplicateVideo = usedIds.toMutableSet()
+                // Priority by closeness to the slot score, but NEVER enforce an
+                // exact score or rearrange existing rows. Video is verified
+                // before its own preview is used as the replacement poster.
+                for (missing in missingRows) {
+                    if (!isActive || SystemClock.elapsedRealtime() >=
+                        refillStartedAt + TURBO_VIDEO_REFILL_MAX_MS) break
+                    while (backgroundWorkBlocked() ||
+                        playerConnection?.service?.isCoverAudioAtRisk() == true) {
+                        if (!isActive || SystemClock.elapsedRealtime() >=
+                            refillStartedAt + TURBO_VIDEO_REFILL_MAX_MS) break
+                        delay(120L)
+                    }
+                    if (!isActive || SystemClock.elapsedRealtime() >=
+                        refillStartedAt + TURBO_VIDEO_REFILL_MAX_MS) break
+                    val originalSide = isDistinctOriginalVersion(missing)
+                    val ranked = replacementCandidates.asSequence()
+                        .filter { candidate ->
+                            candidate.fingerprint !in reserved &&
+                                isDistinctOriginalVersion(candidate) == originalSide
+                        }
+                        .sortedWith(
+                            compareByDescending<DiscogsVersionSeed> {
+                                !it.resolvedVideoId.isNullOrBlank()
+                            }.thenBy {
+                                kotlin.math.abs(it.confidenceScore - missing.confidenceScore)
+                            }.thenByDescending { it.confidenceScore }
+                        ).take(10).toList()
+                    for (candidate in ranked) {
+                        if (!isActive || SystemClock.elapsedRealtime() >=
+                            refillStartedAt + TURBO_VIDEO_REFILL_MAX_MS) break
+                        reserved.add(candidate.fingerprint)
+                        val verified = withTimeoutOrNull(2_800L) {
+                            lab21VerifyAlternative(candidate)
+                        } ?: continue
+                        val id = verified.resolvedVideoId?.trim().orEmpty()
+                        if (id.isBlank() || id in noDuplicateVideo ||
+                            !hasPublishableVideo(verified)) continue
+                        val newPoster = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+                        val fresh = verified.copy(
+                            coverUrl = newPoster,
+                            sourceNames = (verified.sourceNames +
+                                "MusicLab LAB27 verified video").distinct(),
+                        )
+                        swaps[missing.fingerprint] = fresh
+                        noDuplicateVideo.add(id)
+                        owned.add(DiscogsVersionSource.recordingIdentityKey(fresh))
+                        break
+                    }
+                }
+                // SINGLE COMMIT: mutate both list snapshots once. All original
+                // positions remain fixed, including when scores differ.
+                if (swaps.isNotEmpty() && isActive) {
+                    val snapshot = publishedOriginalSnapshots + publishedCoverSnapshots
+                    val stillValid = swaps.filter { (fingerprint, _) ->
+                        snapshot.any { it.fingerprint == fingerprint &&
+                            !hasPublishableVideo(it) }
+                    }
+                    if (stillValid.isNotEmpty()) {
+                        fun swap(row: DiscogsVersionSeed): DiscogsVersionSeed =
+                            stillValid[row.fingerprint] ?: row
+                        publishedOriginalSnapshots = publishedOriginalSnapshots.map(::swap)
+                        publishedCoverSnapshots = publishedCoverSnapshots.map(::swap)
+                        session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                        session.publishedCoverSnapshots = publishedCoverSnapshots
+                        results = results.map(::swap)
+                            .distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                        session.results = results
+                        session.stableOrder = session.stableOrder.map {
+                            stillValid[it]?.fingerprint ?: it
+                        }
+                        stillValid.forEach { (old, fresh) ->
+                            session.turboSlotKeys[fresh.fingerprint] =
+                                session.turboSlotKeys[old] ?: old
+                            session.turboPosterPublishedAtMs[fresh.fingerprint] =
+                                session.turboPosterPublishedAtMs[old]
+                                    ?: SystemClock.elapsedRealtime()
+                            session.turboFirstVisibleAtMs[fresh.fingerprint] =
+                                session.turboFirstVisibleAtMs[old]
+                                    ?: SystemClock.elapsedRealtime()
+                            session.turboAutoClosedFingerprints.add(fresh.fingerprint)
+                        }
+                        turboAutoClosedTick++
+                    }
+                }
+                android.util.Log.i(
+                    "MusicLabLAB27Refill",
+                    "missing=%d swapped=%d remaining=%d".format(
+                        missingRows.size, swaps.size,
+                        (publishedOriginalSnapshots + publishedCoverSnapshots)
+                            .count { !hasPublishableVideo(it) },
+                    ),
+                )
+            }
         }
         registerClock()
         postedRows().forEach { row ->
@@ -2479,6 +2634,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.turboFinished = false
         session.turboVideoComplete = false
         session.turboPosterPublishedAtMs.clear()
+        session.turboSlotKeys.clear()
         session.turboAutoStartedAtMs = 0L
         session.turboVideoReasons.clear()
         session.turboVideoFirstProbeAtMs.clear()
@@ -2611,29 +2767,20 @@ internal fun DiscogsDirectVersionBrowser(
                                 val ranked = turboRankedPool()
                                     .filter(::modeAcceptsSeed)
                                     .take(TURBO_RESULT_QUOTA)
-                                // LAB15: first 25 as soon as they are ready
-                                // (target <=5s); never block them waiting for 50
-                                // or a linked video. Second 25 arrive later.
-                                // LAB20: an explicit Archive tap must not wait
-                                // for 25 unrelated new candidates before showing
-                                // its already known cover and video thumbnail.
-                                val selectedArchiveReady = selectedArchiveItem != null &&
-                                    ranked.any { candidate ->
-                                        "Archivio Cloud" in candidate.sourceNames &&
-                                            candidate.artist.equals(selectedArchiveItem.artist, ignoreCase = true) &&
-                                            candidate.trackTitle.equals(selectedArchiveItem.title, ignoreCase = true)
-                                    }
-                                if ((ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK && !selectedArchiveReady) ||
-                                    SystemClock.elapsedRealtime() - turboCommandStartedAt <
-                                        TURBO_FIRST_POSTER_DEADLINE_MS) return
+                                // LAB27: publish the first ten together *as soon
+                                // as* ten ranked documentary candidates exist.
+                                // No artificial 1.2s minimum wait or video gate.
+                                // Original performer versions remain ranked first.
+                                if (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK) return
                                 val firstBlock = ranked.take(TURBO_MIN_EARLY_POSTER_BLOCK)
                                 publishedOriginalSnapshots = firstBlock.filter(::isDistinctOriginalVersion)
                                 session.publishedOriginalSnapshots = publishedOriginalSnapshots
                                 publishedCoverSnapshots = firstBlock.filterNot(::isDistinctOriginalVersion)
                                 session.publishedCoverSnapshots = publishedCoverSnapshots
                                 val sealedAt = SystemClock.elapsedRealtime()
-                                firstBlock.forEach {
-                                    session.turboPosterPublishedAtMs[it.fingerprint] = sealedAt
+                                firstBlock.forEachIndexed { index, seed ->
+                                    session.turboPosterPublishedAtMs[seed.fingerprint] = sealedAt
+                                    session.turboSlotKeys[seed.fingerprint] = "slot-$index"
                                 }
                                 visibleLimit = TURBO_RESULT_QUOTA
                                 session.visibleLimit = TURBO_RESULT_QUOTA
@@ -2643,21 +2790,19 @@ internal fun DiscogsDirectVersionBrowser(
                                 session.rankingFrozen = true
                                 originalSectionFrozen = true
                                 session.originalSectionFrozen = true
-                                // The first 25 positions are immutable while
-                                // metadata discovery prepares the second group.
+                                // The first ten positions are immutable while
+                                // metadata discovery prepares the next forty.
                                 // Video bindings remain independently updateable.
                                 // The global ten-second scope owns cancellation.
                                 loading = false
                             }
-                            // LAB15: the second 25 may appear immediately
-                            // after the 5-second boundary if already discovered.
+                            // LAB27: the next 40 appear atomically whenever ready;
+                            // never wait for a mandatory five-second boundary.
                             // Never insert before or rerank committed first rows.
                             fun sealSecondPostersOnce() {
                                 if (activeCriteria != criteria ||
                                     publishedOriginalSnapshots.size + publishedCoverSnapshots.size !=
                                         TURBO_MIN_EARLY_POSTER_BLOCK) return
-                                if (SystemClock.elapsedRealtime() - turboCommandStartedAt <
-                                    TURBO_FIRST_POSTER_TARGET_MS) return
                                 val committedKeys = (publishedOriginalSnapshots + publishedCoverSnapshots)
                                     .mapTo(HashSet<String>()) {
                                         DiscogsVersionSource.recordingIdentityKey(it)
@@ -2669,12 +2814,16 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                     .take(TURBO_POSTER_SECOND_BLOCK)
                                 if (next.size < TURBO_POSTER_SECOND_BLOCK) return
-                                // Late original variants stay at the tail so
-                                // cards 1..25 NEVER move or disappear.
+                                // Append atomically; none of the first ten shifts.
+                                val firstCount = publishedOriginalSnapshots.size +
+                                    publishedCoverSnapshots.size
                                 publishedCoverSnapshots = publishedCoverSnapshots + next
                                 session.publishedCoverSnapshots = publishedCoverSnapshots
                                 val shown = SystemClock.elapsedRealtime()
-                                next.forEach { session.turboPosterPublishedAtMs[it.fingerprint] = shown }
+                                next.forEachIndexed { index, seed ->
+                                    session.turboPosterPublishedAtMs[seed.fingerprint] = shown
+                                    session.turboSlotKeys[seed.fingerprint] = "slot-${firstCount + index}"
+                                }
                                 publishedReadyLimit = TURBO_RESULT_QUOTA
                                 session.publishedReadyLimit = TURBO_RESULT_QUOTA
                             }
@@ -3119,10 +3268,9 @@ internal fun DiscogsDirectVersionBrowser(
                             session.publishedCoverSnapshots = publishedCoverSnapshots
                         }
                         val secondSealedAt = SystemClock.elapsedRealtime()
-                        (publishedOriginalSnapshots + publishedCoverSnapshots).forEach {
-                            session.turboPosterPublishedAtMs.putIfAbsent(
-                                it.fingerprint, secondSealedAt,
-                            )
+                        (publishedOriginalSnapshots + publishedCoverSnapshots).forEachIndexed { index, seed ->
+                            session.turboPosterPublishedAtMs.putIfAbsent(seed.fingerprint, secondSealedAt)
+                            session.turboSlotKeys.putIfAbsent(seed.fingerprint, "slot-$index")
                         }
                         publishedReadyLimit = publishedOriginalSnapshots.size + publishedCoverSnapshots.size
                         session.publishedReadyLimit = publishedReadyLimit
@@ -3951,6 +4099,8 @@ internal fun DiscogsDirectVersionBrowser(
                             session.turboReserve = session.turboReserve.filterNot {
                                 it.fingerprint == winner.fingerprint
                             }
+                            session.turboSlotKeys[winner.fingerprint] =
+                                session.turboSlotKeys[current.fingerprint] ?: current.fingerprint
                             session.turboFirstVisibleAtMs[winner.fingerprint] = firstSeen
                             session.turboAutoClosedFingerprints.add(winner.fingerprint)
                             turboAutoClosedTick++
@@ -4718,7 +4868,7 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     items(
                         items = visibleOriginalVersions,
-                        key = { seed -> "discogs_direct_original_${seed.fingerprint}" },
+                        key = { seed -> if (isTurbo) "discogs_direct_original_${session.turboSlotKeys[seed.fingerprint] ?: seed.fingerprint}" else "discogs_direct_original_${seed.fingerprint}" },
                     ) { seed ->
                         DiscogsVersionCard(
                             seed = seed,
@@ -4750,7 +4900,7 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     items(
                         items = visibleTrueCovers,
-                        key = { seed -> "discogs_direct_cover_${seed.fingerprint}" },
+                        key = { seed -> if (isTurbo) "discogs_direct_cover_${session.turboSlotKeys[seed.fingerprint] ?: seed.fingerprint}" else "discogs_direct_cover_${seed.fingerprint}" },
                     ) { seed ->
                         DiscogsVersionCard(
                             seed = seed,
