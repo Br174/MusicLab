@@ -1742,7 +1742,205 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB21 supersedes the previous 10-second/background worker and refill.
     // All automatic video work is owned by the single 5+3+3 viewport coordinator.
 
-    // LAB21 viewport coordinator inserted below.
+    /**
+     * LAB21 authoritative video rule, superseding every previous automatic
+     * 10s/10+5/5+5/manual-reentry proposal:
+     *   0..5s   first matching video, highest network priority
+     *   5..8s   only let the ALREADY started first attempt settle
+     *   8..11s  one bounded replacement lane (different artwork and recording)
+     *   11s     cancel child work and permanently close this automatic card
+     *
+     * T0 is the first actual LazyColumn viewport appearance. Scrolling or
+     * re-entering never resets T0. Manual user requests remain independent.
+     */
+    suspend fun lab21VerifyAlternative(seed: DiscogsVersionSeed): DiscogsVersionSeed? {
+        val track = playableTrack(seed) ?: return null
+        val id = seed.resolvedVideoId?.trim().orEmpty()
+        val visibleIds = (publishedOriginalSnapshots + publishedCoverSnapshots)
+            .mapNotNullTo(HashSet<String>()) { it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank) }
+        val rejectedIds = CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)
+        if (id.isNotBlank() && id !in visibleIds && id !in rejectedIds &&
+            hasPublishableVideo(seed)) return seed
+
+        val known = if (id.isNotBlank() && id !in visibleIds && id !in rejectedIds) {
+            session.preparedVideoSongs[id] ?: withTimeoutOrNull(900L) {
+                withContext(Dispatchers.IO) {
+                    YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
+                }
+            }
+        } else null
+        val verified = known?.takeIf { CompilationTrackResolver.isHardCompatible(track, it) }
+        val candidate = verified ?: withTimeoutOrNull(1_700L) {
+            withContext(Dispatchers.IO) {
+                CompilationTrackResolver.resolveTrack(
+                    track = track,
+                    discogsVideos = seed.videos,
+                    fastFirst = true,
+                    excludedVideoIds = visibleIds + rejectedIds +
+                        listOfNotNull(known?.id?.takeIf { verified == null }),
+                    searchRound = CoverPlaybackMemory.nextSearchRound(context, seed.fingerprint),
+                    preferLive = seed.kind == DiscogsVersionKind.LIVE,
+                    turboFastOnly = true,
+                )?.song
+            }
+        } ?: return null
+        if (!CompilationTrackResolver.isHardCompatible(track, candidate) ||
+            candidate.id in visibleIds || candidate.id in rejectedIds) return null
+        rememberPreparedVideoSong(candidate)
+        session.playReadyVideoIds.add(candidate.id)
+        session.usedVideoIds.add(candidate.id)
+        CoverPlaybackMemory.saveMetadataVerifiedVideo(
+            context, seed.fingerprint, candidate.id,
+        )
+        return DiscogsVersionSource.markVideoResolved(
+            seed, candidate.id, candidate.title, "MusicLab · Turbo LAB21 5+3+3",
+        )
+    }
+
+    LaunchedEffect(sessionKey) {
+        if (!isTurbo || mode != DiscogsDirectMode.COVER) return@LaunchedEffect
+        snapshotFlow {
+            val visibleKeys = listState.layoutInfo.visibleItemsInfo.map { it.key.toString() }
+            (publishedOriginalSnapshots + publishedCoverSnapshots).map { it.fingerprint }
+                .filter { fingerprint ->
+                    visibleKeys.any { key -> key.endsWith("_$fingerprint") }
+                }
+        }.collectLatest { visible ->
+            for (fingerprint in visible) {
+                if (session.turboAutoClosedFingerprints.contains(fingerprint) ||
+                    session.turboFirstVisibleAtMs.containsKey(fingerprint)) continue
+                val firstSeenAt = SystemClock.elapsedRealtime()
+                session.turboFirstVisibleAtMs[fingerprint] = firstSeenAt
+                turboVisibleJobs[fingerprint] = launch {
+                    try {
+                        val current = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                            .firstOrNull { it.fingerprint == fingerprint } ?: return@launch
+                        if (hasPublishableVideo(current)) return@launch
+
+                        val primaryEndsAt = firstSeenAt + TURBO_PRIMARY_VIDEO_MS
+                        val graceEndsAt = primaryEndsAt + TURBO_PRIMARY_GRACE_MS
+                        val autoEndsAt = graceEndsAt + TURBO_REPLACEMENT_VIDEO_MS
+                        // LAB21: no competing 50-item automatic global queue.
+                        // The existing four-slot verifier is reserved for FIRST
+                        // attempts; replacement searches get only one slot.
+                        val firstAttempt = async {
+                            try {
+                                var rounds = 0
+                                while (isActive && rounds < 2 &&
+                                    SystemClock.elapsedRealtime() < primaryEndsAt) {
+                                    val actual = results.firstOrNull { it.fingerprint == fingerprint }
+                                        ?: break
+                                    if (hasPublishableVideo(actual)) break
+                                    resolveVideoChunk(listOf(actual))
+                                    rounds++
+                                }
+                            } catch (cancel: CancellationException) {
+                                throw cancel
+                            } catch (_: Exception) {
+                                // Failed provider metadata never certifies a false video.
+                            }
+                        }
+                        val firstRemaining = primaryEndsAt - SystemClock.elapsedRealtime()
+                        if (firstRemaining > 0) {
+                            withTimeoutOrNull(firstRemaining) { firstAttempt.await() }
+                        }
+                        // No NEW initial searches in this grace window. An HTTP
+                        // verification already in flight may finish until T+8s.
+                        val graceRemaining = graceEndsAt - SystemClock.elapsedRealtime()
+                        if (graceRemaining > 0 && firstAttempt.isActive) {
+                            withTimeoutOrNull(graceRemaining) { firstAttempt.await() }
+                        }
+                        firstAttempt.cancel()
+                        // A completed first pass does not shorten the 5..8s wait.
+                        val waitForReplacement = graceEndsAt - SystemClock.elapsedRealtime()
+                        if (waitForReplacement > 0) delay(waitForReplacement)
+                        val ready = results.firstOrNull { it.fingerprint == fingerprint }
+                        if (ready == null || hasPublishableVideo(ready) ||
+                            (manualVideoSearchJob?.isActive == true &&
+                                resolvingFingerprint == fingerprint)) return@launch
+
+                        val budgetMs = autoEndsAt - SystemClock.elapsedRealtime()
+                        if (budgetMs <= 0) return@launch
+                        withTimeoutOrNull(budgetMs) {
+                            turboReplacementGate.withPermit {
+                                val original = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                                    .firstOrNull { it.fingerprint == fingerprint }
+                                    ?: return@withPermit
+                                val originalSide = isDistinctOriginalVersion(original)
+                                val present = publishedOriginalSnapshots + publishedCoverSnapshots
+                                val occupied = present.mapTo(HashSet<String>()) {
+                                    DiscogsVersionSource.recordingIdentityKey(it)
+                                }
+                                val workTitle = activeCriteria?.title.orEmpty()
+                                val alternatives = (session.turboReserve + turboRankedPool())
+                                    .distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                                    .filter { spare ->
+                                        spare.fingerprint != fingerprint &&
+                                        spare.fingerprint !in turboReplacementClaims &&
+                                        !isRejected(spare) && modeAcceptsSeed(spare) &&
+                                        DiscogsVersionSource.recordingIdentityKey(spare) !in occupied &&
+                                        isDistinctOriginalVersion(spare) == originalSide &&
+                                        playableTrack(spare) != null &&
+                                        (TitleMeaningResolver.matchesBaseTitle(
+                                            workTitle, spare.trackTitle,
+                                        ) || spare.workRelationConfirmed) &&
+                                        (spare.coverUrl != original.coverUrl ||
+                                            spare.resolvedVideoId != original.resolvedVideoId)
+                                    }.sortedWith(
+                                        compareByDescending<DiscogsVersionSeed> {
+                                            hasPublishableVideo(it)
+                                        }.thenByDescending { !it.resolvedVideoId.isNullOrBlank() }
+                                            .thenByDescending { it.confidenceScore }
+                                    )
+                                for (spare in alternatives.take(4)) {
+                                    if (!isActive || SystemClock.elapsedRealtime() >= autoEndsAt) break
+                                    // The initial lane always has more permits
+                                    // than the single replacement lane.
+                                    if (!turboReplacementClaims.add(spare.fingerprint)) continue
+                                    val verified = lab21VerifyAlternative(spare) ?: continue
+                                    if (verified.resolvedVideoId == original.resolvedVideoId &&
+                                        verified.coverUrl == original.coverUrl) continue
+                                    val latest = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                                        .firstOrNull { it.fingerprint == fingerprint }
+                                        ?: break
+                                    if (hasPublishableVideo(latest)) break
+                                    val change: (DiscogsVersionSeed) -> DiscogsVersionSeed = {
+                                        if (it.fingerprint == fingerprint) verified else it
+                                    }
+                                    if (publishedOriginalSnapshots.any { it.fingerprint == fingerprint }) {
+                                        publishedOriginalSnapshots = publishedOriginalSnapshots.map(change)
+                                        session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                                    } else {
+                                        publishedCoverSnapshots = publishedCoverSnapshots.map(change)
+                                        session.publishedCoverSnapshots = publishedCoverSnapshots
+                                    }
+                                    results = results.map(change)
+                                        .distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                                    session.results = results
+                                    session.stableOrder = session.stableOrder.map {
+                                        if (it == fingerprint) verified.fingerprint else it
+                                    }
+                                    session.turboReserve = session.turboReserve.filterNot {
+                                        it.fingerprint == verified.fingerprint
+                                    }
+                                    // A replacement cannot acquire a fresh 11s
+                                    // clock by changing its fingerprint.
+                                    session.turboFirstVisibleAtMs[verified.fingerprint] = firstSeenAt
+                                    session.turboAutoClosedFingerprints.add(verified.fingerprint)
+                                    break
+                                }
+                            }
+                        }
+                    } finally {
+                        session.turboAutoClosedFingerprints.add(fingerprint)
+                        turboVisibleJobs.remove(fingerprint)
+                        // No automatic retries on re-entry/scroll or after T+11s.
+                    }
+                }
+            }
+        }
+    }
+
 
     fun pauseCoverBackgroundForPlayback() {
         // LAB54: only the short playback-start critical lane owns the network.
