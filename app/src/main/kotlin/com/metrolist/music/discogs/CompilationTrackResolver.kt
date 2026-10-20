@@ -43,13 +43,12 @@ internal object CompilationTrackResolver {
         turboFastOnly: Boolean = false,
     ): CompilationResolvedTrack? = withContext(Dispatchers.IO) {
         if (turboFastOnly) {
-            // A single fast search round with the same native YouTube Music
-            // functions used in MusicLab search. No serial deep/web fallbacks
-            // can consume the entire ten-second Cover burst.
-            val query = (if (preferLive) {
-                listOf(track.title + " " + track.artists.joinToString(" ") + " live")
-            } else emptyList()) + searchQueries(track)
-            val search = query.filter(String::isNotBlank).distinct()
+            // Fast MusicLab source lookup only; the UI coordinator owns
+            // the total 15-second budget and queue priority.
+            // LAB23: each recording has an ordered portfolio of queries,
+            // NOT a burst of ten concurrent requests. One chosen variant
+            // uses the existing fast MusicLab resolver per attempt.
+            val search = adaptiveTurboQueries(track, preferLive)
             val chosen = search.getOrNull(searchRound.mod(search.size.coerceAtLeast(1)))
                 ?: return@withContext null
             return@withContext turboSearchGate.withPermit {
@@ -565,6 +564,48 @@ internal object CompilationTrackResolver {
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
+    }
+
+    /**
+     * LAB23: up to ten distinct retrieval phrasings. The registered
+     * performer and work title remain present in EVERY query; the existing
+     * hard metadata identity check still decides whether a result is usable.
+     * Live/acoustic/remix modifiers are introduced only when documented
+     * by the recording, never guessed from another singer's rendition.
+     */
+    internal fun adaptiveTurboQueries(track: DiscogsTrack, preferLive: Boolean): List<String> {
+        val performer = track.artists.firstOrNull().orEmpty().trim()
+        val title = track.title.trim()
+        if (performer.isBlank() || title.isBlank()) return searchQueries(track)
+        val lower = normalize(title)
+        val live = preferLive || LIVE_MARKERS.containsMatchIn(lower)
+        val acoustic = ACOUSTIC_MARKERS.containsMatchIn(lower)
+        val remix = REMIX_MARKERS.containsMatchIn(lower)
+        val versionQueries = buildList {
+            if (live) {
+                add("$performer $title live")
+                add("$title $performer concert")
+                add("$performer $title dal vivo")
+                add("$title $performer live performance")
+            }
+            if (acoustic) {
+                add("$performer $title acoustic")
+                add("$title $performer unplugged")
+            }
+            if (remix) {
+                add("$performer $title remix")
+                add("$title $performer radio edit")
+            }
+        }
+        return (searchQueries(track).take(2) + versionQueries +
+            listOf(
+                "$performer $title cover",
+                "$title $performer performance",
+                "$performer $title official audio",
+                "$performer $title official video",
+                "$performer $title topic",
+                "$title performed by $performer",
+            )).map(String::trim).filter(String::isNotBlank).distinct().take(10)
     }
 
     private fun normalize(value: String): String {
