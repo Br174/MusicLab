@@ -103,6 +103,9 @@ internal object CoverDiscoverySources {
         aiConfig: GeminiCoverVerificationConfig?,
         onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
         maxNetworkFanOut: Int = 2,
+        // LAB22: only explicit manual taps bypass old completed-result cache.
+        // Automatic initial searches continue to reuse the existing cache.
+        forceRefresh: Boolean = false,
         // LAB03: source-complete callback remains useful when another provider
         // reaches its deadline. No individual lane gates all other evidence.
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
@@ -120,7 +123,7 @@ internal object CoverDiscoverySources {
                 if (aiConfig == null) "no-ai" else "ai",
             ).joinToString("|")
         val now = System.currentTimeMillis()
-        cache[key]?.takeIf { it.expiresAtMs > now }?.let { hit ->
+        if (!forceRefresh) cache[key]?.takeIf { it.expiresAtMs > now }?.let { hit ->
             // LAB59: even cache hits must yield video previews immediately.
             onEarlyVideoCandidates(hit.outcome.candidates.filter { !it.playbackVideoId.isNullOrBlank() })
             return@coroutineScope hit.outcome
