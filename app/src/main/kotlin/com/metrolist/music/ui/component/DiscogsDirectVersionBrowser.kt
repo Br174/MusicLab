@@ -1856,8 +1856,21 @@ internal fun DiscogsDirectVersionBrowser(
 
             try {
                 coroutineScope {
-                    positions.map { fingerprint ->
-                        launch {
+                    // LAB20: do not launch 50 waiting network coroutines at once.
+                    // Re-evaluate which rows are on-screen after each small
+                    // batch, so newly scrolled covers jump to the next turn.
+                    val pending = positions.toMutableSet()
+                    while (isActive && pending.isNotEmpty()) {
+                        val nowVisible = listState.layoutInfo.visibleItemsInfo
+                            .map { it.key.toString() }
+                        val next = pending.sortedWith(
+                            compareByDescending<String> { fingerprint ->
+                                nowVisible.any { it.endsWith("_$fingerprint") }
+                            }.thenBy { positions.indexOf(it) }
+                        ).take(TURBO_BACKGROUND_PARALLELISM)
+                        pending.removeAll(next.toSet())
+                        next.map { fingerprint ->
+                            launch {
                                 val original = (publishedOriginalSnapshots + publishedCoverSnapshots)
                                     .firstOrNull { it.fingerprint == fingerprint }
                                     ?: return@launch
@@ -2034,8 +2047,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                     break
                                 }
-                        }
-                    }.forEach { it.join() }
+                            }
+                        }.forEach { it.join() }
+                    }
                 }
             } finally {
                 if (isActive) session.turboVideoComplete = true
