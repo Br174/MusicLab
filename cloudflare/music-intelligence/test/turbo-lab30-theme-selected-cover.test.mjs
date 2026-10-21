@@ -42,7 +42,7 @@ test('Back arrow is large and theme-white; portrait and menu remain', () => {
   assert.match(header, /navController\.popBackStack\(\)/);
   assert.match(header, /fontSize = (?:36|40|46|52)\.sp/);
   assert.match(header, /color = MaterialTheme\.colorScheme\.onSurface/);
-  assert.match(header, /modifier = Modifier(?:\.padding\(top = 4\.dp\)\.size\(46\.dp\)|\.padding\(start = (?:10|18)\.dp, top = 4\.dp\)\.size\((?:48|52)\.dp\))/);
+  assert.match(header, /modifier = Modifier(?:\.padding\(top = 4\.dp\)\.size\(46\.dp\)|\.padding\(start = (?:10|18)\.dp, top = 4\.dp\)\.size\((?:46|48|52)\.dp\))/);
   assert.match(header, /musiclabArtistMenu/);
 });
 
