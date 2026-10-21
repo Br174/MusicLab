@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -4646,7 +4647,12 @@ internal fun DiscogsDirectVersionBrowser(
             it.artist.equals(resolvedOriginalArtist, ignoreCase = true)
         }?.coverUrl
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // LAB34: respect Android's actual status-bar inset; never use a fixed top offset.
+    Column(
+        modifier = Modifier.fillMaxSize().then(
+            if (isTurbo && mode == DiscogsDirectMode.COVER) Modifier.statusBarsPadding() else Modifier
+        ),
+    ) {
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
             Surface(
                 color = MaterialTheme.colorScheme.background,
@@ -4707,13 +4713,13 @@ internal fun DiscogsDirectVersionBrowser(
                             modifier = Modifier.clickable { navController.popBackStack() }
                                 .padding(horizontal = 5.dp),
                             style = MaterialTheme.typography.headlineLarge,
-                            fontSize = 40.sp,
+                            fontSize = 46.sp,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp).size(46.dp),
+                            modifier = Modifier.padding(start = 10.dp, top = 4.dp).size(48.dp),
                         ) {
                             if (!musiclabArtistPoster.isNullOrBlank()) {
                                 AsyncImage(
@@ -4736,6 +4742,7 @@ internal fun DiscogsDirectVersionBrowser(
                             resolvedOriginalArtist.ifBlank { lockedArtist.ifBlank { "Artista originale" } },
                             modifier = Modifier.weight(1f).padding(top = 7.dp),
                             style = MaterialTheme.typography.titleLarge,
+                            fontSize = 19.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -4878,10 +4885,13 @@ internal fun DiscogsDirectVersionBrowser(
                             )
                         }
                     }
+                    // LAB34: a compact, deliberate gap between artist identity and taller filters.
+                    Spacer(Modifier.height(10.dp))
                     // This row is *always* visible. The source/sort/search row is
                     // the only part controlled by the drag gesture.
                     DirectCategorySelector(
                         selected = category,
+                        twoLine = true,
                         results = results,
                         onSelected = { selected ->
                             category = selected
@@ -5526,30 +5536,31 @@ private fun DirectCategorySelector(
     selected: DirectVersionCategory,
     results: List<DiscogsVersionSeed>,
     onSelected: (DirectVersionCategory) -> Unit,
+    twoLine: Boolean = false,
 ) {
     val studio = results.count { directDisplayCategory(it) == DirectVersionCategory.STUDIO }
     val live = results.count { directDisplayCategory(it) == DirectVersionCategory.LIVE }
     val remix = results.count { directDisplayCategory(it) == DirectVersionCategory.REMIX }
     val foreign = results.count { directDisplayCategory(it) == DirectVersionCategory.FOREIGN }
-
+    // One category model and one chip control. Only Turbo Cover uses the approved stacked style.
+    val categories = listOf(
+        Triple(DirectVersionCategory.ALL, "Tutto", results.size),
+        Triple(DirectVersionCategory.STUDIO, "Studio", studio),
+        Triple(DirectVersionCategory.LIVE, "Live", live),
+        Triple(DirectVersionCategory.REMIX, "Mix/Remix", remix),
+        Triple(DirectVersionCategory.FOREIGN, if (twoLine) "Stranieri" else "Straniere", foreign),
+    )
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        DirectChip("Tutto · ${results.size}", selected == DirectVersionCategory.ALL) {
-            onSelected(DirectVersionCategory.ALL)
-        }
-        DirectChip("Studio · $studio", selected == DirectVersionCategory.STUDIO) {
-            onSelected(DirectVersionCategory.STUDIO)
-        }
-        DirectChip("Live · $live", selected == DirectVersionCategory.LIVE) {
-            onSelected(DirectVersionCategory.LIVE)
-        }
-        DirectChip("Mix/Remix · $remix", selected == DirectVersionCategory.REMIX) {
-            onSelected(DirectVersionCategory.REMIX)
-        }
-        DirectChip("Straniere · $foreign", selected == DirectVersionCategory.FOREIGN) {
-            onSelected(DirectVersionCategory.FOREIGN)
+        categories.forEach { (category, label, count) ->
+            DirectChip(
+                label = if (twoLine) label else "$label · $count",
+                selected = selected == category,
+                count = if (twoLine) count else null,
+                onClick = { onSelected(category) },
+            )
         }
     }
 }
@@ -5585,19 +5596,42 @@ private fun DirectSortSelector(
 private fun DirectChip(
     label: String,
     selected: Boolean,
+    count: Int? = null,
     onClick: () -> Unit,
 ) {
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(if (count != null) 14.dp else 10.dp),
         modifier = Modifier.clickable(onClick = onClick),
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-        )
+        if (count == null) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            )
+        } else {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                val foreground = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = foreground,
+                    maxLines = 1,
+                )
+                Text(
+                    text = count.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = foreground,
+                )
+            }
+        }
     }
 }
 
