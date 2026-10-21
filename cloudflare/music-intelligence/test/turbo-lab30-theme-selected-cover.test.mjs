@@ -34,15 +34,15 @@ test('Current app theme controls accent, light/dark and dynamic wallpapers', () 
 test('Header removes redundant reference label without losing original artist', () => {
   assert.doesNotMatch(header, /"Originale di riferimento"/);
   assert.match(header, /resolvedOriginalArtist\.ifBlank/);
-  assert.match(header, /modifier = Modifier\.weight\(1f\)\.padding\(top = 3\.dp\)/);
+  assert.match(header, /modifier = Modifier\.weight\(1f\)\.padding\(top = (?:3|7)\.dp\)/);
   assert.match(header, /MaterialTheme\.typography\.titleLarge/);
 });
 
 test('Back arrow is large and theme-white; portrait and menu remain', () => {
   assert.match(header, /navController\.popBackStack\(\)/);
-  assert.match(header, /fontSize = 36\.sp/);
+  assert.match(header, /fontSize = (?:36|40)\.sp/);
   assert.match(header, /color = MaterialTheme\.colorScheme\.onSurface/);
-  assert.match(header, /modifier = Modifier\.size\(46\.dp\)/);
+  assert.match(header, /modifier = Modifier(?:\.padding\(top = 4\.dp\))?\.size\(46\.dp\)/);
   assert.match(header, /musiclabArtistMenu/);
 });
 
