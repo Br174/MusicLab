@@ -18,7 +18,7 @@ test('LAB36 all five filters get exactly equal width and same height', () => {
   const turbo = selector.split('if (twoLine) {')[1].split('    } else {')[0];
   assert.doesNotMatch(turbo, /relativeWidths|forEachIndexed|horizontalScroll/);
   assert.match(turbo, /categories\.forEach \{ \(category, label, count\) ->/);
-  assert.match(turbo, /Modifier\.weight\(1f\)\.height\(72\.dp\)/);
+  assert.match(turbo, /Modifier\.weight\(1f\)\.height\(56\.dp\)/);
 });
 
 test('LAB35 adaptive narrow-screen font keeps all categories visible', () => {
