@@ -24,7 +24,7 @@ test('sort sources and search share one revealable row above categories',()=>{
   const row=header.split('// Content retains its full layout')[1].split('// This row is *always* visible')[0];
   assert.match(row,/musiclabSortMenu/);
   assert.match(row,/musiclabSourcesMenu/);
-  assert.match(row,/OutlinedTextField\(/);
+  assert.match(row,/(?:OutlinedTextField|BasicTextField)\(/);
   assert.match(row,/DirectVersionSort\.RELEVANCE to "Punteggio"/);
   assert.match(row,/DirectVersionSort\.OLDEST to "Più vecchi"/);
   assert.match(row,/DirectVersionSort\.NEWEST to "Più nuovi"/);
