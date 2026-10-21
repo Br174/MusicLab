@@ -8,9 +8,9 @@ const category = code.split('@Composable\nprivate fun DirectCategorySelector(')[
 const chip = code.split('@Composable\nprivate fun DirectChip(')[1].split('@Composable\nprivate fun DirectFilterField(')[0];
 const cover = category.split('if (twoLine) {')[1].split('    } else {')[0];
 
-test('final Cover category row consists of exactly five equal width 72dp high chips', () => {
+test('final Cover category row consists of exactly five equal width 56dp high chips', () => {
   assert.match(cover, /categories\.forEach \{ \(category, label, count\) ->/);
-  assert.match(cover, /Modifier\.weight\(1f\)\.height\(72\.dp\)/);
+  assert.match(cover, /Modifier\.weight\(1f\)\.height\(56\.dp\)/);
   assert.doesNotMatch(cover, /relativeWidths|forEachIndexed|horizontalScroll/);
   const categories = category.match(/Triple\(DirectVersionCategory\./g) || [];
   assert.equal(categories.length, 5);
