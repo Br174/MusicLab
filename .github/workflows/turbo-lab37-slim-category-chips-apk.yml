@@ -1,0 +1,191 @@
+name: MusicLab Turbo LAB37 — Slim Category Chips APK ZIP
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab37-slim-category-chips-family-02
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-turbo-lab37-slim-category-chips-family-02
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: validate-once
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact LAB37 slim category chips source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify only approved LAB37 UI and build/test files change
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="44419f6b8473d28ee93cd9c48c63a36019b79990"
+          git diff --name-only "$BASE"..HEAD | sort > /tmp/changed.txt
+          cat /tmp/changed.txt
+          while IFS= read -r f; do
+            case "$f" in
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab29-cover-ui-gesture.test.mjs|cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs|cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs|cloudflare/music-intelligence/test/turbo-lab34-approved-cover-header.test.mjs|cloudflare/music-intelligence/test/turbo-lab35-five-filters-fit.test.mjs|cloudflare/music-intelligence/test/turbo-lab36-final-approved-cover.test.mjs|cloudflare/music-intelligence/test/turbo-lab37-slim-chips-only.test.mjs|tools/universal-apk-builder/prepare-turbo-lab37-slim-category-chips-env.py|.github/workflows/turbo-lab37-slim-category-chips-apk.yml) ;;
+              *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
+            esac
+          done < /tmp/changed.txt
+
+
+      - name: Verify application source changed only the category chip height
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          path = 'app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt'
+          before = subprocess.check_output(['git', 'show', '44419f6b8473d28ee93cd9c48c63a36019b79990:'+path]).decode()
+          after = Path(path).read_text()
+          old = 'modifier = Modifier.weight(1f).height(72.dp),'
+          new = 'modifier = Modifier.weight(1f).height(56.dp),'
+          assert before.count(old)==1, 'unexpected baseline'
+          assert after==before.replace(old,new,1), 'other source code changed: stop'
+          print('CHANGE COMPATIBILITY GUARD PASS: only lower category height 72dp -> 56dp')
+          PY
+
+      - name: Run retained LAB32 contracts
+        shell: bash
+        run: |
+          node --test             cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs             cloudflare/music-intelligence/test/turbo-lab25-archive-refresh-video-fair.test.mjs             cloudflare/music-intelligence/test/turbo-lab26-video-coverage-scheduler.test.mjs             cloudflare/music-intelligence/test/turbo-lab27-video-first-batch-refill.test.mjs             cloudflare/music-intelligence/test/turbo-lab28-crash-guards.test.mjs             cloudflare/music-intelligence/test/turbo-lab29-cover-ui-gesture.test.mjs             cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs             cloudflare/music-intelligence/test/turbo-lab31-readonly-audio-diagnostics.test.mjs             cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs cloudflare/music-intelligence/test/turbo-lab34-approved-cover-header.test.mjs cloudflare/music-intelligence/test/turbo-lab35-five-filters-fit.test.mjs cloudflare/music-intelligence/test/turbo-lab36-final-approved-cover.test.mjs cloudflare/music-intelligence/test/turbo-lab37-slim-chips-only.test.mjs
+
+      - name: Prepare LAB37 slim category chips metadata
+        run: python3 tools/universal-apk-builder/prepare-turbo-lab37-slim-category-chips-env.py
+
+      - name: Verify update-family slim category chips identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33037"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 37"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_CERT_SHA256="9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49"' uab-project.env
+          grep -Fq 'export METROLIST_APP_NAME="MusicLab Turbo LAB 37"' uab-project.env
+          grep -Fq 'export MUSICLAB_VERSION_CODE="33037"' uab-project.env
+          test "$(git hash-object app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt)" = "03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
+
+  build-update:
+    name: build-update-first
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload_update.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_update.outputs.artifact-digest }}
+    env:
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY || secrets.LASTFM_KEY || vars.LASTFM_API_KEY || vars.LASTFM_KEY }}
+      LASTFM_SECRET: ${{ secrets.LASTFM_SECRET || secrets.LASTFM_SHARED_SECRET || vars.LASTFM_SECRET || vars.LASTFM_SHARED_SECRET }}
+
+    steps:
+      - name: Checkout exact Turbo LAB37 slim category chips source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+          cache-overwrite-existing: true
+          cache-cleanup: on-success
+
+      - name: Set up Protobuf
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Configure Android SDK and Last.fm inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          if [[ -n "$LASTFM_API_KEY" ]]; then
+            printf 'LASTFM_API_KEY=%s\n' "$LASTFM_API_KEY" >> local.properties
+          fi
+          if [[ -n "$LASTFM_SECRET" ]]; then
+            printf 'LASTFM_SECRET=%s\n' "$LASTFM_SECRET" >> local.properties
+          fi
+
+      - name: Prepare LAB37 slim category chips metadata
+        run: python3 tools/universal-apk-builder/prepare-turbo-lab37-slim-category-chips-env.py
+
+      - name: UAB preflight diagnostics
+        run: bash tools/universal-apk-builder/diagnose.sh .
+
+      - name: Build Turbo LAB37 slim category chips update
+        run: bash tools/universal-apk-builder/build-apk.sh .
+        env:
+          CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'Br174/MusicLab' }}
+
+      - name: Verify install-over identity and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="dist/uab/apk/MusicLab-Turbo-LAB37.apk"
+          ZIP="dist/uab/MusicLab-Turbo-LAB37-APK.zip"
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33037'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab Turbo LAB 37'"
+
+          EXPECTED="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          APK_CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$APK_CERT" = "$EXPECTED"
+
+          {
+            echo "UPDATE_FAMILY_ID=turbo01"
+            echo "APPLICATION_ID=it.verlezza.musiclab.turbo01"
+            echo "VERSION_CODE=33037"
+            echo "PREVIOUS_LAB36_VERSION_CODE=33036"
+            echo "SIGNING_CERT_SHA256=$APK_CERT"
+            echo "PREVIOUS_LAB36_SOURCE_SHA=44419f6b8473d28ee93cd9c48c63a36019b79990"
+            echo "PURPOSE=sole visual adjustment from 72dp to 56dp for five category buttons; all other LAB36 visuals and behavior unchanged"
+          } > dist/uab/UPDATE_FAMILY.txt
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+
+      - name: Upload Turbo LAB37 immediately
+        id: upload_update
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB37
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB37.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-Turbo-LAB37-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/UPDATE_FAMILY.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload separate diagnostics if present
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB37-build-diagnostics
+          path: dist/uab/logs/*.log
+          if-no-files-found: ignore
