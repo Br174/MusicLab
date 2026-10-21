@@ -7,10 +7,10 @@ const browser = fs.readFileSync(
   'utf8',
 );
 
-test('Turbo LAB32 lowers only the artist circle and artist name in the Cover header', () => {
+test('Turbo LAB32 retains the lowered artist identity in approved LAB34 geometry', () => {
   assert.match(
     browser,
-    /shape = CircleShape,[\s\S]*modifier = Modifier\.padding\(top = 4\.dp\)\.size\(46\.dp\)/,
+    /shape = CircleShape,[\s\S]*modifier = Modifier\.padding\(start = 10\.dp, top = 4\.dp\)\.size\(48\.dp\)/,
   );
   assert.match(
     browser,
@@ -18,13 +18,13 @@ test('Turbo LAB32 lowers only the artist circle and artist name in the Cover hea
   );
 });
 
-test('Turbo LAB32 slightly enlarges the lateral back arrow without changing its action', () => {
+test('Approved LAB34 enlarges the back arrow without changing its navigation action', () => {
   assert.match(
     browser,
-    /Text\(\s*"‹",[\s\S]*navController\.popBackStack\(\)[\s\S]*fontSize = 40\.sp/,
+    /Text\(\s*"‹",[\s\S]*navController\.popBackStack\(\)[\s\S]*fontSize = 46\.sp/,
   );
 });
 
-test('Turbo LAB32 preserves the approved artist circle size', () => {
-  assert.match(browser, /Modifier\.padding\(top = 4\.dp\)\.size\(46\.dp\)/);
+test('Approved LAB34 preserves the revised artist circle size', () => {
+  assert.match(browser, /Modifier\.padding\(start = 10\.dp, top = 4\.dp\)\.size\(48\.dp\)/);
 });
