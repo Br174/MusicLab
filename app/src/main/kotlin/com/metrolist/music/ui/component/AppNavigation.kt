@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -120,7 +121,15 @@ fun AppNavigationRail(
                 icon = {
                     Icon(
                         painter = painterResource(id = iconRes),
-                        contentDescription = stringResource(screen.titleId)
+                        contentDescription = stringResource(screen.titleId),
+                        // Keep the approved white strokes as bright as Home, Search and Library
+                        // in dark themes; honor the current app theme in light mode.
+                        tint = if (screen == Screens.Cover || screen == Screens.Compilation) {
+                            if (pureBlack || MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White
+                            else MaterialTheme.colorScheme.onSurface
+                        } else {
+                            androidx.compose.material3.LocalContentColor.current
+                        },
                     )
                 }
             )
@@ -204,14 +213,18 @@ fun AppNavigationBar(
                 icon = {
                     Icon(
                         painter = painterResource(id = iconRes),
-                        contentDescription = stringResource(screen.titleId)
+                        contentDescription = stringResource(screen.titleId),
+                        // Keep the approved white strokes as bright as Home, Search and Library
+                        // in dark themes; honor the current app theme in light mode.
+                        tint = if (screen == Screens.Cover || screen == Screens.Compilation) {
+                            if (pureBlack || MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White
+                            else MaterialTheme.colorScheme.onSurface
+                        } else {
+                            androidx.compose.material3.LocalContentColor.current
+                        },
                     )
                 },
-                label = if (
-                    !slimNav &&
-                    screen != Screens.Cover &&
-                    screen != Screens.Compilation
-                ) {
+                label = if (!slimNav) {
                     {
                         Text(
                             text = stringResource(screen.titleId),
