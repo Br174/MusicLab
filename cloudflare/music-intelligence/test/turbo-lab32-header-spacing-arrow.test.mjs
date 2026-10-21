@@ -10,7 +10,7 @@ const browser = fs.readFileSync(
 test('Turbo LAB32 retains the lowered artist identity in approved LAB35 geometry', () => {
   assert.match(
     browser,
-    /shape = CircleShape,[\s\S]*modifier = Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(52\.dp\)/,
+    /shape = CircleShape,[\s\S]*modifier = Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(46\.dp\)/,
   );
   assert.match(
     browser,
@@ -26,5 +26,5 @@ test('Approved LAB35 enlarges the back arrow without changing its navigation act
 });
 
 test('Approved LAB35 preserves the revised artist circle size', () => {
-  assert.match(browser, /Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(52\.dp\)/);
+  assert.match(browser, /Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(46\.dp\)/);
 });
