@@ -2,6 +2,7 @@ package com.metrolist.music.ui.component
 
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,7 +27,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -102,7 +102,7 @@ private object CompilationSessionStore {
 
     var listIndex: Int = 0
     var listOffset: Int = 0
-    var filtersExpanded: Boolean = false
+    var filtersExpanded: Boolean = true
     var selectedTrackIndex: Int? = null
 
     fun resetForNewSearch() {
@@ -576,28 +576,60 @@ internal fun CompilationScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                OutlinedTextField(
-                                    value = query,
-                                    onValueChange = { query = it },
-                                    label = { Text("Cerca compilation") },
-                                    singleLine = true,
-                                    trailingIcon = {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize().padding(start = 14.dp, end = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        BasicTextField(
+                                            value = query,
+                                            onValueChange = { query = it },
+                                            singleLine = true,
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                            ),
+                                            modifier = Modifier.weight(1f),
+                                            decorationBox = { innerTextField ->
+                                                Box(contentAlignment = Alignment.CenterStart) {
+                                                    if (query.isEmpty()) {
+                                                        Text(
+                                                            "Cerca compilation",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1,
+                                                        )
+                                                    }
+                                                    innerTextField()
+                                                }
+                                            },
+                                        )
                                         TextButton(
                                             onClick = ::runSearch,
                                             enabled = !loading,
                                         ) {
                                             Text(if (loading) "…" else "Cerca")
                                         }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                OutlinedButton(
-                                    onClick = {
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(54.dp).clickable {
                                         filtersExpanded = !filtersExpanded
                                         CompilationSessionStore.filtersExpanded = filtersExpanded
                                     },
                                 ) {
-                                    Text(if (filtersExpanded) "⌃" else "⌄")
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            if (filtersExpanded) "⌃" else "⌄",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            style = MaterialTheme.typography.titleLarge,
+                                        )
+                                    }
                                 }
                             }
 
@@ -1020,15 +1052,25 @@ private fun CompilationFilterDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = modifier) {
-        OutlinedButton(
-            onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth(),
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.fillMaxWidth().height(50.dp).clickable { expanded = true },
         ) {
-            Text(
-                "$label: $selected",
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    "$label: $selected",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("⌄", color = MaterialTheme.colorScheme.primary)
+            }
         }
         DropdownMenu(
             expanded = expanded,
