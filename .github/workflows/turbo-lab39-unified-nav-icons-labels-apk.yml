@@ -40,64 +40,22 @@ jobs:
           done < /tmp/changed.txt
 
 
-      - name: Strict change guard preserve LAB38 application except nav tints and labels
+      - name: Strict change guard only approved nav layout blob and build/test files
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import subprocess
-          base='5a926f49b9a47d21cd929a93c95f86f1e3d6d4ea'
-          f='app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt'
-          old=subprocess.check_output(['git','show',base+':'+f]).decode()
-          new=Path(f).read_text()
-          expected=old.replace('import androidx.compose.ui.graphics.luminance\n','',1)
-          expected=expected.replace('import androidx.compose.ui.text.style.TextOverflow\n','import androidx.compose.ui.text.style.TextOverflow\nimport androidx.compose.ui.unit.sp\n',1)
-          forced='''                    Icon(
-                        painter = painterResource(id = iconRes),
-                        contentDescription = stringResource(screen.titleId),
-                        // Keep the approved white strokes as bright as Home, Search and Library
-                        // in dark themes; honor the current app theme in light mode.
-                        tint = if (screen == Screens.Cover || screen == Screens.Compilation) {
-                            if (pureBlack || MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White
-                            else MaterialTheme.colorScheme.onSurface
-                        } else {
-                            androidx.compose.material3.LocalContentColor.current
-                        },
-                    )'''
-          equal='''                    Icon(
-                        painter = painterResource(id = iconRes),
-                        contentDescription = stringResource(screen.titleId),
-                    )'''
-          assert expected.count(forced)==2
-          expected=expected.replace(forced,equal)
-          orig='''                        Text(
-                            text = stringResource(screen.titleId),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )'''
-          compact='''                        Text(
-                            text = stringResource(screen.titleId),
-                            // LAB39: same smaller text size for ALL five tabs, including
-                            // "Compilation", which must fit without cropping.
-                            fontSize = 10.sp,
-                            letterSpacing = 0.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )'''
-          assert expected.count(orig)==1
-          expected=expected.replace(orig,compact)
-          assert new==expected, 'non-approved changes to AppNavigation.kt'
-          changed=subprocess.check_output(['git','diff','--name-only',base+'..HEAD']).decode().splitlines()
-          allowed={
-            'app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt',
-            'cloudflare/music-intelligence/test/turbo-lab38-compilation-theme-nav.test.mjs',
-            'cloudflare/music-intelligence/test/turbo-lab39-unified-nav-colors-labels.test.mjs',
-            'tools/universal-apk-builder/prepare-turbo-lab39-unified-nav-env.py',
-            '.github/workflows/turbo-lab39-unified-nav-icons-labels-apk.yml',
-          }
-          assert set(changed).issubset(allowed), set(changed)-allowed
-          print('GUARD PASSED only nav tint parity and common 10sp labels; full app unchanged')
-          PY
+          set -euo pipefail
+          BASE="5a926f49b9a47d21cd929a93c95f86f1e3d6d4ea"
+          NAV="app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt"
+          test "$(git hash-object "$NAV")" = "108818b9ed9cd4660869c335b27217d91cee7be3"
+          git diff --name-only "$BASE"..HEAD | sort > /tmp/lab39-changed.txt
+          cat /tmp/lab39-changed.txt
+          while IFS= read -r f; do
+            case "$f" in
+              app/src/main/kotlin/com/metrolist/music/ui/component/AppNavigation.kt|cloudflare/music-intelligence/test/turbo-lab38-compilation-theme-nav.test.mjs|cloudflare/music-intelligence/test/turbo-lab39-unified-nav-colors-labels.test.mjs|tools/universal-apk-builder/prepare-turbo-lab39-unified-nav-env.py|.github/workflows/turbo-lab39-unified-nav-icons-labels-apk.yml) ;;
+              *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
+            esac
+          done < /tmp/lab39-changed.txt
+          echo "CHANGE COMPATIBILITY GUARD: precise approved nav blob, no other app file changed"
 
       - name: Run retained LAB32 contracts
         shell: bash
