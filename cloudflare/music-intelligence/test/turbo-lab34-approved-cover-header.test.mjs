@@ -19,7 +19,7 @@ test('LAB34 approved larger back arrow preserves navigation and theme colors', (
 });
 
 test('LAB34 artist circle is subtly enlarged and shifted right', () => {
-  assert.match(turbo, /shape = CircleShape,[\s\S]*?Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(52\.dp\)/);
+  assert.match(turbo, /shape = CircleShape,[\s\S]*?Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(46\.dp\)/);
   assert.match(turbo, /musiclabArtistPoster/);
   assert.match(turbo, /contentScale = ContentScale\.Crop/);
 });
