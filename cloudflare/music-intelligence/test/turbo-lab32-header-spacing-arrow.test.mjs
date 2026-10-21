@@ -7,10 +7,10 @@ const browser = fs.readFileSync(
   'utf8',
 );
 
-test('Turbo LAB32 retains the lowered artist identity in approved LAB34 geometry', () => {
+test('Turbo LAB32 retains the lowered artist identity in approved LAB35 geometry', () => {
   assert.match(
     browser,
-    /shape = CircleShape,[\s\S]*modifier = Modifier\.padding\(start = 10\.dp, top = 4\.dp\)\.size\(48\.dp\)/,
+    /shape = CircleShape,[\s\S]*modifier = Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(52\.dp\)/,
   );
   assert.match(
     browser,
@@ -18,13 +18,13 @@ test('Turbo LAB32 retains the lowered artist identity in approved LAB34 geometry
   );
 });
 
-test('Approved LAB34 enlarges the back arrow without changing its navigation action', () => {
+test('Approved LAB35 enlarges the back arrow without changing its navigation action', () => {
   assert.match(
     browser,
-    /Text\(\s*"‹",[\s\S]*navController\.popBackStack\(\)[\s\S]*fontSize = 46\.sp/,
+    /Text\(\s*"‹",[\s\S]*navController\.popBackStack\(\)[\s\S]*fontSize = 52\.sp/,
   );
 });
 
-test('Approved LAB34 preserves the revised artist circle size', () => {
-  assert.match(browser, /Modifier\.padding\(start = 10\.dp, top = 4\.dp\)\.size\(48\.dp\)/);
+test('Approved LAB35 preserves the revised artist circle size', () => {
+  assert.match(browser, /Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(52\.dp\)/);
 });
