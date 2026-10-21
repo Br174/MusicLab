@@ -1029,7 +1029,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.preparedVideoSongs.containsKey(id)
     }
 
-    fun coverCandidatePool(): List<DiscogsVersionSeed> =
+    fun eligibleCoverPool(): List<DiscogsVersionSeed> =
         orderedResults(results)
             .filterNot(::isHiddenForCurrentCover)
             .filterNot { seed ->
@@ -1037,21 +1037,32 @@ internal fun DiscogsDirectVersionBrowser(
                     seed.resolvedVideoId.isNullOrBlank()
             }
 
+    fun originalCandidatePool(): List<DiscogsVersionSeed> =
+        if (mode == DiscogsDirectMode.COVER) {
+            eligibleCoverPool().filter(::isOriginalPerformerVersion)
+        } else {
+            emptyList()
+        }
+
+    fun trueCoverCandidatePool(): List<DiscogsVersionSeed> =
+        if (mode == DiscogsDirectMode.COVER) {
+            eligibleCoverPool().filterNot(::isOriginalPerformerVersion)
+        } else {
+            eligibleCoverPool()
+        }
+
     fun visibleCoverPool(): List<DiscogsVersionSeed> =
-        coverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
+        trueCoverCandidatePool().take(visibleLimit.coerceAtLeast(pageSize))
 
     fun videoPreparationPool(): List<DiscogsVersionSeed> {
-        val ranked =
-            if (mode == DiscogsDirectMode.COVER) {
-                coverCandidatePool()
-            } else {
-                orderedResults(results)
-            }
         if (mode != DiscogsDirectMode.COVER) {
-            return ranked.take(visibleLimit.coerceAtLeast(pageSize))
+            return orderedResults(results).take(visibleLimit.coerceAtLeast(pageSize))
         }
-        val target = visibleLimit.coerceAtLeast(pageSize) + pageSize
-        return ranked.take(target)
+        // LAB57: original-performer versions are a separate uncapped section.
+        // Only true covers use the 10-at-a-time window. Prepare all originals
+        // plus the visible Cover block and exactly one future Cover block.
+        val targetCovers = visibleLimit.coerceAtLeast(pageSize) + pageSize
+        return originalCandidatePool() + trueCoverCandidatePool().take(targetCovers)
     }
 
     fun preparationReadyVideoCount(): Int =
@@ -1067,7 +1078,7 @@ internal fun DiscogsDirectVersionBrowser(
     suspend fun publishReadyBatches() {
         if (mode != DiscogsDirectMode.COVER || !rankingFrozen) return
         while (true) {
-            val pool = coverCandidatePool()
+            val pool = trueCoverCandidatePool()
             val desired = minOf(visibleLimit.coerceAtLeast(pageSize), pool.size)
             if (publishedReadyLimit >= desired) break
 
@@ -1911,7 +1922,7 @@ internal fun DiscogsDirectVersionBrowser(
         if (loading || loadingMore) return
 
         if (mode == DiscogsDirectMode.COVER) {
-            val poolSize = coverCandidatePool().size
+            val poolSize = trueCoverCandidatePool().size
             val target = visibleLimit + pageSize
             if (poolSize >= target) {
                 visibleLimit = target
@@ -1935,7 +1946,7 @@ internal fun DiscogsDirectVersionBrowser(
                         val loaded = loadPage(criteria, currentPage + 1, replace = false)
                         if (loaded) {
                             visibleLimit =
-                                (visibleLimit + pageSize).coerceAtMost(coverCandidatePool().size)
+                                (visibleLimit + pageSize).coerceAtMost(trueCoverCandidatePool().size)
                             session.visibleLimit = visibleLimit
                             verificationJob?.cancel()
                             videoPreloadJob?.cancel()
@@ -2165,6 +2176,10 @@ internal fun DiscogsDirectVersionBrowser(
         }
     }
     fun play(seed: DiscogsVersionSeed) {
+        if (mode == DiscogsDirectMode.COVER && !isPlayReady(seed)) {
+            Toast.makeText(context, "Video ancora in preparazione.", Toast.LENGTH_SHORT).show()
+            return
+        }
         session.listIndex = listState.firstVisibleItemIndex
         session.listOffset = listState.firstVisibleItemScrollOffset
         selectedFingerprint = seed.fingerprint
@@ -2255,9 +2270,7 @@ internal fun DiscogsDirectVersionBrowser(
         }
     val publishPool =
         if (mode == DiscogsDirectMode.COVER) {
-            navigablePool.filterNot { seed ->
-                seed.videoResolutionChecked && seed.resolvedVideoId.isNullOrBlank()
-            }
+            trueCoverCandidatePool()
         } else {
             navigablePool
         }
@@ -2289,10 +2302,16 @@ internal fun DiscogsDirectVersionBrowser(
         }
     val nextBlockReady =
         nextBlockPool.count(::isPlayReady)
+    // Original-performer versions are independent from Cover pagination.
+    // They appear above the separator as soon as each version is genuinely play-ready.
     val visibleOriginalVersions =
-        if (mode == DiscogsDirectMode.COVER) visibleResults.filter(::isOriginalPerformerVersion) else emptyList()
+        if (mode == DiscogsDirectMode.COVER && rankingFrozen) {
+            originalCandidatePool().filter(::isPlayReady)
+        } else {
+            emptyList()
+        }
     val visibleTrueCovers =
-        if (mode == DiscogsDirectMode.COVER) visibleResults.filterNot(::isOriginalPerformerVersion) else emptyList()
+        if (mode == DiscogsDirectMode.COVER) visibleResults else emptyList()
 
     LaunchedEffect(listState) {
         var previousIndex = listState.firstVisibleItemIndex
