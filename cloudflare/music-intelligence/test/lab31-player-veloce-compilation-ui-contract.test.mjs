@@ -50,8 +50,9 @@ test('LAB31 Compilation resolver has a bounded fast-first race before deep fallb
 
 test('LAB31 keeps Compilation search visible and filters collapsible', () => {
   assert.match(screen, /var filtersExpanded/);
-  assert.match(screen, /label = \{ Text\("Cerca compilation"\) \}/);
-  assert.match(screen, /Text\(if \(filtersExpanded\) "⌃" else "⌄"\)/);
+  assert.match(screen, /BasicTextField\([\s\S]*?onValueChange = \{ query = it \}/);
+  assert.match(screen, /Text\(\s*"Cerca compilation"/);
+  assert.match(screen, /if \(filtersExpanded\) "⌃" else "⌄"/);
   assert.match(screen, /if \(filtersExpanded\)/);
   assert.match(screen, /CompilationFilterDropdown\(\s*label = "Anno"/);
 });
