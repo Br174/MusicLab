@@ -34,7 +34,7 @@ jobs:
           cat /tmp/changed.txt
           while IFS= read -r f; do
             case "$f" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs|cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs|cloudflare/music-intelligence/test/turbo-lab34-approved-cover-header.test.mjs|cloudflare/music-intelligence/test/turbo-lab35-five-filters-fit.test.mjs|cloudflare/music-intelligence/test/turbo-lab36-final-approved-cover.test.mjs|tools/universal-apk-builder/prepare-turbo-lab36-approved-cover-final-env.py|.github/workflows/turbo-lab36-approved-cover-final-apk.yml) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab29-cover-ui-gesture.test.mjs|cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs|cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs|cloudflare/music-intelligence/test/turbo-lab34-approved-cover-header.test.mjs|cloudflare/music-intelligence/test/turbo-lab35-five-filters-fit.test.mjs|cloudflare/music-intelligence/test/turbo-lab36-final-approved-cover.test.mjs|tools/universal-apk-builder/prepare-turbo-lab36-approved-cover-final-env.py|.github/workflows/turbo-lab36-approved-cover-final-apk.yml) ;;
               *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
             esac
           done < /tmp/changed.txt
