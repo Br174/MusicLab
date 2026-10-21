@@ -3,6 +3,7 @@ package com.metrolist.music.ui.component
 import android.widget.Toast
 import android.os.SystemClock
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -4720,7 +4721,7 @@ internal fun DiscogsDirectVersionBrowser(
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(start = 18.dp, top = 4.dp).size(52.dp),
+                            modifier = Modifier.padding(start = 18.dp, top = 4.dp).size(46.dp),
                         ) {
                             if (!musiclabArtistPoster.isNullOrBlank()) {
                                 AsyncImage(
@@ -4793,24 +4794,18 @@ internal fun DiscogsDirectVersionBrowser(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            Box {
+                            // LAB36: matching borderless upper controls, 1:1:3 widths.
+                            Box(modifier = Modifier.weight(1f).height(54.dp)) {
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.clickable { musiclabSortMenu = true },
+                                    modifier = Modifier.fillMaxSize().clickable { musiclabSortMenu = true },
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                                    ) {
-                                        Text("Ordina per", style = MaterialTheme.typography.labelSmall)
+                                    Box(contentAlignment = Alignment.Center) {
                                         Text(
-                                            when (sortMode) {
-                                                DirectVersionSort.RELEVANCE -> "Punteggio"
-                                                DirectVersionSort.OLDEST -> "Più vecchi"
-                                                DirectVersionSort.NEWEST -> "Più nuovi"
-                                            } + " ▾",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
+                                            "Punti ▾",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1,
                                         )
                                     }
                                 }
@@ -4837,17 +4832,19 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                 }
                             }
-                            Box {
+                            Box(modifier = Modifier.weight(1f).height(54.dp)) {
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.clickable { musiclabSourcesMenu = true },
+                                    modifier = Modifier.fillMaxSize().clickable { musiclabSourcesMenu = true },
                                 ) {
-                                    Text(
-                                        "Fonti ▾",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp),
-                                    )
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            "Fonti ▾",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1,
+                                        )
+                                    }
                                 }
                                 DropdownMenu(
                                     expanded = musiclabSourcesMenu,
@@ -4866,14 +4863,38 @@ internal fun DiscogsDirectVersionBrowser(
                                     )
                                 }
                             }
-                            OutlinedTextField(
-                                value = title,
-                                onValueChange = { title = it },
-                                placeholder = { Text("Cerca cover…", maxLines = 1) },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f).height(54.dp),
-                                textStyle = MaterialTheme.typography.bodyMedium,
-                                trailingIcon = {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.weight(3f).height(54.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    BasicTextField(
+                                        value = title,
+                                        onValueChange = { title = it },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        ),
+                                        modifier = Modifier.weight(1f),
+                                        decorationBox = { innerTextField ->
+                                            Box(contentAlignment = Alignment.CenterStart) {
+                                                if (title.isEmpty()) {
+                                                    Text(
+                                                        "Cerca cover…",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                                innerTextField()
+                                            }
+                                        },
+                                    )
                                     Text(
                                         "⌕",
                                         modifier = Modifier.clickable {
@@ -4882,8 +4903,8 @@ internal fun DiscogsDirectVersionBrowser(
                                         style = MaterialTheme.typography.titleLarge,
                                         color = MaterialTheme.colorScheme.primary,
                                     )
-                                },
-                            )
+                                }
+                            }
                         }
                     }
                     // LAB34: a compact, deliberate gap between artist identity and taller filters.
@@ -5547,26 +5568,24 @@ private fun DirectCategorySelector(
         Triple(DirectVersionCategory.ALL, "Tutto", results.size),
         Triple(DirectVersionCategory.STUDIO, "Studio", studio),
         Triple(DirectVersionCategory.LIVE, "Live", live),
-        Triple(DirectVersionCategory.REMIX, "Mix/Remix", remix),
+        Triple(DirectVersionCategory.REMIX, if (twoLine) "Remix" else "Mix/Remix", remix),
         Triple(DirectVersionCategory.FOREIGN, if (twoLine) "Stranieri" else "Straniere", foreign),
     )
     if (twoLine) {
-        // LAB35: all five chips must fit the actual viewport. Never use horizontal scrolling.
-        // Give the longer names more width without sacrificing count alignment or touch height.
-        val relativeWidths = listOf(0.87f, 1.02f, 0.79f, 1.32f, 1.20f)
+        // LAB36: five equal-width/equal-height category chips; no horizontal scroll.
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val smallScreen = maxWidth < 360.dp
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(if (smallScreen) 3.dp else 4.dp),
             ) {
-                categories.forEachIndexed { index, (category, label, count) ->
+                categories.forEach { (category, label, count) ->
                     DirectChip(
                         label = label,
                         selected = selected == category,
                         count = count,
                         compact = smallScreen,
-                        modifier = Modifier.weight(relativeWidths[index]).height(72.dp),
+                        modifier = Modifier.weight(1f).height(72.dp),
                         onClick = { onSelected(category) },
                     )
                 }
@@ -5886,7 +5905,7 @@ private fun DiscogsVersionCard(
                     Text(
                         when (directDisplayCategory(seed)) {
                             DirectVersionCategory.LIVE -> "Live"
-                            DirectVersionCategory.REMIX -> "Mix/Remix"
+                            DirectVersionCategory.REMIX -> "Remix"
                             DirectVersionCategory.FOREIGN -> "Stranieri"
                             else -> "Studio"
                         },
