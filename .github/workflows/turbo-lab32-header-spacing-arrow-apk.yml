@@ -25,7 +25,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Verify LAB24, LAB25 regressions and LAB32 video scheduling
+      - name: Verify retained Turbo regressions and LAB32 header geometry
         shell: bash
         run: node --test cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs cloudflare/music-intelligence/test/turbo-lab25-archive-refresh-video-fair.test.mjs cloudflare/music-intelligence/test/turbo-lab26-video-coverage-scheduler.test.mjs cloudflare/music-intelligence/test/turbo-lab27-video-first-batch-refill.test.mjs cloudflare/music-intelligence/test/turbo-lab28-crash-guards.test.mjs cloudflare/music-intelligence/test/turbo-lab29-cover-ui-gesture.test.mjs cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs cloudflare/music-intelligence/test/turbo-lab31-readonly-audio-diagnostics.test.mjs cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs
 
@@ -37,7 +37,7 @@ jobs:
           cat /tmp/lab32-changed.txt
           while IFS= read -r f; do
             case "$f" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs|tools/universal-apk-builder/prepare-turbo-lab32-env.py|.github/workflows/turbo-lab32-header-spacing-arrow-apk.yml) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs|cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs|tools/universal-apk-builder/prepare-turbo-lab32-env.py|.github/workflows/turbo-lab32-header-spacing-arrow-apk.yml) ;;
               *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
             esac
           done < /tmp/lab32-changed.txt
