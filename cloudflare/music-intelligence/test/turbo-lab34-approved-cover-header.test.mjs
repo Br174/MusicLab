@@ -14,12 +14,12 @@ test('LAB34 respects real status bar insets for Turbo Cover only', () => {
 });
 
 test('LAB34 approved larger back arrow preserves navigation and theme colors', () => {
-  assert.match(turbo, /Text\(\s*"‹",[\s\S]*?navController\.popBackStack\(\)[\s\S]*?fontSize = 46\.sp/);
-  assert.match(turbo, /fontSize = 46\.sp,\s*color = MaterialTheme\.colorScheme\.onSurface/);
+  assert.match(turbo, /Text\(\s*"‹",[\s\S]*?navController\.popBackStack\(\)[\s\S]*?fontSize = 52\.sp/);
+  assert.match(turbo, /fontSize = 52\.sp,\s*color = MaterialTheme\.colorScheme\.onSurface/);
 });
 
 test('LAB34 artist circle is subtly enlarged and shifted right', () => {
-  assert.match(turbo, /shape = CircleShape,[\s\S]*?Modifier\.padding\(start = 10\.dp, top = 4\.dp\)\.size\(48\.dp\)/);
+  assert.match(turbo, /shape = CircleShape,[\s\S]*?Modifier\.padding\(start = 18\.dp, top = 4\.dp\)\.size\(52\.dp\)/);
   assert.match(turbo, /musiclabArtistPoster/);
   assert.match(turbo, /contentScale = ContentScale\.Crop/);
 });
@@ -37,14 +37,14 @@ test('LAB34 positions taller category chips below artist without blank void', ()
 test('LAB34 stacks live category counts centered beneath labels, keeping existing filter logic', () => {
   assert.match(category, /twoLine: Boolean = false/);
   assert.match(category, /results\.count \{ directDisplayCategory\(it\) == DirectVersionCategory\.STUDIO \}/);
-  assert.match(category, /count = if \(twoLine\) count else null/);
+  assert.match(category, /count = count/);
   assert.match(category, /onClick = \{ onSelected\(category\) \}/);
   assert.match(chip, /horizontalAlignment = Alignment\.CenterHorizontally/);
   assert.match(chip, /text = count\.toString\(\)/);
 });
 
-test('LAB34 retains single horizontal scroll with all five category labels', () => {
-  assert.match(category, /horizontalScroll\(rememberScrollState\(\)\)/);
+test('LAB35 confines horizontal scrolling to legacy non-Turbo category controls', () => {
+  assert.match(category, /else \{[\s\S]*horizontalScroll\(rememberScrollState\(\)\)/);
   for (const label of ['Tutto', 'Studio', 'Live', 'Mix/Remix', 'Stranieri']) {
     assert.ok(category.includes('"' + label + '"'), 'Missing label: ' + label);
   }
