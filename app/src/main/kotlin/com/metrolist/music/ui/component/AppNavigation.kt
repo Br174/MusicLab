@@ -23,13 +23,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import com.metrolist.music.ui.screens.Screens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -122,14 +122,6 @@ fun AppNavigationRail(
                     Icon(
                         painter = painterResource(id = iconRes),
                         contentDescription = stringResource(screen.titleId),
-                        // Keep the approved white strokes as bright as Home, Search and Library
-                        // in dark themes; honor the current app theme in light mode.
-                        tint = if (screen == Screens.Cover || screen == Screens.Compilation) {
-                            if (pureBlack || MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White
-                            else MaterialTheme.colorScheme.onSurface
-                        } else {
-                            androidx.compose.material3.LocalContentColor.current
-                        },
                     )
                 }
             )
@@ -214,20 +206,16 @@ fun AppNavigationBar(
                     Icon(
                         painter = painterResource(id = iconRes),
                         contentDescription = stringResource(screen.titleId),
-                        // Keep the approved white strokes as bright as Home, Search and Library
-                        // in dark themes; honor the current app theme in light mode.
-                        tint = if (screen == Screens.Cover || screen == Screens.Compilation) {
-                            if (pureBlack || MaterialTheme.colorScheme.background.luminance() < 0.5f) Color.White
-                            else MaterialTheme.colorScheme.onSurface
-                        } else {
-                            androidx.compose.material3.LocalContentColor.current
-                        },
                     )
                 },
                 label = if (!slimNav) {
                     {
                         Text(
                             text = stringResource(screen.titleId),
+                            // LAB39: same smaller text size for ALL five tabs, including
+                            // "Compilation", which must fit without cropping.
+                            fontSize = 10.sp,
+                            letterSpacing = 0.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
