@@ -60,7 +60,7 @@ jobs:
           node --test             cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs             cloudflare/music-intelligence/test/turbo-lab25-archive-refresh-video-fair.test.mjs             cloudflare/music-intelligence/test/turbo-lab26-video-coverage-scheduler.test.mjs             cloudflare/music-intelligence/test/turbo-lab27-video-first-batch-refill.test.mjs             cloudflare/music-intelligence/test/turbo-lab28-crash-guards.test.mjs             cloudflare/music-intelligence/test/turbo-lab29-cover-ui-gesture.test.mjs             cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs             cloudflare/music-intelligence/test/turbo-lab31-readonly-audio-diagnostics.test.mjs             cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs cloudflare/music-intelligence/test/turbo-lab34-approved-cover-header.test.mjs cloudflare/music-intelligence/test/turbo-lab35-five-filters-fit.test.mjs cloudflare/music-intelligence/test/turbo-lab36-final-approved-cover.test.mjs cloudflare/music-intelligence/test/turbo-lab37-slim-chips-only.test.mjs cloudflare/music-intelligence/test/turbo-lab38-compilation-theme-nav.test.mjs
 
       - name: Prepare LAB38 compilation theme navigation metadata
-        run: python3 tools/universal-apk-builder/prepare-turbo-lab38-compilation-theme-navigation-env.py
+        run: python3 tools/universal-apk-builder/prepare-turbo-lab38-compilation-theme-nav-env.py
 
       - name: Verify update-family compilation theme navigation identity
         shell: bash
@@ -120,7 +120,7 @@ jobs:
           fi
 
       - name: Prepare LAB38 compilation theme navigation metadata
-        run: python3 tools/universal-apk-builder/prepare-turbo-lab38-compilation-theme-navigation-env.py
+        run: python3 tools/universal-apk-builder/prepare-turbo-lab38-compilation-theme-nav-env.py
 
       - name: UAB preflight diagnostics
         run: bash tools/universal-apk-builder/diagnose.sh .
