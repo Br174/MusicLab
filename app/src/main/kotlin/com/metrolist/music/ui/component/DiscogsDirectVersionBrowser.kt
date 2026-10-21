@@ -4707,13 +4707,13 @@ internal fun DiscogsDirectVersionBrowser(
                             modifier = Modifier.clickable { navController.popBackStack() }
                                 .padding(horizontal = 5.dp),
                             style = MaterialTheme.typography.headlineLarge,
-                            fontSize = 36.sp,
+                            fontSize = 40.sp,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.size(46.dp),
+                            modifier = Modifier.padding(top = 4.dp).size(46.dp),
                         ) {
                             if (!musiclabArtistPoster.isNullOrBlank()) {
                                 AsyncImage(
@@ -4734,7 +4734,7 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                         Text(
                             resolvedOriginalArtist.ifBlank { lockedArtist.ifBlank { "Artista originale" } },
-                            modifier = Modifier.weight(1f).padding(top = 3.dp),
+                            modifier = Modifier.weight(1f).padding(top = 7.dp),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
