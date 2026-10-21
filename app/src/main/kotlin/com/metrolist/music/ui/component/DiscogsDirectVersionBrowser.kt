@@ -5585,7 +5585,7 @@ private fun DirectCategorySelector(
                         selected = selected == category,
                         count = count,
                         compact = smallScreen,
-                        modifier = Modifier.weight(1f).height(72.dp),
+                        modifier = Modifier.weight(1f).height(56.dp),
                         onClick = { onSelected(category) },
                     )
                 }
