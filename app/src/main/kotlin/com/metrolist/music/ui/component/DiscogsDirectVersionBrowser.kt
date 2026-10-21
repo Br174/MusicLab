@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.DropdownMenu
@@ -4713,13 +4714,13 @@ internal fun DiscogsDirectVersionBrowser(
                             modifier = Modifier.clickable { navController.popBackStack() }
                                 .padding(horizontal = 5.dp),
                             style = MaterialTheme.typography.headlineLarge,
-                            fontSize = 46.sp,
+                            fontSize = 52.sp,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(start = 10.dp, top = 4.dp).size(48.dp),
+                            modifier = Modifier.padding(start = 18.dp, top = 4.dp).size(52.dp),
                         ) {
                             if (!musiclabArtistPoster.isNullOrBlank()) {
                                 AsyncImage(
@@ -5542,7 +5543,6 @@ private fun DirectCategorySelector(
     val live = results.count { directDisplayCategory(it) == DirectVersionCategory.LIVE }
     val remix = results.count { directDisplayCategory(it) == DirectVersionCategory.REMIX }
     val foreign = results.count { directDisplayCategory(it) == DirectVersionCategory.FOREIGN }
-    // One category model and one chip control. Only Turbo Cover uses the approved stacked style.
     val categories = listOf(
         Triple(DirectVersionCategory.ALL, "Tutto", results.size),
         Triple(DirectVersionCategory.STUDIO, "Studio", studio),
@@ -5550,17 +5550,41 @@ private fun DirectCategorySelector(
         Triple(DirectVersionCategory.REMIX, "Mix/Remix", remix),
         Triple(DirectVersionCategory.FOREIGN, if (twoLine) "Stranieri" else "Straniere", foreign),
     )
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        categories.forEach { (category, label, count) ->
-            DirectChip(
-                label = if (twoLine) label else "$label · $count",
-                selected = selected == category,
-                count = if (twoLine) count else null,
-                onClick = { onSelected(category) },
-            )
+    if (twoLine) {
+        // LAB35: all five chips must fit the actual viewport. Never use horizontal scrolling.
+        // Give the longer names more width without sacrificing count alignment or touch height.
+        val relativeWidths = listOf(0.87f, 1.02f, 0.79f, 1.32f, 1.20f)
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val smallScreen = maxWidth < 360.dp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(if (smallScreen) 3.dp else 4.dp),
+            ) {
+                categories.forEachIndexed { index, (category, label, count) ->
+                    DirectChip(
+                        label = label,
+                        selected = selected == category,
+                        count = count,
+                        compact = smallScreen,
+                        modifier = Modifier.weight(relativeWidths[index]).height(72.dp),
+                        onClick = { onSelected(category) },
+                    )
+                }
+            }
+        }
+    } else {
+        // Leave the previously approved controls outside Turbo Cover unchanged.
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            categories.forEach { (category, label, count) ->
+                DirectChip(
+                    label = "$label · $count",
+                    selected = selected == category,
+                    onClick = { onSelected(category) },
+                )
+            }
         }
     }
 }
@@ -5597,12 +5621,14 @@ private fun DirectChip(
     label: String,
     selected: Boolean,
     count: Int? = null,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(if (count != null) 14.dp else 10.dp),
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = modifier.clickable(onClick = onClick),
     ) {
         if (count == null) {
             Text(
@@ -5613,18 +5639,21 @@ private fun DirectChip(
             )
         } else {
             Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.Center,
             ) {
                 val foreground = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelLarge,
+                    fontSize = if (compact) 10.sp else 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = foreground,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(3.dp))
                 Text(
                     text = count.toString(),
                     style = MaterialTheme.typography.labelMedium,
