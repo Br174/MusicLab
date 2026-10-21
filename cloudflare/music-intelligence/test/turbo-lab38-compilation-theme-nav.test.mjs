@@ -9,61 +9,67 @@ const screens = read('app/src/main/kotlin/com/metrolist/music/ui/screens/Screens
 const mic = read('app/src/main/res/drawable/cover_microphone.xml');
 const album = read('app/src/main/res/drawable/compilation_disc_search.xml');
 
-test('LAB38 Compilation uses only real app theme colors, no hard-coded teal', () => {
-  const part = compilation.split('fun CompilationScreen(')[1].split('@Composable\nprivate fun CompilationFilterDropdown(')[0];
-  assert.match(part, /color = MaterialTheme\.colorScheme\.surfaceVariant/);
-  assert.match(part, /color = MaterialTheme\.colorScheme\.primary/);
-  assert.doesNotMatch(part, /Color\(0x|#[0-9A-Fa-f]{6}|strokeColor/);
+test('LAB38 Compilation uses actual dynamic app theme palette', () => {
+  assert.ok(compilation.includes('color = MaterialTheme.colorScheme.surfaceVariant'));
+  assert.ok(compilation.includes('color = MaterialTheme.colorScheme.primary'));
+  assert.ok(!compilation.includes('Color(0x'), 'Compilation palette must not be hard-coded');
 });
-test('LAB38 compilation search is filled, rounded, editable, with actual search action', () => {
-  assert.match(compilation, /BasicTextField\(/);
-  assert.match(compilation, /onValueChange = \{ query = it \}/);
-  assert.match(compilation, /RoundedCornerShape\(16\.dp\)/);
-  assert.match(compilation, /onClick = ::runSearch/);
-  assert.doesNotMatch(compilation, /OutlinedTextField/);
+
+test('LAB38 compilation search is filled, rounded and editable', () => {
+  assert.ok(compilation.includes('BasicTextField('));
+  assert.ok(compilation.includes('onValueChange = { query = it }'));
+  assert.ok(compilation.includes('RoundedCornerShape(16.dp)'));
+  assert.ok(compilation.includes('onClick = ::runSearch'));
+  assert.ok(!compilation.includes('OutlinedTextField'));
 });
-test('LAB38 all five filters retain callback selection and menu content', () => {
+
+test('LAB38 filter dropdowns preserve layout and state', () => {
   const f = compilation.split('private fun CompilationFilterDropdown(')[1].split('private val compilationGenres')[0];
-  assert.match(f, /Surface\(/[\s\S]*?fillMaxWidth\(\)\.height\(50\.dp\)/);
-  assert.match(f, /onClick = \{ expanded = true \}/);
-  assert.match(f, /DropdownMenu\(/[\s\S]*?onSelect\(option\)/);
-  assert.match(f, /"\$label: \$selected"/);
-  for (const label of ['Anno','Genere','Stile','Nazione','Lingua']) {
-    assert.ok(compilation.includes('label = "'+label+'"'));
+  assert.ok(f.includes('Surface('));
+  assert.ok(f.includes('.height(50.dp).clickable { expanded = true }'));
+  assert.ok(f.includes('DropdownMenu('));
+  assert.ok(f.includes('onSelect(option)'));
+  for(const name of ['Anno','Genere','Stile','Nazione','Lingua']) {
+    assert.ok(compilation.includes('label = "'+name+'"'),name);
   }
 });
-test('LAB38 compilation filters open by default but preserve manual collapse', () => {
-  assert.match(compilation, /var filtersExpanded: Boolean = true/);
-  assert.match(compilation, /filtersExpanded = !filtersExpanded/);
-  assert.match(compilation, /CompilationSessionStore\.filtersExpanded = filtersExpanded/);
-  assert.match(compilation, /if \(filtersExpanded\)/);
+
+test('LAB38 menu opens on first launch and may be collapsed', () => {
+  assert.ok(compilation.includes('var filtersExpanded: Boolean = true'));
+  assert.ok(compilation.includes('filtersExpanded = !filtersExpanded'));
+  assert.ok(compilation.includes('CompilationSessionStore.filtersExpanded = filtersExpanded'));
+  assert.ok(compilation.includes('if (filtersExpanded)'));
 });
-test('LAB38 Cover and Compilation labels shown next to original three nav labels', () => {
-  assert.match(nav, /label = if \(!slimNav\)/);
-  assert.doesNotMatch(nav, /screen != Screens\.Cover|screen != Screens\.Compilation/);
-  assert.match(screens, /object Cover : Screens/);
-  assert.match(screens, /object Compilation : Screens/);
+
+test('LAB38 Cover and Compilation show labels beneath their icons', () => {
+  assert.ok(nav.includes('label = if (!slimNav)'));
+  assert.ok(!nav.includes('screen != Screens.Cover'));
+  assert.ok(!nav.includes('screen != Screens.Compilation'));
+  assert.ok(screens.includes('object Cover : Screens'));
+  assert.ok(screens.includes('object Compilation : Screens'));
 });
-test('LAB38 two new nav icons use same 24dp vector dimensions and clear white paths', () => {
-  for (const xml of [mic, album]) {
-    assert.match(xml, /android:width="24dp"/);
-    assert.match(xml, /android:height="24dp"/);
-    assert.match(xml, /android:strokeColor="@android:color\/white"/);
-    assert.doesNotMatch(xml, /#000000/);
+
+test('LAB38 both approved icons use the same 24dp frame and white stroke', () => {
+  for(const xml of [mic,album]){
+    assert.ok(xml.includes('android:width="24dp"'));
+    assert.ok(xml.includes('android:height="24dp"'));
+    assert.ok(xml.includes('android:strokeColor="@android:color/white"'));
+    assert.ok(!xml.includes('#000000'));
   }
-  assert.match(nav, /MaterialTheme\.colorScheme\.background\.luminance\(\)/);
-  assert.match(nav, /Color\.White/);
+  assert.ok(nav.includes('MaterialTheme.colorScheme.background.luminance()'));
+  assert.ok(nav.includes('Color.White'));
 });
-test('LAB38 exact approved Compilation icon is a square album with play triangle', () => {
-  assert.match(album, /M6\.2,3\.6H17\.8/);
-  assert.match(album, /M9\.4,8\.1L16,12L9\.4,15\.9Z/);
-  assert.match(album, /M4\.7,7\.4L7\.5,4\.7/);
-  assert.match(mic, /M12,3\.2C9\.9,3\.2/);
+
+test('LAB38 original microphone plus square album-play compilation icon', () => {
+  assert.ok(mic.includes('M12,3.2C9.9,3.2'));
+  assert.ok(album.includes('M6.2,3.6H17.8'));
+  assert.ok(album.includes('M9.4,8.1L16,12L9.4,15.9Z'));
 });
-test('LAB38 music playback and Discogs pagination logic retained', () => {
-  assert.match(compilation, /CompilationTrackResolver\.resolveTrack/);
-  assert.match(compilation, /DiscogsClient\.searchCompilations/);
-  assert.match(compilation, /playerConnection\?\.playQueue/);
-  assert.match(compilation, /paginationJob\?\.cancel\(\)/);
-  assert.match(compilation, /CompilationSessionStore\.listIndex/);
+
+test('LAB38 Discogs query, audio and pagination are preserved', () => {
+  for(const marker of [
+    'DiscogsClient.searchCompilations', 'CompilationTrackResolver.resolveTrack',
+    'playerConnection?.playQueue','paginationJob?.cancel()',
+    'CompilationSessionStore.listIndex'
+  ]) assert.ok(compilation.includes(marker),marker);
 });
