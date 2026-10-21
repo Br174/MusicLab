@@ -56,8 +56,10 @@ test('LAB38 both approved icons use the same 24dp frame and white stroke', () =>
     assert.ok(xml.includes('android:strokeColor="@android:color/white"'));
     assert.ok(!xml.includes('#000000'));
   }
-  assert.ok(nav.includes('MaterialTheme.colorScheme.background.luminance()'));
-  assert.ok(nav.includes('Color.White'));
+  // LAB39 supersedes LAB38's bright forced-white tint: default Material 3
+  // NavigationBarItem local tint now applies identically to all icons.
+  assert.ok(!nav.includes('background.luminance()'));
+  assert.ok(!nav.includes('screen == Screens.Cover || screen == Screens.Compilation'));
 });
 
 test('LAB38 original microphone plus square album-play compilation icon', () => {
