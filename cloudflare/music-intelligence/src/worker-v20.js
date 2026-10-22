@@ -1128,6 +1128,8 @@ async function archiveSearch(request, env) {
   if (!env.DB) return json({ stato: 'pronto', query: '', items: [] });
   const input = await request.json().catch(() => ({}));
   const query = String(input?.query || '').trim();
+  // Optional LAB46 Cover batch selector; 0 keeps legacy behavior.
+  const round = boundedInt(input?.round, 1, 1000000) ?? 0;
   const requestedLimit = Number(input?.limit);
   const limit = Number.isFinite(requestedLimit)
     ? Math.max(1, Math.min(Math.trunc(requestedLimit), 100))
@@ -1159,6 +1161,7 @@ async function archiveSearch(request, env) {
     JOIN works w ON w.id=v.work_id
     WHERE v.user_rejected=0
       AND (v.user_verified=1 OR v.decision_status='APPROVED')
+      AND (?4=0 OR v.cover_round=?4)
       AND (
         ?1='' OR
         v.canonical_title LIKE ?2 COLLATE NOCASE OR
@@ -1166,9 +1169,14 @@ async function archiveSearch(request, env) {
         w.canonical_title LIKE ?2 COLLATE NOCASE OR
         w.original_artist LIKE ?2 COLLATE NOCASE
       )
-    ORDER BY v.updated_at DESC, v.canonical_artist ASC
+    -- Stored positions take precedence over update timestamps: approving or
+    -- refreshing a record must not reshuffle previously completed rounds.
+    ORDER BY
+      CASE WHEN v.cover_round IS NULL OR v.round_position IS NULL THEN 1 ELSE 0 END ASC,
+      v.cover_round ASC, v.round_position ASC,
+      v.updated_at DESC, v.canonical_artist ASC
     LIMIT ?3
-  `).bind(query, like, limit).all();
+  `).bind(query, like, limit, round).all();
 
   return json({
     stato: 'pronto',
