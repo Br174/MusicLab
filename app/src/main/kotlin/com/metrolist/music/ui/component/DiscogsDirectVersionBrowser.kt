@@ -3179,6 +3179,7 @@ internal fun DiscogsDirectVersionBrowser(
                                             query = criteria.title,
                                             config = config,
                                             limit = 100,
+                                            coverRound = if (appendVerifiedRound) coverRoundNumber else 0,
                                         )
                                     }.orEmpty()
                                 }.orEmpty()
@@ -3190,7 +3191,16 @@ internal fun DiscogsDirectVersionBrowser(
                                     ?.key?.let { archiveOriginalArtist.set(it) }
                             val seeds = archiveSeeds(
                                 (listOfNotNull(selectedArchiveItem) + items).distinctBy {
-                                    listOf(it.title.lowercase(), it.artist.lowercase(), it.category.lowercase())
+                                    // Distinct live performances by the SAME singer can
+                                    // share a title. Deduplicate actual recordings,
+                                    // preferring exact playable-video identity.
+                                    it.playbackVideoId?.trim()?.takeIf(String::isNotBlank)?.let { id ->
+                                        "video:$id"
+                                    } ?: it.versionFingerprint?.trim()?.takeIf(String::isNotBlank)?.let { key ->
+                                        "recording:$key"
+                                    } ?: listOf(
+                                        it.title.lowercase(), it.artist.lowercase(), it.category.lowercase()
+                                    ).joinToString("|")
                                 }
                             )
                                 if (seeds.isNotEmpty()) supplementalSeeds.trySend(seeds)
@@ -3696,6 +3706,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 query = criteria.title,
                                 config = config,
                                 limit = 100,
+                                coverRound = if (appendVerifiedRound) coverRoundNumber else 0,
                             )
                         }
                     }.orEmpty()
