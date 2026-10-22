@@ -54,6 +54,15 @@ function dbForRead(row = sample) {
             },
             async all() {
               if (sql.includes('FROM versions')) {
+                // Emulate D1's SELECT aliases instead of returning raw source
+                // columns from the versions table.
+                if (sql.includes('JOIN works')) return {results:[{
+                  ...row,
+                  title:row.canonical_title,
+                  artist:row.canonical_artist,
+                  work_title:work.canonical_title,
+                  original_artist:work.original_artist,
+                }]};
                 return {results:[row]};
               }
               return {results:[]};
