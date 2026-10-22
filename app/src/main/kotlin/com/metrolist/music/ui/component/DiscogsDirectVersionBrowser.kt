@@ -2411,9 +2411,10 @@ internal fun DiscogsDirectVersionBrowser(
         // LAB46: persist complete proposed Cloud metadata in a small atomic
         // outbox while Turbo is read-only against shared D1. It is NOT a
         // successful Cloud write; never clear until verified server ACK.
-        val editorialWorkKey =
-            TitleMeaningResolver.workAnchorTitle(title) + "|" +
-                TitleMeaningResolver.canonical(lockedArtist.ifBlank { resolvedOriginalArtist })
+        val editorialWorkKey = listOf(
+            TitleMeaningResolver.workAnchorTitle(title),
+            TitleMeaningResolver.canonical(lockedArtist.ifBlank { resolvedOriginalArtist }),
+        ).joinToString("|")
         val outboxSaved = CoverCloudPendingOutbox.queue(
             context, editorialWorkKey, seed, approved,
         )
