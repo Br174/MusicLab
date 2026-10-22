@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 const source=fs.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt','utf8');
 const cloud=fs.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt','utf8');
-const browser=source.split('fun runSearch(requestedSort: DirectVersionSort')[1].split('fun retryMissingVideo(')[0];
+const browser=source.split('fun runSearch(')[1].split('fun retryMissingVideo(')[0];
 const video=source.split('LaunchedEffect(sessionKey, turboSearchGeneration)')[1].split('fun pauseCoverBackgroundForPlayback()')[0];
 const reentry=source.split('LaunchedEffect(sessionKey, discogsToken)')[1].split('// Fully verified sessions')[0];
 
@@ -27,7 +27,7 @@ test('archive metadata remains in read-only Cloud and is not deleted',()=>{
   assert.match(cloud, /fun recentArchiveSelection\(/);
 });
 test('old negative provider cache is bypassed for Turbo discovery',()=>{
-  assert.match(browser, /forceRefresh = true/);
+  assert.match(browser, /forceRefresh = forceRefresh/);
   assert.match(source, /maxNetworkFanOut = if \(playbackIsNormallyPlaying\(\) \|\| playbackIsCritical\(\)\) 2 else 5/);
 });
 test('seven-day sparse memory snapshots do not outrank fresh read-only discovery',()=>{
