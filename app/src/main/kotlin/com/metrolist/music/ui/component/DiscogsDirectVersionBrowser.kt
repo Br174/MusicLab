@@ -383,7 +383,15 @@ internal fun DiscogsDirectVersionBrowser(
         append(lockedArtist.trim().lowercase())
     }
     val session = remember(sessionKey) {
-        DirectVersionSessionStore.get(sessionKey, initialTitle)
+        DirectVersionSessionStore.get(sessionKey, initialTitle).also { existing ->
+            if (isTurbo && mode == DiscogsDirectMode.COVER &&
+                !existing.initialized && existing.previousRoundRows.isEmpty()
+            ) {
+                val saved = CoverRoundStorage.load(context, sessionKey)
+                existing.previousRoundRows = saved.rows
+                existing.coverRoundNumber = saved.round
+            }
+        }
     }
     // LAB12: protect UI/audio and source quotas from an unbounded 50-way
     // metadata burst. Four verifiers may run; providers retain own limits.
@@ -2729,9 +2737,15 @@ internal fun DiscogsDirectVersionBrowser(
             }
             previousRoundRows = previousRoundRows + additional
             session.previousRoundRows = previousRoundRows
+            val oldRowsSnapshot = previousRoundRows
+            val savedRound = coverRoundNumber
+            scope.launch(Dispatchers.IO) {
+                CoverRoundStorage.save(context, sessionKey, savedRound, oldRowsSnapshot)
+            }
             coverRoundNumber++
             session.coverRoundNumber = coverRoundNumber
-        } else if (!appendRound && activeCriteria != criteria) {
+        } else if (!appendRound && activeCriteria != null && activeCriteria != criteria) {
+            scope.launch(Dispatchers.IO) { CoverRoundStorage.clear(context, sessionKey) }
             previousRoundRows = emptyList()
             session.previousRoundRows = emptyList()
             coverRoundNumber = 1
@@ -3468,6 +3482,18 @@ internal fun DiscogsDirectVersionBrowser(
                         originalSectionFrozen = true
                         session.originalSectionFrozen = true
                         session.sourceDiscoveryComplete = true
+                        // LAB45: after each completed 50-card round, persist
+                        // the immutable published metadata on the IO dispatcher.
+                        // Re-entry after Android process death restores all cards.
+                        val fullHistoricalSnapshot = (
+                            previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots
+                        ).distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                        val completedRound = coverRoundNumber
+                        scope.launch(Dispatchers.IO) {
+                            CoverRoundStorage.save(
+                                context, sessionKey, completedRound, fullHistoricalSnapshot,
+                            )
+                        }
                         // LAB11: end of the sole ten-second Turbo execution.
                         session.turboFinished = true
                         // An empty snapshot is a transient result, never an
@@ -4161,6 +4187,12 @@ internal fun DiscogsDirectVersionBrowser(
                     session.publishedOriginalSnapshots = publishedOriginalSnapshots
                     session.publishedCoverSnapshots = publishedCoverSnapshots
                     session.previousRoundRows = previousRoundRows
+                    val videoSnapshot = previousRoundRows +
+                        publishedOriginalSnapshots + publishedCoverSnapshots
+                    val savedRound = coverRoundNumber
+                    scope.launch(Dispatchers.IO) {
+                        CoverRoundStorage.save(context, sessionKey, savedRound, videoSnapshot)
+                    }
                     Toast.makeText(context, "Nuovo video verificato per questa registrazione.", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(context, "Nessun altro video verificato per questa registrazione.", Toast.LENGTH_SHORT).show()
@@ -4290,6 +4322,12 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             previousRoundRows = previousRoundRows.map(change)
                             session.previousRoundRows = previousRoundRows
+                            val changedRows = previousRoundRows +
+                                publishedOriginalSnapshots + publishedCoverSnapshots
+                            val savedRound = coverRoundNumber
+                            scope.launch(Dispatchers.IO) {
+                                CoverRoundStorage.save(context, sessionKey, savedRound, changedRows)
+                            }
                             results = results.map(change)
                             session.results = results
                             session.stableOrder = session.stableOrder.map {
