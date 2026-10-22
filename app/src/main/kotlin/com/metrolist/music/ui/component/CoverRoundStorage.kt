@@ -102,6 +102,7 @@ internal object CoverRoundStorage {
         )
     }.getOrNull()
 
+    @Synchronized
     internal fun load(context: Context, workKey: String): Snapshot = runCatching {
         val json = JSONObject(String(path(context, workKey).readFully(), Charsets.UTF_8))
         if (json.optInt("schema") != 1) return@runCatching Snapshot()
@@ -117,8 +118,15 @@ internal object CoverRoundStorage {
         Snapshot(round = json.optInt("round", 1).coerceAtLeast(1), rows = cards)
     }.getOrDefault(Snapshot())
 
+    @Synchronized
     internal fun save(context: Context, workKey: String, round: Int, rows: List<DiscogsVersionSeed>) {
         runCatching {
+            // Out-of-order IO jobs may finish after a newer Cover round.
+            // Never overwrite a larger or newer confirmed snapshot.
+            val saved = load(context, workKey)
+            if (saved.round > round || (saved.round == round && saved.rows.size > rows.size)) {
+                return@runCatching
+            }
             val seen = HashSet<String>()
             val videos = HashSet<String>()
             val records = rows.filter { seed ->
@@ -142,5 +150,10 @@ internal object CoverRoundStorage {
                 throw failure
             }
         }
+    }
+
+    @Synchronized
+    internal fun clear(context: Context, workKey: String) {
+        path(context, workKey).delete()
     }
 }
