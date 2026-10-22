@@ -551,7 +551,10 @@ internal fun DiscogsDirectVersionBrowser(
     fun localEditorialDecision(seed: DiscogsVersionSeed): String? =
         CoverPlaybackMemory.editorialDecision(
             context,
-            TitleMeaningResolver.workAnchorTitle(title),
+            // LAB43: a local editorial verdict belongs to the selected song
+            // AND its original singer, not merely to a shared title.
+            TitleMeaningResolver.workAnchorTitle(title) + "|" +
+                TitleMeaningResolver.canonical(lockedArtist.ifBlank { resolvedOriginalArtist }),
             rejectionKey(seed),
         )
 
@@ -570,12 +573,15 @@ internal fun DiscogsDirectVersionBrowser(
         }
 
     fun isHiddenForCurrentCover(seed: DiscogsVersionSeed): Boolean =
-        mode == DiscogsDirectMode.COVER && isRejected(seed)
+        mode == DiscogsDirectMode.COVER &&
+            (isRejected(seed) || !modeAcceptsSeed(seed))
 
     fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
         val score =
             when (candidate.brainStatus) {
-                AiBrainDecisionStatus.APPROVED -> 20
+                // Cloud editorials are not proof of work identity; an old
+                // approval can refer to another song with the same title.
+                AiBrainDecisionStatus.APPROVED -> 7
                 AiBrainDecisionStatus.PROBABLE -> 14
                 AiBrainDecisionStatus.UNCERTAIN -> 7
                 AiBrainDecisionStatus.REJECTED -> 1
@@ -597,7 +603,7 @@ internal fun DiscogsDirectVersionBrowser(
                 targetTitle = TitleMeaningResolver.stripTrailingArtistHint(title),
                 originalArtist = resolvedOriginalArtist,
             ).copy(
-                manuallyApproved = candidate.brainStatus == AiBrainDecisionStatus.APPROVED,
+                manuallyApproved = false, // LAB43: never import remote approval as proof
             )
         val playbackId = candidate.playbackVideoId?.trim().orEmpty()
         return if (playbackId.isNotBlank()) {
@@ -2349,7 +2355,10 @@ internal fun DiscogsDirectVersionBrowser(
         val approved = status == AiBrainDecisionStatus.APPROVED
         CoverPlaybackMemory.saveEditorialDecision(
             context,
-            TitleMeaningResolver.workAnchorTitle(title),
+            // LAB43: a local editorial verdict belongs to the selected song
+            // AND its original singer, not merely to a shared title.
+            TitleMeaningResolver.workAnchorTitle(title) + "|" +
+                TitleMeaningResolver.canonical(lockedArtist.ifBlank { resolvedOriginalArtist }),
             rejectionKey(seed),
             approved,
         )
@@ -2658,7 +2667,10 @@ internal fun DiscogsDirectVersionBrowser(
         return true
     }
 
-    fun runSearch(requestedSort: DirectVersionSort = sortMode) {
+    fun runSearch(
+        requestedSort: DirectVersionSort = sortMode,
+        forceRefresh: Boolean = false,
+    ) {
         sortMode = requestedSort
         session.sortMode = requestedSort
         persistInputs()
@@ -2684,7 +2696,7 @@ internal fun DiscogsDirectVersionBrowser(
             (lockedArtist.isBlank() || TitleMeaningResolver.sameArtist(
                 lockedArtist, resolvedOriginalArtist,
             ))
-        if (isTurbo && repeatSameWork && session.turboFinished &&
+        if (!forceRefresh && isTurbo && repeatSameWork && session.turboFinished &&
             (session.publishedCoverSnapshots.isNotEmpty() || session.publishedOriginalSnapshots.isNotEmpty()) &&
             (session.publishedCoverSnapshots + session.publishedOriginalSnapshots).all(::hasPublishableVideo)) {
             // Only a fully linked, verified session may be replayed without refreshing.
@@ -2712,8 +2724,10 @@ internal fun DiscogsDirectVersionBrowser(
         if (!repeatSameWork) session.turboReserve = emptyList()
         session.turboBurstStartedAtMs = if (isTurbo && mode == DiscogsDirectMode.COVER) turboCommandStartedAt else 0L
         session.turboArchiveMatches = 0
-        val retainedResults = if (repeatSameWork) results else emptyList()
-        val retainedOrder = if (repeatSameWork) session.stableOrder else emptyList()
+        // An intentional repeat should not replay rejected Cloud snapshots.
+        // Automatic re-entry still reuses the verified in-memory session.
+        val retainedResults = if (repeatSameWork && !forceRefresh) results else emptyList()
+        val retainedOrder = if (repeatSameWork && !forceRefresh) session.stableOrder else emptyList()
         searchJob?.cancel()
         manualVideoSearchJob?.cancel()
         paginationJob?.cancel()
@@ -3046,8 +3060,14 @@ internal fun DiscogsDirectVersionBrowser(
                                             archiveDeferred.await()
                                             archiveOriginalArtist.get()
                                         }
-                                        val memoryArtist = archiveArtist?.takeIf(String::isNotBlank)
-                                            ?: resolvedOriginalArtist
+                                        // An archive majority must never replace the artist
+                                        // explicitly selected by the user (same-name works).
+                                        val memoryArtist = lockedArtist.ifBlank {
+                                            explicitArtistHint?.takeIf(String::isNotBlank)
+                                                ?: resolvedOriginalArtist.ifBlank {
+                                                    archiveArtist.orEmpty()
+                                                }
+                                        }
                                         val cached = CloudMusicDiscovery.cachedMemoryState(
                                             context = context, title = criteria.title,
                                             artist = memoryArtist, config = config,
@@ -3091,9 +3111,9 @@ internal fun DiscogsDirectVersionBrowser(
                                         mode = mode,
                                         aiConfig = foreignScoutConfig,
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 5,
-                                        // LAB25: new automatic searches must not inherit a stale
-                                        // 30-minute provider miss from a previous engine revision.
-                                        forceRefresh = true,
+                                        // Always refresh the Turbo metadata sources. The
+                                        // nested MB/SHS caches are bypassed on manual retry.
+                                        forceRefresh = forceRefresh,
                                         onEarlyVideoCandidates = { quick ->
                                             // Fast per-source Top-N before global
                                             // cross-provider 1–20 certification.
@@ -3619,33 +3639,9 @@ internal fun DiscogsDirectVersionBrowser(
                     ?.versions
                     .orEmpty()
 
-            session.approvedKeys.addAll(
-                memoryVersions
-                    .filter { it.brainStatus == AiBrainDecisionStatus.APPROVED }
-                    .map { candidate ->
-                        val categoryName =
-                            if (mode == DiscogsDirectMode.ORIGINAL) {
-                                when (candidate.category) {
-                                    AiCoverCategory.LIVE -> "live"
-                                    AiCoverCategory.REMIX -> "remix"
-                                    AiCoverCategory.FOREIGN -> "straniera"
-                                    AiCoverCategory.COVER -> "originale"
-                                }
-                            } else {
-                                when (candidate.category) {
-                                    AiCoverCategory.LIVE -> "live"
-                                    AiCoverCategory.REMIX -> "remix"
-                                    AiCoverCategory.FOREIGN -> "straniera"
-                                    AiCoverCategory.COVER -> "cover"
-                                }
-                            }
-                        CloudMusicDiscovery.memoryKey(
-                            candidate.title,
-                            candidate.artist,
-                            categoryName,
-                        )
-                    },
-            )
+            // LAB43: remote Cloud approval statuses cannot become evidence
+            // for a different song that merely shares the same title.
+            // Explicit local verdicts are still read through the artist-scoped key.
 
             if (memoryVersions.isNotEmpty()) {
                 // LAB59: first Discogs page and direct COVER.INFO videos run
@@ -4808,6 +4804,14 @@ internal fun DiscogsDirectVersionBrowser(
                                 onDismissRequest = { musiclabArtistMenu = false },
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Ripeti ricerca") },
+                                    enabled = !loading,
+                                    onClick = {
+                                        musiclabArtistMenu = false
+                                        runSearch(forceRefresh = true)
+                                    },
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Archivio") },
                                     onClick = {
                                         musiclabArtistMenu = false
@@ -4944,7 +4948,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     Text(
                                         "⌕",
                                         modifier = Modifier.clickable {
-                                            if (!loading) runSearch()
+                                            if (!loading) runSearch(forceRefresh = true)
                                         }.padding(horizontal = 4.dp),
                                         style = MaterialTheme.typography.titleLarge,
                                         color = MaterialTheme.colorScheme.primary,
@@ -5079,7 +5083,7 @@ internal fun DiscogsDirectVersionBrowser(
                         modifier = Modifier.weight(1f),
                     )
                     Button(
-                        onClick = { runSearch() },
+                        onClick = { runSearch(forceRefresh = true) },
                         enabled = !loading,
                     ) {
                         Text(if (loading) "…" else "Cerca")
