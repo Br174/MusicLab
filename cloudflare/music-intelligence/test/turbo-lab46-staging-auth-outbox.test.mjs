@@ -77,3 +77,21 @@ test('isolated Wrangler template cannot accidentally bind shared production D1',
  assert.match(bootstrap,/CREATE TABLE IF NOT EXISTS lab46_staging_sentinel/);
  assert.match(bootstrap,/musiclab-turbo-lab46-isolated-d1-v1/);
 });
+
+test('LAB46: staging Cloud writes must block all legacy routes without bearer',async()=>{
+ const worker=(await import('../src/worker-v20.js')).default;
+ for(const path of ['/api/v1/brain/decision','/api/v1/playback/binding',
+   '/api/v1/playback-binding','/api/v1/technical-destination',
+   '/api/v1/discover/expand']){
+  const request=new Request('https://staging.invalid'+path,{method:'POST',body:'{}'});
+  const response=await worker.fetch(request,good(),{});
+  assert.equal(response.status,401,path);
+ }
+});
+test('LAB46: runtime does not perform enrich/coverage work before staging auth',async()=>{
+ const runtime=(await import('../src/worker-v20-runtime.js')).default;
+ const request=new Request('https://staging.invalid/api/v1/discover/expand',
+  {method:'POST',body:JSON.stringify({mode:'cover',title:'test'})});
+ const response=await runtime.fetch(request,good(),{});
+ assert.equal(response.status,401);
+});
