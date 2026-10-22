@@ -1,4 +1,5 @@
 import { stagingCloudWriteGate } from './lab46-staging-write-guard.js';
+import { syncLab46Decision } from './lab46-staging-sync.js';
 import legacyWorker from './index.js';
 import {
   admitCoverCandidate,
@@ -1195,6 +1196,15 @@ export default {
       // to bypass the /brain/decision security policy.
       const check = await stagingCloudWriteGate(request, env);
       if (!check.allowed) return json({ stato: 'bloccato', motivo: check.reason }, check.status);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/v1/turbo/decision-sync') {
+      // LAB46 is an isolated staging prototype only. Never introduce a
+      // production write route merely by deploying this experimental code.
+      if (env?.LAB46_ISOLATED_STAGING !== '1') {
+        return json({ stato: 'bloccato', motivo: 'staging_only' }, 403);
+      }
+      // Authentication/sentinel checked by the shared early mutating gate.
+      return syncLab46Decision(request, env.DB, saveBrainDecision);
     }
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/decision') return saveDecision(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/playback/binding') return savePlayback(request, env);
