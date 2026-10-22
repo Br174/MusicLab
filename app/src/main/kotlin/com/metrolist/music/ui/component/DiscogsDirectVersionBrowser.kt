@@ -3112,8 +3112,16 @@ internal fun DiscogsDirectVersionBrowser(
                                             }
                                         },
                                         onSourceCompleted = { items, diagnostic, originalYear ->
+                                            // LAB42: work-linked sources can return 25–100
+                                            // documented recordings. Keep up to 50 instead
+                                            // of silently discarding candidates 25..50.
+                                            // General title-only sources stay limited to 24.
+                                            val verifiedWorkLane = diagnostic.name in setOf(
+                                                "MusicBrainz", "SecondHandSongs", "COVER.INFO",
+                                            )
                                             val fresh = items.sortedByDescending { it.evidenceScore }
-                                                .take(24).filter { sourceEvidence.add(it) }
+                                                .take(if (verifiedWorkLane) TURBO_RESULT_QUOTA else 24)
+                                                .filter { sourceEvidence.add(it) }
                                             if (fresh.isNotEmpty()) streamingCandidates.trySend(fresh)
                                             sourceStatus[diagnostic.name] = diagnostic
                                             if (originalYear != null) sourceOriginalYear.set(originalYear)
