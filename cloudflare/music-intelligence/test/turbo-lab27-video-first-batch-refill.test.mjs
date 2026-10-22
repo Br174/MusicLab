@@ -15,7 +15,7 @@ test('first ten publish together when candidates ready, without 1.2s wait',()=>{
 });
 test('next forty publish atomically as soon as all available',()=>{
   assert.match(source,/TURBO_POSTER_SECOND_BLOCK = 40/);
-  assert.match(second,/if \(next\.size < TURBO_POSTER_SECOND_BLOCK\) return/);
+  assert.match(second,/if \(next\.size < TURBO_RESULT_QUOTA - committedCount\) return/);
   assert.match(second,/publishedCoverSnapshots = publishedCoverSnapshots \+ next/);
   assert.doesNotMatch(second,/turboCommandStartedAt\s*</);
 });
