@@ -102,7 +102,10 @@
         "Additive D1 migration and read/write contract test",
         "No false claim that stale image/video is playable"
       ],
-      "testPaths": [],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab46-cloud-complete-contract.test.mjs",
+        "cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs"
+      ],
       "supersedes": []
     },
     {
@@ -117,7 +120,9 @@
         "Store both scales",
         "Equal /100 scores allowed with deterministic tie handling"
       ],
-      "testPaths": [],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab46-round-strategy-score100-contract.test.mjs"
+      ],
       "supersedes": []
     },
     {
@@ -148,7 +153,10 @@
         "No write in current shared read-only Turbo",
         "No unverified production migration"
       ],
-      "testPaths": [],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab46-staging-auth-outbox.test.mjs",
+        "cloudflare/music-intelligence/test/lab46_d1_migration_smoke.py"
+      ],
       "supersedes": []
     },
     {
@@ -163,7 +171,9 @@
         "No secondary rule coordinator",
         "Run contract preflight before release"
       ],
-      "testPaths": [],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab46-cloud-complete-contract.test.mjs"
+      ],
       "supersedes": []
     }
   ]
