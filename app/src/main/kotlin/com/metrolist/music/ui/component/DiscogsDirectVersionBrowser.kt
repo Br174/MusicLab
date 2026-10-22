@@ -572,10 +572,6 @@ internal fun DiscogsDirectVersionBrowser(
             else -> seed.manuallyApproved || rejectionKey(seed) in session.approvedKeys
         }
 
-    fun isHiddenForCurrentCover(seed: DiscogsVersionSeed): Boolean =
-        mode == DiscogsDirectMode.COVER &&
-            (isRejected(seed) || !modeAcceptsSeed(seed))
-
     fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
         val score =
             when (candidate.brainStatus) {
@@ -941,6 +937,10 @@ internal fun DiscogsDirectVersionBrowser(
                 TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
         return originalArtistOk && titleOk
     }
+
+    fun isHiddenForCurrentCover(seed: DiscogsVersionSeed): Boolean =
+        mode == DiscogsDirectMode.COVER &&
+            (isRejected(seed) || !modeAcceptsSeed(seed))
 
     fun isOriginalPerformerVersion(seed: DiscogsVersionSeed): Boolean =
         mode == DiscogsDirectMode.COVER &&
