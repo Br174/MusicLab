@@ -57,8 +57,25 @@ if(token.length<10 || !/^[a-f0-9]{32}$/i.test(account)){
   if(!audit.connected)audit.errors.push('TOKEN_NOT_VERIFIED');
   if(d1.success && Array.isArray(d1.result)){
     audit.existingD1Count=d1.result_info?.total_count??d1.result.length;
-    audit.stagingPresent=d1.result.some(db=>db.name==='musiclab-turbo-lab46-staging');
-    audit.productionDbPresent=d1.result.some(db=>db.name==='musiclab-intelligence-db');
+    const stagingRows=d1.result.filter(db=>db.name==='musiclab-turbo-lab46-staging');
+    const productionRows=d1.result.filter(db=>db.name==='musiclab-intelligence-db');
+    audit.stagingPresent=stagingRows.length===1;
+    audit.productionDbPresent=productionRows.length===1;
+    const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const stage=stagingRows[0];
+    const prod=productionRows[0];
+    audit.stagingUuid=stage && uuid.test(stage.uuid||'')?stage.uuid:null;
+    audit.productionUuidMatchesPinned=Boolean(prod &&
+      prod.uuid==='7f36c6a5-5361-47cf-8520-b2ba398ea731');
+    audit.stagingUuidMatchesDashboardPrefix=Boolean(
+      audit.stagingUuid && audit.stagingUuid.startsWith('e66bd500-'));
+    audit.stagingIdentityVerified=Boolean(
+      stagingRows.length===1 && productionRows.length===1 &&
+      audit.stagingUuid && audit.productionUuidMatchesPinned &&
+      audit.stagingUuidMatchesDashboardPrefix &&
+      audit.stagingUuid!==prod.uuid);
+    if(stagingRows.length>0 && !audit.stagingIdentityVerified)
+      audit.errors.push('STAGING_UUID_OR_PRODUCTION_BINDING_MISMATCH');
     if(audit.existingD1Count>=10)audit.errors.push('POSSIBLE_FREE_DATABASE_LIMIT_REACHED');
   }else audit.errors.push('D1_LIST_READ_DENIED_HTTP_'+d1.http);
   // Informative only; plan must be explicitly verified, never inferred from
