@@ -10,7 +10,7 @@ const cloud = read('app/src/main/kotlin/com/metrolist/music/ui/component/CloudMu
 const model = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt');
 const cache = read('app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundStorage.kt');
 const ui = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt');
-const fields = ['release_date','country','source_names_json','source_url',
+const fields = ['release_date','country','source_names_json','source_url','credits_detail_json',
   'video_title','recording_fingerprint','legacy_score_20','musiclab_score_100',
   'cover_round','round_position','work_relation_confirmed'];
 
@@ -34,6 +34,7 @@ test('LAB46: Worker returns all available metadata and scores in both archive an
  for(const f of ['releaseDate','sourceNames','musiclabScore100','legacyScore20','coverRound','roundPosition'])
     assert.ok(worker.includes(f),f);
  assert.match(worker,/credits: safeJson\(row\.credits_json\)/);
+ assert.match(worker,/creditDetails: Array.isArray\(safeJson\(row\.credits_detail_json\)\)/);
  assert.match(worker,/playbackVideoTitle: row\.video_title/);
 });
 test('LAB46: Android Cloud parser restores new fields with optional older-record fallbacks',()=>{
