@@ -272,6 +272,9 @@ private data class DirectVersionSession(
     var publishedReadyLimit: Int = 0,
     var publishedOriginalSnapshots: List<DiscogsVersionSeed> = emptyList(),
     var publishedCoverSnapshots: List<DiscogsVersionSeed> = emptyList(),
+    // LAB45: immutable cards committed in earlier 50-result search rounds.
+    var previousRoundRows: List<DiscogsVersionSeed> = emptyList(),
+    var coverRoundNumber: Int = 1,
     var originalSectionFrozen: Boolean = false,
     var originalGateStartedAtMs: Long = 0L,
     var coverBatchStartedAtMs: Long = 0L,
@@ -426,6 +429,8 @@ internal fun DiscogsDirectVersionBrowser(
     var publishedReadyLimit by remember(sessionKey) { mutableStateOf(session.publishedReadyLimit) }
     var publishedOriginalSnapshots by remember(sessionKey) { mutableStateOf(session.publishedOriginalSnapshots) }
     var publishedCoverSnapshots by remember(sessionKey) { mutableStateOf(session.publishedCoverSnapshots) }
+    var previousRoundRows by remember(sessionKey) { mutableStateOf(session.previousRoundRows) }
+    var coverRoundNumber by remember(sessionKey) { androidx.compose.runtime.mutableIntStateOf(session.coverRoundNumber) }
     var turboStreamProofVersion by remember(sessionKey) { mutableStateOf(0) }
     var originalSectionFrozen by remember(sessionKey) { mutableStateOf(session.originalSectionFrozen) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -1484,8 +1489,18 @@ internal fun DiscogsDirectVersionBrowser(
                         else "Variante originale: prova in attesa").distinct(),
                 )
             }
+        val oldRecordingKeys = previousRoundRows.mapTo(HashSet<String>()) {
+            DiscogsVersionSource.recordingIdentityKey(it)
+        }
+        val oldVideos = previousRoundRows.mapNotNullTo(HashSet<String>()) {
+            it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
+        }
         return (sortGroup(originalVariants, DirectVersionSort.RELEVANCE) +
             sortGroup(coverCandidatePool(), DirectVersionSort.RELEVANCE))
+            .filterNot {
+                DiscogsVersionSource.recordingIdentityKey(it) in oldRecordingKeys ||
+                    it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank) in oldVideos
+            }
             .distinctBy(DiscogsVersionSource::recordingIdentityKey)
     }
 
@@ -2670,6 +2685,7 @@ internal fun DiscogsDirectVersionBrowser(
     fun runSearch(
         requestedSort: DirectVersionSort = sortMode,
         forceRefresh: Boolean = false,
+        appendRound: Boolean = false,
     ) {
         sortMode = requestedSort
         session.sortMode = requestedSort
@@ -2686,6 +2702,36 @@ internal fun DiscogsDirectVersionBrowser(
         if (mode == DiscogsDirectMode.ORIGINAL && resolvedOriginalArtist.isBlank()) {
             error = "Interprete originale di riferimento mancante."
             return
+        }
+        // A further Cover round never clears or reorders already committed
+        // cards. Only the new round's ranking/publisher gets another 50 slots.
+        val appendVerifiedRound = appendRound && isTurbo &&
+            mode == DiscogsDirectMode.COVER &&
+            activeCriteria == criteria && !loading && !sourceDiscoveryLoading
+        if (appendRound && !appendVerifiedRound) return
+        if (appendVerifiedRound) {
+            val alreadyCommitted = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                .filter(::modeAcceptsSeed)
+            val occupied = previousRoundRows.mapTo(HashSet<String>()) {
+                DiscogsVersionSource.recordingIdentityKey(it)
+            }
+            val videoIds = previousRoundRows.mapNotNullTo(HashSet<String>()) {
+                it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
+            }
+            val additional = alreadyCommitted.filter {
+                occupied.add(DiscogsVersionSource.recordingIdentityKey(it)) &&
+                    (it.resolvedVideoId.isNullOrBlank() ||
+                     videoIds.add(it.resolvedVideoId.trim()))
+            }
+            previousRoundRows = previousRoundRows + additional
+            session.previousRoundRows = previousRoundRows
+            coverRoundNumber++
+            session.coverRoundNumber = coverRoundNumber
+        } else if (!appendRound && activeCriteria != criteria) {
+            previousRoundRows = emptyList()
+            session.previousRoundRows = emptyList()
+            coverRoundNumber = 1
+            session.coverRoundNumber = 1
         }
         // Global wall clock starts at the actual user search action, not when
         // verification begins after several network catalog requests.
@@ -2726,8 +2772,8 @@ internal fun DiscogsDirectVersionBrowser(
         session.turboArchiveMatches = 0
         // An intentional repeat should not replay rejected Cloud snapshots.
         // Automatic re-entry still reuses the verified in-memory session.
-        val retainedResults = if (repeatSameWork && !forceRefresh) results else emptyList()
-        val retainedOrder = if (repeatSameWork && !forceRefresh) session.stableOrder else emptyList()
+        val retainedResults = if (appendVerifiedRound || (repeatSameWork && !forceRefresh)) results else emptyList()
+        val retainedOrder = if (appendVerifiedRound || (repeatSameWork && !forceRefresh)) session.stableOrder else emptyList()
         searchJob?.cancel()
         manualVideoSearchJob?.cancel()
         paginationJob?.cancel()
@@ -2819,7 +2865,7 @@ internal fun DiscogsDirectVersionBrowser(
                 val cloudArchiveCount = java.util.concurrent.atomic.AtomicInteger(-1)
                 val cloudMemoryCount = java.util.concurrent.atomic.AtomicInteger(-1)
                 try {
-                    listState.scrollToItem(0)
+                    if (!appendVerifiedRound) listState.scrollToItem(0)
                     withTimeoutOrNull(
                         (stopAt - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
                     ) {
@@ -3400,7 +3446,11 @@ internal fun DiscogsDirectVersionBrowser(
                         session.turboReserve = turboRankedPool()
                             .filterNot { it.fingerprint in frozenIds }
                             .take(TURBO_RESERVE_MAX)
-                        val frozenResults = results.filter { it.fingerprint in frozenIds }
+                        val frozenResults = results.filter {
+                            it.fingerprint in frozenIds ||
+                                (appendVerifiedRound &&
+                                 previousRoundRows.any { prior -> prior.fingerprint == it.fingerprint })
+                        }
                         results = frozenResults
                         session.results = frozenResults
                         session.stableOrder = (publishedOriginalSnapshots + publishedCoverSnapshots)
@@ -4525,16 +4575,19 @@ internal fun DiscogsDirectVersionBrowser(
     // snapshot, not recalculated for every player tick / scroll frame.
     // Video verification still updates the touched snapshot immutably.
     val visibleOriginalVersions = remember(
-        mode, isTurbo, publishedOriginalSnapshots, turboStreamProofVersion,
+        mode, isTurbo, publishedOriginalSnapshots, previousRoundRows, category, turboStreamProofVersion,
         if (isTurbo) null else results,
     ) {
-        if (mode == DiscogsDirectMode.COVER) publishedOriginalSnapshots
-            .filterNot(::isHiddenForCurrentCover)
-            .map(::videoCalibratedDisplaySeed)
+        if (mode == DiscogsDirectMode.COVER) (
+            previousRoundRows.filter {
+                !isRejected(it) &&
+                    (category == DirectVersionCategory.ALL || directDisplayCategory(it) == category)
+            } + publishedOriginalSnapshots.filterNot(::isHiddenForCurrentCover)
+        ).map(::videoCalibratedDisplaySeed)
         else emptyList()
     }
     val visibleTrueCovers = remember(
-        mode, isTurbo, loading, publishedCoverSnapshots, visibleLimit,
+        mode, isTurbo, loading, publishedCoverSnapshots, visibleLimit, previousRoundRows,
         turboStreamProofVersion, if (isTurbo) null else results,
     ) {
         if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading)) {
@@ -5346,6 +5399,27 @@ internal fun DiscogsDirectVersionBrowser(
                         onRetryVideo = { retryMissingVideo(seed) },
                         onDetails = { detailSeed = seed },
                     )
+                }
+            }
+
+            if (isTurbo && mode == DiscogsDirectMode.COVER &&
+                activeCriteria != null && !loading && !sourceDiscoveryLoading) {
+                item(key = "musiclab_turbo_cover_search_more_round_${coverRoundNumber}") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Button(
+                            onClick = { runSearch(forceRefresh = true, appendRound = true) },
+                        ) {
+                            Text("Cerca ancora · fino a 50 nuove cover")
+                        }
+                        Text(
+                            "Tornata ${coverRoundNumber} · ${visibleResults.size} risultati verificati in elenco",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
