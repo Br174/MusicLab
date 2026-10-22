@@ -2,6 +2,7 @@ package com.metrolist.music.ui.component
 
 import android.content.Context
 import com.metrolist.music.BuildConfig
+import com.metrolist.music.discogs.DiscogsCredit
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -66,6 +67,7 @@ internal data class CloudArchiveItem(
     val lyricists: List<String> = emptyList(),
     val producers: List<String> = emptyList(),
     val label: String? = null,
+    val creditDetails: List<DiscogsCredit> = emptyList(),
 )
 
 internal object CloudMusicDiscovery {
@@ -333,6 +335,14 @@ internal object CloudMusicDiscovery {
                     candidate.musiclabScore100?.let { put("musiclabScore100", it) }
                     candidate.coverRound?.let { put("coverRound", it) }
                     candidate.roundPosition?.let { put("roundPosition", it) }
+                    put("creditDetails", buildJsonArray {
+                        candidate.creditDetails.take(80).forEach { credit ->
+                            add(buildJsonObject {
+                                put("name", credit.name)
+                                put("role", credit.role)
+                            })
+                        }
+                    })
                     put(
                         "credits",
                         buildJsonObject {
@@ -489,6 +499,7 @@ internal object CloudMusicDiscovery {
                     lyricists = obj.objectOrNull("credits")?.strings("lyricists").orEmpty(),
                     producers = obj.objectOrNull("credits")?.strings("producers").orEmpty(),
                     label = obj.objectOrNull("credits")?.nullableString("label"),
+                    creditDetails = obj.creditList("creditDetails"),
                 )
             }
             .orEmpty()
@@ -742,6 +753,7 @@ internal object CloudMusicDiscovery {
                 musiclabScore100 = obj.scoreOrNull("musiclabScore100"),
                 coverRound = obj.positiveNumberOrNull("coverRound"),
                 roundPosition = obj.positiveNumberOrNull("roundPosition"),
+                creditDetails = obj.creditList("creditDetails"),
             )
         }.orEmpty()
 
@@ -765,6 +777,17 @@ internal object CloudMusicDiscovery {
 
     private fun JsonObject.nullableString(key: String): String? =
         string(key).takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+
+    private fun JsonObject.creditList(key: String): List<DiscogsCredit> {
+        val rows = get(key)?.runCatching { jsonArray }?.getOrNull() ?: return emptyList()
+        return rows.mapNotNull { item ->
+            val row = item.runCatching { jsonObject }.getOrNull() ?: return@mapNotNull null
+            val name = row.string("name")
+            val role = row.string("role")
+            if (name.isBlank() || role.isBlank()) null
+            else DiscogsCredit(name, role)
+        }.distinctBy { it.name to it.role }.take(80)
+    }
 
     private fun JsonObject.strings(key: String): List<String> {
         val element = get(key) ?: return emptyList()
