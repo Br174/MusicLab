@@ -59,6 +59,7 @@ test('offline decisions are queued atomically without fake remote success',()=>{
  assert.match(code,/put\("originalArtist", originalArtist\)/);
  assert.match(code,/put\("versionFingerprint", seed\.fingerprint\)/);
  assert.match(code,/put\("credits", credits\(seed\)\)/);
+ assert.match(code,/put\("creditDetails", JSONArray\(\)\.apply/);
  assert.doesNotMatch(code,/LAB46_WRITE_TOKEN|Authorization: Bearer/);
 });
 
