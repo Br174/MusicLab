@@ -43,7 +43,7 @@ test('search retains typing and submit while losing its outlined border', () => 
   assert.match(code, /import androidx\.compose\.foundation\.text\.BasicTextField/);
   assert.match(header, /Surface\([\s\S]*?Modifier\.weight\(3f\)\.height\(54\.dp\)/);
   assert.match(header, /BasicTextField\([\s\S]*?onValueChange = \{ title = it \}/);
-  assert.match(header, /if \(!loading\) runSearch\(\)/);
+  assert.match(header, /if \(!loading\) runSearch\(forceRefresh = true\)/);
   assert.doesNotMatch(header.split('// LAB36: matching borderless upper controls')[1].split('// LAB34: a compact')[0], /OutlinedTextField|BorderStroke|border\(/);
 });
 
