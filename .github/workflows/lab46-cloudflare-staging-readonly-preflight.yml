@@ -12,6 +12,7 @@ on:
       - cloudflare/music-intelligence/lab46-staging-only/worker_memory_schema_local_smoke.py
       - cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_once.sql
       - cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_verify.py
+      - cloudflare/music-intelligence/lab46-staging-only/staging_schema_readonly_preflight.mjs
       - cloudflare/music-intelligence/lab46-staging-only/bootstrap.sql
       - cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc
   workflow_dispatch:
@@ -53,3 +54,7 @@ jobs:
         run: python3 cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_verify.py
       - name: Read-only Cloudflare account, D1 inventory, free-plan evidence
         run: node cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
+      - name: Remote isolated D1 schema and sentinel SELECT-only preflight
+        run: |
+          node --check cloudflare/music-intelligence/lab46-staging-only/staging_schema_readonly_preflight.mjs
+          node cloudflare/music-intelligence/lab46-staging-only/staging_schema_readonly_preflight.mjs
