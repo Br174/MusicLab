@@ -6,10 +6,16 @@ import org.junit.Test
 
 class OriginalVersionSearchEngineTest {
     @Test
-    fun `Originali accepts bracketed translated alias but rejects another song title`() {
-        assertTrue(
+    fun `Originali denies unverified translation alias and another song title`() {
+        assertFalse(
             OriginalVersionSearchEngine.isOriginalTitleCompatible(
                 value = "Bravi Ragazzi (Bravo Muchachos)",
+                targetTitle = "Bravi ragazzi",
+            ),
+        )
+        assertTrue(
+            OriginalVersionSearchEngine.isOriginalTitleCompatible(
+                value = "Bravi ragazzi (Remastered)",
                 targetTitle = "Bravi ragazzi",
             ),
         )
