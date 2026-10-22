@@ -160,7 +160,7 @@ internal object CoverDiscoverySources {
         val musicBrainzLookup =
             async(Dispatchers.IO) {
                 val lookup = sourceLane {
-                    runCatching { MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist) }
+                    runCatching { MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist, forceRefresh = forceRefresh) }
                         .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) }
                 }
                 reportResult(discoverMusicBrainz(cleanTitle, mode, lookup), lookup.work?.originalYear)
@@ -175,7 +175,7 @@ internal object CoverDiscoverySources {
                     "SecondHandSongs", false, 0, "Interprete di riferimento necessario",
                 ))
             } else {
-                reportResult(sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist) })
+                reportResult(sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh) })
             }
         }
         val iTunes = async(Dispatchers.IO) {
@@ -420,9 +420,10 @@ internal object CoverDiscoverySources {
     private fun discoverSecondHandSongs(
         title: String,
         artist: String,
+        forceRefresh: Boolean,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
         val lookup = runCatching {
-            SecondHandSongsCoverSource.lookup(title, artist)
+            SecondHandSongsCoverSource.lookup(title, artist, forceRefresh = forceRefresh)
         }.getOrElse {
             SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NETWORK_ERROR)
         }
