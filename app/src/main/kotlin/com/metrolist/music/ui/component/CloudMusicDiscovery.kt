@@ -435,16 +435,22 @@ internal object CloudMusicDiscovery {
         query: String,
         config: GeminiCoverVerificationConfig,
         limit: Int = 60,
+        coverRound: Int = 0,
     ): List<CloudArchiveItem> = withContext(Dispatchers.IO) {
         val endpoint = config.cloudEndpoint.trim().trimEnd('/')
         if (endpoint.isBlank()) return@withContext emptyList()
         // Archive UI and Cover use identical canonical queries. A recent
         // positive answer must not be downloaded and parsed twice.
-        recentArchiveQuery(query, endpoint)?.let { return@withContext it }
+        // A cached generic search cannot satisfy the request for a specific
+        // saved Cover round. Scoped requests always hit the archive endpoint.
+        if (coverRound <= 0) {
+            recentArchiveQuery(query, endpoint)?.let { return@withContext it }
+        }
 
         val body = buildJsonObject {
             put("query", query.trim())
             put("limit", limit.coerceIn(1, 100))
+            if (coverRound > 0) put("round", coverRound.coerceIn(1, 1000000))
         }
         val request =
             Request.Builder()
@@ -503,7 +509,7 @@ internal object CloudMusicDiscovery {
                 )
             }
             .orEmpty()
-        if (archiveItems.isNotEmpty()) {
+        if (coverRound <= 0 && archiveItems.isNotEmpty()) {
             lastArchiveSnapshot = ArchiveSnapshot(
                 endpoint, query, archiveItems.take(100),
                 System.currentTimeMillis() + ARCHIVE_HANDOFF_TTL_MS,
