@@ -11,7 +11,7 @@ const srcGate = sources.split('private fun discoverSecondHandSongs(')[1].split('
 
 test('LAB41: native SecondHandSongs provider is actually used in Cover discovery',()=>{
   assert.match(sources,/val secondHandSongs = async\(Dispatchers.IO\)/);
-  assert.match(sources,/SecondHandSongsCoverSource\.lookup\(title, artist\)/);
+  assert.match(sources,/SecondHandSongsCoverSource\.lookup\(title, artist, forceRefresh = forceRefresh\)/);
   assert.match(sources,/secondHandSongs\.await\(\)/);
   assert.match(browser,/"SecondHandSongs"/);
 });
@@ -45,7 +45,7 @@ test('LAB41: SHS rate limit and access errors do not turn into admitted covers',
 });
 
 test('LAB41: original MusicBrainz/COVER.INFO and user UI remain enabled',()=>{
-  assert.match(sources,/MusicBrainzCoverSource\.lookup\(cleanTitle, cleanArtist\)/);
+  assert.match(sources,/MusicBrainzCoverSource\.lookup\(cleanTitle, cleanArtist, forceRefresh = forceRefresh\)/);
   assert.match(sources,/discoverCoverInfo\(cleanTitle, cleanArtist, mode\)/);
   assert.match(browser,/TURBO_RESULT_QUOTA = 50/);
   assert.match(browser,/Modifier\.weight\(1f\)\.height\(56\.dp\)/);
