@@ -246,6 +246,21 @@ export function decisionIdentityKeys(input = {}) {
   };
 }
 
+/**
+ * LAB46 isolated sync: documentary version keys include the stable recording
+ * fingerprint, allowing two different performances with the same singer/title
+ * to coexist without overwriting one another. Legacy callers stay unchanged.
+ */
+export function decisionRecordingVersionKey(input = {}) {
+  const identity = decisionIdentityKeys(input);
+  const fingerprint = String(input?.candidate?.versionFingerprint || '').trim();
+  if (input?.reason !== 'turbo_lab46_pending' ||
+      !identity.versionKey || fingerprint.length < 4 || fingerprint.length > 256) {
+    return identity.versionKey;
+  }
+  return identity.versionKey + '|recording:' + fingerprint;
+}
+
 function numericScore(value) {
   const score = Number(value);
   return Number.isInteger(score) && score >= 0 && score <= 100 ? score : null;
@@ -813,6 +828,9 @@ export async function saveBrainDecision(db, input = {}) {
   }
 
   const keys = decisionIdentityKeys(input);
+  const versionKey = decisionRecordingVersionKey(input);
+  const lab46Fingerprint = versionKey !== keys.versionKey
+    ? String(candidate.versionFingerprint).trim() : '';
   let workId = String(input?.workId || '').trim();
   if (!workId && keys.workSearchKey) {
     const work = await db.prepare(
@@ -851,10 +869,24 @@ export async function saveBrainDecision(db, input = {}) {
   if (!workId) return { httpStatus: 500, body: { errore: 'opera non salvabile' } };
 
   let versionId = String(input?.versionId || '').trim();
-  if (!versionId && keys.versionKey) {
+  if (!versionId && lab46Fingerprint) {
+    // Reuse a previously saved identical recording before creating any new key.
+    const byFingerprint = await db.prepare(
+      'SELECT id FROM versions WHERE work_id=?1 AND recording_fingerprint=?2 LIMIT 1',
+    ).bind(workId, lab46Fingerprint).first();
+    versionId = String(byFingerprint?.id || '').trim();
+  }
+  const knownVideoId = String(candidate?.playbackVideoId || '').trim();
+  if (!versionId && lab46Fingerprint && /^[A-Za-z0-9_-]{11}$/.test(knownVideoId)) {
+    const byVideo = await db.prepare(
+      'SELECT v.id FROM versions v JOIN playback_bindings pb ON pb.version_id=v.id WHERE v.work_id=?1 AND pb.playback_id=?2 LIMIT 1',
+    ).bind(workId, knownVideoId).first();
+    versionId = String(byVideo?.id || '').trim();
+  }
+  if (!versionId && versionKey) {
     const exact = await db.prepare(
       'SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1',
-    ).bind(workId, keys.versionKey).first();
+    ).bind(workId, versionKey).first();
     versionId = String(exact?.id || '').trim();
   }
 
@@ -887,7 +919,7 @@ export async function saveBrainDecision(db, input = {}) {
     `).bind(
       proposedVersionId,
       workId,
-      versionStorageKey(candidate),
+      versionKey,
       candidateTitle,
       candidateArtist,
       category,
@@ -900,7 +932,7 @@ export async function saveBrainDecision(db, input = {}) {
     ).run();
     const stored = await db.prepare(
       'SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1',
-    ).bind(workId, versionStorageKey(candidate)).first();
+    ).bind(workId, versionKey).first();
     versionId = String(stored?.id || '').trim();
   }
   if (!versionId) return { httpStatus: 500, body: { errore: 'versione non salvabile' } };
