@@ -10,11 +10,11 @@ const card=direct.split('private fun DiscogsVersionCard(')[1];
 const manual=direct.split('fun manualSwapReady(seed: DiscogsVersionSeed): Boolean')[1].split('fun play(seed: DiscogsVersionSeed)')[0];
 
 test('LAB44 any missing-video red-dot card shows manual action immediately',()=>{
-  assert.match(manual,/!hasPublishableVideo\(seed\)/);
+  assert.match(manual,/isTurbo && mode == DiscogsDirectMode.COVER/);
   assert.doesNotMatch(manual,/seed\.fingerprint in session\.turboAutoClosedFingerprints/);
   assert.doesNotMatch(manual,/15 secondi|TURBO_AUTO_TOTAL_MS/);
-  assert.match(card,/if \(!videoReadyVerified && \(manualSwitchAvailable \|\|[\s\S]*?modernCoverCard\)\)/);
-  assert.match(card,/Text\("Cerca video \/ cambia cover"\)/);
+  assert.match(card,/if \(modernCoverCard \|\| manualSwitchAvailable \|\| !videoReadyVerified\)/);
+  assert.match(card,/Text\("Cerca video"\)/); assert.match(card,/Text\("Cambia cover"\)/);
 });
 
 test('LAB44 eliminate false blocking toast from manual branch',()=>{
