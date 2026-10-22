@@ -1,0 +1,146 @@
+package com.metrolist.music.ui.component
+
+import android.content.Context
+import android.util.AtomicFile
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.security.MessageDigest
+
+/**
+ * LAB45: an app-process-safe metadata snapshot of confirmed Cover search rounds.
+ * Never stores media, downloaded images, tokens or network credentials.
+ * One file per screen/work. All entries were admitted by the existing same-work
+ * gate before publication; loading does NOT certify a new search candidate.
+ */
+internal object CoverRoundStorage {
+    internal data class Snapshot(
+        val round: Int = 1,
+        val rows: List<DiscogsVersionSeed> = emptyList(),
+    )
+
+    private fun path(context: Context, workKey: String): AtomicFile {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(workKey.toByteArray(Charsets.UTF_8))
+            .take(16).joinToString("") { "%02x".format(it) }
+        return AtomicFile(File(context.applicationContext.filesDir, "musiclab-cover-rounds-$digest.json"))
+    }
+
+    private fun text(json: JSONObject, key: String): String? =
+        if (!json.has(key) || json.isNull(key)) null
+        else json.optString(key).trim().takeIf(String::isNotBlank)
+
+    private fun int(json: JSONObject, key: String): Int? =
+        if (!json.has(key) || json.isNull(key)) null else json.optInt(key)
+
+    private fun strings(values: JSONArray?): List<String> = if (values == null) emptyList()
+    else (0 until values.length()).mapNotNull { values.optString(it).takeIf(String::isNotBlank) }
+
+    private fun encode(seed: DiscogsVersionSeed): JSONObject = JSONObject().apply {
+        put("title", seed.trackTitle)
+        put("artist", seed.artist)
+        put("releaseTitle", seed.releaseTitle)
+        put("releaseId", seed.releaseId)
+        put("masterId", seed.masterId)
+        put("year", seed.year)
+        put("releaseDate", seed.releaseDate)
+        put("kind", seed.kind.name)
+        put("country", seed.country)
+        put("formats", JSONArray(seed.formats))
+        put("formatDescriptions", JSONArray(seed.formatDescriptions))
+        put("labels", JSONArray(seed.labels))
+        put("coverUrl", seed.coverUrl)
+        put("durationSeconds", seed.durationSeconds)
+        put("fingerprint", seed.fingerprint)
+        put("language", seed.language)
+        put("confidenceScore", seed.confidenceScore)
+        put("confidenceReasons", JSONArray(seed.confidenceReasons))
+        put("resolvedVideoId", seed.resolvedVideoId)
+        put("resolvedVideoTitle", seed.resolvedVideoTitle)
+        put("resolvedVideoSource", seed.resolvedVideoSource)
+        put("videoResolutionChecked", seed.videoResolutionChecked)
+        put("sourceNames", JSONArray(seed.sourceNames))
+        put("sourceUrl", seed.sourceUrl)
+        put("discogsVerificationChecked", seed.discogsVerificationChecked)
+        put("manuallyApproved", seed.manuallyApproved)
+        put("originalWorkReference", seed.originalWorkReference)
+        put("workRelationConfirmed", seed.workRelationConfirmed)
+        put("collectorHave", seed.collectorHave)
+    }
+
+    private fun decode(json: JSONObject): DiscogsVersionSeed? = runCatching {
+        DiscogsVersionSeed(
+            trackTitle = json.getString("title"),
+            artist = json.getString("artist"),
+            releaseTitle = json.optString("releaseTitle"),
+            releaseId = json.optInt("releaseId"),
+            masterId = int(json, "masterId"),
+            year = int(json, "year"),
+            releaseDate = text(json, "releaseDate"),
+            kind = DiscogsVersionKind.valueOf(json.getString("kind")),
+            country = text(json, "country"),
+            formats = strings(json.optJSONArray("formats")),
+            formatDescriptions = strings(json.optJSONArray("formatDescriptions")),
+            labels = strings(json.optJSONArray("labels")),
+            coverUrl = text(json, "coverUrl"),
+            durationSeconds = int(json, "durationSeconds"),
+            fingerprint = json.getString("fingerprint"),
+            language = text(json, "language"),
+            confidenceScore = json.optInt("confidenceScore", 1).coerceIn(1, 20),
+            confidenceReasons = strings(json.optJSONArray("confidenceReasons")),
+            resolvedVideoId = text(json, "resolvedVideoId"),
+            resolvedVideoTitle = text(json, "resolvedVideoTitle"),
+            resolvedVideoSource = text(json, "resolvedVideoSource"),
+            videoResolutionChecked = json.optBoolean("videoResolutionChecked"),
+            sourceNames = strings(json.optJSONArray("sourceNames")),
+            sourceUrl = text(json, "sourceUrl"),
+            discogsVerificationChecked = json.optBoolean("discogsVerificationChecked"),
+            manuallyApproved = json.optBoolean("manuallyApproved"),
+            originalWorkReference = json.optBoolean("originalWorkReference"),
+            workRelationConfirmed = json.optBoolean("workRelationConfirmed"),
+            collectorHave = int(json, "collectorHave"),
+        )
+    }.getOrNull()
+
+    internal fun load(context: Context, workKey: String): Snapshot = runCatching {
+        val json = JSONObject(String(path(context, workKey).readFully(), Charsets.UTF_8))
+        if (json.optInt("schema") != 1) return@runCatching Snapshot()
+        val results = json.optJSONArray("rows") ?: JSONArray()
+        val seen = HashSet<String>()
+        val videos = HashSet<String>()
+        val cards = (0 until results.length()).mapNotNull { index ->
+            results.optJSONObject(index)?.let(::decode)
+        }.filter { seed ->
+            seen.add(DiscogsVersionSource.recordingIdentityKey(seed)) &&
+                (seed.resolvedVideoId.isNullOrBlank() || videos.add(seed.resolvedVideoId))
+        }
+        Snapshot(round = json.optInt("round", 1).coerceAtLeast(1), rows = cards)
+    }.getOrDefault(Snapshot())
+
+    internal fun save(context: Context, workKey: String, round: Int, rows: List<DiscogsVersionSeed>) {
+        runCatching {
+            val seen = HashSet<String>()
+            val videos = HashSet<String>()
+            val records = rows.filter { seed ->
+                seen.add(DiscogsVersionSource.recordingIdentityKey(seed)) &&
+                    (seed.resolvedVideoId.isNullOrBlank() || videos.add(seed.resolvedVideoId))
+            }
+            val json = JSONObject()
+                .put("schema", 1)
+                .put("round", round.coerceAtLeast(1))
+                .put("rows", JSONArray().also { array ->
+                    records.forEach { array.put(encode(it)) }
+                })
+            val file = path(context, workKey)
+            var stream: java.io.FileOutputStream? = null
+            try {
+                stream = file.startWrite()
+                stream.write(json.toString().toByteArray(Charsets.UTF_8))
+                file.finishWrite(stream)
+            } catch (failure: Exception) {
+                stream?.let(file::failWrite)
+                throw failure
+            }
+        }
+    }
+}
