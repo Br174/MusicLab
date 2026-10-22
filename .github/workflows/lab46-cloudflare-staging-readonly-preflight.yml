@@ -10,6 +10,8 @@ on:
       - cloudflare/music-intelligence/lab46-staging-only/staging_preparation_guard.mjs
       - cloudflare/music-intelligence/lab46-staging-only/worker_binding_readiness.mjs
       - cloudflare/music-intelligence/lab46-staging-only/worker_memory_schema_local_smoke.py
+      - cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_once.sql
+      - cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_verify.py
       - cloudflare/music-intelligence/lab46-staging-only/bootstrap.sql
       - cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc
   workflow_dispatch:
@@ -47,5 +49,7 @@ jobs:
           node cloudflare/music-intelligence/lab46-staging-only/worker_binding_readiness.mjs
       - name: Verify future LAB46 isolated memory schema in SQLite memory only (no remote SQL)
         run: python3 cloudflare/music-intelligence/lab46-staging-only/worker_memory_schema_local_smoke.py
+      - name: Verify exact additive migration SQL in memory (never remote)
+        run: python3 cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_verify.py
       - name: Read-only Cloudflare account, D1 inventory, free-plan evidence
         run: node cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
