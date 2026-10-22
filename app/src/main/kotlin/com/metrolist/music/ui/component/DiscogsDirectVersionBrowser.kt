@@ -894,6 +894,10 @@ internal fun DiscogsDirectVersionBrowser(
                     seed, referenceArtist, session.originalWorkCredits,
                 )
             ) return false
+            // LAB42: an artist-anchored MusicBrainz/SecondHandSongs/COVER.INFO
+            // work link is proof even when a translated cover has a different
+            // title. Unrelated songs with matching titles still fail the gate.
+            if (CoverSameWorkGate.hasDocumentaryRelation(seed)) return true
             if (titleOk) return true
             if (isApproved(seed)) return true
             // Explicit COVER.INFO follow-up relationships are a stronger
