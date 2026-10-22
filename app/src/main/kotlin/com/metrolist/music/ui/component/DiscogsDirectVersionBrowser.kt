@@ -2413,7 +2413,12 @@ internal fun DiscogsDirectVersionBrowser(
             session.approvedKeys.add(rejectionKey(seed))
             replaceSeed(
                 seed.copy(
-                    confidenceScore = 20,
+                    // LAB46: in later rounds editorial APPROVA is a personal
+                    // preference, not a reason to raise musical evidence or
+                    // automatically promote this recording to the first 50.
+                    confidenceScore = if (seed.coverRound != null && seed.coverRound > 1) {
+                        seed.confidenceScore
+                    } else 20,
                     confidenceReasons =
                         (seed.confidenceReasons + "Versione approvata manualmente").distinct(),
                     manuallyApproved = true,
@@ -2424,7 +2429,9 @@ internal fun DiscogsDirectVersionBrowser(
             session.rejectedKeys.add(rejectionKey(seed))
             replaceSeed(
                 seed.copy(
-                    confidenceScore = 1,
+                    confidenceScore = if (seed.coverRound != null && seed.coverRound > 1) {
+                        seed.confidenceScore
+                    } else 1,
                     confidenceReasons =
                         (seed.confidenceReasons + "Versione disapprovata manualmente").distinct(),
                     manuallyApproved = false,
