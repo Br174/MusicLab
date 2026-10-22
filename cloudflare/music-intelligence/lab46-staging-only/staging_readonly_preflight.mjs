@@ -64,12 +64,35 @@ if(token.length<10 || !/^[a-f0-9]{32}$/i.test(account)){
   // Informative only; plan must be explicitly verified, never inferred from
   // an account having fewer than 10 databases or from a token role.
   const sub=Array.isArray(subscriptions.result)?subscriptions.result:[];
-  const labels=sub.map(s=>String(s?.rate_plan?.id||s?.rate_plan?.name||s?.name||'').toLowerCase()).filter(Boolean);
+  // Workers Free is the default plan, but absence of a paid subscription does
+  // NOT independently prove the current plan or authorize provisioning.
+  // Report only sanitized booleans/counts: no subscription IDs or billing data.
+  const listedSubscriptions=subscriptions.success && Array.isArray(subscriptions.result);
+  const active=sub.filter(s=>!['cancelled','expired','failed'].includes(String(s?.state||'').toLowerCase()));
+  const planLabel=s=>[
+    s?.rate_plan?.id,s?.rate_plan?.name,s?.rate_plan?.public_name,s?.name,
+  ].filter(Boolean).join(' ').toLowerCase();
+  const workersRelated=active.filter(s=>/workers?/i.test(planLabel(s)));
+  const workersPaid=workersRelated.some(s=>
+    /workers?[\\s_-]*(paid|unbound)|(paid|unbound)[\\s_-]*workers?/.test(planLabel(s)) ||
+    Number(s?.price)>0
+  );
+  const workersFreeExplicit=workersRelated.some(s=>
+    /workers?[\\s_-]*free|free[\\s_-]*workers?/.test(planLabel(s))
+  );
+  audit.billingSubscriptionsReadable=listedSubscriptions;
+  audit.billingSubscriptionCount=listedSubscriptions?sub.length:null;
+  audit.workersSubscriptionCount=listedSubscriptions?workersRelated.length:null;
+  audit.workersPaidDetected=listedSubscriptions?workersPaid:null;
   const accountType=String(accountInfo.result?.type||'').toLowerCase();
-  if(labels.some(s=>s.includes('workers_free')||s.includes('workers-free'))){
-    audit.freePlanProven=true;audit.accountPlanEvidence='EXPLICIT_WORKERS_FREE_SUBSCRIPTION';
-  }else {
-    audit.accountPlanEvidence=(subscriptions.success?'SUBSCRIPTION_READ_NO_CLEAR_WORKERS_FREE':('SUBSCRIPTION_READ_HTTP_'+subscriptions.http))+
+  if(workersPaid){
+    audit.accountPlanEvidence='ACTIVE_WORKERS_PAID_SUBSCRIPTION_OBSERVED';
+    audit.errors.push('WORKERS_PAID_SUBSCRIPTION_PRESENT_NO_ZERO_COST_ASSUMPTION');
+  }else if(listedSubscriptions && workersFreeExplicit){
+    audit.freePlanProven=true;
+    audit.accountPlanEvidence='EXPLICIT_ACTIVE_WORKERS_FREE_SUBSCRIPTION';
+  }else{
+    audit.accountPlanEvidence=(listedSubscriptions?'NO_EXPLICIT_WORKERS_PLAN_IN_BILLING_LIST':('SUBSCRIPTION_READ_HTTP_'+subscriptions.http))+
       (accountType?'_ACCOUNT_METADATA_SEEN':'');
     audit.errors.push('WORKERS_FREE_PLAN_NOT_PROVEN');
   }
