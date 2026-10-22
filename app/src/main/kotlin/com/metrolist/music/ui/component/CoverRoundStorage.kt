@@ -54,6 +54,9 @@ internal object CoverRoundStorage {
         put("fingerprint", seed.fingerprint)
         put("language", seed.language)
         put("confidenceScore", seed.confidenceScore)
+        put("musiclabScore100", seed.musiclabScore100)
+        put("coverRound", seed.coverRound)
+        put("roundPosition", seed.roundPosition)
         put("confidenceReasons", JSONArray(seed.confidenceReasons))
         put("resolvedVideoId", seed.resolvedVideoId)
         put("resolvedVideoTitle", seed.resolvedVideoTitle)
@@ -87,6 +90,9 @@ internal object CoverRoundStorage {
             fingerprint = json.getString("fingerprint"),
             language = text(json, "language"),
             confidenceScore = json.optInt("confidenceScore", 1).coerceIn(1, 20),
+            musiclabScore100 = int(json, "musiclabScore100")?.takeIf { it in 0..100 },
+            coverRound = int(json, "coverRound")?.takeIf { it >= 1 },
+            roundPosition = int(json, "roundPosition")?.takeIf { it >= 1 },
             confidenceReasons = strings(json.optJSONArray("confidenceReasons")),
             resolvedVideoId = text(json, "resolvedVideoId"),
             resolvedVideoTitle = text(json, "resolvedVideoTitle"),
