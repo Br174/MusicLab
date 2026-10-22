@@ -69,7 +69,11 @@ try{
   )).map(x=>x.name).sort();
   result.observedSchemaTableCount=tables.length;
   result.observedSchemaTableNames=tables.slice(0,20).map(s=>String(s).slice(0,70));
-  result.expectedBootstrapTablesOnly=JSON.stringify(tables)===
+  // Cloudflare reserves _cf_KV for its internal storage; it is not an app table.
+  // Exclude this ONE documented system name, never arbitrary unexpected tables.
+  const userTables=tables.filter(name=>name!=='_cf_KV');
+  result.cloudflareInternalKvPresent=tables.includes('_cf_KV');
+  result.expectedBootstrapTablesOnly=JSON.stringify(userTables)===
     JSON.stringify(['lab46_staging_sentinel','lab46_sync_receipts']);
   const markers=(await select(
     "SELECT marker FROM lab46_staging_sentinel ORDER BY marker LIMIT 3"
