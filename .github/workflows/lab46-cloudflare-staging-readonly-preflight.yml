@@ -7,6 +7,9 @@ on:
     paths:
       - .github/workflows/lab46-cloudflare-staging-readonly-preflight.yml
       - cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/staging_preparation_guard.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/bootstrap.sql
+      - cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc
   workflow_dispatch:
 
 permissions:
@@ -32,5 +35,9 @@ jobs:
         run: |
           git diff --quiet
           node --check cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
+      - name: Verify isolated staging configuration (local only, 1 positive + 5 negative)
+        run: |
+          node --check cloudflare/music-intelligence/lab46-staging-only/staging_preparation_guard.mjs
+          node cloudflare/music-intelligence/lab46-staging-only/staging_preparation_guard.mjs
       - name: Read-only Cloudflare account, D1 inventory, free-plan evidence
         run: node cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
