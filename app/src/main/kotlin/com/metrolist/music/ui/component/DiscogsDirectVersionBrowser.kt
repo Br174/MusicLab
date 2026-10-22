@@ -2834,7 +2834,14 @@ internal fun DiscogsDirectVersionBrowser(
                                 // as* ten ranked documentary candidates exist.
                                 // No artificial 1.2s minimum wait or video gate.
                                 // Original performer versions remain ranked first.
-                                if (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK) return
+                                // LAB40: show available, verified same-work rows
+                                // after 1.2s instead of waiting for ten matches.
+                                // The remaining slots append without reordering.
+                                if (ranked.isEmpty()) return
+                                val elapsed = SystemClock.elapsedRealtime() - turboCommandStartedAt
+                                if (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK &&
+                                    elapsed < TURBO_FIRST_POSTER_DEADLINE_MS
+                                ) return
                                 val firstBlock = ranked.distinctBy { it.fingerprint }
                                     .take(TURBO_MIN_EARLY_POSTER_BLOCK)
                                 publishedOriginalSnapshots = firstBlock.filter(::isDistinctOriginalVersion)
@@ -2864,9 +2871,10 @@ internal fun DiscogsDirectVersionBrowser(
                             // never wait for a mandatory five-second boundary.
                             // Never insert before or rerank committed first rows.
                             fun sealSecondPostersOnce() {
+                                val committedCount =
+                                    publishedOriginalSnapshots.size + publishedCoverSnapshots.size
                                 if (activeCriteria != criteria ||
-                                    publishedOriginalSnapshots.size + publishedCoverSnapshots.size !=
-                                        TURBO_MIN_EARLY_POSTER_BLOCK) return
+                                    committedCount == 0 || committedCount >= TURBO_RESULT_QUOTA) return
                                 val committedKeys = (publishedOriginalSnapshots + publishedCoverSnapshots)
                                     .mapTo(HashSet<String>()) {
                                         DiscogsVersionSource.recordingIdentityKey(it)
@@ -2880,8 +2888,8 @@ internal fun DiscogsDirectVersionBrowser(
                                             it.fingerprint in committedFingerprints
                                     }
                                     .distinctBy { it.fingerprint }
-                                    .take(TURBO_POSTER_SECOND_BLOCK)
-                                if (next.size < TURBO_POSTER_SECOND_BLOCK) return
+                                    .take(TURBO_RESULT_QUOTA - committedCount)
+                                if (next.size < TURBO_RESULT_QUOTA - committedCount) return
                                 // Append atomically; none of the first ten shifts.
                                 val firstCount = publishedOriginalSnapshots.size +
                                     publishedCoverSnapshots.size
