@@ -100,6 +100,14 @@ internal data class AiCoverCandidate(
     val discogsMasterId: Int? = null,
     val discogsReleaseTitle: String? = null,
     val versionFingerprint: String? = null,
+    // LAB46: optional full Cloud archive fields, never inferred from approval.
+    val country: String? = null,
+    val sourceNames: List<String> = emptyList(),
+    val sourceUrl: String? = null,
+    val legacyScore20: Int? = null,
+    val musiclabScore100: Int? = null,
+    val coverRound: Int? = null,
+    val roundPosition: Int? = null,
 ) {
     val stableKey: String
         get() {
