@@ -42,5 +42,18 @@ export async function stagingCloudWriteGate(request, env) {
   if(!safeEqual(actual,expected)){
     return { allowed:false, status:401, reason:'invalid_token' };
   }
+  // A string in wrangler vars does not prove the bound D1 is isolated.
+  // Only the staging-only sentinel (never part of production migrations) does.
+  let proof;
+  try {
+    proof=await env.DB.prepare(
+      'SELECT marker FROM lab46_staging_sentinel WHERE marker=?1 LIMIT 1'
+    ).bind('musiclab-turbo-lab46-isolated-d1-v1').first();
+  } catch {
+    return { allowed:false, status:503, reason:'staging_db_sentinel_missing' };
+  }
+  if (proof?.marker !== 'musiclab-turbo-lab46-isolated-d1-v1') {
+    return { allowed:false, status:503, reason:'staging_db_sentinel_missing' };
+  }
   return { allowed:true, status:200, reason:'staging_authenticated' };
 }
