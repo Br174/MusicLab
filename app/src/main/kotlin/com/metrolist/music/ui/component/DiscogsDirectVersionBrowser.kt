@@ -623,11 +623,13 @@ internal fun DiscogsDirectVersionBrowser(
                 musiclabScore100 = candidate.musiclabScore100,
                 coverRound = candidate.coverRound,
                 roundPosition = candidate.roundPosition,
-                credits = buildList {
-                    candidate.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
-                    candidate.composers.forEach { add(DiscogsCredit(it, "Composer")) }
-                    candidate.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
-                    candidate.producers.forEach { add(DiscogsCredit(it, "Producer")) }
+                credits = candidate.creditDetails.ifEmpty {
+                    buildList {
+                        candidate.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
+                        candidate.composers.forEach { add(DiscogsCredit(it, "Composer")) }
+                        candidate.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
+                        candidate.producers.forEach { add(DiscogsCredit(it, "Producer")) }
+                    }
                 },
             )
         val playbackId = candidate.playbackVideoId?.trim().orEmpty()
@@ -712,6 +714,7 @@ internal fun DiscogsDirectVersionBrowser(
             musiclabScore100 = seed.musiclabScore100,
             coverRound = seed.coverRound,
             roundPosition = seed.roundPosition,
+            creditDetails = seed.credits,
         )
     }
 
@@ -3152,11 +3155,13 @@ internal fun DiscogsDirectVersionBrowser(
                                             // Remote playback is useful as a
                                             // candidate, never as new local proof.
                                             videoResolutionChecked = false,
-                                            credits = buildList {
-                                                item.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
-                                                item.composers.forEach { add(DiscogsCredit(it, "Composer")) }
-                                                item.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
-                                                item.producers.forEach { add(DiscogsCredit(it, "Producer")) }
+                                            credits = item.creditDetails.ifEmpty {
+                                                buildList {
+                                                    item.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
+                                                    item.composers.forEach { add(DiscogsCredit(it, "Composer")) }
+                                                    item.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
+                                                    item.producers.forEach { add(DiscogsCredit(it, "Producer")) }
+                                                }
                                             },
                                         )
                                     }
