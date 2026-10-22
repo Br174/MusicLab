@@ -632,11 +632,19 @@ internal fun DiscogsDirectVersionBrowser(
             )
         val playbackId = candidate.playbackVideoId?.trim().orEmpty()
         return if (playbackId.isNotBlank()) {
-            DiscogsVersionSource.markVideoResolved(
-                seed = seed,
-                videoId = playbackId,
-                videoTitle = candidate.playbackVideoTitle?.takeIf(String::isNotBlank) ?: candidate.title,
-                source = candidate.playbackVideoSource?.takeIf(String::isNotBlank) ?: "Archivio Cloud",
+            // A remote ID is stored metadata, not a fresh proof that YouTube
+            // still serves this exact recording. The existing verifier may
+            // reuse its own local proof without falsely upgrading Cloud data.
+            seed.copy(
+                resolvedVideoId = playbackId,
+                resolvedVideoTitle = candidate.playbackVideoTitle?.takeIf(String::isNotBlank)
+                    ?: candidate.title,
+                resolvedVideoSource = candidate.playbackVideoSource?.takeIf(String::isNotBlank)
+                    ?: "Archivio Cloud",
+                videoResolutionChecked = false,
+                coverUrl = seed.coverUrl ?: "https://i.ytimg.com/vi/$playbackId/hqdefault.jpg",
+                confidenceReasons = (seed.confidenceReasons +
+                    "ID video Cloud da riconfermare prima della riproduzione").distinct(),
             )
         } else {
             seed
@@ -3141,6 +3149,9 @@ internal fun DiscogsDirectVersionBrowser(
                                             musiclabScore100 = item.musiclabScore100,
                                             coverRound = item.coverRound,
                                             roundPosition = item.roundPosition,
+                                            // Remote playback is useful as a
+                                            // candidate, never as new local proof.
+                                            videoResolutionChecked = false,
                                             credits = buildList {
                                                 item.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
                                                 item.composers.forEach { add(DiscogsCredit(it, "Composer")) }
