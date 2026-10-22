@@ -56,6 +56,8 @@ test('LAB45: each additional round uses the original 50-result research engine',
   assert.match(source,/if \(appendRound && !appendVerifiedRound\) return/);
   assert.match(source,/coverRoundNumber\+\+/);
   assert.match(source,/session\.coverRoundNumber = coverRoundNumber/);
+  assert.match(source,/val discogsRoundPage = if \(appendVerifiedRound\) coverRoundNumber \+ 1 else 1/);
+  assert.match(source,/loadPage\(criteria, page = discogsRoundPage/);
 });
 
 test('LAB45: historical poster rows are retained and new rounds never reorder them',()=>{
