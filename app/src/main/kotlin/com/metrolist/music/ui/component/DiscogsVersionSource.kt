@@ -83,6 +83,10 @@ internal data class DiscogsVersionSeed(
     val originalWorkReference: Boolean = false,
     val workRelationConfirmed: Boolean = false,
     val collectorHave: Int? = null,
+    // LAB46: independent quality scale and stable catalog placement, optional.
+    val musiclabScore100: Int? = null,
+    val coverRound: Int? = null,
+    val roundPosition: Int? = null,
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
