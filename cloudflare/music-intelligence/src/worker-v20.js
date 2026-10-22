@@ -249,6 +249,30 @@ function numericScore(value) {
   return Number.isInteger(score) && score >= 0 && score <= 100 ? score : null;
 }
 
+function boundedInt(value, low, high) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= low && number <= high ? number : null;
+}
+function boundedText(value, max = 512) {
+  const valueText = String(value ?? '').trim();
+  return valueText.length && valueText.length <= max ? valueText : null;
+}
+function archiveFields(row) {
+  const sourceNames = safeJson(row.source_names_json);
+  return {
+    releaseDate: row.release_date || null,
+    country: row.country || null,
+    sourceNames: Array.isArray(sourceNames) ? sourceNames : [],
+    sourceUrl: row.source_url || null,
+    versionFingerprint: row.recording_fingerprint || null,
+    legacyScore20: boundedInt(row.legacy_score_20, 1, 20),
+    musiclabScore100: boundedInt(row.musiclab_score_100, 0, 100),
+    coverRound: boundedInt(row.cover_round, 1, 1000000),
+    roundPosition: boundedInt(row.round_position, 1, 1000000),
+    workRelationConfirmed: Number(row.work_relation_confirmed || 0) === 1,
+  };
+}
 function normalizeDecisionStatus(value) {
   const status = String(value || '').trim().toUpperCase();
   return ['APPROVED', 'PROBABLE', 'UNCERTAIN', 'REJECTED'].includes(status) ? status : null;
@@ -684,7 +708,7 @@ async function buildMemoryPayload(input, env) {
 
   const queryLimit = Math.min(MAX_MEMORY_RESULTS * 2, Math.max(MAX_MEMORY_RESULTS, limit * 2));
   const rows = await env.DB.prepare(`
-    SELECT v.canonical_title, v.canonical_artist, v.category, v.language, v.year, v.album, v.cover_url, v.credits_json,
+    SELECT v.canonical_title, v.canonical_artist, v.category, v.language, v.year, v.album, v.cover_url, v.credits_json, v.release_date, v.country, v.source_names_json, v.source_url, v.recording_fingerprint, v.legacy_score_20, v.musiclab_score_100, v.cover_round, v.round_position, v.work_relation_confirmed, v.video_title,
            v.same_work_score, v.version_type_score, v.decision_status, v.ai_reason,
            v.user_verified, v.user_rejected,
            (SELECT pb.playback_id FROM playback_bindings pb WHERE pb.version_id=v.id ORDER BY pb.last_verified_at DESC LIMIT 1) AS playback_video_id,
@@ -711,7 +735,8 @@ async function buildMemoryPayload(input, env) {
     album: row.album,
     coverUrl: row.cover_url || null,
     playbackVideoId: row.playback_video_id || null,
-    playbackVideoTitle: row.playback_video_id ? row.canonical_title : null,
+    playbackVideoTitle: row.video_title || (row.playback_video_id ? row.canonical_title : null),
+    ...archiveFields(row),
     playbackVideoSource: row.playback_video_source || null,
     credits: safeJson(row.credits_json),
     sameWorkScore: numericScore(row.same_work_score),
@@ -877,6 +902,34 @@ export async function saveBrainDecision(db, input = {}) {
   if (!versionId) return { httpStatus: 500, body: { errore: 'versione non salvabile' } };
 
   const coverUrl = String(candidate?.coverUrl || '').trim() || null;
+  // Additional confirmed metadata belongs to the recording and may be absent.
+  // Never derive work-identity confidence from the APPROVED editorial status.
+  const sourceNames = Array.isArray(candidate?.sourceNames)
+    ? candidate.sourceNames.filter(v => typeof v === 'string' && v.trim()).slice(0, 24)
+    : [];
+  await db.prepare(`
+    UPDATE versions SET
+      release_date=COALESCE(?1,release_date),
+      country=COALESCE(?2,country),
+      source_names_json=COALESCE(?3,source_names_json),
+      source_url=COALESCE(?4,source_url),
+      video_title=COALESCE(?5,video_title),
+      recording_fingerprint=COALESCE(?6,recording_fingerprint),
+      legacy_score_20=COALESCE(?7,legacy_score_20),
+      musiclab_score_100=COALESCE(?8,musiclab_score_100),
+      cover_round=COALESCE(?9,cover_round),
+      round_position=COALESCE(?10,round_position),
+      updated_at=CURRENT_TIMESTAMP
+    WHERE id=?11 AND work_id=?12
+  `).bind(
+    boundedText(candidate?.releaseDate,32), boundedText(candidate?.country,80),
+    sourceNames.length ? JSON.stringify(sourceNames) : null,
+    boundedText(candidate?.sourceUrl,2048), boundedText(candidate?.playbackVideoTitle,512),
+    boundedText(candidate?.versionFingerprint,256),
+    boundedInt(candidate?.legacyScore20,1,20), boundedInt(candidate?.musiclabScore100,0,100),
+    boundedInt(candidate?.coverRound,1,1000000), boundedInt(candidate?.roundPosition,1,1000000),
+    versionId,workId
+  ).run();
   if (coverUrl) {
     await db.prepare(`
       UPDATE versions
@@ -1039,6 +1092,11 @@ async function archiveSearch(request, env) {
       v.language AS language,
       v.year AS year,
       v.album AS album,
+      v.release_date, v.country, v.source_names_json, v.source_url,
+      v.video_title, v.recording_fingerprint, v.legacy_score_20,
+      v.musiclab_score_100, v.cover_round, v.round_position,
+      v.work_relation_confirmed,
+      v.credits_json AS credits_json,
       v.cover_url AS cover_url,
       v.decision_status AS decision_status,
       v.same_work_score AS same_work_score,
@@ -1074,7 +1132,9 @@ async function archiveSearch(request, env) {
       album: row.album,
       coverUrl: row.cover_url || null,
       playbackVideoId: row.playback_video_id || null,
-      playbackVideoTitle: row.playback_video_id ? row.title : null,
+      playbackVideoTitle: row.video_title || (row.playback_video_id ? row.title : null),
+      ...archiveFields(row),
+      credits: safeJson(row.credits_json),
       playbackVideoSource: row.playback_video_source || null,
       decisionStatus: row.decision_status,
       sameWorkScore: numericScore(row.same_work_score),
