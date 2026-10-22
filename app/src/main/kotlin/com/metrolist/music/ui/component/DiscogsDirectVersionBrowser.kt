@@ -5827,7 +5827,8 @@ private fun DiscogsVersionCard(
     val posterFallbacks = remember(stableArtworkUrl, seed.coverUrl, seed.resolvedVideoId) {
         buildList {
             stableArtworkUrl?.takeIf { it.startsWith("https://", ignoreCase = true) }?.let(::add)
-            seed.coverUrl?.takeIf { it.startsWith("https://", ignoreCase = true) }?.let(::add)
+            seed.coverUrl?.replaceFirst(Regex("^http:", RegexOption.IGNORE_CASE), "https:")
+                ?.takeIf { it.startsWith("https:", ignoreCase = true) }?.let(::add)
             seed.resolvedVideoId?.trim()?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
                 ?.let { id ->
                     add("https://i.ytimg.com/vi/$id/hqdefault.jpg")
