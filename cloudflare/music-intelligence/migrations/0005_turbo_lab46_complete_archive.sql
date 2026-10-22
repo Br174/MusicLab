@@ -5,6 +5,8 @@ ALTER TABLE versions ADD COLUMN release_date TEXT;
 ALTER TABLE versions ADD COLUMN country TEXT;
 ALTER TABLE versions ADD COLUMN source_names_json TEXT;
 ALTER TABLE versions ADD COLUMN source_url TEXT;
+-- Complete performer/producer/engineer credits, with role preserved.
+ALTER TABLE versions ADD COLUMN credits_detail_json TEXT;
 ALTER TABLE versions ADD COLUMN video_title TEXT;
 ALTER TABLE versions ADD COLUMN recording_fingerprint TEXT;
 ALTER TABLE versions ADD COLUMN legacy_score_20 INTEGER CHECK(legacy_score_20 BETWEEN 1 AND 20);
