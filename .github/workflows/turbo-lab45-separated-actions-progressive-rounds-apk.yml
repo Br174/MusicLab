@@ -171,7 +171,7 @@ jobs:
             echo "PREVIOUS_LAB44_VERSION_CODE=33044"
             echo "SIGNING_CERT_SHA256=$APK_CERT"
             echo "PREVIOUS_LAB44_SOURCE_SHA=caeca0d382a61679099f8f63d05548aec78ded40"
-            echo "PURPOSE=separate verified-video lookup and independent-cover substitution, progressive batches of up to 50 unique recordings, no change to original proof or player
+            echo "PURPOSE=separate verified-video lookup and independent-cover substitution, progressive batches of up to 50 unique recordings, no change to original proof or player"
           } > dist/uab/UPDATE_FAMILY.txt
           printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
 
