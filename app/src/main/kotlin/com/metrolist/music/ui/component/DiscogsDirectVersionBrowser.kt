@@ -3485,6 +3485,25 @@ internal fun DiscogsDirectVersionBrowser(
                             publishedCoverSnapshots = publishedCoverSnapshots + secondBlock
                             session.publishedCoverSnapshots = publishedCoverSnapshots
                         }
+                        // LAB46: preserve LAB45 first 50 untouched. Only new
+                        // rounds receive independent /100 points and a permanent
+                        // archive position, without reordering earlier cards.
+                        if (coverRoundNumber >= 2) {
+                            val originalCount = publishedOriginalSnapshots.size
+                            val scored = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                                .mapIndexed { index, seed ->
+                                    seed.copy(
+                                        musiclabScore100 = seed.musiclabScore100
+                                            ?: CoverQualityScore100.score(seed),
+                                        coverRound = coverRoundNumber,
+                                        roundPosition = previousRoundRows.size + index + 1,
+                                    )
+                                }
+                            publishedOriginalSnapshots = scored.take(originalCount)
+                            publishedCoverSnapshots = scored.drop(originalCount)
+                            session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                            session.publishedCoverSnapshots = publishedCoverSnapshots
+                        }
                         val secondSealedAt = SystemClock.elapsedRealtime()
                         (publishedOriginalSnapshots + publishedCoverSnapshots).forEachIndexed { index, seed ->
                             session.turboPosterPublishedAtMs.putIfAbsent(seed.fingerprint, secondSealedAt)
@@ -6174,7 +6193,12 @@ private fun DiscogsVersionCard(
                     )
                     if (showConfidence) {
                         Text(
-                            "★  " + seed.confidenceScore + "/20",
+                            "★  " + (if (seed.coverRound != null && seed.coverRound > 1 &&
+                                seed.musiclabScore100 != null) {
+                                "${seed.musiclabScore100}/100"
+                            } else {
+                                "${seed.confidenceScore}/20"
+                            }),
                             color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
