@@ -1,3 +1,4 @@
+import { stagingCloudWriteGate } from './lab46-staging-write-guard.js';
 import legacyWorker from './index.js';
 import {
   admitCoverCandidate,
@@ -1170,6 +1171,15 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/plan') return brainPlan(request);
+    if (request.method === 'POST' && (
+      url.pathname === '/api/v1/brain/decision' ||
+      url.pathname === '/api/v1/playback/binding'
+    ) && env?.LAB46_ISOLATED_STAGING === '1') {
+      // LAB46 isolated staging ONLY: all existing write routes share one gate,
+      // no bypass through a legacy decision/playback-binding endpoint.
+      const check = await stagingCloudWriteGate(request, env);
+      if (!check.allowed) return json({ stato: 'bloccato', motivo: check.reason }, check.status);
+    }
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/decision') return saveDecision(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/playback/binding') return savePlayback(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/discover') return memoryDiscovery(request, env);
