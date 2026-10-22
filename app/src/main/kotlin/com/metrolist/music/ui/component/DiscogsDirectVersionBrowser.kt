@@ -2709,6 +2709,10 @@ internal fun DiscogsDirectVersionBrowser(
             mode == DiscogsDirectMode.COVER &&
             activeCriteria == criteria && !loading && !sourceDiscoveryLoading
         if (appendRound && !appendVerifiedRound) return
+        // LAB45: subsequent rounds explore new Discogs source pages rather
+        // than replaying page 1 forever. Documentary providers still search
+        // the same work; old identities are excluded from new publication.
+        val discogsRoundPage = if (appendVerifiedRound) coverRoundNumber + 1 else 1
         if (appendVerifiedRound) {
             val alreadyCommitted = (publishedOriginalSnapshots + publishedCoverSnapshots)
                 .filter(::modeAcceptsSeed)
@@ -3142,7 +3146,7 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             val firstPageDeferred = async {
                                 withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
-                                    loadPage(criteria, page = 1, replace = false, requestedSort = requestedSort)
+                                    loadPage(criteria, page = discogsRoundPage, replace = false, requestedSort = requestedSort)
                                 } ?: false
                             }
                             val externalDeferred = async(Dispatchers.IO) {
