@@ -99,7 +99,7 @@ internal object MusicBrainzCoverSource {
         val lookup: MusicBrainzLookup,
     )
 
-    fun lookup(title: String, artist: String): MusicBrainzLookup {
+    fun lookup(title: String, artist: String, forceRefresh: Boolean = false): MusicBrainzLookup {
         val cleanTitle = title.trim()
         val cleanArtist = artist.trim()
         if (cleanTitle.isBlank()) {
@@ -108,7 +108,7 @@ internal object MusicBrainzCoverSource {
 
         val key = "${canonical(cleanTitle)}|${canonical(cleanArtist)}"
         val now = System.currentTimeMillis()
-        cache[key]?.let { entry ->
+        if (!forceRefresh) cache[key]?.let { entry ->
             val ttl = if (
                 entry.lookup.status == MusicBrainzStatus.OK ||
                 entry.lookup.status == MusicBrainzStatus.NO_MATCH
