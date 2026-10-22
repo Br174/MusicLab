@@ -387,13 +387,19 @@ internal object SecondHandSongsCoverSource {
         fun visit(value: Any?) {
             when (value) {
                 is JSONObject -> {
-                    value.optJSONArray("versions")?.let { versions ->
-                        for (index in 0 until versions.length()) {
-                            val version = versions.optJSONObject(index) ?: continue
-                            val uri = version.optString("uri").trim()
-                            if (uri.contains("/performance/")) {
-                                val id = uri.substringAfterLast('/').substringBefore('?').trim()
-                                if (id.isNotBlank()) result += id
+                    // LAB44: SHS work responses may expose performance
+                    // references under "versions", "performances" or "covers".
+                    // Read only their IDs, then fetch at most the same bounded
+                    // number of details, retaining the performer/work check.
+                    listOf("versions", "performances", "covers").forEach { field ->
+                        value.optJSONArray(field)?.let { versions ->
+                            for (index in 0 until versions.length()) {
+                                val version = versions.optJSONObject(index) ?: continue
+                                val uri = version.optString("uri").trim()
+                                if (uri.contains("/performance/")) {
+                                    val id = uri.substringAfterLast('/').substringBefore('?').trim()
+                                    if (id.isNotBlank()) result += id
+                                }
                             }
                         }
                     }
