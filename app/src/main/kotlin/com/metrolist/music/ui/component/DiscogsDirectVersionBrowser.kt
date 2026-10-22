@@ -3401,7 +3401,7 @@ internal fun DiscogsDirectVersionBrowser(
                         // Separate results of each consulted source: no longer
                         // report Discogs as if it were the only provider.
                         val externalNames = listOf(
-                            "COVER.INFO", "MusicBrainz", "Apple/iTunes",
+                            "COVER.INFO", "MusicBrainz", "SecondHandSongs", "Apple/iTunes",
                             "Spotify", "LRCLIB", "AI Scout",
                         )
                         val completed = externalNames.map { name ->
