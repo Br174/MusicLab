@@ -45,8 +45,8 @@ test('LAB43: explicit retry is accessible from existing three-dots menu', () => 
 
 test('LAB43: a fully linked video does NOT block explicit re-search', () => {
   assert.match(direct, /if \(!forceRefresh && isTurbo && repeatSameWork && session\.turboFinished/);
-  assert.match(direct,/val retainedResults = if \(repeatSameWork && !forceRefresh\)/);
-  assert.match(direct,/val retainedOrder = if \(repeatSameWork && !forceRefresh\)/);
+  assert.match(direct,/val retainedResults = if \(appendVerifiedRound \|\| \(repeatSameWork && !forceRefresh\)\)/);
+  assert.match(direct,/val retainedOrder = if \(appendVerifiedRound \|\| \(repeatSameWork && !forceRefresh\)\)/);
   assert.match(direct,/searchJob\?\.cancel\(\)/);
 });
 
