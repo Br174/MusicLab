@@ -74,11 +74,11 @@ if(token.length<10 || !/^[a-f0-9]{32}$/i.test(account)){
   ].filter(Boolean).join(' ').toLowerCase();
   const workersRelated=active.filter(s=>/workers?/i.test(planLabel(s)));
   const workersPaid=workersRelated.some(s=>
-    /workers?[\\s_-]*(paid|unbound)|(paid|unbound)[\\s_-]*workers?/.test(planLabel(s)) ||
+    /workers?[\s_-]*(paid|unbound)|(paid|unbound)[\s_-]*workers?/.test(planLabel(s)) ||
     Number(s?.price)>0
   );
   const workersFreeExplicit=workersRelated.some(s=>
-    /workers?[\\s_-]*free|free[\\s_-]*workers?/.test(planLabel(s))
+    /workers?[\s_-]*free|free[\s_-]*workers?/.test(planLabel(s))
   );
   audit.billingSubscriptionsReadable=listedSubscriptions;
   audit.billingSubscriptionCount=listedSubscriptions?sub.length:null;
