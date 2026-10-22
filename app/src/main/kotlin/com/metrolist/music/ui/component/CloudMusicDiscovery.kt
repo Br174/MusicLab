@@ -86,14 +86,27 @@ internal object CloudMusicDiscovery {
         selectedArchiveItem = endpoint.trim().trimEnd('/') to item
     }
 
-    fun recentArchiveSelection(title: String, endpoint: String): CloudArchiveItem? {
+    fun recentArchiveSelection(
+        title: String,
+        endpoint: String,
+        expectedArtist: String = "",
+    ): CloudArchiveItem? {
         val normalizedEndpoint = endpoint.trim().trimEnd('/')
         val selected = selectedArchiveItem ?: return null
         val recent = lastArchiveSnapshot
         if (recent == null || recent.validUntilMs <= System.currentTimeMillis()) return null
         if (selected.first != normalizedEndpoint || recent.endpoint != normalizedEndpoint) return null
         if (recent.items.none { it == selected.second }) return null
-        return selected.second.takeIf { archiveKey(it.title) == archiveKey(title) }
+        // LAB40: two unrelated songs with the same title must not reuse a
+        // selected archive item from another performer. Preserve source
+        // references when the user's artist is either performer or original.
+        val item = selected.second
+        if (archiveKey(item.title) != archiveKey(title)) return null
+        if (expectedArtist.isNotBlank() &&
+            archiveKey(item.artist) != archiveKey(expectedArtist) &&
+            archiveKey(item.originalArtist) != archiveKey(expectedArtist)
+        ) return null
+        return item
     }
 
     private fun recentArchiveQuery(query: String, endpoint: String): List<CloudArchiveItem>? {
