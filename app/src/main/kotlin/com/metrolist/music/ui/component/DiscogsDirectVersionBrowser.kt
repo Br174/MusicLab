@@ -886,6 +886,14 @@ internal fun DiscogsDirectVersionBrowser(
         // LAB59: the year is evidence for ranking, never an admission gate.
         // Archival release years can precede an inferred original year.
         if (mode == DiscogsDirectMode.COVER) {
+            // LAB40: equal titles are not equal works. When starting from an
+            // artist's song, never let a Cloud/Discogs title-only result jump
+            // to a different same-named work or win a high Cover score.
+            val referenceArtist = lockedArtist.ifBlank { resolvedOriginalArtist }
+            if (!CoverSameWorkGate.hasWorkIdentity(
+                    seed, referenceArtist, session.originalWorkCredits,
+                )
+            ) return false
             if (titleOk) return true
             if (isApproved(seed)) return true
             // Explicit COVER.INFO follow-up relationships are a stronger
@@ -976,6 +984,15 @@ internal fun DiscogsDirectVersionBrowser(
         val displayable =
             source.filter(DiscogsVersionSource::isDisplayableDirectSeed)
                 .filter(::modeAcceptsSeed)
+                .map { candidate ->
+                    if (mode == DiscogsDirectMode.COVER) {
+                        CoverSameWorkGate.capUnverifiedScore(
+                            candidate,
+                            lockedArtist.ifBlank { resolvedOriginalArtist },
+                            session.originalWorkCredits,
+                        )
+                    } else candidate
+                }
         if (mode != DiscogsDirectMode.COVER) return sortGroup(displayable, sortMode)
 
         val (originalVersions, trueCovers) = displayable.partition(::isOriginalPerformerVersion)
@@ -2661,7 +2678,12 @@ internal fun DiscogsDirectVersionBrowser(
         // Global wall clock starts at the actual user search action, not when
         // verification begins after several network catalog requests.
         val turboCommandStartedAt = SystemClock.elapsedRealtime()
-        val repeatSameWork = activeCriteria?.title?.equals(criteria.title, ignoreCase = true) == true
+        // LAB40: cache identity includes the singer, not merely the song title.
+        val repeatSameWork =
+            activeCriteria == criteria &&
+            (lockedArtist.isBlank() || TitleMeaningResolver.sameArtist(
+                lockedArtist, resolvedOriginalArtist,
+            ))
         if (isTurbo && repeatSameWork && session.turboFinished &&
             (session.publishedCoverSnapshots.isNotEmpty() || session.publishedOriginalSnapshots.isNotEmpty()) &&
             (session.publishedCoverSnapshots + session.publishedOriginalSnapshots).all(::hasPublishableVideo)) {
@@ -2795,6 +2817,7 @@ internal fun DiscogsDirectVersionBrowser(
                             val selectedArchiveItem =
                                 CloudMusicDiscovery.recentArchiveSelection(
                                     criteria.title, foreignScoutConfig?.cloudEndpoint.orEmpty(),
+                                    lockedArtist,
                                 )
                             var quotaReached = false
                             val providerJobs = mutableListOf<Job>()
@@ -2896,8 +2919,19 @@ internal fun DiscogsDirectVersionBrowser(
                                     // the Compose main thread; only final immutable
                                     // results are published on the UI dispatcher.
                                     val knownOriginalArtist = resolvedOriginalArtist
+                                    // LAB40: consume queued provider bursts together so
+                                    // one event loop update reorders at most once, not
+                                    // after every individual remote callback. No IO on UI.
+                                    val providerBatch = buildList {
+                                        addAll(early.orEmpty())
+                                        repeat(15) {
+                                            val extra = streamingCandidates.tryReceive().getOrNull()
+                                                ?: return@repeat
+                                            addAll(extra)
+                                        }
+                                    }
                                     val documentedSeeds = withContext(Dispatchers.Default) {
-                                        early.orEmpty().asSequence()
+                                        providerBatch.asSequence()
                                             .filter { it.title.isNotBlank() && it.artist.isNotBlank() }
                                             .distinctBy { it.title.lowercase() + "|" + it.artist.lowercase() }
                                             .take(TURBO_MAX_RANK_CANDIDATES)
@@ -2953,7 +2987,9 @@ internal fun DiscogsDirectVersionBrowser(
                                             playbackVideoId = item.playbackVideoId,
                                             playbackVideoTitle = item.playbackVideoTitle,
                                             playbackVideoSource = item.playbackVideoSource,
-                                            workRelationConfirmed = true,
+                                            // A Cloud score alone cannot prove this is the
+                                            // same work as the user's selected song.
+                                            workRelationConfirmed = false,
                                             evidenceScore = (((item.sameWorkScore ?: 30) +
                                                 (item.versionTypeScore ?: 30)) / 10).coerceIn(1, 20),
                                         ),
@@ -3121,7 +3157,7 @@ internal fun DiscogsDirectVersionBrowser(
                             // A search may have started from another singer's
                             // cover. The archive's verified work identity takes
                             // precedence over the supplied performer's identity.
-                            if (explicitArtistHint.isNullOrBlank()) {
+                            if (explicitArtistHint.isNullOrBlank() && lockedArtist.isBlank()) {
                                 (archiveOriginalArtist.get()
                                     ?: memoryState?.discovery?.original?.artist
                                         ?.takeIf(String::isNotBlank))
@@ -3149,7 +3185,7 @@ internal fun DiscogsDirectVersionBrowser(
                             // verified: compare discographic issue years, NEVER
                             // YouTube upload dates. A unique earliest candidate
                             // requires at least two independent providers.
-                            if (explicitArtistHint.isNullOrBlank() &&
+                            if (explicitArtistHint.isNullOrBlank() && lockedArtist.isBlank() &&
                                 archiveOriginalArtist.get().isNullOrBlank() &&
                                 memoryState?.discovery?.original?.artist.isNullOrBlank()) {
                                 val workYear = sourceOriginalYear.get()
@@ -3525,7 +3561,7 @@ internal fun DiscogsDirectVersionBrowser(
                         playbackVideoId = item.playbackVideoId,
                         playbackVideoTitle = item.playbackVideoTitle,
                         playbackVideoSource = item.playbackVideoSource,
-                        workRelationConfirmed = (item.sameWorkScore ?: 0) >= 70,
+                        workRelationConfirmed = false,
                         evidenceScore = (
                             ((item.sameWorkScore ?: 30) + (item.versionTypeScore ?: 30)) / 10
                         ).coerceIn(1, 20),
@@ -3551,7 +3587,9 @@ internal fun DiscogsDirectVersionBrowser(
                     cachedMemory ?: memoryDeferred.await()
                 }
 
-            if (mode == DiscogsDirectMode.COVER && explicitArtistHint.isNullOrBlank()) {
+            if (mode == DiscogsDirectMode.COVER &&
+                explicitArtistHint.isNullOrBlank() && lockedArtist.isBlank()
+            ) {
                 memoryState
                     ?.discovery
                     ?.original
