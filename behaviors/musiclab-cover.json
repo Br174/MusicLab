@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "project": "musiclab",
+  "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
+  "status": "LAB_ONLY_NOT_RELEASED",
+  "rules": [
+    {
+      "id": "musiclab.cover.same-work",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "The same musical composition, not title resemblance alone, is mandatory for admitting a Cover candidate.",
+      "acceptance": [
+        "CoverSameWorkGate retains identity verification",
+        "Cloud approval never grants work identity"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.first-fifty",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "First 50 results must preserve the verified LAB45 search, display, ranked audio and UI behavior.",
+      "acceptance": [
+        "TURBO_RESULT_QUOTA remains 50",
+        "No UI geometry/player regression"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.paged-rounds",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Cerca ancora appends up to 50 NEW recordings each round, keeping all prior rows frozen, order stable, no exact recording or video ID duplicates.",
+      "acceptance": [
+        "Old rows retained across restart",
+        "New results exclude prior rounds"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs",
+        "cloudflare/music-intelligence/test/turbo-lab45-persistent-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.manual-controls",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Cerca video re-resolves the same recording; Cambia cover selects a DIFFERENT rendition, with separate actions and fresh results.",
+      "acceptance": [
+        "Separate callbacks",
+        "No identical recording swap"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.category-rounds",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Prefer official/released renditions in initial round, talent/live/semi-official in second, amateurs/instrumental in third, and targeted long-tail in later rounds; admit any valid missed sources in later rounds.",
+      "acceptance": [
+        "Adaptive query families without title-only false positives",
+        "Category does not override verified work"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.cloud-complete",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "A Cloud record must retain and restore all AVAILABLE title, original-work, artist, image, verified playback, date, credits, score, category, round and position metadata; missing provider fields stay null, never fabricated.",
+      "acceptance": [
+        "Additive D1 migration and read/write contract test",
+        "No false claim that stale image/video is playable"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.score-separation",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Approval is not evidence score; preserve legacy integer 1..20 plus independently computed 0..100 MusicLab points without calling it statistically calibrated reliability.",
+      "acceptance": [
+        "Store both scales",
+        "Equal /100 scores allowed with deterministic tie handling"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.no-replay-audio",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Discovery must remain bounded and not steal audio resources from actual playback; release jobs on exit and avoid redundant probes.",
+      "acceptance": [
+        "Preserve prior audio isolation contracts"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/lab68-cloud-first-cache-player-fluidity-contract.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.cloud-staging",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Cloud writes require authenticated and confirmed server pathway, staging isolation and separate production approval; Android Turbo current D1 shared writes remain blocked.",
+      "acceptance": [
+        "No write in current shared read-only Turbo",
+        "No unverified production migration"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.behavior-contract",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Verified rules remain durable in GitHub with ownership, tests, supersession; native app implements stable operational behavior without host chat.",
+      "acceptance": [
+        "No secondary rule coordinator",
+        "Run contract preflight before release"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    }
+  ]
+}
