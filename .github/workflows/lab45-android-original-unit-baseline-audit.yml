@@ -18,6 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
       - name: Prove no source/test/gradle changes from LAB45
         run: |
           BASE=95c6b07733c4c7a123864fb20e6b12838b5269f0
