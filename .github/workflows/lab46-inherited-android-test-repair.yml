@@ -1,0 +1,55 @@
+name: MusicLab LAB46 Inherited Android JVM Repair (test-only)
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-lab46-inherited-android-test-repair-20261022
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-lab46-android-test-only-repair
+  cancel-in-progress: true
+
+jobs:
+  android-unit:
+    name: LAB46 inherited baseline Android regression suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Verify zero change to source, player, audio, score or Android config
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=a4217fda73e2650f10fea67f2fccffa9201e1c5a
+          git diff --name-only "$BASE"...HEAD >/tmp/lab46-jvm-test-files
+          while IFS= read -r f; do
+            case "$f" in
+              app/src/test/kotlin/com/metrolist/music/ui/component/CoverEvidenceRecoveryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab44ScoringAndTitleResolverTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngineTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngineTest.kt|.github/workflows/lab46-inherited-android-test-repair.yml) ;;
+              *) echo "Non-test change rejected: $f"; exit 1 ;;
+            esac
+          done </tmp/lab46-jvm-test-files
+          echo "LAB46 app runtime, player, source and APK metadata fully untouched"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-protobuf
+      - name: Run all LAB46 Android JVM unit tests on original native engine
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Archive full test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-LAB46-Inherited-Android-JVM-Test-Report
+          path: |
+            app/build/test-results/testFossDebugUnitTest/**
+            app/build/reports/tests/testFossDebugUnitTest/**
+          if-no-files-found: ignore
+          retention-days: 14
