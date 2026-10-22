@@ -28,10 +28,18 @@ internal object CoverCloudPendingOutbox {
         return AtomicFile(File(context.applicationContext.filesDir, "musiclab-cloud-outbox-$digest.json"))
     }
 
-    private fun load(file: AtomicFile): JSONArray = runCatching {
-        val bytes = file.openRead().use { it.readBytes() }
-        if (bytes.size > MAX_BYTES) JSONArray() else JSONArray(String(bytes, Charsets.UTF_8))
-    }.getOrElse { JSONArray() }
+    /**
+     * Corrupt/oversized storage must fail closed. Silently replacing it with an
+     * empty array could destroy previously unsynchronized approvals.
+     */
+    private fun load(file: AtomicFile): JSONArray? {
+        if (!file.baseFile.exists()) return JSONArray()
+        return runCatching {
+            val bytes = file.openRead().use { it.readBytes() }
+            if (bytes.size > MAX_BYTES) null
+            else JSONArray(String(bytes, Charsets.UTF_8))
+        }.getOrNull()
+    }
 
     private fun write(file: AtomicFile, content: JSONArray): Boolean {
         val bytes = content.toString().toByteArray(Charsets.UTF_8)
@@ -122,7 +130,7 @@ internal object CoverCloudPendingOutbox {
         if (workKey.isBlank() || originalTitle.isBlank() || originalArtist.isBlank() ||
             seed.fingerprint.isBlank()) return false
         val file = file(context, workKey)
-        val old = load(file)
+        val old = load(file) ?: return false
         val fresh = JSONArray()
         for (index in 0 until old.length()) {
             val item = old.optJSONObject(index) ?: continue
@@ -143,7 +151,7 @@ internal object CoverCloudPendingOutbox {
      */
     @Synchronized
     fun pending(context: Context, workKey: String): List<JSONObject> {
-        val array = load(file(context, workKey))
+        val array = load(file(context, workKey)) ?: return emptyList()
         return (0 until array.length()).mapNotNull { index ->
             array.optJSONObject(index)?.takeIf {
                 it.optString("revision").isNotBlank() &&
@@ -154,7 +162,7 @@ internal object CoverCloudPendingOutbox {
 
     @Synchronized
     fun pendingCount(context: Context, workKey: String): Int =
-        load(file(context, workKey)).length()
+        load(file(context, workKey))?.length() ?: -1
 
     /**
      * Called only AFTER the authenticated server responds with a verified,
@@ -169,7 +177,7 @@ internal object CoverCloudPendingOutbox {
         if (workKey.isBlank() || fingerprint.isBlank() || revision.isBlank() ||
             confirmedRevision != revision) return false
         val file = file(context, workKey)
-        val current = load(file)
+        val current = load(file) ?: return false
         val next = JSONArray()
         var removed = false
         for (i in 0 until current.length()) {
