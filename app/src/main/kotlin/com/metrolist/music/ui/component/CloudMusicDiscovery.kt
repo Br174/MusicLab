@@ -51,6 +51,21 @@ internal data class CloudArchiveItem(
     val originalArtist: String,
     val sameWorkScore: Int?,
     val versionTypeScore: Int?,
+    // LAB46: optional data from enriched Cloud contract, old records remain readable.
+    val releaseDate: String? = null,
+    val country: String? = null,
+    val sourceNames: List<String> = emptyList(),
+    val sourceUrl: String? = null,
+    val versionFingerprint: String? = null,
+    val legacyScore20: Int? = null,
+    val musiclabScore100: Int? = null,
+    val coverRound: Int? = null,
+    val roundPosition: Int? = null,
+    val songwriters: List<String> = emptyList(),
+    val composers: List<String> = emptyList(),
+    val lyricists: List<String> = emptyList(),
+    val producers: List<String> = emptyList(),
+    val label: String? = null,
 )
 
 internal object CloudMusicDiscovery {
@@ -309,6 +324,15 @@ internal object CloudMusicDiscovery {
                     candidate.playbackVideoId?.takeIf { it.isNotBlank() }?.let { put("playbackVideoId", it) }
                     candidate.playbackVideoTitle?.takeIf { it.isNotBlank() }?.let { put("playbackVideoTitle", it) }
                     candidate.playbackVideoSource?.takeIf { it.isNotBlank() }?.let { put("playbackVideoSource", it) }
+                    candidate.releaseDate?.let { put("releaseDate", it) }
+                    candidate.country?.let { put("country", it) }
+                    candidate.versionFingerprint?.let { put("versionFingerprint", it) }
+                    candidate.sourceUrl?.let { put("sourceUrl", it) }
+                    put("sourceNames", buildJsonArray { candidate.sourceNames.forEach { add(it) } })
+                    candidate.legacyScore20?.let { put("legacyScore20", it) }
+                    candidate.musiclabScore100?.let { put("musiclabScore100", it) }
+                    candidate.coverRound?.let { put("coverRound", it) }
+                    candidate.roundPosition?.let { put("roundPosition", it) }
                     put(
                         "credits",
                         buildJsonObject {
@@ -451,6 +475,20 @@ internal object CloudMusicDiscovery {
                     originalArtist = obj.string("originalArtist"),
                     sameWorkScore = obj.scoreOrNull("sameWorkScore"),
                     versionTypeScore = obj.scoreOrNull("versionTypeScore"),
+                    releaseDate = obj.nullableString("releaseDate"),
+                    country = obj.nullableString("country"),
+                    sourceNames = obj.strings("sourceNames"),
+                    sourceUrl = obj.nullableString("sourceUrl"),
+                    versionFingerprint = obj.nullableString("versionFingerprint"),
+                    legacyScore20 = obj.scoreOrNull("legacyScore20")?.takeIf { it in 1..20 },
+                    musiclabScore100 = obj.scoreOrNull("musiclabScore100"),
+                    coverRound = obj.positiveNumberOrNull("coverRound"),
+                    roundPosition = obj.positiveNumberOrNull("roundPosition"),
+                    songwriters = obj.objectOrNull("credits")?.strings("songwriters").orEmpty(),
+                    composers = obj.objectOrNull("credits")?.strings("composers").orEmpty(),
+                    lyricists = obj.objectOrNull("credits")?.strings("lyricists").orEmpty(),
+                    producers = obj.objectOrNull("credits")?.strings("producers").orEmpty(),
+                    label = obj.objectOrNull("credits")?.nullableString("label"),
                 )
             }
             .orEmpty()
@@ -695,6 +733,15 @@ internal object CloudMusicDiscovery {
                 brainStatus = AiBrainDecisionStatus.fromWire(obj.nullableString("brainStatus")),
                 brainAdmission = obj.nullableString("brainAdmission"),
                 brainSignals = obj.brainSignals("brainSignals"),
+                releaseDate = obj.nullableString("releaseDate"),
+                versionFingerprint = obj.nullableString("versionFingerprint"),
+                country = obj.nullableString("country"),
+                sourceNames = obj.strings("sourceNames"),
+                sourceUrl = obj.nullableString("sourceUrl"),
+                legacyScore20 = obj.scoreOrNull("legacyScore20")?.takeIf { it in 1..20 },
+                musiclabScore100 = obj.scoreOrNull("musiclabScore100"),
+                coverRound = obj.positiveNumberOrNull("coverRound"),
+                roundPosition = obj.positiveNumberOrNull("roundPosition"),
             )
         }.orEmpty()
 
@@ -750,6 +797,12 @@ internal object CloudMusicDiscovery {
                 )
             }
         }.distinct()
+    }
+
+    private fun JsonObject.positiveNumberOrNull(key: String): Int? {
+        val primitive = get(key)?.runCatching { jsonPrimitive }?.getOrNull() ?: return null
+        val value = primitive.intOrNull ?: primitive.contentOrNull?.toIntOrNull()
+        return value?.takeIf { it in 1..1000000 }
     }
 
     private fun JsonObject.year(key: String): Int? {
