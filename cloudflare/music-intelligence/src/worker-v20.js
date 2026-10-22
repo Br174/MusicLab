@@ -265,6 +265,8 @@ function archiveFields(row) {
     releaseDate: row.release_date || null,
     country: row.country || null,
     sourceNames: Array.isArray(sourceNames) ? sourceNames : [],
+    creditDetails: Array.isArray(safeJson(row.credits_detail_json))
+      ? safeJson(row.credits_detail_json) : [],
     sourceUrl: row.source_url || null,
     versionFingerprint: row.recording_fingerprint || null,
     legacyScore20: boundedInt(row.legacy_score_20, 1, 20),
@@ -709,7 +711,7 @@ async function buildMemoryPayload(input, env) {
 
   const queryLimit = Math.min(MAX_MEMORY_RESULTS * 2, Math.max(MAX_MEMORY_RESULTS, limit * 2));
   const rows = await env.DB.prepare(`
-    SELECT v.canonical_title, v.canonical_artist, v.category, v.language, v.year, v.album, v.cover_url, v.credits_json, v.release_date, v.country, v.source_names_json, v.source_url, v.recording_fingerprint, v.legacy_score_20, v.musiclab_score_100, v.cover_round, v.round_position, v.work_relation_confirmed, v.video_title,
+    SELECT v.canonical_title, v.canonical_artist, v.category, v.language, v.year, v.album, v.cover_url, v.credits_json, v.credits_detail_json, v.release_date, v.country, v.source_names_json, v.source_url, v.recording_fingerprint, v.legacy_score_20, v.musiclab_score_100, v.cover_round, v.round_position, v.work_relation_confirmed, v.video_title,
            v.same_work_score, v.version_type_score, v.decision_status, v.ai_reason,
            v.user_verified, v.user_rejected,
            (SELECT pb.playback_id FROM playback_bindings pb WHERE pb.version_id=v.id ORDER BY pb.last_verified_at DESC LIMIT 1) AS playback_video_id,
@@ -931,6 +933,19 @@ export async function saveBrainDecision(db, input = {}) {
     boundedInt(candidate?.coverRound,1,1000000), boundedInt(candidate?.roundPosition,1,1000000),
     versionId,workId
   ).run();
+  // Keep every documented credit, not just writer/composer categories.
+  const fullCredits = Array.isArray(candidate?.creditDetails)
+    ? candidate.creditDetails.filter(item =>
+      item && typeof item === 'object' &&
+      boundedText(item.name, 160) && boundedText(item.role, 160)).slice(0, 80)
+      .map(item => ({ name: String(item.name).trim(), role: String(item.role).trim() }))
+    : [];
+  if (fullCredits.length) {
+    await db.prepare(`
+      UPDATE versions SET credits_detail_json=?1, updated_at=CURRENT_TIMESTAMP
+      WHERE id=?2 AND work_id=?3
+    `).bind(JSON.stringify(fullCredits), versionId, workId).run();
+  }
   if (coverUrl) {
     await db.prepare(`
       UPDATE versions
@@ -1098,6 +1113,7 @@ async function archiveSearch(request, env) {
       v.musiclab_score_100, v.cover_round, v.round_position,
       v.work_relation_confirmed,
       v.credits_json AS credits_json,
+      v.credits_detail_json AS credits_detail_json,
       v.cover_url AS cover_url,
       v.decision_status AS decision_status,
       v.same_work_score AS same_work_score,
