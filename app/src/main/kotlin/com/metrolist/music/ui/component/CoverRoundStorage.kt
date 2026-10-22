@@ -2,6 +2,7 @@ package com.metrolist.music.ui.component
 
 import android.content.Context
 import android.util.AtomicFile
+import com.metrolist.music.discogs.DiscogsCredit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -49,6 +50,12 @@ internal object CoverRoundStorage {
         put("formats", JSONArray(seed.formats))
         put("formatDescriptions", JSONArray(seed.formatDescriptions))
         put("labels", JSONArray(seed.labels))
+        // LAB46: credits are light textual metadata and must survive Android restart.
+        put("credits", JSONArray().also { rows ->
+            seed.credits.take(40).forEach { credit ->
+                rows.put(JSONObject().put("name", credit.name).put("role", credit.role))
+            }
+        })
         put("coverUrl", seed.coverUrl)
         put("durationSeconds", seed.durationSeconds)
         put("fingerprint", seed.fingerprint)
@@ -85,6 +92,15 @@ internal object CoverRoundStorage {
             formats = strings(json.optJSONArray("formats")),
             formatDescriptions = strings(json.optJSONArray("formatDescriptions")),
             labels = strings(json.optJSONArray("labels")),
+            credits = json.optJSONArray("credits")?.let { rows ->
+                (0 until rows.length()).mapNotNull { index ->
+                    val credit = rows.optJSONObject(index) ?: return@mapNotNull null
+                    val name = credit.optString("name").trim()
+                    val role = credit.optString("role").trim()
+                    if (name.isBlank() || role.isBlank()) null
+                    else DiscogsCredit(name = name, role = role)
+                }
+            }.orEmpty(),
             coverUrl = text(json, "coverUrl"),
             durationSeconds = int(json, "durationSeconds"),
             fingerprint = json.getString("fingerprint"),
