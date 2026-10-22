@@ -53,8 +53,8 @@ test('LAB42 composer metadata alone cannot bypass original work credit compariso
 });
 
 test('LAB42 retains structured song-work relationships and no global confidence downgrade',()=>{
-  assert.match(sources,/SecondHandSongsCoverSource\.lookup\(title, artist\)/);
-  assert.match(sources,/MusicBrainzCoverSource\.lookup\(cleanTitle, cleanArtist\)/);
+  assert.match(sources,/SecondHandSongsCoverSource\.lookup\(title, artist, forceRefresh = forceRefresh\)/);
+  assert.match(sources,/MusicBrainzCoverSource\.lookup\(cleanTitle, cleanArtist, forceRefresh = forceRefresh\)/);
   assert.match(sources,/workRelationConfirmed = true/);
   assert.match(browser,/TURBO_RESULT_QUOTA = 50/);
   assert.match(browser,/session\.originalWorkCredits/);
