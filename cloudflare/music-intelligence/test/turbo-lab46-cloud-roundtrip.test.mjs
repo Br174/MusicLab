@@ -144,3 +144,29 @@ test('LAB46 archive does not fabricate unavailable cover, video, credit or dates
   assert.deepEqual(item.sourceNames,[]);
   assert.deepEqual(item.creditDetails,[]);
 });
+
+test('LAB46 Cloud returns only the requested archived round and preserves saved order', async()=>{
+  const db=dbForRead();
+  const response=await post('/api/v1/archive/search',{query:'Il mondo',round:2,limit:50},db);
+  assert.equal(response.status,200);
+  const query=db.queries.find(x=>x.sql.includes('FROM versions v')&&x.sql.includes('JOIN works'));
+  assert.ok(query,'Expected archive query to execute');
+  assert.deepEqual(query.args.slice(2),[50,2]);
+  assert.match(query.sql,/v\.cover_round=\?4/);
+  assert.match(query.sql,/v\.cover_round ASC, v\.round_position ASC/);
+  assert.equal((await response.json()).items[0].roundPosition,74);
+});
+test('LAB46 old Cloud searches retain unscoped compatibility and do not reuse scoped cache',async()=>{
+  const db=dbForRead();
+  await post('/api/v1/archive/search',{query:'Il mondo'},db);
+  const archive=db.queries.find(x=>x.sql.includes('JOIN works'));
+  assert.equal(archive.args[3],0);
+  const android=await import('node:fs');
+  const client=android.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt','utf8');
+  const browser=android.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt','utf8');
+  assert.match(client,/if \(coverRound <= 0\) \{/);
+  assert.match(client,/if \(coverRound > 0\) put\("round", coverRound\.coerceIn/);
+  assert.match(browser,/coverRound = if \(appendVerifiedRound\) coverRoundNumber else 0/);
+  assert.match(browser,/"video:\$id"/);
+  assert.match(browser,/"recording:\$key"/);
+});
