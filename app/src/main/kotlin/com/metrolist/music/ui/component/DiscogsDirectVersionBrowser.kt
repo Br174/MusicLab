@@ -2408,6 +2408,21 @@ internal fun DiscogsDirectVersionBrowser(
             rejectionKey(seed),
             approved,
         )
+        // LAB46: persist complete proposed Cloud metadata in a small atomic
+        // outbox while Turbo is read-only against shared D1. It is NOT a
+        // successful Cloud write; never clear until verified server ACK.
+        val editorialWorkKey =
+            TitleMeaningResolver.workAnchorTitle(title) + "|" +
+                TitleMeaningResolver.canonical(lockedArtist.ifBlank { resolvedOriginalArtist })
+        val outboxSaved = CoverCloudPendingOutbox.queue(
+            context, editorialWorkKey, seed, approved,
+        )
+        if (!outboxSaved) {
+            Toast.makeText(context,
+                "Decisione locale salvata; dati Cloud ancora da sincronizzare.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         if (approved) {
             session.rejectedKeys.remove(rejectionKey(seed))
             session.approvedKeys.add(rejectionKey(seed))
