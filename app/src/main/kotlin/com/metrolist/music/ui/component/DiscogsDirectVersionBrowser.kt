@@ -1871,7 +1871,7 @@ internal fun DiscogsDirectVersionBrowser(
     suspend fun lab21VerifyAlternative(seed: DiscogsVersionSeed): DiscogsVersionSeed? {
         val track = playableTrack(seed) ?: return null
         val id = seed.resolvedVideoId?.trim().orEmpty()
-        val visibleIds = (publishedOriginalSnapshots + publishedCoverSnapshots)
+        val visibleIds = (previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots)
             .mapNotNullTo(HashSet<String>()) { it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank) }
         val rejectedIds = CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)
         if (id.isNotBlank() && id !in visibleIds && id !in rejectedIds &&
@@ -4110,17 +4110,78 @@ internal fun DiscogsDirectVersionBrowser(
             }
     }
 
-    // LAB44: a red-dot row is always actionable. The manual lane owns
-    // priority over the 5+5+5 background search; no forced 15-second wait.
+    // LAB45: two independent user intentions. Find a different verified
+    // VIDEO for the identical recording; never replace this Cover's singer.
+    fun searchVideoForRecording(seed: DiscogsVersionSeed) {
+        if (!isTurbo || mode != DiscogsDirectMode.COVER) {
+            retryMissingVideo(seed)
+            return
+        }
+        if (manualVideoSearchJob?.isActive == true) {
+            Toast.makeText(context, "Ricerca manuale già attiva.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val original = (previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots)
+            .firstOrNull { it.fingerprint == seed.fingerprint } ?: return
+        turboAutoVideoJob?.cancel()
+        turboAutoVideoJob = null
+        manualVideoSearchJob = scope.launch {
+            resolvingFingerprint = original.fingerprint
+            try {
+                val replacement = withTimeoutOrNull(8_000L) {
+                    // Existing metadata+hard-compatible recording verifier; it
+                    // excludes the current and previously used YouTube IDs.
+                    lab21VerifyAlternative(
+                        original.copy(resolvedVideoId = null, videoResolutionChecked = false),
+                    )
+                }
+                if (replacement != null && hasPublishableVideo(replacement) &&
+                    replacement.resolvedVideoId != original.resolvedVideoId &&
+                    (previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots)
+                        .none { other ->
+                            other.fingerprint != original.fingerprint &&
+                                other.resolvedVideoId == replacement.resolvedVideoId
+                        }
+                ) {
+                    val refresh: (DiscogsVersionSeed) -> DiscogsVersionSeed = {
+                        if (it.fingerprint == original.fingerprint) {
+                            it.copy(
+                                resolvedVideoId = replacement.resolvedVideoId,
+                                resolvedVideoTitle = replacement.resolvedVideoTitle,
+                                videoResolutionChecked = true,
+                            )
+                        } else it
+                    }
+                    results = results.map(refresh)
+                    session.results = results
+                    publishedOriginalSnapshots = publishedOriginalSnapshots.map(refresh)
+                    publishedCoverSnapshots = publishedCoverSnapshots.map(refresh)
+                    previousRoundRows = previousRoundRows.map(refresh)
+                    session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                    session.publishedCoverSnapshots = publishedCoverSnapshots
+                    session.previousRoundRows = previousRoundRows
+                    Toast.makeText(context, "Nuovo video verificato per questa registrazione.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Nessun altro video verificato per questa registrazione.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } finally {
+                if (resolvingFingerprint == original.fingerprint) resolvingFingerprint = null
+            }
+        }
+    }
+
+    // LAB44 kept as cover-change lane. A user can request a fresh distinct
+    // interpretation even when the current row has a valid playable video.
     fun manualSwapReady(seed: DiscogsVersionSeed): Boolean =
-        isTurbo && mode == DiscogsDirectMode.COVER && !hasPublishableVideo(seed)
+        isTurbo && mode == DiscogsDirectMode.COVER
 
     // LAB21: manual tap chooses only an already verified alternative bundle.
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
-            val current = (publishedCoverSnapshots + publishedOriginalSnapshots)
+            val current = (previousRoundRows + publishedCoverSnapshots + publishedOriginalSnapshots)
                 .firstOrNull { it.fingerprint == seed.fingerprint } ?: return
-            if (hasPublishableVideo(current)) return // Card tap already goes to playback.
             // User action takes priority, even if the automatic 5+5+5
             // search is still running. Cancel its work to avoid competing
             // video requests or races that change the user's chosen card.
@@ -4146,11 +4207,11 @@ internal fun DiscogsDirectVersionBrowser(
                     val finished = withTimeoutOrNull(8_000L) {
                     val anchor = activeCriteria?.title.orEmpty()
                     val chosenSide = isDistinctOriginalVersion(current)
-                    val occupied = (publishedCoverSnapshots + publishedOriginalSnapshots)
+                    val occupied = (previousRoundRows + publishedCoverSnapshots + publishedOriginalSnapshots)
                         .mapTo(HashSet<String>()) {
                             DiscogsVersionSource.recordingIdentityKey(it)
                         }
-                    val usedIds = (publishedCoverSnapshots + publishedOriginalSnapshots)
+                    val usedIds = (previousRoundRows + publishedCoverSnapshots + publishedOriginalSnapshots)
                         .mapNotNullTo(HashSet<String>()) {
                             it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
                         }
@@ -4209,10 +4270,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 sourceNames = (verified.sourceNames +
                                     "MusicLab LAB22 video poster").distinct(),
                             )
-                            val latest = (publishedCoverSnapshots + publishedOriginalSnapshots)
+                            val latest = (previousRoundRows + publishedCoverSnapshots + publishedOriginalSnapshots)
                                 .firstOrNull { it.fingerprint == current.fingerprint }
                                 ?: return false
-                            if (hasPublishableVideo(latest)) return false
                             // One atomic slot replacement: artist, video ID,
                             // track title, thumbnail and confidence stay together.
                             val change: (DiscogsVersionSeed) -> DiscogsVersionSeed = {
@@ -4227,6 +4287,8 @@ internal fun DiscogsDirectVersionBrowser(
                                 publishedCoverSnapshots = publishedCoverSnapshots.map(change)
                                 session.publishedCoverSnapshots = publishedCoverSnapshots
                             }
+                            previousRoundRows = previousRoundRows.map(change)
+                            session.previousRoundRows = previousRoundRows
                             results = results.map(change)
                             session.results = results
                             session.stableOrder = session.stableOrder.map {
@@ -5342,6 +5404,7 @@ internal fun DiscogsDirectVersionBrowser(
                             resolving = seed.fingerprint == resolvingFingerprint,
                             onPlay = { play(seed) },
                             onRetryVideo = { retryMissingVideo(seed) },
+                            onSearchVideo = { searchVideoForRecording(seed) },
                             onDetails = { detailSeed = seed },
                         )
                     }
@@ -5377,6 +5440,7 @@ internal fun DiscogsDirectVersionBrowser(
                             resolving = seed.fingerprint == resolvingFingerprint,
                             onPlay = { play(seed) },
                             onRetryVideo = { retryMissingVideo(seed) },
+                            onSearchVideo = { searchVideoForRecording(seed) },
                             onDetails = { detailSeed = seed },
                         )
                     }
@@ -5397,6 +5461,7 @@ internal fun DiscogsDirectVersionBrowser(
                         resolving = seed.fingerprint == resolvingFingerprint,
                         onPlay = { play(seed) },
                         onRetryVideo = { retryMissingVideo(seed) },
+                        onSearchVideo = { searchVideoForRecording(seed) },
                         onDetails = { detailSeed = seed },
                     )
                 }
@@ -5895,6 +5960,7 @@ private fun DiscogsVersionCard(
     resolving: Boolean,
     onPlay: () -> Unit,
     onRetryVideo: () -> Unit,
+    onSearchVideo: () -> Unit,
     onDetails: () -> Unit,
 ) {
     // LAB66: keep the approved 144/76 dp card sizes, but decode only to
@@ -6077,10 +6143,16 @@ private fun DiscogsVersionCard(
                                     onDetails()
                                 },
                             )
-                            if (!videoReadyVerified && (manualSwitchAvailable ||
-                                seed.videoResolutionChecked || modernCoverCard)) {
+                            if (modernCoverCard || manualSwitchAvailable || !videoReadyVerified) {
                                 DropdownMenuItem(
-                                    text = { Text("Cerca video / cambia cover") },
+                                    text = { Text("Cerca video") },
+                                    onClick = {
+                                        cardMenuExpanded = false
+                                        onSearchVideo()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Cambia cover") },
                                     onClick = {
                                         cardMenuExpanded = false
                                         onRetryVideo()
