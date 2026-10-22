@@ -3216,6 +3216,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         mode = mode,
                                         aiConfig = foreignScoutConfig,
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 5,
+                                        coverRound = if (appendVerifiedRound) coverRoundNumber else 1,
                                         // Always refresh the Turbo metadata sources. The
                                         // nested MB/SHS caches are bypassed on manual retry.
                                         forceRefresh = forceRefresh,
