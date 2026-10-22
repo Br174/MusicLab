@@ -3541,6 +3541,7 @@ internal fun DiscogsDirectVersionBrowser(
                         mode = mode,
                         aiConfig = foreignScoutConfig,
                         maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
+                        forceRefresh = forceRefresh,
                         onEarlyVideoCandidates = { early ->
                             // LAB59: COVER.INFO can supply direct YouTube video IDs
                             // before the entire multi-provider search has returned.
