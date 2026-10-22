@@ -17,7 +17,7 @@ VALUES(?,?,?,?,?,?)""", ("version-1", "work-1", "recording-1", "Track", "Other",
 con.commit()
 con.executescript((root / "0005_turbo_lab46_complete_archive.sql").read_text())
 cols = {row[1] for row in con.execute("PRAGMA table_info(versions)")}
-required = {"release_date","country","source_names_json","source_url","video_title",
+required = {"release_date","country","source_names_json","source_url","credits_detail_json","video_title",
             "recording_fingerprint","legacy_score_20","musiclab_score_100","cover_round",
             "round_position","work_relation_confirmed"}
 assert required <= cols, required - cols
