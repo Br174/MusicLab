@@ -1,4 +1,5 @@
 import parallelWorker from './worker-v20-parallel.js';
+import { stagingCloudWriteGate } from './lab46-staging-write-guard.js';
 import brainWorker from './worker-v20.js';
 import { collectSourceEvidence, formatSourceEvidenceForBrain } from './source-router.js';
 
@@ -84,6 +85,15 @@ export default {
     const url = new URL(request.url);
     if (request.method !== 'POST' || url.pathname !== '/api/v1/discover/expand') {
       return parallelWorker.fetch(request, env, ctx);
+    }
+    // Runtime enrichment can mutate Coverage/D1 before reaching the ordinary
+    // worker. Enforce the SAME security guard at this earlier boundary.
+    if (env?.LAB46_ISOLATED_STAGING === '1') {
+      const check = await stagingCloudWriteGate(request, env);
+      if (!check.allowed) return new Response(
+        JSON.stringify({ stato: 'bloccato', motivo: check.reason }),
+        { status: check.status, headers: { 'content-type':'application/json' } },
+      );
     }
 
     const input = await request.clone().json().catch(() => ({}));
