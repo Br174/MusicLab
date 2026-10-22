@@ -3512,25 +3512,24 @@ internal fun DiscogsDirectVersionBrowser(
                             publishedCoverSnapshots = publishedCoverSnapshots + secondBlock
                             session.publishedCoverSnapshots = publishedCoverSnapshots
                         }
-                        // LAB46: preserve LAB45 first 50 untouched. Only new
-                        // rounds receive independent /100 points and a permanent
-                        // archive position, without reordering earlier cards.
-                        if (coverRoundNumber >= 2) {
-                            val originalCount = publishedOriginalSnapshots.size
-                            val scored = (publishedOriginalSnapshots + publishedCoverSnapshots)
-                                .mapIndexed { index, seed ->
-                                    seed.copy(
-                                        musiclabScore100 = seed.musiclabScore100
-                                            ?: CoverQualityScore100.score(seed),
-                                        coverRound = coverRoundNumber,
-                                        roundPosition = previousRoundRows.size + index + 1,
-                                    )
-                                }
-                            publishedOriginalSnapshots = scored.take(originalCount)
-                            publishedCoverSnapshots = scored.drop(originalCount)
-                            session.publishedOriginalSnapshots = publishedOriginalSnapshots
-                            session.publishedCoverSnapshots = publishedCoverSnapshots
-                        }
+                        // LAB46: preserve LAB45's first-50 order and /20 rating,
+                        // but remember original positions for ALL rounds, including
+                        // round one. Only later rounds gain distinct /100 points.
+                        val originalCount = publishedOriginalSnapshots.size
+                        val numbered = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                            .mapIndexed { index, seed ->
+                                seed.copy(
+                                    musiclabScore100 = if (coverRoundNumber >= 2) {
+                                        seed.musiclabScore100 ?: CoverQualityScore100.score(seed)
+                                    } else seed.musiclabScore100,
+                                    coverRound = coverRoundNumber,
+                                    roundPosition = previousRoundRows.size + index + 1,
+                                )
+                            }
+                        publishedOriginalSnapshots = numbered.take(originalCount)
+                        publishedCoverSnapshots = numbered.drop(originalCount)
+                        session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                        session.publishedCoverSnapshots = publishedCoverSnapshots
                         val secondSealedAt = SystemClock.elapsedRealtime()
                         (publishedOriginalSnapshots + publishedCoverSnapshots).forEachIndexed { index, seed ->
                             session.turboPosterPublishedAtMs.putIfAbsent(seed.fingerprint, secondSealedAt)
