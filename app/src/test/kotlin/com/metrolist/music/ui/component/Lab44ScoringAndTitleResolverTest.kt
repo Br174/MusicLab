@@ -13,8 +13,9 @@ class Lab44ScoringAndTitleResolverTest {
         assertNull(TitleMeaningResolver.trailingArtistHint("Balla balla ballerino (Live)"))
     }
 
+    // External source already certified the value: UI must preserve it, not invent it.
     @Test
-    fun `exact original external recording owns ten out of ten`() {
+    fun `exact original external recording preserves the certified ten out of ten`() {
         val seed =
             DiscogsVersionSource.externalSeed(
                 candidate =
@@ -22,6 +23,7 @@ class Lab44ScoringAndTitleResolverTest {
                         title = "Balla balla ballerino",
                         artist = "Lucio Dalla",
                         sources = listOf("COVER.INFO"),
+                        evidenceScore = 10,
                     ),
                 targetTitle = "Balla balla ballerino",
                 originalArtist = "Lucio Dalla",
@@ -32,7 +34,7 @@ class Lab44ScoringAndTitleResolverTest {
     }
 
     @Test
-    fun `confirmed cover remains below original even with exact title`() {
+    fun `confirmed cover keeps its own certified eight out of ten`() {
         val seed =
             DiscogsVersionSource.externalSeed(
                 candidate =
@@ -41,6 +43,7 @@ class Lab44ScoringAndTitleResolverTest {
                         artist = "Fausto Papetti",
                         sources = listOf("COVER.INFO"),
                         workRelationConfirmed = true,
+                        evidenceScore = 8,
                     ),
                 targetTitle = "Balla balla ballerino",
                 originalArtist = "Lucio Dalla",
@@ -51,7 +54,7 @@ class Lab44ScoringAndTitleResolverTest {
     }
 
     @Test
-    fun `cover info initial relation can identify original even if starting artist was a cover`() {
+    fun `source-proven original retains score even when starting artist was a cover`() {
         val seed =
             DiscogsVersionSource.externalSeed(
                 candidate =
@@ -61,6 +64,7 @@ class Lab44ScoringAndTitleResolverTest {
                         sources = listOf("COVER.INFO"),
                         workRelationConfirmed = true,
                         originalWorkReference = true,
+                        evidenceScore = 10,
                     ),
                 targetTitle = "Balla balla ballerino",
                 originalArtist = "Fausto Papetti",
