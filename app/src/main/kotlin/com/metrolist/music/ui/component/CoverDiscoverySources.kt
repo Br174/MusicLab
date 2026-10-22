@@ -166,6 +166,18 @@ internal object CoverDiscoverySources {
                 reportResult(discoverMusicBrainz(cleanTitle, mode, lookup), lookup.work?.originalYear)
                 lookup
             }
+        // LAB41: a structured musical-work source, not a broad title match.
+        // Already available in MusicLab, now used in the Turbo discovery fan-out.
+        // A missing artist cannot safely anchor ambiguous song titles.
+        val secondHandSongs = async(Dispatchers.IO) {
+            if (mode != DiscogsDirectMode.COVER || cleanArtist.isBlank()) {
+                Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
+                    "SecondHandSongs", false, 0, "Interprete di riferimento necessario",
+                ))
+            } else {
+                reportResult(sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist) })
+            }
+        }
         val iTunes = async(Dispatchers.IO) {
             reportResult(sourceLane { discoverITunes(cleanTitle, cleanArtist, mode) })
         }
@@ -188,6 +200,7 @@ internal object CoverDiscoverySources {
             listOf(
                 coverInfo.await(),
                 musicBrainz,
+                secondHandSongs.await(),
                 iTunes.await(),
                 lrcLib.await(),
                 spotify.await(),
@@ -398,6 +411,46 @@ internal object CoverDiscoverySources {
         )
         rememberDiscovery(key, now, outcome)
         outcome
+    }
+
+    /**
+     * Covers are linked through the performance's work identity. A same-name
+     * song without an artist-anchored work is NOT a verified cover.
+     */
+    private fun discoverSecondHandSongs(
+        title: String,
+        artist: String,
+    ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+        val lookup = runCatching {
+            SecondHandSongsCoverSource.lookup(title, artist)
+        }.getOrElse {
+            SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NETWORK_ERROR)
+        }
+        val versions = if (lookup.status == SecondHandSongsStatus.OK) {
+            lookup.covers.mapNotNull { version ->
+                if (version.workId.isBlank() || version.artist.isBlank() ||
+                    version.title.isBlank()) return@mapNotNull null
+                CoverSourceCandidate(
+                    title = version.title,
+                    artist = version.artist,
+                    sources = listOf("SecondHandSongs"),
+                    year = version.year,
+                    category = if (sameBaseTitle(title, version.title)) {
+                        categoryFromTitle(version.title)
+                    } else AiCoverCategory.FOREIGN,
+                    sourceUrl = lookup.sourceUrl,
+                    workRelationConfirmed = true,
+                    evidenceScore = 9,
+                )
+            }.distinctBy { identity(it.title, it.artist, it.category) }
+        } else emptyList()
+        return versions to CoverSourceDiagnostic(
+            name = "SecondHandSongs",
+            available = lookup.status == SecondHandSongsStatus.OK ||
+                lookup.status == SecondHandSongsStatus.NO_MATCH,
+            found = versions.size,
+            note = lookup.status.name.lowercase(),
+        )
     }
 
     private fun discoverMusicBrainz(
