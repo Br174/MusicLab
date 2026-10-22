@@ -28,8 +28,9 @@ test('LAB41: identical title without matched reference performer cannot anchor a
   assert.match(provider,/artistScore >= 0\.45/);
   assert.match(provider,/TitleMeaningResolver\.sameArtist\(ref\.artist, artist\)/);
   assert.doesNotMatch(provider,/searchArtist\.isBlank\(\) \|\| artistScore >= 0\.24 \|\| titleScore >= 0\.94/);
-  assert.match(provider,/if \(artist\.isNotBlank\(\)\) \{/);
-  assert.match(provider,/if \(artist\.isBlank\(\)\) lookupByWorkTitle\(title\) else null/);
+  assert.match(provider,/originalArtist\.isNotBlank\(\)/);
+  assert.match(provider,/lookupByWorkTitle\(title, artist\)/);
+  assert.match(provider,/TitleMeaningResolver\.sameArtist\(version\.artist, originalArtist\)/);
 });
 
 test('LAB41: no SHS query without a singer or in Original mode',()=>{
