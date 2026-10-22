@@ -3,7 +3,7 @@ name: MusicLab Turbo LAB45 — Separated Actions Progressive Rounds APK ZIP
 on:
   push:
     branches:
-      - uab-build/musiclab-turbo-lab45-separated-actions-progressive-rounds-family-02
+      - uab-build/musiclab-turbo-lab45-separate-manual-paged-cover-family-02
   workflow_dispatch:
 
 permissions:
