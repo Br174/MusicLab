@@ -46,7 +46,7 @@ test('LAB44 manual 8s window includes longer verified source discovery',()=>{
 test('LAB44 user-driven switch requires verified separate singer/recording/video',()=>{
   assert.match(manual,/modeAcceptsSeed\(candidate\)/);
   assert.match(manual,/isDistinctOriginalVersion\(candidate\) == chosenSide/);
-  assert.match(manual,/CompilationTrackResolver/); // may not be inside manual? if only lab21 verify, adjust later
+  assert.match(direct,/CompilationTrackResolver\.isHardCompatible\(track, candidate\)/);
   assert.match(manual,/hasPublishableVideo\(verified\)/);
   assert.match(manual,/videoId in usedIds/);
 });
