@@ -578,6 +578,11 @@ internal object CoverDiscoverySources {
                                 .takeIf { it > 0L }
                                 ?.div(1000L)
                                 ?.toInt(),
+                        // LAB42: Apple sometimes supplies composition credits.
+                        // These are NOT a same-work certificate by themselves:
+                        // the existing gate compares them against the actual
+                        // MusicBrainz work's credited composers/lyricists.
+                        credits = composerCreditsFromITunes(item.optString("composerName")),
                         category =
                             if (titleMatches) categoryFromTitle(candidateTitle)
                             else AiCoverCategory.FOREIGN,
@@ -589,6 +594,17 @@ internal object CoverDiscoverySources {
         }.distinctBy { identity(it.title, it.artist, it.category) }
         return candidates to CoverSourceDiagnostic("Apple/iTunes", true, candidates.size, "catalogo senza chiave")
     }
+
+    internal fun composerCreditsFromITunes(raw: String): List<DiscogsCredit> =
+        raw.trim()
+            .takeIf(String::isNotBlank)
+            ?.split(Regex("\\s*(?:;|,|\\s+&\\s+|\\s+and\\s+)\\s*", RegexOption.IGNORE_CASE))
+            ?.map(String::trim)
+            ?.filter { it.length in 3..90 }
+            ?.distinct()
+            ?.take(6)
+            ?.map { DiscogsCredit(name = it, role = "Composer") }
+            .orEmpty()
 
     private suspend fun discoverLastFm(
         title: String,
