@@ -49,10 +49,17 @@ test('Android Turbo still refuses any shared production Cloud write',()=>{
 });
 test('offline decisions are queued atomically without fake remote success',()=>{
  const code=fs.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/CoverCloudPendingOutbox.kt','utf8');
- assert.match(code,/outbox\.startWrite\(\)/);
- assert.match(code,/outbox\.finishWrite\(stream\)/);
- assert.match(code,/old\.optString\("fingerprint"\) != seed\.fingerprint/);
- assert.match(code,/No clear-on-attempt/);
+ assert.match(code,/file\.startWrite\(\)/);
+ assert.match(code,/file\.finishWrite\(stream\)/);
+ assert.match(code,/item\.optString\("fingerprint"\) != seed\.fingerprint/);
+ assert.match(code,/UUID\.randomUUID\(\)/);
+ assert.match(code,/confirmedRevision != revision/);
+ assert.match(code,/fun acknowledge\(/);
+ assert.match(code,/put\("originalTitle", originalTitle\)/);
+ assert.match(code,/put\("originalArtist", originalArtist\)/);
+ assert.match(code,/put\("versionFingerprint", seed\.fingerprint\)/);
+ assert.match(code,/put\("credits", credits\(seed\)\)/);
+ assert.doesNotMatch(code,/LAB46_WRITE_TOKEN|Authorization: Bearer/);
 });
 
 test('actual staging D1 sentinel is mandatory, not just a declared DB name',async()=>{
