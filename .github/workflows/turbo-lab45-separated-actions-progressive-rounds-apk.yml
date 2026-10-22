@@ -34,7 +34,7 @@ jobs:
           cat /tmp/changed.txt
           while IFS= read -r f; do
             case "$f" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab44-manual-priority-work-refs.test.mjs|cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs|tools/universal-apk-builder/prepare-turbo-lab45-separated-actions-progressive-rounds-env.py|.github/workflows/turbo-lab45-separated-actions-progressive-rounds-apk.yml) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab43-song-identity-refresh.test.mjs|cloudflare/music-intelligence/test/turbo-lab44-manual-priority-work-refs.test.mjs|cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs|tools/universal-apk-builder/prepare-turbo-lab45-separated-actions-progressive-rounds-env.py|.github/workflows/turbo-lab45-separated-actions-progressive-rounds-apk.yml) ;;
               *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
             esac
           done < /tmp/changed.txt
@@ -48,7 +48,7 @@ jobs:
           git diff --name-only "$BASE"..HEAD > /tmp/lab45-changed
           while IFS= read -r f; do
             case "$f" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab44-manual-priority-work-refs.test.mjs|cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs|tools/universal-apk-builder/prepare-turbo-lab45-separated-actions-progressive-rounds-env.py|.github/workflows/turbo-lab45-separated-actions-progressive-rounds-apk.yml) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab43-song-identity-refresh.test.mjs|cloudflare/music-intelligence/test/turbo-lab44-manual-priority-work-refs.test.mjs|cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs|tools/universal-apk-builder/prepare-turbo-lab45-separated-actions-progressive-rounds-env.py|.github/workflows/turbo-lab45-separated-actions-progressive-rounds-apk.yml) ;;
               *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
             esac
           done < /tmp/lab45-changed
