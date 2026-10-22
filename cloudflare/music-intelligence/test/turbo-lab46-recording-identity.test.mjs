@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { decisionIdentityKeys, decisionRecordingVersionKey } from '../src/worker-v20.js';
 
 const create=(fingerprint,reason='turbo_lab46_pending')=>({
@@ -30,7 +31,7 @@ test('LAB46: preexisting LAB38/39 Cloud persistence semantics remain unchanged',
  assert.equal(decisionRecordingVersionKey(blank),decisionIdentityKeys(blank).versionKey);
 });
 test('LAB46: current stage preserves fingerprint and video-based DB lookup before old category title',()=>{
- const source=(await import('node:fs')).readFileSync(
+ const source=fs.readFileSync(
    'cloudflare/music-intelligence/src/worker-v20.js','utf8');
  assert.match(source,/recording_fingerprint=\?2/);
  assert.match(source,/JOIN playback_bindings pb ON pb\.version_id=v\.id/);
