@@ -29,7 +29,7 @@ test('sort sources and search share one revealable row above categories',()=>{
   assert.match(row,/DirectVersionSort\.OLDEST to "Più vecchi"/);
   assert.match(row,/DirectVersionSort\.NEWEST to "Più nuovi"/);
   assert.match(row,/showSourceDiagnostics = true/);
-  assert.match(row,/if \(!loading\) runSearch\(\)/);
+  assert.match(row,/if \(!loading\) runSearch\(forceRefresh = true\)/);
 });
 test('drag updates reveal for every pointer delta and only settles on release',()=>{
   assert.match(header,/detectVerticalDragGestures/);
