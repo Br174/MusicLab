@@ -5,6 +5,7 @@
  */
 package com.metrolist.music.ui.component
 
+import com.metrolist.music.discogs.DiscogsCredit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -108,6 +109,7 @@ internal data class AiCoverCandidate(
     val musiclabScore100: Int? = null,
     val coverRound: Int? = null,
     val roundPosition: Int? = null,
+    val creditDetails: List<DiscogsCredit> = emptyList(),
 ) {
     val stableKey: String
         get() {
