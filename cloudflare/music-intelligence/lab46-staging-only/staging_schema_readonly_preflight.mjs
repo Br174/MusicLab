@@ -67,6 +67,8 @@ try{
   const tables=(await select(
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
   )).map(x=>x.name).sort();
+  result.observedSchemaTableCount=tables.length;
+  result.observedSchemaTableNames=tables.slice(0,20).map(s=>String(s).slice(0,70));
   result.expectedBootstrapTablesOnly=JSON.stringify(tables)===
     JSON.stringify(['lab46_staging_sentinel','lab46_sync_receipts']);
   const markers=(await select(
