@@ -13,6 +13,10 @@ const sample = {
   canonical_artist: 'Cantante giovane', category: 'cover', language: 'it',
   year: 2024, album: 'Serata dal vivo',
   cover_url: 'https://example.test/poster.jpg',
+  credits_detail_json: JSON.stringify([
+    { name:'Cantante giovane', role:'Lead vocals' },
+    { name:'Fonico', role:'Sound engineer' },
+  ]),
   credits_json: JSON.stringify({
     songwriters: ['Gianni Meccia'],
     composers: ['Jimmy Fontana', 'Carlo Pes'],
@@ -83,6 +87,7 @@ test('LAB46 Cloud archive returns actual stored poster, exact video and ordered 
   assert.deepEqual(item.credits.composers,['Jimmy Fontana','Carlo Pes']);
   assert.deepEqual(item.credits.lyricists,['Gianni Meccia']);
   assert.deepEqual(item.credits.producers,['Produttore']);
+  assert.deepEqual(item.creditDetails,[{name:'Cantante giovane',role:'Lead vocals'},{name:'Fonico',role:'Sound engineer'}]);
   assert.deepEqual(item.sourceNames,['MusicBrainz','Discogs']);
   assert.equal(item.versionFingerprint,'cover-live-42');
   assert.equal(item.legacyScore20,16);
@@ -108,13 +113,14 @@ test('LAB46 memory/discover returns the same complete record before fresh discov
   assert.equal(item.roundPosition,74);
   assert.equal(item.releaseDate,'2024-05-18');
   assert.deepEqual(item.credits.composers,['Jimmy Fontana','Carlo Pes']);
+  assert.equal(item.creditDetails[1].role,'Sound engineer');
 });
 test('LAB46 archive does not fabricate unavailable cover, video, credit or dates',async()=>{
   const db=dbForRead({
     ...sample,cover_url:null,playback_video_id:null,video_title:null,
     release_date:null,credits_json:null,legacy_score_20:null,
     musiclab_score_100:null,cover_round:null,round_position:null,
-    source_names_json:null,
+    source_names_json:null,credits_detail_json:null,
   });
   const response=await post('/api/v1/archive/search',{query:'Il mondo'},db);
   assert.equal(response.status,200);
@@ -127,4 +133,5 @@ test('LAB46 archive does not fabricate unavailable cover, video, credit or dates
   assert.equal(item.coverRound,null);
   assert.deepEqual(item.credits,{});
   assert.deepEqual(item.sourceNames,[]);
+  assert.deepEqual(item.creditDetails,[]);
 });
