@@ -143,7 +143,10 @@ internal object SecondHandSongsCoverSource {
                             val titleScore = textSimilarity(title, ref.title)
                             val artistScore = if (artist.isBlank()) 1.0 else textSimilarity(artist, ref.artist)
                             titleScore >= 0.60 &&
-                                (searchArtist.isBlank() || artistScore >= 0.24 || titleScore >= 0.94)
+                                // LAB41: an identical title cannot select an unrelated
+                                // performer's composition as the work anchor.
+                                (artist.isBlank() || artistScore >= 0.45 ||
+                                    TitleMeaningResolver.sameArtist(ref.artist, artist))
                         }
                         .sortedByDescending { ref ->
                             textSimilarity(title, ref.title) * 0.80 +
@@ -156,6 +159,13 @@ internal object SecondHandSongsCoverSource {
         }
 
         if (candidates.isEmpty()) {
+            // Work-title-only fallback is ambiguous when artist is provided:
+            // it can return a different musical work with the same title.
+            if (artist.isNotBlank()) {
+                return SecondHandSongsLookup(
+                    emptyList(), lastStatus ?: SecondHandSongsStatus.NO_MATCH, lastUrl,
+                )
+            }
             val workFallback = lookupByWorkTitle(title)
             if (
                 workFallback.status != SecondHandSongsStatus.NO_MATCH ||
@@ -220,10 +230,11 @@ internal object SecondHandSongsCoverSource {
             }
         }
 
-        val workFallback = lookupByWorkTitle(title)
+        val workFallback = if (artist.isBlank()) lookupByWorkTitle(title) else null
         if (
-            workFallback.status != SecondHandSongsStatus.NO_MATCH ||
-            workFallback.covers.isNotEmpty()
+            workFallback != null &&
+            (workFallback.status != SecondHandSongsStatus.NO_MATCH ||
+            workFallback.covers.isNotEmpty())
         ) {
             return workFallback
         }
