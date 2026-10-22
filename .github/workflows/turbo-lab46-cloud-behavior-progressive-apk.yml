@@ -47,6 +47,28 @@ jobs:
         run: |
           node --test             cloudflare/music-intelligence/test/turbo-lab24-audio-fair-original.test.mjs             cloudflare/music-intelligence/test/turbo-lab25-archive-refresh-video-fair.test.mjs             cloudflare/music-intelligence/test/turbo-lab26-video-coverage-scheduler.test.mjs             cloudflare/music-intelligence/test/turbo-lab27-video-first-batch-refill.test.mjs             cloudflare/music-intelligence/test/turbo-lab28-crash-guards.test.mjs             cloudflare/music-intelligence/test/turbo-lab29-cover-ui-gesture.test.mjs             cloudflare/music-intelligence/test/turbo-lab30-theme-selected-cover.test.mjs             cloudflare/music-intelligence/test/turbo-lab31-readonly-audio-diagnostics.test.mjs             cloudflare/music-intelligence/test/turbo-lab32-header-spacing-arrow.test.mjs cloudflare/music-intelligence/test/turbo-lab34-approved-cover-header.test.mjs cloudflare/music-intelligence/test/turbo-lab35-five-filters-fit.test.mjs cloudflare/music-intelligence/test/turbo-lab36-final-approved-cover.test.mjs cloudflare/music-intelligence/test/turbo-lab37-slim-chips-only.test.mjs cloudflare/music-intelligence/test/turbo-lab38-compilation-theme-nav.test.mjs cloudflare/music-intelligence/test/turbo-lab39-unified-nav-colors-labels.test.mjs cloudflare/music-intelligence/test/turbo-lab40-work-identity-speed-artwork.test.mjs cloudflare/music-intelligence/test/turbo-lab41-verified-work-expansion.test.mjs cloudflare/music-intelligence/test/turbo-lab42-evidence-recovery.test.mjs cloudflare/music-intelligence/test/turbo-lab43-song-identity-refresh.test.mjs cloudflare/music-intelligence/test/turbo-lab44-manual-priority-work-refs.test.mjs cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs cloudflare/music-intelligence/test/turbo-lab45-persistent-rounds.test.mjs
 
+      - name: Validate all durable MusicLab behavior owners and test paths
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { existsSync, readFileSync } from 'node:fs';
+          const b = JSON.parse(readFileSync('behaviors/musiclab-cover.json','utf8'));
+          if (b.schemaVersion !== 1 || b.project !== 'musiclab') process.exit(1);
+          const ids = new Set();
+          for (const r of b.rules) {
+            if (!r.id.startsWith('musiclab.') || ids.has(r.id) ||
+                r.owner !== 'musiclab' || !['active','retired'].includes(r.status) ||
+                !Number.isSafeInteger(r.version) || r.version < 1 ||
+                !r.behavior || !r.acceptance?.length ||
+                !Array.isArray(r.testPaths) || !r.testPaths.length ||
+                r.testPaths.some(p => p.startsWith('/') || p.split('/').includes('..') || !existsSync(p))) {
+              throw new Error('Behavior contract owner or test path invalid: ' + r.id);
+            }
+            ids.add(r.id);
+          }
+          console.log('LAB46 behavior contracts with test paths:', ids.size);
+          JS
+
       - name: Run LAB46 Cloud/Memory contract tests
         run: node --test cloudflare/music-intelligence/test/turbo-lab46-cloud-complete-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-round-strategy-score100-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-staging-auth-outbox.test.mjs cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs
 
