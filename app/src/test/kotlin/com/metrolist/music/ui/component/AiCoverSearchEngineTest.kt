@@ -50,9 +50,10 @@ class AiCoverSearchEngineTest {
         )
     }
 
+    // Never treat an unverified parenthesized translation as proof of the same work.
     @Test
-    fun `locator accepts a trailing translated alias in brackets but not a different Italian title`() {
-        assertTrue(
+    fun `locator denies unsupported translation claims while rejecting a different title`() {
+        assertFalse(
             AiCoverSearchEngine.isPlaybackTitleCompatible(
                 candidate("Bravi ragazzi", artist = "Miguel Bosé"),
                 "Bravi Ragazzi (Bravo Muchachos)",
