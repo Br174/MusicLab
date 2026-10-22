@@ -5,7 +5,11 @@ import fs from 'node:fs';
 import { stagingCloudWriteGate } from '../src/lab46-staging-write-guard.js';
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 const token = 'local-test-only-not-a-real-secret-0123456789ABCD';
-const good = () => ({DB:{prepare(){}}, LAB46_ISOLATED_STAGING:'1',
+const good = () => ({
+  DB:{prepare(){return {bind(){return {
+    async first(){return {marker:'musiclab-turbo-lab46-isolated-d1-v1'};}
+  };}};}},
+  LAB46_ISOLATED_STAGING:'1',
  LAB46_ISOLATED_DB_NAME:'musiclab-turbo-lab46-staging',LAB46_WRITE_TOKEN:token});
 const req = bearer => new Request('https://staging.invalid/api/v1/brain/decision',
  {method:'POST', headers: bearer ? {authorization:'Bearer '+bearer}:{} });
@@ -49,4 +53,27 @@ test('offline decisions are queued atomically without fake remote success',()=>{
  assert.match(code,/outbox\.finishWrite\(stream\)/);
  assert.match(code,/old\.optString\("fingerprint"\) != seed\.fingerprint/);
  assert.match(code,/No clear-on-attempt/);
+});
+
+test('actual staging D1 sentinel is mandatory, not just a declared DB name',async()=>{
+ const noSentinel = { ...good(), DB:{prepare(){return {bind(){return {
+   async first(){return null;}
+ };}};}} };
+ const result = await stagingCloudWriteGate(req(token),noSentinel);
+ assert.equal(result.allowed,false);
+ assert.equal(result.reason,'staging_db_sentinel_missing');
+});
+test('a database without sentinel table must fail closed',async()=>{
+ const missing = {...good(), DB:{prepare(){throw new Error('no such table');}}};
+ const result = await stagingCloudWriteGate(req(token),missing);
+ assert.equal(result.allowed,false);
+ assert.equal(result.status,503);
+});
+test('isolated Wrangler template cannot accidentally bind shared production D1',()=>{
+ const config=fs.readFileSync('cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc','utf8');
+ const bootstrap=fs.readFileSync('cloudflare/music-intelligence/lab46-staging-only/bootstrap.sql','utf8');
+ assert.match(config,/"database_name": "musiclab-turbo-lab46-staging"/);
+ assert.doesNotMatch(config,/7f36c6a5-5361-47cf-8520-b2ba398ea731/);
+ assert.match(bootstrap,/CREATE TABLE IF NOT EXISTS lab46_staging_sentinel/);
+ assert.match(bootstrap,/musiclab-turbo-lab46-isolated-d1-v1/);
 });
