@@ -585,6 +585,9 @@ internal fun DiscogsDirectVersionBrowser(
             else -> seed.manuallyApproved || rejectionKey(seed) in session.approvedKeys
         }
 
+    fun seedSourceNamesForCloud(names: List<String>): List<String> =
+        listOf("Archivio Cloud") + names.filter(String::isNotBlank).take(24)
+
     fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
         val score =
             when (candidate.brainStatus) {
@@ -613,6 +616,19 @@ internal fun DiscogsDirectVersionBrowser(
                 originalArtist = resolvedOriginalArtist,
             ).copy(
                 manuallyApproved = false, // LAB43: never import remote approval as proof
+                releaseDate = candidate.releaseDate ?: candidate.year?.toString(),
+                country = candidate.country,
+                sourceNames = (seedSourceNamesForCloud(candidate.sourceNames)).distinct(),
+                sourceUrl = candidate.sourceUrl,
+                musiclabScore100 = candidate.musiclabScore100,
+                coverRound = candidate.coverRound,
+                roundPosition = candidate.roundPosition,
+                credits = buildList {
+                    candidate.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
+                    candidate.composers.forEach { add(DiscogsCredit(it, "Composer")) }
+                    candidate.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
+                    candidate.producers.forEach { add(DiscogsCredit(it, "Producer")) }
+                },
             )
         val playbackId = candidate.playbackVideoId?.trim().orEmpty()
         return if (playbackId.isNotBlank()) {
@@ -681,6 +697,13 @@ internal fun DiscogsDirectVersionBrowser(
             discogsMasterId = seed.masterId,
             discogsReleaseTitle = seed.releaseTitle.takeIf(String::isNotBlank),
             versionFingerprint = seed.fingerprint,
+            country = seed.country,
+            sourceNames = seed.sourceNames,
+            sourceUrl = seed.sourceUrl,
+            legacyScore20 = seed.confidenceScore,
+            musiclabScore100 = seed.musiclabScore100,
+            coverRound = seed.coverRound,
+            roundPosition = seed.roundPosition,
         )
     }
 
@@ -3081,7 +3104,25 @@ internal fun DiscogsDirectVersionBrowser(
                                         ),
                                         targetTitle = criteria.title,
                                         originalArtist = resolvedOriginalArtist,
-                                    )
+                                    ).let { seed ->
+                                        // LAB46: Cloud data is restored, never accepted as
+                                        // independent evidence of same-work identity.
+                                        seed.copy(
+                                            releaseDate = item.releaseDate ?: seed.releaseDate,
+                                            country = item.country ?: seed.country,
+                                            sourceNames = seedSourceNamesForCloud(item.sourceNames),
+                                            sourceUrl = item.sourceUrl,
+                                            musiclabScore100 = item.musiclabScore100,
+                                            coverRound = item.coverRound,
+                                            roundPosition = item.roundPosition,
+                                            credits = buildList {
+                                                item.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
+                                                item.composers.forEach { add(DiscogsCredit(it, "Composer")) }
+                                                item.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
+                                                item.producers.forEach { add(DiscogsCredit(it, "Producer")) }
+                                            },
+                                        )
+                                    }
                                 }
 
                             // Already-selected archive records are published
