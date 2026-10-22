@@ -70,7 +70,7 @@ jobs:
           JS
 
       - name: Run LAB46 Cloud/Memory contract tests
-        run: node --test cloudflare/music-intelligence/test/turbo-lab46-cloud-complete-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-round-strategy-score100-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-staging-auth-outbox.test.mjs cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs cloudflare/music-intelligence/test/turbo-lab46-sync-receipt.test.mjs
+        run: node --test cloudflare/music-intelligence/test/turbo-lab46-cloud-complete-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-round-strategy-score100-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-staging-auth-outbox.test.mjs cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs cloudflare/music-intelligence/test/turbo-lab46-sync-receipt.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs
 
       - name: Run LAB46 D1 non-destructive staging migration smoke test
         run: python3 cloudflare/music-intelligence/test/lab46_d1_migration_smoke.py
