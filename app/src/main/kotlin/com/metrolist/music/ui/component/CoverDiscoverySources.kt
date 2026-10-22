@@ -307,12 +307,24 @@ internal object CoverDiscoverySources {
                     candidate.workRelationConfirmed &&
                         sharedCreditEvidence &&
                         candidate.sources.any { it.equals("MusicBrainz", ignoreCase = true) }
+                // LAB42: a cover with a translated/alternate title can be the
+                // SAME musical work. Structural work links from authoritative
+                // version databases must not be discarded as title mismatch.
+                // A title-only iTunes/Spotify/LRCLIB hit gets no exemption.
+                val anchoredWorkRelation =
+                    candidate.workRelationConfirmed &&
+                        candidate.sources.any { source ->
+                            source.equals("MusicBrainz", ignoreCase = true) ||
+                                source.equals("SecondHandSongs", ignoreCase = true) ||
+                                source.equals("COVER.INFO", ignoreCase = true)
+                        }
                 val independentSourceConsensus = candidate.sources.distinct().size >= 2
                 val crossVerifiedRelation =
                     candidate.workRelationConfirmed && independentSourceConsensus
 
                 strictTitleMatch ||
                     aiTrusted ||
+                    anchoredWorkRelation ||
                     musicBrainzWork ||
                     crossVerifiedRelation ||
                     independentSourceConsensus
