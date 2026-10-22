@@ -2416,7 +2416,10 @@ internal fun DiscogsDirectVersionBrowser(
             TitleMeaningResolver.canonical(lockedArtist.ifBlank { resolvedOriginalArtist }),
         ).joinToString("|")
         val outboxSaved = CoverCloudPendingOutbox.queue(
-            context, editorialWorkKey, seed, approved,
+            context, editorialWorkKey,
+            TitleMeaningResolver.workAnchorTitle(title),
+            lockedArtist.ifBlank { resolvedOriginalArtist },
+            seed, approved,
         )
         if (!outboxSaved) {
             Toast.makeText(context,
