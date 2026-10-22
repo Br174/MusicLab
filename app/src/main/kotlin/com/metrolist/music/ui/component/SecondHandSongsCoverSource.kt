@@ -81,7 +81,7 @@ internal object SecondHandSongsCoverSource {
         val title: String,
     )
 
-    fun lookup(title: String, artist: String): SecondHandSongsLookup {
+    fun lookup(title: String, artist: String, forceRefresh: Boolean = false): SecondHandSongsLookup {
         val cleanTitle = title.trim()
         val cleanArtist = artist.trim()
         if (cleanTitle.isBlank()) {
@@ -90,7 +90,7 @@ internal object SecondHandSongsCoverSource {
 
         val key = "${canonical(cleanTitle)}|${canonical(cleanArtist)}"
         val now = System.currentTimeMillis()
-        cache[key]?.let { entry ->
+        if (!forceRefresh) cache[key]?.let { entry ->
             val ttl = if (
                 entry.lookup.status == SecondHandSongsStatus.OK ||
                 entry.lookup.status == SecondHandSongsStatus.NO_MATCH
