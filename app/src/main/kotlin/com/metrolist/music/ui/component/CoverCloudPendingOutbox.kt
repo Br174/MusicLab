@@ -109,6 +109,11 @@ internal object CoverCloudPendingOutbox {
             put("roundPosition", seed.roundPosition)
             put("sourceNames", JSONArray(seed.sourceNames))
             put("sourceUrl", seed.sourceUrl)
+            put("creditDetails", JSONArray().apply {
+                seed.credits.distinctBy { it.name to it.role }.take(80).forEach {
+                    put(JSONObject().put("name", it.name).put("role", it.role))
+                }
+            })
             put("credits", credits(seed))
             // Must not fabricate a verified musical-work assertion from APPROVA.
         })
