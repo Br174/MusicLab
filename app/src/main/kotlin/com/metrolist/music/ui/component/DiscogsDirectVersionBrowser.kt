@@ -2496,7 +2496,7 @@ internal fun DiscogsDirectVersionBrowser(
                 // LAB13: the original-performer variants and the foreign
                 // covers share the same verified player path. LAB12 checked
                 // only publishedCoverSnapshots, leaving originals unplayable.
-                val published = publishedOriginalSnapshots + publishedCoverSnapshots
+                val published = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots
                 val admitted = published.any { it.fingerprint == selectedFingerprint }
                 if (admitted) {
                     results.firstOrNull {
@@ -4113,10 +4113,7 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB45: two independent user intentions. Find a different verified
     // VIDEO for the identical recording; never replace this Cover's singer.
     fun searchVideoForRecording(seed: DiscogsVersionSeed) {
-        if (!isTurbo || mode != DiscogsDirectMode.COVER) {
-            retryMissingVideo(seed)
-            return
-        }
+        if (!isTurbo || mode != DiscogsDirectMode.COVER) return
         if (manualVideoSearchJob?.isActive == true) {
             Toast.makeText(context, "Ricerca manuale già attiva.", Toast.LENGTH_SHORT).show()
             return
@@ -4413,7 +4410,8 @@ internal fun DiscogsDirectVersionBrowser(
         // Never send a bare catalog ID to the native player while the
         // simultaneous metadata-verification race is still in flight.
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
-            val latest = results.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
+            val latest = results.firstOrNull { it.fingerprint == seed.fingerprint }
+                ?: previousRoundRows.firstOrNull { it.fingerprint == seed.fingerprint } ?: seed
             if (!hasPublishableVideo(latest)) {
                 retryMissingVideo(seed)
                 return
@@ -4443,6 +4441,7 @@ internal fun DiscogsDirectVersionBrowser(
                     publishedCoverSnapshots.firstOrNull { it.fingerprint == seed.fingerprint }
                 } else null)
                     ?: results.firstOrNull { it.fingerprint == seed.fingerprint }
+                    ?: previousRoundRows.firstOrNull { it.fingerprint == seed.fingerprint }
                     ?: seed
 
             if (currentSeed.resolvedVideoId.isNullOrBlank()) {
