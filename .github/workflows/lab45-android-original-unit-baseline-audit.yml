@@ -1,0 +1,45 @@
+name: MusicLab LAB45 Android Unit Baseline Audit
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab45-android-test-baseline-proof-20261022
+
+permissions:
+  contents: read
+
+jobs:
+  original-tests:
+    name: Existing LAB45 exact-source JVM Android tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    steps:
+      - name: Checkout exact immutable LAB45 base plus this isolated audit workflow
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove no source/test/gradle changes from LAB45
+        run: |
+          BASE=95c6b07733c4c7a123864fb20e6b12838b5269f0
+          test "$(git diff --name-only "$BASE"...HEAD)" = ".github/workflows/lab45-android-original-unit-baseline-audit.yml"
+          echo "Original LAB45 app source and Kotlin tests unchanged"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-protobuf
+      - name: Original LAB45 Android JVM unit tests
+        run: |
+          echo "Android baseline SHA 95c6b07733c4c7a123864fb20e6b12838b5269f0"
+          ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Preserve JVM test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LAB45-baseline-android-unit-test-report
+          path: |
+            app/build/test-results/testFossDebugUnitTest/**
+            app/build/reports/tests/testFossDebugUnitTest/**
+          if-no-files-found: ignore
+          retention-days: 7
