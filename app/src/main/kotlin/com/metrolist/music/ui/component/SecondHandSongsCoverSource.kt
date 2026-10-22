@@ -48,7 +48,7 @@ internal object SecondHandSongsCoverSource {
     private const val BASE_URL = "https://secondhandsongs.com"
     private const val REQUEST_TIMEOUT_MS = 7_500
     private const val MAX_SEARCH_CANDIDATES = 6
-    private const val MAX_WORK_CANDIDATES = 6
+    private const val MAX_WORK_CANDIDATES = 4
     private const val MAX_DISCOVERED_COVERS = 100
     private const val MAX_ORIGINAL_EXPANSIONS = 2
     private const val MAX_WORK_VERSION_DETAILS = 8
@@ -159,14 +159,9 @@ internal object SecondHandSongsCoverSource {
         }
 
         if (candidates.isEmpty()) {
-            // Work-title-only fallback is ambiguous when artist is provided:
-            // it can return a different musical work with the same title.
-            if (artist.isNotBlank()) {
-                return SecondHandSongsLookup(
-                    emptyList(), lastStatus ?: SecondHandSongsStatus.NO_MATCH, lastUrl,
-                )
-            }
-            val workFallback = lookupByWorkTitle(title)
+            // LAB42: search works but require the selected performer's own
+            // recording within the SAME work. Reject homonymous works.
+            val workFallback = lookupByWorkTitle(title, artist)
             if (
                 workFallback.status != SecondHandSongsStatus.NO_MATCH ||
                 workFallback.covers.isNotEmpty()
@@ -230,11 +225,9 @@ internal object SecondHandSongsCoverSource {
             }
         }
 
-        val workFallback = if (artist.isBlank()) lookupByWorkTitle(title) else null
-        if (
-            workFallback != null &&
-            (workFallback.status != SecondHandSongsStatus.NO_MATCH ||
-            workFallback.covers.isNotEmpty())
+        val workFallback = lookupByWorkTitle(title, artist)
+        if (workFallback.status != SecondHandSongsStatus.NO_MATCH ||
+            workFallback.covers.isNotEmpty()
         ) {
             return workFallback
         }
@@ -242,7 +235,10 @@ internal object SecondHandSongsCoverSource {
         return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, lastUrl)
     }
 
-    private fun lookupByWorkTitle(title: String): SecondHandSongsLookup {
+    private fun lookupByWorkTitle(
+        title: String,
+        originalArtist: String,
+    ): SecondHandSongsLookup {
         val searchUrl = buildWorkSearchUrl(title)
         val root = when (val search = fetchJson(searchUrl)) {
             is FetchJson.Error ->
@@ -269,6 +265,15 @@ internal object SecondHandSongsCoverSource {
         var lastStatus: SecondHandSongsStatus? = null
         for (work in works) {
             val result = fetchWorkVersions(work.id)
+            // The work title is never enough. One of its listed recordings
+            // must match the user's singer AND the requested title.
+            if (result.status == SecondHandSongsStatus.OK &&
+                originalArtist.isNotBlank() &&
+                result.covers.none { version ->
+                    TitleMeaningResolver.sameArtist(version.artist, originalArtist) &&
+                        TitleMeaningResolver.matchesBaseTitle(title, version.title)
+                }
+            ) continue
             when (result.status) {
                 SecondHandSongsStatus.OK -> return result
                 SecondHandSongsStatus.BLOCKED,
@@ -552,7 +557,7 @@ internal object SecondHandSongsCoverSource {
 
         val id = uri.substringAfterLast('/').substringBefore('?').trim()
         val title = obj.optString("title").trim()
-        val performer = obj.optJSONObject("performer")?.optString("name")?.trim().orEmpty()
+        val performer = performerFromReference(obj)
         if (id.isBlank() || title.isBlank()) return null
 
         val workIds = mutableListOf<String>()
@@ -571,6 +576,21 @@ internal object SecondHandSongsCoverSource {
             workIds = workIds.distinct(),
             year = parseYear(obj),
         )
+    }
+
+    /**
+     * SecondHandSongs returns "commonName" for performer references,
+     * while some objects use "name". Both are valid and neither may be
+     * taken as an unknown artist (which would silently discard the song).
+     */
+    internal fun performerFromReference(obj: JSONObject): String {
+        val value = obj.opt("performer")
+        return when (value) {
+            is JSONObject -> value.optString("commonName").trim()
+                .ifBlank { value.optString("name").trim() }
+            is String -> value.trim()
+            else -> ""
+        }
     }
 
     private fun parseYear(obj: JSONObject): Int? {
