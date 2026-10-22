@@ -4060,17 +4060,10 @@ internal fun DiscogsDirectVersionBrowser(
             }
     }
 
-    // LAB22: The manual cover-swap action only appears after the original
-    // viewport clock closes at 15 seconds. Reading the state tick ensures
-    // Compose redraws the label when the automatic search ends.
-    fun manualSwapReady(seed: DiscogsVersionSeed): Boolean {
-        val version = turboAutoClosedTick
-        return version >= 0 && seed.fingerprint in session.turboAutoClosedFingerprints &&
-            !hasPublishableVideo(seed) &&
-            session.turboFirstVisibleAtMs[seed.fingerprint]?.let {
-                SystemClock.elapsedRealtime() - it >= TURBO_AUTO_TOTAL_MS
-            } == true
-    }
+    // LAB44: a red-dot row is always actionable. The manual lane owns
+    // priority over the 5+5+5 background search; no forced 15-second wait.
+    fun manualSwapReady(seed: DiscogsVersionSeed): Boolean =
+        isTurbo && mode == DiscogsDirectMode.COVER && !hasPublishableVideo(seed)
 
     // LAB21: manual tap chooses only an already verified alternative bundle.
     fun retryMissingVideo(seed: DiscogsVersionSeed) {
@@ -4078,28 +4071,29 @@ internal fun DiscogsDirectVersionBrowser(
             val current = (publishedCoverSnapshots + publishedOriginalSnapshots)
                 .firstOrNull { it.fingerprint == seed.fingerprint } ?: return
             if (hasPublishableVideo(current)) return // Card tap already goes to playback.
-            val firstSeen = session.turboFirstVisibleAtMs[current.fingerprint]
-            if (firstSeen == null ||
-                SystemClock.elapsedRealtime() - firstSeen < TURBO_AUTO_TOTAL_MS ||
-                current.fingerprint !in session.turboAutoClosedFingerprints) {
-                Toast.makeText(context, "Ricerca automatica 5+5+5 ancora attiva.", Toast.LENGTH_SHORT).show()
-                return
-            }
+            // User action takes priority, even if the automatic 5+5+5
+            // search is still running. Cancel its work to avoid competing
+            // video requests or races that change the user's chosen card.
             if (manualVideoSearchJob?.isActive == true) {
                 Toast.makeText(context, "Sto già cercando una nuova cover…", Toast.LENGTH_SHORT).show()
                 return
             }
 
-            // LAB22: manual action is a fresh, explicit user operation.
+            turboAutoVideoJob?.cancel()
+            turboAutoVideoJob = null
+            val firstSeen = session.turboFirstVisibleAtMs[current.fingerprint]
+                ?: SystemClock.elapsedRealtime()
+            // LAB44: manual action is a fresh, explicit user operation.
             // Verified memory first, then a bounded metadata lookup; if no
             // ready substitute exists, discover new cover recordings online.
             // Never search for another ID of the SAME failed performer.
             manualVideoSearchJob = scope.launch {
                 resolvingFingerprint = current.fingerprint
                 try {
-                    // LAB23: the entire explicit retry, including cache,
-                    // provider lookup and verification, has one hard 5s clock.
-                    val finished = withTimeoutOrNull(5_000L) {
+                    // LAB44: allow fresh catalog calls time to finish; this
+                    // 8s limit applies ONLY to a deliberate user tap, never
+                    // to automatic background work or audio playback.
+                    val finished = withTimeoutOrNull(8_000L) {
                     val anchor = activeCriteria?.title.orEmpty()
                     val chosenSide = isDistinctOriginalVersion(current)
                     val occupied = (publishedCoverSnapshots + publishedOriginalSnapshots)
@@ -4215,7 +4209,7 @@ internal fun DiscogsDirectVersionBrowser(
                     val earlyCandidates = java.util.Collections.synchronizedList(
                         mutableListOf<CoverSourceCandidate>(),
                     )
-                    val discovered = withTimeoutOrNull(2_500L) {
+                    val discovered = withTimeoutOrNull(4_000L) {
                         withContext(Dispatchers.IO) {
                             CoverDiscoverySources.discover(
                                 title = anchor,
@@ -4261,7 +4255,7 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     } // hard 5s attempt
                     if (finished == null) {
-                        Toast.makeText(context, "5 secondi terminati. Tocca per un nuovo tentativo.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Ricerca conclusa senza nuova cover verificata. Puoi riprovare.", Toast.LENGTH_SHORT).show()
                     }
                 } catch (cancel: CancellationException) {
                     throw cancel
@@ -4269,6 +4263,16 @@ internal fun DiscogsDirectVersionBrowser(
                     Toast.makeText(context, "Ricerca non riuscita. Tocca di nuovo per riprovare.", Toast.LENGTH_SHORT).show()
                 } finally {
                     if (resolvingFingerprint == current.fingerprint) resolvingFingerprint = null
+                    // Preserve the rest of the automatic search if its original
+                    // bounded coverage window has not expired. Attempts are
+                    // retained by the existing session coordinator.
+                    if (!session.turboVideoComplete &&
+                        session.turboAutoStartedAtMs > 0L &&
+                        SystemClock.elapsedRealtime() <
+                            session.turboAutoStartedAtMs + TURBO_VIDEO_COVERAGE_MAX_MS &&
+                        !playbackIsCritical()) {
+                        turboSearchGeneration++
+                    }
                 }
             }
             return
@@ -6000,7 +6004,7 @@ private fun DiscogsVersionCard(
                                 },
                             )
                             if (!videoReadyVerified && (manualSwitchAvailable ||
-                                seed.videoResolutionChecked)) {
+                                seed.videoResolutionChecked || modernCoverCard)) {
                                 DropdownMenuItem(
                                     text = { Text("Cerca video / cambia cover") },
                                     onClick = {
