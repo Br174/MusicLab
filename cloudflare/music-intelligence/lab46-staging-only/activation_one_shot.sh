@@ -12,7 +12,7 @@ WORKER=musiclab-turbo-lab46-isolated-staging
 
 [[ "$GITHUB_REF_NAME" == "$BRANCH" && "$GITHUB_EVENT_NAME" == push ]] || exit 12
 [[ -f "$TRIGGER" && -n "$LAB46_STAGING_CF_DEPLOY_TOKEN" &&
-   -n "$LAB46_DEVICE_PUBLIC_SPKI" && -n "$LAB46_D1_READ_TOKEN" ]] || exit 13
+   -n "$LAB46_D1_READ_TOKEN" ]] || exit 13
 [[ "$CLOUDFLARE_ACCOUNT_ID" == "$ACCOUNT" ]] || exit 14
 [[ "$(git diff --name-only HEAD^ HEAD)" == "$TRIGGER" ]] || exit 15
 
@@ -41,7 +41,10 @@ if(approval.approved_source_head!==parent)
  throw Error('SOURCE_SHA_CHANGED_AFTER_APPROVAL');
 if(!/^[A-Za-z0-9_-]{43}$/.test(approval.confirmed_device_key_id||''))
  throw Error('OWNER_FINGERPRINT_MISSING');
-const spki=process.env.LAB46_DEVICE_PUBLIC_SPKI||'';
+// The owner's PUBLIC key is stored only in this explicitly approved, single
+// file trigger. This removes the manual GitHub Actions VARIABLE setup.
+// No private key or privileged token may appear in the trigger.
+const spki=approval.device_public_spki||'';
 if(!/^[A-Za-z0-9_-]{90,240}$/.test(spki))
  throw Error('PUBLIC_SPKI_MISSING_OR_MALFORMED');
 const keyId=createHash('sha256').update(Buffer.from(spki,'base64url')).digest('base64url');
@@ -62,6 +65,14 @@ if(privateConfig.name!=='musiclab-turbo-lab46-isolated-staging'||
  throw Error('WORKER_TARGET_BOUNDARY_FAILED');
 console.log('LAB46_SCOPE_AND_PUBLIC_OWNER_KEY_VERIFIED_NO_CREDENTIALS_PRINTED');
 JS
+
+# Read the non-secret PUBLIC SPKI from the approved trigger. It is deliberately
+# not printed; the owner's private Android key never leaves Android Keystore.
+LAB46_DEVICE_PUBLIC_SPKI=$(node -e '
+const f=require("node:fs");const j=JSON.parse(f.readFileSync(process.argv[1],"utf8"));
+process.stdout.write(j.device_public_spki||"")
+' "$TRIGGER")
+export LAB46_DEVICE_PUBLIC_SPKI
 
 # D1 proof via the EXISTING READ-ONLY token before any write to Workers.
 CLOUDFLARE_API_TOKEN="$LAB46_D1_READ_TOKEN" \
