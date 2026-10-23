@@ -49,7 +49,7 @@ test('exact existing staging origin, enrolled device, no new endpoint',()=>{
   assert.doesNotMatch(manual,/http:\/\/|@Scheduled|Service\(/);
 });
 test('update over installed LAB46 is strictly newer, package remains protected',()=>{
-  assert.match(stamp,/UAB_UPDATE_FAMILY_VERSION_CODE=\\?"33047\\?"/);
-  assert.match(stamp,/MUSICLAB_VERSION_CODE=\\?"33047\\?"/);
+  assert.match(stamp,/UAB_UPDATE_FAMILY_VERSION_CODE=\\?"33048\\?"/);
+  assert.match(stamp,/MUSICLAB_VERSION_CODE=\\?"33048\\?"/);
   assert.match(stamp,/it\.verlezza\.musiclab\.turbo01/);
 });
