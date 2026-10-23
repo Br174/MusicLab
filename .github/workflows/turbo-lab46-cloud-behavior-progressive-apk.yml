@@ -33,7 +33,7 @@ jobs:
           git diff --name-only "$BASE"..HEAD > /tmp/changed-lab46.txt
           while IFS= read -r f; do
             case "$f" in
-              behaviors/*|cloudflare/music-intelligence/migrations/0005*|cloudflare/music-intelligence/lab46-staging-only/*|cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc|cloudflare/music-intelligence/src/worker-v20.js|cloudflare/music-intelligence/src/worker-v20-runtime.js|cloudflare/music-intelligence/src/lab46-staging-write-guard.js|cloudflare/music-intelligence/src/lab46-staging-sync.js|cloudflare/music-intelligence/test/turbo-lab46*|cloudflare/music-intelligence/test/lab46_d1_migration_smoke.py|app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverCloudPendingOutbox.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingDeviceSigner.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingSignedTransport.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab46StagingSigningTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab46SignedTransportSafetyTest.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt|app/src/main/kotlin/com/metrolist/music/ui/component/GeminiAiCoverDiscovery.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundStorage.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverQualityScore100.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|tools/universal-apk-builder/prepare-turbo-lab46*|.github/workflows/turbo-lab46*|app/src/test/kotlin/com/metrolist/music/ui/component/CoverEvidenceRecoveryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab44ScoringAndTitleResolverTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngineTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngineTest.kt|.github/workflows/lab46-cloudflare-staging-readonly-preflight.yml|.github/workflows/lab46-staging-postmigration-readonly.yml) ;;
+              behaviors/*|cloudflare/music-intelligence/migrations/0005*|cloudflare/music-intelligence/lab46-staging-only/*|cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc|cloudflare/music-intelligence/src/worker-v20.js|cloudflare/music-intelligence/src/worker-v20-runtime.js|cloudflare/music-intelligence/src/lab46-staging-write-guard.js|cloudflare/music-intelligence/src/lab46-staging-sync.js|cloudflare/music-intelligence/test/turbo-lab46*|cloudflare/music-intelligence/test/lab46_d1_migration_smoke.py|app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverCloudPendingOutbox.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingDeviceSigner.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingSignedTransport.kt||app/src/main/kotlin/com/metrolist/music/ui/component/Lab46OwnerPairingActivity.kt|app/src/main/AndroidManifest.xml|app/src/test/kotlin/com/metrolist/music/ui/component/Lab46StagingSigningTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab46SignedTransportSafetyTest.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt|app/src/main/kotlin/com/metrolist/music/ui/component/GeminiAiCoverDiscovery.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundStorage.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverQualityScore100.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|tools/universal-apk-builder/prepare-turbo-lab46*|.github/workflows/turbo-lab46*|app/src/test/kotlin/com/metrolist/music/ui/component/CoverEvidenceRecoveryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab44ScoringAndTitleResolverTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngineTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngineTest.kt|.github/workflows/lab46-cloudflare-staging-readonly-preflight.yml|.github/workflows/lab46-staging-postmigration-readonly.yml) ;;
               *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
             esac
           done < /tmp/changed-lab46.txt
@@ -41,6 +41,34 @@ jobs:
             test "$(git hash-object "$f")" = "$(git rev-parse "$BASE:$f")"
           done
           echo "LAB46 protected audio, navigation and same-work gate intact"
+          # A dedicated staging pairing screen may be added, but all original
+          # launcher, player, permissions, deep links and theme must be byte-identical.
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          source = Path('app/src/main/AndroidManifest.xml').read_text()
+          original = subprocess.check_output(
+              ['git','show','95c6b07733c4c7a123864fb20e6b12838b5269f0:app/src/main/AndroidManifest.xml'],
+              text=True,
+          )
+          start = '        <!-- BEGIN LAB46 STAGING PAIRING ACTIVITY: public key only, no sync -->\\n'
+          end = '        <!-- END LAB46 STAGING PAIRING ACTIVITY -->\\n\\n'
+          assert source.count(start)==1 and source.count(end)==1, 'missing pairing markers'
+          first = source.index(start)
+          last = source.index(end,first)+len(end)
+          block=source[first:last]
+          assert block.count('<activity')==1, 'pairing additions only'
+          assert 'android:name=".ui.component.Lab46OwnerPairingActivity"' in block
+          assert 'android:scheme="musiclabturbo" android:host="lab46" android:path="/pair"' in block
+          assert 'android.permission' not in block, 'no new permissions'
+          assert source[:first]+source[last:]==original, 'all previous manifest behavior must remain exact'
+          code=Path('app/src/main/kotlin/com/metrolist/music/ui/component/Lab46OwnerPairingActivity.kt').read_text()
+          assert 'Lab46StagingDeviceSigner.enrollment()' in code
+          assert 'Intent.ACTION_SEND' in code
+          for forbidden in ('LAB46_WRITE_TOKEN','CLOUDFLARE_API_TOKEN','GEMINI_API_KEY','signSyncEnvelope(', 'sendOnePending('):
+              assert forbidden not in code, 'pairing screen may export PUBLIC KEY only'
+          print('LAB46 extra pairing Activity is isolated; original Manifest byte-identical')
+          PY
 
       - name: Run retained LAB32 contracts
         shell: bash
