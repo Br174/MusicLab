@@ -46,3 +46,13 @@ test('LAB46: publication and restart retain unique per-video and per-recording p
  assert.match(storage,/DiscogsVersionSource\.recordingIdentityKey/);
  assert.match(browser,/previousRoundRows \+ publishedOriginalSnapshots \+ publishedCoverSnapshots/);
 });
+
+test('LAB46 selective restore: initial 50 use LAB45 Cloud memory and archive conversion only', () => {
+ assert.match(browser, /val seed = if \(coverRoundNumber == 1\) baseSeed else baseSeed\.copy\(/);
+ assert.match(browser, /if \(coverRoundNumber == 1\) \{[\s\S]*?DiscogsVersionSource\.markVideoResolved\(/);
+ assert.match(browser, /if \(!appendVerifiedRound\) seed else seed\.copy\(/);
+ assert.match(browser, /if \(!appendVerifiedRound\) \{\s*listOf\(it\.title\.lowercase\(\), it\.artist\.lowercase\(\), it\.category\.lowercase\(\)\)/);
+ assert.match(browser, /CoverSameWorkGate\.hasWorkIdentity\(/);
+ assert.match(browser, /fun sealPostersOnce\(\)/);
+ assert.match(browser, /fun sealSecondPostersOnce\(\)/);
+});
