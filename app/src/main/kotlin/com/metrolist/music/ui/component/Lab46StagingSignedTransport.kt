@@ -172,6 +172,29 @@ internal object Lab46StagingSignedTransport {
 
 
     /**
+     * Pure protocol decision for a received response, used by recovery and
+     * JVM tests. A committed server replay from a previous interrupted run
+     * is FINAL proof and needs no extra POST. New commits still require one
+     * signed idempotency replay before deleting the selected local item.
+     * 409/pending, 5xx, malformed or mismatched receipts always retain it.
+     */
+    internal enum class ReceiptStep { RETAIN_LOCAL, VERIFY_BY_REPLAY, ACKNOWLEDGE }
+
+    internal fun receiptStep(
+        httpCode: Int, responseJson: String, revision: String,
+        fingerprint: String, mustBeReplay: Boolean,
+    ): ReceiptStep = runCatching {
+        if (httpCode != 200 || !verifiedReceipt(responseJson, revision, fingerprint))
+            return@runCatching ReceiptStep.RETAIN_LOCAL
+        val body = JSONObject(responseJson)
+        val replayed = body.opt("replayed")
+        if (replayed !is Boolean) return@runCatching ReceiptStep.RETAIN_LOCAL
+        if (replayed) ReceiptStep.ACKNOWLEDGE
+        else if (mustBeReplay) ReceiptStep.RETAIN_LOCAL
+        else ReceiptStep.VERIFY_BY_REPLAY
+    }.getOrDefault(ReceiptStep.RETAIN_LOCAL)
+
+    /**
      * An explicitly selected *existing* outbox revision only. A fresh signed
      * replay verifies remote idempotency, then the exact selected local row
      * is acknowledged. Never create decisions or silently switch revisions.
@@ -221,15 +244,28 @@ internal object Lab46StagingSignedTransport {
             }
         }
         val first = submit() ?: return@withContext Result.NETWORK_FAILED
-        if (first.first != 200 || !verifiedReceipt(first.second, revision, fingerprint))
+        val firstStep = receiptStep(
+            first.first, first.second, revision, fingerprint, mustBeReplay = false
+        )
+        if (firstStep == ReceiptStep.RETAIN_LOCAL)
             return@withContext Result.REFUSED_OR_UNCERTAIN
-        // Same bytes, revision and fingerprint, but new nonce/signature.
-        // The server must return its prior committed receipt, not write again.
-        val repeat = submit() ?: return@withContext Result.REFUSED_OR_UNCERTAIN
-        if (repeat.first != 200 || !verifiedReceipt(repeat.second, revision, fingerprint) ||
-            !runCatching { JSONObject(repeat.second).optBoolean("replayed", false) }
-                .getOrDefault(false))
-            return@withContext Result.REFUSED_OR_UNCERTAIN
+        if (firstStep == ReceiptStep.VERIFY_BY_REPLAY) {
+            // A freshly committed decision needs ONE read-only-idempotent
+            // server replay of the identical bytes with a new ECDSA nonce.
+            // Any network error or uncertain receipt leaves the outbox intact.
+            val repeat = submit() ?: return@withContext Result.REFUSED_OR_UNCERTAIN
+            if (receiptStep(
+                    repeat.first, repeat.second, revision, fingerprint,
+                    mustBeReplay = true
+                ) != ReceiptStep.ACKNOWLEDGE ||
+                !runCatching {
+                    JSONObject(repeat.second).optString("versionId") ==
+                        JSONObject(first.second).optString("versionId")
+                }.getOrDefault(false)
+            ) return@withContext Result.REFUSED_OR_UNCERTAIN
+        }
+        // If firstStep is ACKNOWLEDGE, the server recovered a previously
+        // committed revision after a lost response. Do NOT POST it again.
         if (CoverCloudPendingOutbox.acknowledgeSelected(context, choice, revision))
             Result.ACKNOWLEDGED else Result.LOCAL_ACK_FAILED
     }
