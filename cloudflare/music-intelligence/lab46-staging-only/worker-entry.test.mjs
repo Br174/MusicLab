@@ -100,7 +100,7 @@ test('blocks GET, DELETE and OPTIONS including read endpoints',async()=>{
 });
 test('missing, short and wrong bearer fail before reaching memory/archive read',async()=>{
   const {worker,calls}=mock();
-  for(const bearer of [undefined,'invalid','incorrect-credential-at-least-32-bytes']){
+  for(const bearer of [null,'invalid','incorrect-credential-at-least-32-bytes']){
     const res=await worker.fetch(req('/api/v1/archive/search',bearer),env(),{});
     assert.equal(res.status,401,String(bearer));
     assert.equal(res.headers.get('cache-control'),'no-store');
