@@ -1,3 +1,20 @@
+# STATO ATTUALE E PERCORSO SENZA OPERAZIONI MANUALI DUPLICATE (23 ottobre 2026)
+
+**QUESTO RIQUADRO SOSTITUISCE LE ISTRUZIONI DI PROVISIONING RIPORTATE PIÙ SOTTO, ORMAI STORICHE. NON RICREARE D1 E NON RIESEGUIRE SQL.**
+
+- **Base unica:** Turbo LAB46, PR #10 DRAFT, head di riferimento `2838e91138a35b3e6621e452f0f55d46989e1e4b`. Tutto il codice delle fasi LAB precedenti resta nella genealogia Turbo; NON fare reset, merge ciechi, doppie copie o downgrade.
+- **Database esistente, già migrato:** `musiclab-turbo-lab46-staging` UUID `e66bd500-cdaa-453c-a81c-c624a9d2611e`; 15/15 tabelle musicali, indici e sentinel verificati da interrogazioni D1 REALI in sola lettura. Il bootstrap e `music_schema_additive_once.sql` NON vanno ripetuti. La configurazione di produzione `wrangler.jsonc` e il D1 `musiclab-intelligence-db` sono estranei e intoccabili.
+- **Senza aprire GitHub:** GitHub Actions già compila APK+ZIP e firma/verifica identità aggiornamento all'arrivo di modifiche LAB. [APK LAB46 al commit attuale](https://github.com/Br174/MusicLab/actions/runs/39916005305): SUCCESS. Non richiedere all'owner un nuovo workflow né una nuova build manuale, salvo reale guasto.
+- **Senza aprire Cloudflare per nuovi controlli D1:** [read-only CI 39916005322](https://github.com/Br174/MusicLab/actions/runs/39916005322): SUCCESS, 34/34 test integrati, D1 remoto 15/15, Wrangler staging `--dry-run`, 0 scritture remote, 0 deploy. I test riusano `worker-entry.mjs` + `src/lab46-staging-sync.js`, gli archivi e il client `CloudMusicDiscovery.kt` già ereditati. NESSUN nuovo database, Worker parallelo, client Cloud alternativo o secondo sistema di ricevute.
+- **Codice pronto MA NON LIVE:** ingresso staging `lab46-staging-only/worker-entry.mjs`, configurazione `wrangler.staging.verified.jsonc` con `workers_dev=false` e nessuna route, chiave privata P-256 in Android Keystore, chiave pubblica ancora NON associata al Worker, trasporto Android firmato ancora dormiente. Non dire che la sincronizzazione Android remota è completata.
+- **Riutilizzo autorizzato da vecchi rami:** moduli/contratti solo se già ereditati o compatibili, sempre senza regressioni. I vecchi workflow `lab20-cloudflare-deploy.yml` e `lab38b-cloud-archive-coverinfo-gate.yml` eseguivano deploy, migrazioni e gestione Gemini sul Worker/D1 di PRODUZIONE; riutilizzare solo la sequenza di verifiche locali, MAI i loro target o comandi remoti nel Turbo.
+- **Uniche operazioni remote future da autorizzare separatamente:** associare e verificare fuori banda la chiave pubblica del telefono; predisporre una credenziale Cloudflare con privilegi limitati allo staging (i permessi di sola lettura attuali NON consentono deploy); configurare la chiave pubblica e il segreto SOLO nel Worker isolato; approvare un eventuale deploy dell'unico Worker staging e un URL HTTPS dedicato; prova end-to-end Android+ricevuta D1 con rollback e verifica senza regressioni. La configurazione non va scritta nel repository o nell'APK. Non presupporre di poter riutilizzare un vecchio token con privilegi sulla produzione.
+- **Sicurezza/costo:** nessun deploy, nessuna modifica segreti, nessuna scrittura Cloudflare, main/MADRE e LAST_GOOD preservati; verifica quota Workers Free/costo extra €0 e permessi reali prima di qualsiasi attivazione. Se una credenziale/staging route non può essere autorizzata tramite il connettore, richiedere soltanto il passaggio manuale indispensabile, non rifare tutte le operazioni storiche.
+
+---
+
+## Archivio storico della preparazione iniziale (non ripetere)
+
 # MusicLab Turbo LAB46 — isolated D1 staging preparation and approval gate
 
 Status: **PREPARED ONLY, NOT PROVISIONED**.
