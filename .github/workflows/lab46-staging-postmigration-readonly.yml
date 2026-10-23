@@ -42,5 +42,13 @@ jobs:
         run: |
           node --check cloudflare/music-intelligence/lab46-staging-only/worker-entry.mjs
           node --test cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs
+      - name: Bundle staging-only Worker locally with Wrangler dry-run (no network deploy)
+        env:
+          CLOUDFLARE_API_TOKEN: ''
+          CLOUDFLARE_ACCOUNT_ID: ''
+        run: |
+          set -euo pipefail
+          cd cloudflare/music-intelligence
+          npx --yes wrangler@4 deploy --dry-run --config lab46-staging-only/wrangler.staging.verified.jsonc --outdir "$RUNNER_TEMP/lab46-worker-local-bundle"
       - name: Verify remotely applied LAB46 schema using exact D1 READ token
         run: node cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
