@@ -131,9 +131,12 @@ internal object CoverRoundStorage {
         val results = json.optJSONArray("rows") ?: JSONArray()
         val seen = HashSet<String>()
         val videos = HashSet<String>()
-        val cards = (0 until results.length()).mapNotNull { index ->
-            results.optJSONObject(index)?.let(::decode)
-        }.filter { seed ->
+        val cards = DiscogsVersionSource.dedupeVersions(
+            (0 until results.length()).mapNotNull { index ->
+                results.optJSONObject(index)?.let(::decode)
+            },
+            preserveInputOrder = true,
+        ).filter { seed ->
             seen.add(DiscogsVersionSource.recordingIdentityKey(seed)) &&
                 (seed.resolvedVideoId.isNullOrBlank() || videos.add(seed.resolvedVideoId))
         }
@@ -151,7 +154,9 @@ internal object CoverRoundStorage {
             }
             val seen = HashSet<String>()
             val videos = HashSet<String>()
-            val records = rows.filter { seed ->
+            val records = DiscogsVersionSource.dedupeVersions(
+                rows, preserveInputOrder = true,
+            ).filter { seed ->
                 seen.add(DiscogsVersionSource.recordingIdentityKey(seed)) &&
                     (seed.resolvedVideoId.isNullOrBlank() || videos.add(seed.resolvedVideoId))
             }
