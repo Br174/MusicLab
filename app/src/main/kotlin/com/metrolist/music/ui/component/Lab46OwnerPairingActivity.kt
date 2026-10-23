@@ -1,6 +1,7 @@
 package com.metrolist.music.ui.component
 
 import androidx.activity.ComponentActivity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -14,6 +15,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Explicit, stand-alone LAB46 public-key export screen.
@@ -147,6 +150,91 @@ internal class Lab46OwnerPairingActivity : ComponentActivity() {
         }.apply { isEnabled=false }
         // The button remains disabled until the owner explicitly requests
         // the public key above; no pairing or network request at startup.
+        label("Collaudo reale facoltativo: scegli UNA decisione che hai già approvato o rifiutato. Nessuna sincronizzazione automatica.")
+        val choiceStatus = label("Non è stata selezionata alcuna decisione.")
+        var chosen: CoverCloudPendingOutbox.PendingChoice? = null
+        lateinit var sendButton: Button
+        val choicesColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            column.addView(this)
+        }
+        button("Mostra decisioni già in attesa sul telefono") {
+            chosen = null
+            sendButton.isEnabled = false
+            choiceStatus.text = "Lettura delle sole decisioni locali in corso..."
+            lifecycleScope.launch {
+                val pending = withContext(Dispatchers.IO) {
+                    CoverCloudPendingOutbox.pendingChoices(applicationContext)
+                }
+                choicesColumn.removeAllViews()
+                if (pending.isEmpty()) {
+                    choiceStatus.text = "Nessuna decisione locale in attesa. Non è stato creato nessun dato di prova."
+                } else {
+                    choiceStatus.text = "Tocca una sola decisione per selezionarla. Non sarà inviata finché non confermi."
+                    for (choice in pending) {
+                        val option = Button(this@Lab46OwnerPairingActivity).apply {
+                            isAllCaps = false
+                            text = "${choice.title} · ${choice.artist} [${choice.status}]"
+                            setOnClickListener {
+                                chosen = choice
+                                choiceStatus.text = "Scelta: ${choice.title} · ${choice.artist}. Conferma richiesta prima dell'invio."
+                                sendButton.isEnabled = enrollment != null
+                            }
+                        }
+                        choicesColumn.addView(option)
+                    }
+                }
+            }
+        }
+        sendButton = button("Invia UNA decisione scelta e verifica anti-duplicato") {
+            val choice = chosen
+            val enrolled = enrollment
+            if (choice == null || enrolled == null) {
+                choiceStatus.text = "Prima recupera la chiave pubblica e scegli una decisione."
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle("Confermare un solo invio allo staging?")
+                    .setMessage(
+                        "Decisione già in attesa: ${choice.title} · ${choice.artist}\n" +
+                        "Stato: ${choice.status}\n" +
+                        "Solo MusicLab D1 staging. Saranno controllate ricevuta e anti-duplicato. " +
+                        "Nessuna modifica alle altre decisioni o al player."
+                    )
+                    .setNegativeButton("Annulla", null)
+                    .setPositiveButton("Confermo una sola decisione") { _, _ ->
+                        sendButton.isEnabled = false
+                        choiceStatus.text = "Invio firmato e verifica della ricevuta in corso..."
+                        lifecycleScope.launch {
+                            val result = Lab46StagingSignedTransport.sendOneSelectedPending(
+                                applicationContext, choice,
+                                Lab46StagingSignedTransport.EnrollmentBinding(
+                                    originInput.text.toString(), enrolled.keyId, true
+                                )
+                            )
+                            choiceStatus.text = when (result) {
+                                Lab46StagingSignedTransport.Result.ACKNOWLEDGED ->
+                                    "Ricevuta Cloud confermata e duplicato riutilizzato. Decisione locale sincronizzata."
+                                Lab46StagingSignedTransport.Result.LOCAL_ACK_FAILED ->
+                                    "Ricevuta Cloud confermata; archivio locale non aggiornato. Non ripetere senza controllo."
+                                Lab46StagingSignedTransport.Result.EMPTY,
+                                Lab46StagingSignedTransport.Result.INVALID_PENDING ->
+                                    "Decisione cambiata o non più disponibile. Nessun nuovo invio confermato."
+                                Lab46StagingSignedTransport.Result.BAD_ENDPOINT ->
+                                    "Indirizzo non valido: usa solo il Worker staging LAB46."
+                                Lab46StagingSignedTransport.Result.NOT_PAIRED ->
+                                    "Chiave Android non corrispondente a quella associata."
+                                Lab46StagingSignedTransport.Result.NETWORK_FAILED,
+                                Lab46StagingSignedTransport.Result.REFUSED_OR_UNCERTAIN ->
+                                    "Ricevuta non completamente verificata. Non ripetere prima di un controllo D1."
+                            }
+                            chosen = null
+                            sendButton.isEnabled = false
+                            choicesColumn.removeAllViews()
+                        }
+                    }
+                    .show()
+            }
+        }.apply { isEnabled = false }
         button("Chiudi senza attivare sincronizzazione") { finish() }
     }
 }
