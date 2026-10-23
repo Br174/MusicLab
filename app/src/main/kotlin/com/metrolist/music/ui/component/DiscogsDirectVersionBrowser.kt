@@ -442,6 +442,7 @@ internal fun DiscogsDirectVersionBrowser(
     var turboStreamProofVersion by remember(sessionKey) { mutableStateOf(0) }
     var originalSectionFrozen by remember(sessionKey) { mutableStateOf(session.originalSectionFrozen) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    var coverRecoveryJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var turboAutoVideoJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -2879,6 +2880,7 @@ internal fun DiscogsDirectVersionBrowser(
         val retainedResults = if (appendVerifiedRound || (repeatSameWork && !forceRefresh)) results else emptyList()
         val retainedOrder = if (appendVerifiedRound || (repeatSameWork && !forceRefresh)) session.stableOrder else emptyList()
         searchJob?.cancel()
+        coverRecoveryJob?.cancel()
         manualVideoSearchJob?.cancel()
         paginationJob?.cancel()
         verificationJob?.cancel()
@@ -3686,6 +3688,105 @@ internal fun DiscogsDirectVersionBrowser(
                         playerConnection?.service?.setCoverPerformanceLoad(
                             active = false, heavy = false,
                         )
+                        // LAB48: the LAB45 first batch is already frozen. Only
+                        // an unusually small confirmed result set starts the
+                        // independent, bounded documentary recovery lane.
+                        if (!appendVerifiedRound && coverRoundNumber == 1 &&
+                            publishedOriginalSnapshots.size + publishedCoverSnapshots.size < 15 &&
+                            coverRecoveryJob?.isActive != true) {
+                            val searchGeneration = turboSearchGeneration
+                            val expectedCriteria = criteria
+                            val recoveryArtist = resolvedOriginalArtist
+                            coverRecoveryJob = scope.launch {
+                                val recovered = withTimeoutOrNull(60_000L) {
+                                    // Never compete with the player's start/rebuffer.
+                                    while (backgroundWorkBlocked()) delay(250L)
+                                    CoverDiscoverySources.discover(
+                                        title = TitleMeaningResolver.workAnchorTitle(criteria.title),
+                                        originalArtist = recoveryArtist,
+                                        mode = DiscogsDirectMode.COVER,
+                                        aiConfig = foreignScoutConfig,
+                                        maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
+                                        forceRefresh = true,
+                                        coverRound = 2,
+                                        deepRecovery = true,
+                                    )
+                                }
+                                if (recovered == null ||
+                                    searchGeneration != turboSearchGeneration ||
+                                    activeCriteria != expectedCriteria ||
+                                    coverRoundNumber != 1 || !session.turboFinished) return@launch
+
+                                // Only documentary links to the IDENTIFIED musical
+                                // composition may be admitted. YouTube candidates,
+                                // similarly named unrelated songs and Cloud scores
+                                // are not independently admissible.
+                                val verifiedRecovery = recovered.candidates
+                                    .map { evidence ->
+                                        DiscogsVersionSource.externalSeed(
+                                            candidate = evidence,
+                                            targetTitle = criteria.title,
+                                            originalArtist = recoveryArtist,
+                                        )
+                                    }
+                                    .filter { seed ->
+                                        CoverSameWorkGate.hasDocumentaryRelation(seed) &&
+                                            !isRejected(seed) &&
+                                            !isOriginalPerformerVersion(seed) &&
+                                            (modeAcceptsSeed(seed) ||
+                                                seed.sourceNames.any {
+                                                    it.equals("MusicBrainz", true) ||
+                                                        it.equals("SecondHandSongs", true)
+                                                })
+                                    }
+                                if (verifiedRecovery.isNotEmpty()) {
+                                    val before = publishedCoverSnapshots
+                                    val reunited = DiscogsVersionSource.dedupeVersions(
+                                        before + verifiedRecovery,
+                                        preserveInputOrder = true,
+                                    )
+                                    val freeSlots = (TURBO_RESULT_QUOTA -
+                                        publishedOriginalSnapshots.size).coerceAtLeast(0)
+                                    val verifiedCovers = reunited.take(freeSlots)
+                                    val additional = verifiedCovers.size - before.size
+                                    if (additional > 0) {
+                                        publishedCoverSnapshots = verifiedCovers
+                                        session.publishedCoverSnapshots = verifiedCovers
+                                        results = DiscogsVersionSource.dedupeVersions(
+                                            results + verifiedCovers, preserveInputOrder = true,
+                                        )
+                                        session.results = results
+                                        val now = SystemClock.elapsedRealtime()
+                                        verifiedCovers.drop(before.size).forEach { seed ->
+                                            session.turboPosterPublishedAtMs[seed.fingerprint] = now
+                                        }
+                                        session.turboReserve = (session.turboReserve +
+                                            verifiedRecovery).distinctBy(
+                                                DiscogsVersionSource::recordingIdentityKey
+                                            ).take(TURBO_RESERVE_MAX)
+                                        val savedRows = previousRoundRows +
+                                            publishedOriginalSnapshots + verifiedCovers
+                                        scope.launch(Dispatchers.IO) {
+                                            CoverRoundStorage.save(
+                                                context, sessionKey, coverRoundNumber, savedRows,
+                                            )
+                                        }
+                                        // Existing video resolver remains independent:
+                                        // new records are not falsely marked playable.
+                                        if (!backgroundWorkBlocked() && !session.turboVideoComplete) {
+                                            turboSearchGeneration++
+                                        }
+                                    }
+                                    sourceDiagnostics = sourceDiagnostics.filterNot {
+                                        it.name == "Recupero opere"
+                                    } + CoverSourceDiagnostic(
+                                        "Recupero opere", true, additional.coerceAtLeast(0),
+                                        "solo relazioni documentarie, nessun risultato per titolo soltanto",
+                                    )
+                                    session.sourceDiagnostics = sourceDiagnostics
+                                }
+                            }
+                        }
                         // LAB14: the poster producer stops at 10 seconds.
                         // A separate, lifecycle-owned VIDEO resolver continues
                         // against only the already sealed 50 positions.
