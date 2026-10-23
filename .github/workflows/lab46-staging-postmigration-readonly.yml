@@ -14,6 +14,8 @@ on:
       - cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.test.mjs
       - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingDeviceSigner.kt
       - app/src/test/kotlin/com/metrolist/music/ui/component/Lab46StagingSigningTest.kt
+      - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingSignedTransport.kt
+      - app/src/test/kotlin/com/metrolist/music/ui/component/Lab46SignedTransportSafetyTest.kt
       - cloudflare/music-intelligence/lab46-staging-only/wrangler.staging.verified.jsonc
   workflow_dispatch:
 
