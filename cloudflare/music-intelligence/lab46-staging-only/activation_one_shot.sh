@@ -88,26 +88,53 @@ npx --yes wrangler@4 deploy --dry-run \
  --outdir "$RUNNER_TEMP/lab46-https"
 
 export CLOUDFLARE_API_TOKEN="$LAB46_STAGING_CF_DEPLOY_TOKEN"
+# Cloudflare validates "secrets.required" BEFORE first deployment, and
+# "wrangler secret put" immediately deploys a Worker version. Therefore
+# provision under a private, ephemeral config with only REQUIRED declarations
+# removed. The canonical config and its final, enforced secret contract remain
+# untouched in GitHub. No secret values are ever written to this file.
+PRIVATE_BOOTSTRAP_CFG="lab46-staging-only/.lab46-private-bootstrap-${GITHUB_RUN_ID:?}.jsonc"
+node --input-type=module - "$PRIVATE_BOOTSTRAP_CFG" <<'JS'
+import {readFileSync,writeFileSync} from 'node:fs';
+const path=process.argv[2];
+const base=JSON.parse(readFileSync(
+ 'lab46-staging-only/wrangler.staging.verified.jsonc','utf8'));
+if(base.name!=='musiclab-turbo-lab46-isolated-staging' ||
+ base.workers_dev!==false || base.main!=='worker-entry.mjs' ||
+ base.d1_databases?.length!==1 ||
+ base.d1_databases[0].database_id!=='e66bd500-cdaa-453c-a81c-c624a9d2611e' ||
+ base.vars?.LAB46_ISOLATED_STAGING!=='1' ||
+ JSON.stringify(base.secrets?.required)!==
+ JSON.stringify(['LAB46_WRITE_TOKEN','LAB46_DEVICE_PUBLIC_SPKI']))
+ throw Error('TEMP_BOOTSTRAP_ONLY_AFTER_EXACT_CONFIG_GUARD');
+delete base.secrets;
+writeFileSync(path,JSON.stringify(base,null,2)+'\n',{flag:'wx',mode:0o600});
+JS
 ROLLBACK_NEEDED=no
 rollback(){
  if [[ "$ROLLBACK_NEEDED" == yes ]];then
-  echo "STAGING_NEGATIVE_SMOKE_FAILED_ATTEMPT_DISABLE_ENDPOINT"
-  npx --yes wrangler@4 deploy --config lab46-staging-only/wrangler.staging.verified.jsonc || true
+  echo "STAGING_SMOKE_OR_DEPLOY_FAILED_DISABLE_ENDPOINT"
+  # Bootstrap variant deliberately does not require all secrets, so rollback
+  # is safe even if a later secret-put failed half-way.
+  npx --yes wrangler@4 deploy --config "$PRIVATE_BOOTSTRAP_CFG" || true
  fi
+ rm -f -- "$PRIVATE_BOOTSTRAP_CFG"
 }
 trap rollback EXIT
-# First update ONLY the already-existing owner-prepared staging Worker;
-# this disables its workers.dev route before provisioning secrets.
-npx --yes wrangler@4 deploy --config lab46-staging-only/wrangler.staging.verified.jsonc
-# Generate an unexported server-side 48-byte privileged bearer IN CI ONLY.
+# First update ONLY the already-existing staging Worker with workers.dev
+# disabled. The per-Worker Editor credential must not create any new Worker.
+npx --yes wrangler@4 deploy --config "$PRIVATE_BOOTSTRAP_CFG"
+ROLLBACK_NEEDED=yes
+# Generate server-side random privileged bearer IN CI, never in Android or Git.
 value=$(node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64url'))")
 printf '%s' "$value" | npx --yes wrangler@4 secret put LAB46_WRITE_TOKEN \
- --config lab46-staging-only/wrangler.staging.verified.jsonc
+ --config "$PRIVATE_BOOTSTRAP_CFG"
 unset value
-# PUBLIC owner-paired SPKI only. Never transfer any private Android key.
+# PUBLIC owner-paired SPKI only. These operations keep workers.dev OFF.
 printf '%s' "$LAB46_DEVICE_PUBLIC_SPKI" | npx --yes wrangler@4 secret put LAB46_DEVICE_PUBLIC_SPKI \
- --config lab46-staging-only/wrangler.staging.verified.jsonc
-ROLLBACK_NEEDED=yes
+ --config "$PRIVATE_BOOTSTRAP_CFG"
+# Only now do all required secrets exist: deploy the canonical public HTTPS
+# staging config (no routes, no custom domains, never production).
 npx --yes wrangler@4 deploy --config lab46-staging-only/wrangler.staging.https-activation.jsonc
 origin="https://$WORKER.$subdomain.workers.dev"
 # Authenticate-negative smoke only, so NEVER create musical decision rows.
