@@ -121,9 +121,11 @@ jobs:
           printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
           printf '%s\n' "$BADGING" | grep -F "versionCode='33048'"
           printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab Turbo LAB 46'"
-          "$APKSIGNER" verify --verbose "$APK"
-          CERT="$("$APKSIGNER" verify --print-certs "$APK" | grep -i -m1 'certificate SHA-256 digest:' | sed -E 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          printf '%s\n' "$CERT_OUTPUT" | grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
           EXPECTED=9A2F67CFB3C19983613ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749
+          echo "Observed public signing certificate SHA256: $CERT"
           test "$CERT" = "$EXPECTED"
           {
             echo "CANDIDATE_TYPE=DIRECT_SAME_FAMILY_SOURCE_CONVERSION"
