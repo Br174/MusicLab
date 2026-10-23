@@ -27,8 +27,8 @@ test('Cloud staging remains explicitly staging and not accidentally promoted to 
   assert.doesNotMatch(manual,/startService\(|WorkManager|auto.?sync/);
 });
 test('candidate is SAME exact Android family with sequential update code and original signing profile',()=>{
-  assert.match(stamp,/UAB_UPDATE_FAMILY_VERSION_CODE=\\"33048\\"/);
-  assert.match(stamp,/MUSICLAB_VERSION_CODE=\\"33048\\"/);
+  assert.match(stamp,/UAB_UPDATE_FAMILY_VERSION_CODE="33048"/);
+  assert.match(stamp,/MUSICLAB_VERSION_CODE="33048"/);
   assert.match(stamp,/it\.verlezza\.musiclab\.turbo01/);
   assert.match(stamp,/9A:2F:67:CF:B3:C1:99:83/);
 });
