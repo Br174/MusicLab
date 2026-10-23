@@ -1,6 +1,6 @@
 package com.metrolist.music.ui.component
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
  * access Cloudflare, read user music, or copy/export PRIVATE Keystore keys.
  * Generating and sharing a PUBLIC SPKI key still requires deliberate taps.
  */
-internal class Lab46OwnerPairingActivity : Activity() {
+internal class Lab46OwnerPairingActivity : ComponentActivity() {
     private var enrollment: Lab46StagingDeviceSigner.Enrollment? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,8 +83,8 @@ internal class Lab46OwnerPairingActivity : Activity() {
         val shareButton=button("Condividi dati PUBBLICI per l'associazione") {
             enrollment?.let { item ->
                 val message="MusicLab LAB46 STAGING PUBLIC KEY ONLY\n"+
-                    "keyId (SHA256 SPKI): \${item.keyId}\n"+
-                    "SPKI base64url: \${item.publicSpkiBase64Url}\n"+
+                    "keyId (SHA256 SPKI): ${item.keyId}\n"+
+                    "SPKI base64url: ${item.publicSpkiBase64Url}\n"+
                     "Worker staging: musiclab-turbo-lab46-isolated-staging\n"+
                     "Non include chiavi private né token privilegiati."
                 val share=Intent(Intent.ACTION_SEND).apply {
@@ -100,8 +100,8 @@ internal class Lab46OwnerPairingActivity : Activity() {
                 try {
                     val item=Lab46StagingDeviceSigner.enrollment()
                     enrollment=item
-                    fingerprint.text="Impronta pubblica del dispositivo:\n\${item.keyId}"
-                    spki.text="Chiave pubblica SPKI:\n\${item.publicSpkiBase64Url}"
+                    fingerprint.text="Impronta pubblica del dispositivo:\n${item.keyId}"
+                    spki.text="Chiave pubblica SPKI:\n${item.publicSpkiBase64Url}"
                     status.text="Chiave pubblica pronta. Associazione NON ancora attivata."
                     copyButton.isEnabled=true
                     shareButton.isEnabled=true
