@@ -846,6 +846,7 @@ internal object DiscogsVersionSource {
 
     internal fun dedupeVersions(
         seeds: List<DiscogsVersionSeed>,
+        preserveInputOrder: Boolean = false,
     ): List<DiscogsVersionSeed> {
         if (seeds.isEmpty()) return emptyList()
 
@@ -856,11 +857,26 @@ internal object DiscogsVersionSource {
                 .values
                 .map { group -> group.drop(1).fold(group.first(), ::mergeEvidence) }
 
-        // Stage 2: collapse repeated releases of the same musical recording.
-        // For a studio recording keep only the first/original publication plus
-        // the newest remaster. Release/upload dates of YouTube videos are never used.
+        // Merge cross-provider evidence before assigning the single recording.
+        // Bucket first to avoid quadratic comparisons on the UI thread.
+        val crossSourceMerged = mutableListOf<DiscogsVersionSeed>()
+        val bucketIndices = hashMapOf<String, MutableList<Int>>()
+        exact.forEach { seed ->
+            val bucket = crossSourceBucketKey(seed)
+            val indices = bucketIndices.getOrPut(bucket) { mutableListOf() }
+            val index = indices.firstOrNull { sameCrossSourceVersion(crossSourceMerged[it], seed) }
+            if (index == null) {
+                indices += crossSourceMerged.size
+                crossSourceMerged += seed
+            } else {
+                crossSourceMerged[index] =
+                    mergeCrossSourceEvidence(crossSourceMerged[index], seed)
+            }
+        }
+
+        // Keep distinct remasters, re-recordings, concerts and mixes separate.
         val collapsed =
-            exact
+            crossSourceMerged
                 .groupBy(::recordingFamilyKey)
                 .values
                 .flatMap { family ->
@@ -887,12 +903,21 @@ internal object DiscogsVersionSource {
                     }
                 }
 
-        return collapsed.sortedWith(
+        val chronological = collapsed.sortedWith(
             compareBy<DiscogsVersionSeed> { it.year ?: Int.MAX_VALUE }
                 .thenBy { normalizedPublicationDate(it) }
                 .thenBy { canonical(it.artist) }
                 .thenBy { canonical(it.releaseTitle) },
         )
+        if (!preserveInputOrder) return chronological
+        // Committed cards retain their earlier positions between search rounds.
+        return chronological.sortedBy { merged ->
+            seeds.indexOfFirst { prior ->
+                prior.fingerprint == merged.fingerprint ||
+                    (crossSourceBucketKey(prior) == crossSourceBucketKey(merged) &&
+                        sameCrossSourceVersion(prior, merged))
+            }.let { if (it < 0) Int.MAX_VALUE else it }
+        }
     }
 
     /**
@@ -945,11 +970,22 @@ internal object DiscogsVersionSource {
             canonicalReleaseContext(left.releaseTitle).isNotBlank() &&
                 canonicalReleaseContext(left.releaseTitle) == canonicalReleaseContext(right.releaseTitle)
         val oneExternal = left.releaseId <= 0 || right.releaseId <= 0
+        val sameDocumentedYear =
+            left.year != null && right.year != null && left.year == right.year
+        val plausibleSourceDuration =
+            leftDuration == null || rightDuration == null ||
+                kotlin.math.abs(leftDuration - rightDuration) <= 25
+        val distantStudioYears =
+            left.year != null && right.year != null &&
+                kotlin.math.abs(left.year - right.year) > 5
 
         return when (left.kind) {
             DiscogsVersionKind.STUDIO ->
-                sameMaster || closeDuration ||
-                    (exactDecoratedTitle && oneExternal && (leftDuration == null || rightDuration == null || sameReleaseContext))
+                sameMaster || (closeDuration && !distantStudioYears) ||
+                    (exactDecoratedTitle && oneExternal &&
+                        (sameReleaseContext ||
+                            (plausibleSourceDuration &&
+                                (leftDuration == null || rightDuration == null || sameDocumentedYear))))
             DiscogsVersionKind.LIVE,
             DiscogsVersionKind.REMIX,
             DiscogsVersionKind.ACOUSTIC,
