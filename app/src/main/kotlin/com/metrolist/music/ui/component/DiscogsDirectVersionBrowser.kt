@@ -1464,9 +1464,20 @@ internal fun DiscogsDirectVersionBrowser(
     fun hasPublishableVideo(seed: DiscogsVersionSeed): Boolean {
         val id = seed.resolvedVideoId?.trim().orEmpty()
         if (id.isBlank() || id in CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)) return false
-        return id in session.playReadyVideoIds ||
+        if (id in session.playReadyVideoIds ||
             CoverPlaybackMemory.verifiedVideo(context, seed.fingerprint) == id ||
             CoverPlaybackMemory.metadataVerifiedVideo(context, seed.fingerprint) == id
+        ) return true
+        // A genuinely identical recording may have been verified under a
+        // different archive fingerprint. Reuse its proof, not a naked video ID.
+        return (previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots)
+            .any { sibling ->
+                sibling.fingerprint != seed.fingerprint &&
+                    sibling.resolvedVideoId == id &&
+                    DiscogsVersionSource.sameCrossSourceVersion(sibling, seed) &&
+                    (CoverPlaybackMemory.verifiedVideo(context, sibling.fingerprint) == id ||
+                        CoverPlaybackMemory.metadataVerifiedVideo(context, sibling.fingerprint) == id)
+            }
     }
 
     /**
@@ -4810,24 +4821,46 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB19: expensive per-card video scoring is memoized per published
     // snapshot, not recalculated for every player tick / scroll frame.
     // Video verification still updates the touched snapshot immutably.
-    val visibleOriginalVersions = remember(
-        mode, isTurbo, publishedOriginalSnapshots, previousRoundRows, category, turboStreamProofVersion,
-        if (isTurbo) null else results,
+    // Deduplicate once across persisted and current cards, before dividing
+    // them into historical/original and new-cover display sections.
+    val unifiedCoverDisplay = remember(
+        mode, previousRoundRows, publishedOriginalSnapshots, publishedCoverSnapshots,
     ) {
-        if (mode == DiscogsDirectMode.COVER) (
-            previousRoundRows.filter {
+        if (mode == DiscogsDirectMode.COVER) {
+            DiscogsVersionSource.dedupeVersions(
+                previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots,
+                preserveInputOrder = true,
+            )
+        } else emptyList()
+    }
+    val historicalOrOriginal = previousRoundRows + publishedOriginalSnapshots
+    fun belongsToFirstCoverSection(seed: DiscogsVersionSeed): Boolean =
+        historicalOrOriginal.any { earlier ->
+            earlier.fingerprint == seed.fingerprint ||
+                (DiscogsVersionSource.crossSourceBucketKey(earlier) ==
+                    DiscogsVersionSource.crossSourceBucketKey(seed) &&
+                    DiscogsVersionSource.sameCrossSourceVersion(earlier, seed))
+        }
+    val visibleOriginalVersions = remember(
+        mode, isTurbo, unifiedCoverDisplay, previousRoundRows, publishedOriginalSnapshots,
+        category, turboStreamProofVersion, if (isTurbo) null else results,
+    ) {
+        if (mode == DiscogsDirectMode.COVER) unifiedCoverDisplay
+            .filter(::belongsToFirstCoverSection)
+            .filter {
                 !isRejected(it) &&
                     (category == DirectVersionCategory.ALL || directDisplayCategory(it) == category)
-            } + publishedOriginalSnapshots.filterNot(::isHiddenForCurrentCover)
-        ).map(::videoCalibratedDisplaySeed)
+            }
+            .map(::videoCalibratedDisplaySeed)
         else emptyList()
     }
     val visibleTrueCovers = remember(
-        mode, isTurbo, loading, publishedCoverSnapshots, visibleLimit, previousRoundRows,
-        turboStreamProofVersion, if (isTurbo) null else results,
+        mode, isTurbo, loading, unifiedCoverDisplay, visibleLimit, previousRoundRows,
+        publishedOriginalSnapshots, turboStreamProofVersion, if (isTurbo) null else results,
     ) {
         if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading)) {
-            publishedCoverSnapshots
+            unifiedCoverDisplay
+                .filterNot(::belongsToFirstCoverSection)
                 .filterNot(::isHiddenForCurrentCover)
                 .take(visibleLimit)
                 .map(::videoCalibratedDisplaySeed)
