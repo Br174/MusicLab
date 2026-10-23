@@ -94,11 +94,11 @@ class Lab46SignedTransportSafetyTest {
 
     @Test fun newCommitMustBeVerifiedByExactlyOneReplayBeforeLocalAcknowledgement() {
         val disposition = Lab46StagingSignedTransport
-        assertEquals(disposition.ReceiptStep.VERIFY_BY_REPLAY,
+        assertEquals(Lab46StagingSignedTransport.ReceiptStep.VERIFY_BY_REPLAY,
             disposition.receiptStep(200, committed("false"), revision, fingerprint, false))
-        assertEquals(disposition.ReceiptStep.RETAIN_LOCAL,
+        assertEquals(Lab46StagingSignedTransport.ReceiptStep.RETAIN_LOCAL,
             disposition.receiptStep(200, committed("false"), revision, fingerprint, true))
-        assertEquals(disposition.ReceiptStep.ACKNOWLEDGE,
+        assertEquals(Lab46StagingSignedTransport.ReceiptStep.ACKNOWLEDGE,
             disposition.receiptStep(200, committed("true"), revision, fingerprint, true))
     }
 
@@ -126,7 +126,7 @@ class Lab46SignedTransportSafetyTest {
             200 to committed("true").replace("staging_verified_committed","fake"),
         )) {
             assertEquals("Must retain local revision for HTTP $http / $body",
-                s.ReceiptStep.RETAIN_LOCAL,
+                Lab46StagingSignedTransport.ReceiptStep.RETAIN_LOCAL,
                 s.receiptStep(http, body, revision, fingerprint, false))
         }
     }
@@ -134,9 +134,9 @@ class Lab46SignedTransportSafetyTest {
     @Test fun replayCannotMasqueradeAsNewReceiptOrSkipSecondProof() {
         val s = Lab46StagingSignedTransport
         val fakeSuccess = """{"stato":"salvato","receipt":"staging_verified_committed","revision":"$revision","fingerprint":"$fingerprint","versionId":"version-123","replayed":false}"""
-        assertEquals(s.ReceiptStep.RETAIN_LOCAL,
+        assertEquals(Lab46StagingSignedTransport.ReceiptStep.RETAIN_LOCAL,
             s.receiptStep(200, fakeSuccess, revision, fingerprint, true))
-        assertEquals(s.ReceiptStep.RETAIN_LOCAL,
+        assertEquals(Lab46StagingSignedTransport.ReceiptStep.RETAIN_LOCAL,
             s.receiptStep(201, committed("true"), revision, fingerprint, true))
     }
 
