@@ -78,3 +78,21 @@ test('production path and approved native graphics are absent from staging files
     '7f36c6a5-5361-47cf-8520-b2ba398ea731');
   assert.doesNotMatch(ui,/MusicService|InnerTubeXPlayer|AppNavigation|CoverSameWorkGate/);
 });
+
+test('one-shot staging activation REQUIRES owner-created existing Worker, never product Admin',()=>{
+  const installer=read('lab46-staging-only/activation_one_shot.sh');
+  const workflow=readFileSync('.github/workflows/lab46-staging-one-shot-deploy-on-owner-approval.yml','utf8');
+  assert.match(installer,/permit_update_existing_staging_worker:true/);
+  assert.doesNotMatch(installer,/permit_one_new_staging_worker:true/);
+  assert.match(installer,/STAGING_WORKER_NOT_PROVEN_EXISTING/);
+  assert.match(installer,/\[\[ "\$http" == 200 \]\]/);
+  assert.match(installer,/STAGING_WORKER_NOT_PROVEN_EXISTING_\$http/);
+  assert.match(installer,/git diff --name-only HEAD\^ HEAD/);
+  assert.match(installer,/SOURCE_SHA_CHANGED_AFTER_APPROVAL/);
+  assert.match(installer,/PUBLIC_SPKI_FINGERPRINT_NOT_CONFIRMED/);
+  assert.match(installer,/staging_schema_postmigration_readonly\.mjs/);
+  assert.match(installer,/ROLLBACK_NEEDED=yes/);
+  assert.match(workflow,/activation-trigger-approved\.json/);
+  assert.doesNotMatch(workflow,/workflow_dispatch|schedule:|pull_request:/);
+  assert.doesNotMatch(workflow,/MUSICLAB_LAB46_CF_PRODUCTION/);
+});
