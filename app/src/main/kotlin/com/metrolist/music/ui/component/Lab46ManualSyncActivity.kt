@@ -66,7 +66,7 @@ internal class Lab46ManualSyncActivity : ComponentActivity() {
         val refreshChoices: () -> Unit = {
             if (!sending) {
                 selected = null
-                if (::sendButton.isInitialized) sendButton.isEnabled = false
+                sendButton.isEnabled = false
                 choiceStatus.text = "Lettura delle decisioni locali..."
                 lifecycleScope.launch {
                     val pending = withContext(Dispatchers.IO) {
