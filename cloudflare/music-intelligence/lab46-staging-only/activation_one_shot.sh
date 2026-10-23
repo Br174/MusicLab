@@ -37,6 +37,12 @@ const expected={
 };
 for(const [k,v] of Object.entries(expected))
  if(approval[k]!==v)throw Error('MISSING_EXPLICIT_OWNER_APPROVAL_'+k);
+// A trigger is proof of owner approval, not a place to commit passwords,
+// Worker tokens, other resource IDs, or unrelated instructions.
+const fields=new Set([...Object.keys(expected),
+ 'approved_source_head','confirmed_device_key_id','device_public_spki']);
+if(Object.keys(approval).some(k=>!fields.has(k)))
+ throw Error('EXTRA_APPROVAL_FIELDS_OR_POSSIBLE_SECRET_REJECTED');
 if(approval.approved_source_head!==parent)
  throw Error('SOURCE_SHA_CHANGED_AFTER_APPROVAL');
 if(!/^[A-Za-z0-9_-]{43}$/.test(approval.confirmed_device_key_id||''))
