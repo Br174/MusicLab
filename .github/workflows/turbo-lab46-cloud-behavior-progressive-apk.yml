@@ -63,8 +63,8 @@ jobs:
           assert 'android:name=".ui.component.Lab46OwnerPairingActivity"' in block
           assert 'android:scheme="musiclabturbo" android:host="lab46" android:path="/pair"' in block
           assert 'android.permission' not in block, 'no new permissions'
-          manual_start = '        <!-- BEGIN LAB46 MANUAL SYNC ACTIVITY: unexported, no deep link -->\\n'.replace('\\\\n','\\n')
-          manual_end = '        <!-- END LAB46 MANUAL SYNC ACTIVITY -->\\n\\n'.replace('\\\\n','\\n')
+          manual_start = '        <!-- BEGIN LAB46 MANUAL SYNC ACTIVITY: unexported, no deep link -->' + chr(10)
+          manual_end = '        <!-- END LAB46 MANUAL SYNC ACTIVITY -->' + chr(10) * 2
           assert source.count(manual_start)==1 and source.count(manual_end)==1
           manual_first=source.index(manual_start)
           manual_last=source.index(manual_end,manual_first)+len(manual_end)
