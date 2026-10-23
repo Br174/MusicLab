@@ -58,6 +58,7 @@
         <!-- BEGIN LAB46 STAGING PAIRING ACTIVITY: public key only, no sync -->
         <activity
             android:name=".ui.component.Lab46OwnerPairingActivity"
+            android:enabled="false"
             android:exported="true"
             android:label="MusicLab LAB46 Cloud pairing"
             android:theme="@style/Theme.Metrolist"
