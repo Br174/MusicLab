@@ -21,6 +21,8 @@ on:
       - cloudflare/music-intelligence/lab46-staging-only/wrangler.staging.https-activation.jsonc
       - cloudflare/music-intelligence/lab46-staging-only/activation-package.test.mjs
       - cloudflare/music-intelligence/lab46-staging-only/worker_remote_readonly_inventory.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/activation_one_shot.sh
+      - .github/workflows/lab46-staging-one-shot-deploy-on-owner-approval.yml
       - app/src/main/AndroidManifest.xml
       - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46OwnerPairingActivity.kt
   workflow_dispatch:
@@ -55,6 +57,11 @@ jobs:
           node --check cloudflare/music-intelligence/lab46-staging-only/worker-entry.mjs
           node --check cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.mjs
           node --test cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.test.mjs cloudflare/music-intelligence/lab46-staging-only/reused-sync-signed-e2e.test.mjs cloudflare/music-intelligence/test/turbo-lab46-sync-receipt.test.mjs cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs cloudflare/music-intelligence/lab46-staging-only/activation-package.test.mjs
+      - name: Lint parked one-shot deployment script (no execution and no Cloudflare writes)
+        run: |
+          set -euo pipefail
+          bash -n cloudflare/music-intelligence/lab46-staging-only/activation_one_shot.sh
+          test ! -e cloudflare/music-intelligence/lab46-staging-only/activation-trigger-approved.json
       - name: Bundle staging-only Worker locally with Wrangler dry-run (no network deploy)
         env:
           CLOUDFLARE_API_TOKEN: ''
