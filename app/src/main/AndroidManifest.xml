@@ -55,22 +55,6 @@
             android:excludeFromRecents="true"
             android:process=":crash" />
 
-        <!-- BEGIN LAB46 STAGING PAIRING ACTIVITY: public key only, no sync -->
-        <activity
-            android:name=".ui.component.Lab46OwnerPairingActivity"
-            android:exported="true"
-            android:label="MusicLab LAB46 Cloud pairing"
-            android:theme="@style/Theme.Metrolist"
-            android:excludeFromRecents="true">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="musiclabturbo" android:host="lab46" android:path="/pair" />
-            </intent-filter>
-        </activity>
-        <!-- END LAB46 STAGING PAIRING ACTIVITY -->
-
         <!-- BEGIN LAB46 MANUAL SYNC ACTIVITY: unexported, no deep link -->
         <activity
             android:name=".ui.component.Lab46ManualSyncActivity"
