@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -105,6 +106,7 @@ internal class Lab46OwnerPairingActivity : ComponentActivity() {
                     status.text="Chiave pubblica pronta. Associazione NON ancora attivata."
                     copyButton.isEnabled=true
                     shareButton.isEnabled=true
+                    probeButton.isEnabled=true
                 } catch (_: Exception) {
                     status.text="Keystore non disponibile. Nessuna associazione eseguita."
                     copyButton.isEnabled=false
@@ -112,6 +114,38 @@ internal class Lab46OwnerPairingActivity : ComponentActivity() {
                 }
             }
         }
+        label("Dopo il deploy autorizzato: verifica la firma senza salvare brani.")
+        val originInput=EditText(this).apply {
+            hint="https://NOME-WORKER.SUBDOMAIN.workers.dev"
+            inputType=android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_URI
+            isSingleLine=true
+            column.addView(this)
+        }
+        val probeButton=button("Verifica staging: nessuna scrittura Cloud") {
+            enrollment?.let { item ->
+                status.text="Verifica firma in corso, senza modificare il database..."
+                lifecycleScope.launch {
+                    val result=Lab46StagingSignedTransport.probePairingNoWrite(
+                        originInput.text.toString(), item.keyId
+                    )
+                    status.text=when(result) {
+                        Lab46StagingSignedTransport.PairingProbeResult.VERIFIED_NO_WRITE ->
+                            "Firma e staging verificati. Nessuna decisione scritta su D1."
+                        Lab46StagingSignedTransport.PairingProbeResult.BAD_ENDPOINT ->
+                            "Indirizzo staging non valido: serve HTTPS."
+                        Lab46StagingSignedTransport.PairingProbeResult.NOT_PAIRED ->
+                            "Dispositivo non ancora associato correttamente."
+                        Lab46StagingSignedTransport.PairingProbeResult.NETWORK_FAILED ->
+                            "Connessione non disponibile: nessuna decisione modificata."
+                        Lab46StagingSignedTransport.PairingProbeResult.NOT_VERIFIED ->
+                            "Firma o risposta server non confermata. Nessuna decisione modificata."
+                    }
+                }
+            }
+        }.apply { isEnabled=false }
+        // The button remains disabled until the owner explicitly requests
+        // the public key above; no pairing or network request at startup.
         button("Chiudi senza attivare sincronizzazione") { finish() }
     }
 }
