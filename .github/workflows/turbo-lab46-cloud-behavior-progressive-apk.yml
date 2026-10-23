@@ -51,8 +51,8 @@ jobs:
               ['git','show','95c6b07733c4c7a123864fb20e6b12838b5269f0:app/src/main/AndroidManifest.xml'],
               text=True,
           )
-          start = '        <!-- BEGIN LAB46 STAGING PAIRING ACTIVITY: public key only, no sync -->\\n'
-          end = '        <!-- END LAB46 STAGING PAIRING ACTIVITY -->\\n\\n'
+          start = '        <!-- BEGIN LAB46 STAGING PAIRING ACTIVITY: public key only, no sync -->\n'
+          end = '        <!-- END LAB46 STAGING PAIRING ACTIVITY -->\n\n'
           assert source.count(start)==1 and source.count(end)==1, 'missing pairing markers'
           first = source.index(start)
           last = source.index(end,first)+len(end)
