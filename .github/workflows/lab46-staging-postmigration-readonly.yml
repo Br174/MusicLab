@@ -61,7 +61,31 @@ jobs:
         run: |
           set -euo pipefail
           bash -n cloudflare/music-intelligence/lab46-staging-only/activation_one_shot.sh
-          test ! -e cloudflare/music-intelligence/lab46-staging-only/activation-trigger-approved.json
+          # Before approval, trigger must be absent; after owner approval, a
+          # strictly scoped trigger is legitimate and does NOT activate this job.
+          node --input-type=module <<'JS'
+          import {existsSync,readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const p='cloudflare/music-intelligence/lab46-staging-only/activation-trigger-approved.json';
+          if(existsSync(p)){
+            const x=JSON.parse(readFileSync(p,'utf8'));
+            const expected={scope:'SINGLE_MUSICLAB_TURBO_LAB46_STAGING_WORKER_ONLY',
+              owner_approved:true,workers_free_confirmed:true,
+              permit_update_existing_staging_worker:true,permit_workers_dev_staging_https:true,
+              production_writes_allowed:false,d1_migrations_allowed:false,
+              paid_services_allowed:false};
+            for(const [k,v] of Object.entries(expected))
+              if(x[k]!==v)throw Error('BAD_STAGING_OWNER_TRIGGER_'+k);
+            const id=createHash('sha256').update(Buffer.from(x.device_public_spki||'','base64url')).digest('base64url');
+            if(id!=='NzGMqTSRrL3LgC5vzD2ECKqItuCFaUwCQ_UTanT1lXk'||x.confirmed_device_key_id!==id)
+              throw Error('BAD_STAGING_OWNER_PUBLIC_KEY');
+            if(!/^[0-9a-f]{40}$/.test(x.approved_source_head||''))throw Error('BAD_STAGING_OWNER_SHA');
+            const allowed=new Set([...Object.keys(expected),
+              'approved_source_head','confirmed_device_key_id','device_public_spki']);
+            if(Object.keys(x).some(k=>!allowed.has(k)))throw Error('UNEXPECTED_TRIGGER_FIELD');
+            console.log('EXISTING_OWNER_APPROVAL_SCOPED_CHECKED_READ_ONLY');
+          }else console.log('OWNER_TRIGGER_NOT_YET_CREATED');
+          JS
       - name: Bundle staging-only Worker locally with Wrangler dry-run (no network deploy)
         env:
           CLOUDFLARE_API_TOKEN: ''
