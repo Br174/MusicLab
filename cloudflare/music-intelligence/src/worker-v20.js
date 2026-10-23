@@ -1,3 +1,5 @@
+import { stagingCloudWriteGate } from './lab46-staging-write-guard.js';
+import { syncLab46Decision } from './lab46-staging-sync.js';
 import legacyWorker from './index.js';
 import {
   admitCoverCandidate,
@@ -244,11 +246,52 @@ export function decisionIdentityKeys(input = {}) {
   };
 }
 
+/**
+ * LAB46 isolated sync: documentary version keys include the stable recording
+ * fingerprint, allowing two different performances with the same singer/title
+ * to coexist without overwriting one another. Legacy callers stay unchanged.
+ */
+export function decisionRecordingVersionKey(input = {}) {
+  const identity = decisionIdentityKeys(input);
+  const fingerprint = String(input?.candidate?.versionFingerprint || '').trim();
+  if (input?.reason !== 'turbo_lab46_pending' ||
+      !identity.versionKey || fingerprint.length < 4 || fingerprint.length > 256) {
+    return identity.versionKey;
+  }
+  return identity.versionKey + '|recording:' + fingerprint;
+}
+
 function numericScore(value) {
   const score = Number(value);
   return Number.isInteger(score) && score >= 0 && score <= 100 ? score : null;
 }
 
+function boundedInt(value, low, high) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= low && number <= high ? number : null;
+}
+function boundedText(value, max = 512) {
+  const valueText = String(value ?? '').trim();
+  return valueText.length && valueText.length <= max ? valueText : null;
+}
+function archiveFields(row) {
+  const sourceNames = safeJson(row.source_names_json);
+  return {
+    releaseDate: row.release_date || null,
+    country: row.country || null,
+    sourceNames: Array.isArray(sourceNames) ? sourceNames : [],
+    creditDetails: Array.isArray(safeJson(row.credits_detail_json))
+      ? safeJson(row.credits_detail_json) : [],
+    sourceUrl: row.source_url || null,
+    versionFingerprint: row.recording_fingerprint || null,
+    legacyScore20: boundedInt(row.legacy_score_20, 1, 20),
+    musiclabScore100: boundedInt(row.musiclab_score_100, 0, 100),
+    coverRound: boundedInt(row.cover_round, 1, 1000000),
+    roundPosition: boundedInt(row.round_position, 1, 1000000),
+    workRelationConfirmed: Number(row.work_relation_confirmed || 0) === 1,
+  };
+}
 function normalizeDecisionStatus(value) {
   const status = String(value || '').trim().toUpperCase();
   return ['APPROVED', 'PROBABLE', 'UNCERTAIN', 'REJECTED'].includes(status) ? status : null;
@@ -684,7 +727,7 @@ async function buildMemoryPayload(input, env) {
 
   const queryLimit = Math.min(MAX_MEMORY_RESULTS * 2, Math.max(MAX_MEMORY_RESULTS, limit * 2));
   const rows = await env.DB.prepare(`
-    SELECT v.canonical_title, v.canonical_artist, v.category, v.language, v.year, v.album, v.cover_url, v.credits_json,
+    SELECT v.canonical_title, v.canonical_artist, v.category, v.language, v.year, v.album, v.cover_url, v.credits_json, v.credits_detail_json, v.release_date, v.country, v.source_names_json, v.source_url, v.recording_fingerprint, v.legacy_score_20, v.musiclab_score_100, v.cover_round, v.round_position, v.work_relation_confirmed, v.video_title,
            v.same_work_score, v.version_type_score, v.decision_status, v.ai_reason,
            v.user_verified, v.user_rejected,
            (SELECT pb.playback_id FROM playback_bindings pb WHERE pb.version_id=v.id ORDER BY pb.last_verified_at DESC LIMIT 1) AS playback_video_id,
@@ -711,7 +754,8 @@ async function buildMemoryPayload(input, env) {
     album: row.album,
     coverUrl: row.cover_url || null,
     playbackVideoId: row.playback_video_id || null,
-    playbackVideoTitle: row.playback_video_id ? row.canonical_title : null,
+    playbackVideoTitle: row.video_title || (row.playback_video_id ? row.canonical_title : null),
+    ...archiveFields(row),
     playbackVideoSource: row.playback_video_source || null,
     credits: safeJson(row.credits_json),
     sameWorkScore: numericScore(row.same_work_score),
@@ -784,6 +828,9 @@ export async function saveBrainDecision(db, input = {}) {
   }
 
   const keys = decisionIdentityKeys(input);
+  const versionKey = decisionRecordingVersionKey(input);
+  const lab46Fingerprint = versionKey !== keys.versionKey
+    ? String(candidate.versionFingerprint).trim() : '';
   let workId = String(input?.workId || '').trim();
   if (!workId && keys.workSearchKey) {
     const work = await db.prepare(
@@ -822,10 +869,24 @@ export async function saveBrainDecision(db, input = {}) {
   if (!workId) return { httpStatus: 500, body: { errore: 'opera non salvabile' } };
 
   let versionId = String(input?.versionId || '').trim();
-  if (!versionId && keys.versionKey) {
+  if (!versionId && lab46Fingerprint) {
+    // Reuse a previously saved identical recording before creating any new key.
+    const byFingerprint = await db.prepare(
+      'SELECT id FROM versions WHERE work_id=?1 AND recording_fingerprint=?2 LIMIT 1',
+    ).bind(workId, lab46Fingerprint).first();
+    versionId = String(byFingerprint?.id || '').trim();
+  }
+  const knownVideoId = String(candidate?.playbackVideoId || '').trim();
+  if (!versionId && lab46Fingerprint && /^[A-Za-z0-9_-]{11}$/.test(knownVideoId)) {
+    const byVideo = await db.prepare(
+      'SELECT v.id FROM versions v JOIN playback_bindings pb ON pb.version_id=v.id WHERE v.work_id=?1 AND pb.playback_id=?2 LIMIT 1',
+    ).bind(workId, knownVideoId).first();
+    versionId = String(byVideo?.id || '').trim();
+  }
+  if (!versionId && versionKey) {
     const exact = await db.prepare(
       'SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1',
-    ).bind(workId, keys.versionKey).first();
+    ).bind(workId, versionKey).first();
     versionId = String(exact?.id || '').trim();
   }
 
@@ -858,7 +919,7 @@ export async function saveBrainDecision(db, input = {}) {
     `).bind(
       proposedVersionId,
       workId,
-      versionStorageKey(candidate),
+      versionKey,
       candidateTitle,
       candidateArtist,
       category,
@@ -871,12 +932,53 @@ export async function saveBrainDecision(db, input = {}) {
     ).run();
     const stored = await db.prepare(
       'SELECT id FROM versions WHERE work_id=?1 AND version_key=?2 LIMIT 1',
-    ).bind(workId, versionStorageKey(candidate)).first();
+    ).bind(workId, versionKey).first();
     versionId = String(stored?.id || '').trim();
   }
   if (!versionId) return { httpStatus: 500, body: { errore: 'versione non salvabile' } };
 
   const coverUrl = String(candidate?.coverUrl || '').trim() || null;
+  // Additional confirmed metadata belongs to the recording and may be absent.
+  // Never derive work-identity confidence from the APPROVED editorial status.
+  const sourceNames = Array.isArray(candidate?.sourceNames)
+    ? candidate.sourceNames.filter(v => typeof v === 'string' && v.trim()).slice(0, 24)
+    : [];
+  await db.prepare(`
+    UPDATE versions SET
+      release_date=COALESCE(?1,release_date),
+      country=COALESCE(?2,country),
+      source_names_json=COALESCE(?3,source_names_json),
+      source_url=COALESCE(?4,source_url),
+      video_title=COALESCE(?5,video_title),
+      recording_fingerprint=COALESCE(?6,recording_fingerprint),
+      legacy_score_20=COALESCE(?7,legacy_score_20),
+      musiclab_score_100=COALESCE(?8,musiclab_score_100),
+      cover_round=COALESCE(?9,cover_round),
+      round_position=COALESCE(?10,round_position),
+      updated_at=CURRENT_TIMESTAMP
+    WHERE id=?11 AND work_id=?12
+  `).bind(
+    boundedText(candidate?.releaseDate,32), boundedText(candidate?.country,80),
+    sourceNames.length ? JSON.stringify(sourceNames) : null,
+    boundedText(candidate?.sourceUrl,2048), boundedText(candidate?.playbackVideoTitle,512),
+    boundedText(candidate?.versionFingerprint,256),
+    boundedInt(candidate?.legacyScore20,1,20), boundedInt(candidate?.musiclabScore100,0,100),
+    boundedInt(candidate?.coverRound,1,1000000), boundedInt(candidate?.roundPosition,1,1000000),
+    versionId,workId
+  ).run();
+  // Keep every documented credit, not just writer/composer categories.
+  const fullCredits = Array.isArray(candidate?.creditDetails)
+    ? candidate.creditDetails.filter(item =>
+      item && typeof item === 'object' &&
+      boundedText(item.name, 160) && boundedText(item.role, 160)).slice(0, 80)
+      .map(item => ({ name: String(item.name).trim(), role: String(item.role).trim() }))
+    : [];
+  if (fullCredits.length) {
+    await db.prepare(`
+      UPDATE versions SET credits_detail_json=?1, updated_at=CURRENT_TIMESTAMP
+      WHERE id=?2 AND work_id=?3
+    `).bind(JSON.stringify(fullCredits), versionId, workId).run();
+  }
   if (coverUrl) {
     await db.prepare(`
       UPDATE versions
@@ -1026,6 +1128,8 @@ async function archiveSearch(request, env) {
   if (!env.DB) return json({ stato: 'pronto', query: '', items: [] });
   const input = await request.json().catch(() => ({}));
   const query = String(input?.query || '').trim();
+  // Optional LAB46 Cover batch selector; 0 keeps legacy behavior.
+  const round = boundedInt(input?.round, 1, 1000000) ?? 0;
   const requestedLimit = Number(input?.limit);
   const limit = Number.isFinite(requestedLimit)
     ? Math.max(1, Math.min(Math.trunc(requestedLimit), 100))
@@ -1039,6 +1143,12 @@ async function archiveSearch(request, env) {
       v.language AS language,
       v.year AS year,
       v.album AS album,
+      v.release_date, v.country, v.source_names_json, v.source_url,
+      v.video_title, v.recording_fingerprint, v.legacy_score_20,
+      v.musiclab_score_100, v.cover_round, v.round_position,
+      v.work_relation_confirmed,
+      v.credits_json AS credits_json,
+      v.credits_detail_json AS credits_detail_json,
       v.cover_url AS cover_url,
       v.decision_status AS decision_status,
       v.same_work_score AS same_work_score,
@@ -1051,6 +1161,7 @@ async function archiveSearch(request, env) {
     JOIN works w ON w.id=v.work_id
     WHERE v.user_rejected=0
       AND (v.user_verified=1 OR v.decision_status='APPROVED')
+      AND (?4=0 OR v.cover_round=?4)
       AND (
         ?1='' OR
         v.canonical_title LIKE ?2 COLLATE NOCASE OR
@@ -1058,9 +1169,14 @@ async function archiveSearch(request, env) {
         w.canonical_title LIKE ?2 COLLATE NOCASE OR
         w.original_artist LIKE ?2 COLLATE NOCASE
       )
-    ORDER BY v.updated_at DESC, v.canonical_artist ASC
+    -- Stored positions take precedence over update timestamps: approving or
+    -- refreshing a record must not reshuffle previously completed rounds.
+    ORDER BY
+      CASE WHEN v.cover_round IS NULL OR v.round_position IS NULL THEN 1 ELSE 0 END ASC,
+      v.cover_round ASC, v.round_position ASC,
+      v.updated_at DESC, v.canonical_artist ASC
     LIMIT ?3
-  `).bind(query, like, limit).all();
+  `).bind(query, like, limit, round).all();
 
   return json({
     stato: 'pronto',
@@ -1074,7 +1190,9 @@ async function archiveSearch(request, env) {
       album: row.album,
       coverUrl: row.cover_url || null,
       playbackVideoId: row.playback_video_id || null,
-      playbackVideoTitle: row.playback_video_id ? row.title : null,
+      playbackVideoTitle: row.video_title || (row.playback_video_id ? row.title : null),
+      ...archiveFields(row),
+      credits: safeJson(row.credits_json),
       playbackVideoSource: row.playback_video_source || null,
       decisionStatus: row.decision_status,
       sameWorkScore: numericScore(row.same_work_score),
@@ -1110,6 +1228,24 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/plan') return brainPlan(request);
+    if (request.method === 'POST' && env?.LAB46_ISOLATED_STAGING === '1' &&
+      url.pathname !== '/api/v1/memory/discover' &&
+      url.pathname !== '/api/v1/archive/search') {
+      // All staged potentially mutating legacy/new endpoints share one gate.
+      // Do not allow /playback-binding, technical-destination or discover/expand
+      // to bypass the /brain/decision security policy.
+      const check = await stagingCloudWriteGate(request, env);
+      if (!check.allowed) return json({ stato: 'bloccato', motivo: check.reason }, check.status);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/v1/turbo/decision-sync') {
+      // LAB46 is an isolated staging prototype only. Never introduce a
+      // production write route merely by deploying this experimental code.
+      if (env?.LAB46_ISOLATED_STAGING !== '1') {
+        return json({ stato: 'bloccato', motivo: 'staging_only' }, 403);
+      }
+      // Authentication/sentinel checked by the shared early mutating gate.
+      return syncLab46Decision(request, env.DB, saveBrainDecision);
+    }
     if (request.method === 'POST' && url.pathname === '/api/v1/brain/decision') return saveDecision(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/playback/binding') return savePlayback(request, env);
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/discover') return memoryDiscovery(request, env);

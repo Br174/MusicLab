@@ -1,0 +1,13 @@
+{
+  "scope": "SINGLE_MUSICLAB_TURBO_LAB46_STAGING_WORKER_ONLY",
+  "owner_approved": true,
+  "workers_free_confirmed": true,
+  "permit_update_existing_staging_worker": true,
+  "permit_workers_dev_staging_https": true,
+  "production_writes_allowed": false,
+  "d1_migrations_allowed": false,
+  "paid_services_allowed": false,
+  "approved_source_head": "adf31c02c3e4f91149c5ce1645a0fe4e3730c356",
+  "confirmed_device_key_id": "NzGMqTSRrL3LgC5vzD2ECKqItuCFaUwCQ_UTanT1lXk",
+  "device_public_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtyjxnMvMQ0ZAiIVPmgoHSDT1tgR-N1aCKMTv6qc_7pVBs6H_8GEv5ToUCRHsVC6x5SvG964bh07ZPhtkZURPVg"
+}

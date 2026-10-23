@@ -585,6 +585,9 @@ internal fun DiscogsDirectVersionBrowser(
             else -> seed.manuallyApproved || rejectionKey(seed) in session.approvedKeys
         }
 
+    fun seedSourceNamesForCloud(names: List<String>): List<String> =
+        listOf("Archivio Cloud") + names.filter(String::isNotBlank).take(24)
+
     fun memoryCandidateToSeed(candidate: AiCoverCandidate): DiscogsVersionSeed {
         val score =
             when (candidate.brainStatus) {
@@ -613,14 +616,37 @@ internal fun DiscogsDirectVersionBrowser(
                 originalArtist = resolvedOriginalArtist,
             ).copy(
                 manuallyApproved = false, // LAB43: never import remote approval as proof
+                releaseDate = candidate.releaseDate ?: candidate.year?.toString(),
+                country = candidate.country,
+                sourceNames = (seedSourceNamesForCloud(candidate.sourceNames)).distinct(),
+                sourceUrl = candidate.sourceUrl,
+                musiclabScore100 = candidate.musiclabScore100,
+                coverRound = candidate.coverRound,
+                roundPosition = candidate.roundPosition,
+                credits = candidate.creditDetails.ifEmpty {
+                    buildList {
+                        candidate.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
+                        candidate.composers.forEach { add(DiscogsCredit(it, "Composer")) }
+                        candidate.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
+                        candidate.producers.forEach { add(DiscogsCredit(it, "Producer")) }
+                    }
+                },
             )
         val playbackId = candidate.playbackVideoId?.trim().orEmpty()
         return if (playbackId.isNotBlank()) {
-            DiscogsVersionSource.markVideoResolved(
-                seed = seed,
-                videoId = playbackId,
-                videoTitle = candidate.playbackVideoTitle?.takeIf(String::isNotBlank) ?: candidate.title,
-                source = candidate.playbackVideoSource?.takeIf(String::isNotBlank) ?: "Archivio Cloud",
+            // A remote ID is stored metadata, not a fresh proof that YouTube
+            // still serves this exact recording. The existing verifier may
+            // reuse its own local proof without falsely upgrading Cloud data.
+            seed.copy(
+                resolvedVideoId = playbackId,
+                resolvedVideoTitle = candidate.playbackVideoTitle?.takeIf(String::isNotBlank)
+                    ?: candidate.title,
+                resolvedVideoSource = candidate.playbackVideoSource?.takeIf(String::isNotBlank)
+                    ?: "Archivio Cloud",
+                videoResolutionChecked = false,
+                coverUrl = seed.coverUrl ?: "https://i.ytimg.com/vi/$playbackId/hqdefault.jpg",
+                confidenceReasons = (seed.confidenceReasons +
+                    "ID video Cloud da riconfermare prima della riproduzione").distinct(),
             )
         } else {
             seed
@@ -681,6 +707,14 @@ internal fun DiscogsDirectVersionBrowser(
             discogsMasterId = seed.masterId,
             discogsReleaseTitle = seed.releaseTitle.takeIf(String::isNotBlank),
             versionFingerprint = seed.fingerprint,
+            country = seed.country,
+            sourceNames = seed.sourceNames,
+            sourceUrl = seed.sourceUrl,
+            legacyScore20 = seed.confidenceScore,
+            musiclabScore100 = seed.musiclabScore100,
+            coverRound = seed.coverRound,
+            roundPosition = seed.roundPosition,
+            creditDetails = seed.credits,
         )
     }
 
@@ -2385,12 +2419,36 @@ internal fun DiscogsDirectVersionBrowser(
             rejectionKey(seed),
             approved,
         )
+        // LAB46: persist complete proposed Cloud metadata in a small atomic
+        // outbox while Turbo is read-only against shared D1. It is NOT a
+        // successful Cloud write; never clear until verified server ACK.
+        val editorialWorkKey = listOf(
+            TitleMeaningResolver.workAnchorTitle(title),
+            TitleMeaningResolver.canonical(lockedArtist.ifBlank { resolvedOriginalArtist }),
+        ).joinToString("|")
+        val outboxSaved = CoverCloudPendingOutbox.queue(
+            context, editorialWorkKey,
+            TitleMeaningResolver.workAnchorTitle(title),
+            lockedArtist.ifBlank { resolvedOriginalArtist },
+            seed, approved,
+        )
+        if (!outboxSaved) {
+            Toast.makeText(context,
+                "Decisione locale salvata; dati Cloud ancora da sincronizzare.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         if (approved) {
             session.rejectedKeys.remove(rejectionKey(seed))
             session.approvedKeys.add(rejectionKey(seed))
             replaceSeed(
                 seed.copy(
-                    confidenceScore = 20,
+                    // LAB46: in later rounds editorial APPROVA is a personal
+                    // preference, not a reason to raise musical evidence or
+                    // automatically promote this recording to the first 50.
+                    confidenceScore = if (seed.coverRound != null && seed.coverRound > 1) {
+                        seed.confidenceScore
+                    } else 20,
                     confidenceReasons =
                         (seed.confidenceReasons + "Versione approvata manualmente").distinct(),
                     manuallyApproved = true,
@@ -2401,7 +2459,9 @@ internal fun DiscogsDirectVersionBrowser(
             session.rejectedKeys.add(rejectionKey(seed))
             replaceSeed(
                 seed.copy(
-                    confidenceScore = 1,
+                    confidenceScore = if (seed.coverRound != null && seed.coverRound > 1) {
+                        seed.confidenceScore
+                    } else 1,
                     confidenceReasons =
                         (seed.confidenceReasons + "Versione disapprovata manualmente").distinct(),
                     manuallyApproved = false,
@@ -3081,7 +3141,30 @@ internal fun DiscogsDirectVersionBrowser(
                                         ),
                                         targetTitle = criteria.title,
                                         originalArtist = resolvedOriginalArtist,
-                                    )
+                                    ).let { seed ->
+                                        // LAB46: Cloud data is restored, never accepted as
+                                        // independent evidence of same-work identity.
+                                        seed.copy(
+                                            releaseDate = item.releaseDate ?: seed.releaseDate,
+                                            country = item.country ?: seed.country,
+                                            sourceNames = seedSourceNamesForCloud(item.sourceNames),
+                                            sourceUrl = item.sourceUrl,
+                                            musiclabScore100 = item.musiclabScore100,
+                                            coverRound = item.coverRound,
+                                            roundPosition = item.roundPosition,
+                                            // Remote playback is useful as a
+                                            // candidate, never as new local proof.
+                                            videoResolutionChecked = false,
+                                            credits = item.creditDetails.ifEmpty {
+                                                buildList {
+                                                    item.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
+                                                    item.composers.forEach { add(DiscogsCredit(it, "Composer")) }
+                                                    item.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
+                                                    item.producers.forEach { add(DiscogsCredit(it, "Producer")) }
+                                                }
+                                            },
+                                        )
+                                    }
                                 }
 
                             // Already-selected archive records are published
@@ -3096,6 +3179,7 @@ internal fun DiscogsDirectVersionBrowser(
                                             query = criteria.title,
                                             config = config,
                                             limit = 100,
+                                            coverRound = if (appendVerifiedRound) coverRoundNumber else 0,
                                         )
                                     }.orEmpty()
                                 }.orEmpty()
@@ -3107,7 +3191,16 @@ internal fun DiscogsDirectVersionBrowser(
                                     ?.key?.let { archiveOriginalArtist.set(it) }
                             val seeds = archiveSeeds(
                                 (listOfNotNull(selectedArchiveItem) + items).distinctBy {
-                                    listOf(it.title.lowercase(), it.artist.lowercase(), it.category.lowercase())
+                                    // Distinct live performances by the SAME singer can
+                                    // share a title. Deduplicate actual recordings,
+                                    // preferring exact playable-video identity.
+                                    it.playbackVideoId?.trim()?.takeIf(String::isNotBlank)?.let { id ->
+                                        "video:$id"
+                                    } ?: it.versionFingerprint?.trim()?.takeIf(String::isNotBlank)?.let { key ->
+                                        "recording:$key"
+                                    } ?: listOf(
+                                        it.title.lowercase(), it.artist.lowercase(), it.category.lowercase()
+                                    ).joinToString("|")
                                 }
                             )
                                 if (seeds.isNotEmpty()) supplementalSeeds.trySend(seeds)
@@ -3175,6 +3268,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         mode = mode,
                                         aiConfig = foreignScoutConfig,
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 5,
+                                        coverRound = if (appendVerifiedRound) coverRoundNumber else 1,
                                         // Always refresh the Turbo metadata sources. The
                                         // nested MB/SHS caches are bypassed on manual retry.
                                         forceRefresh = forceRefresh,
@@ -3444,6 +3538,24 @@ internal fun DiscogsDirectVersionBrowser(
                             publishedCoverSnapshots = publishedCoverSnapshots + secondBlock
                             session.publishedCoverSnapshots = publishedCoverSnapshots
                         }
+                        // LAB46: preserve LAB45's first-50 order and /20 rating,
+                        // but remember original positions for ALL rounds, including
+                        // round one. Only later rounds gain distinct /100 points.
+                        val originalCount = publishedOriginalSnapshots.size
+                        val numbered = (publishedOriginalSnapshots + publishedCoverSnapshots)
+                            .mapIndexed { index, seed ->
+                                seed.copy(
+                                    musiclabScore100 = if (coverRoundNumber >= 2) {
+                                        seed.musiclabScore100 ?: CoverQualityScore100.score(seed)
+                                    } else seed.musiclabScore100,
+                                    coverRound = coverRoundNumber,
+                                    roundPosition = previousRoundRows.size + index + 1,
+                                )
+                            }
+                        publishedOriginalSnapshots = numbered.take(originalCount)
+                        publishedCoverSnapshots = numbered.drop(originalCount)
+                        session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                        session.publishedCoverSnapshots = publishedCoverSnapshots
                         val secondSealedAt = SystemClock.elapsedRealtime()
                         (publishedOriginalSnapshots + publishedCoverSnapshots).forEachIndexed { index, seed ->
                             session.turboPosterPublishedAtMs.putIfAbsent(seed.fingerprint, secondSealedAt)
@@ -3594,6 +3706,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 query = criteria.title,
                                 config = config,
                                 limit = 100,
+                                coverRound = if (appendVerifiedRound) coverRoundNumber else 0,
                             )
                         }
                     }.orEmpty()
@@ -6133,7 +6246,12 @@ private fun DiscogsVersionCard(
                     )
                     if (showConfidence) {
                         Text(
-                            "★  " + seed.confidenceScore + "/20",
+                            "★  " + (if (seed.coverRound != null && seed.coverRound > 1 &&
+                                seed.musiclabScore100 != null) {
+                                "${seed.musiclabScore100}/100"
+                            } else {
+                                "${seed.confidenceScore}/20"
+                            }),
                             color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,

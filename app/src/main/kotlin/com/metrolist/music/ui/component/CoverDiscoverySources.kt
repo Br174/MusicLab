@@ -1,6 +1,8 @@
 package com.metrolist.music.ui.component
 
 import com.metrolist.music.BuildConfig
+import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.discogs.DiscogsCredit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -9,6 +11,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -106,6 +109,8 @@ internal object CoverDiscoverySources {
         // LAB22: only explicit manual taps bypass old completed-result cache.
         // Automatic initial searches continue to reuse the existing cache.
         forceRefresh: Boolean = false,
+        // LAB46: targeted queries only on later manual Cover rounds.
+        coverRound: Int = 1,
         // LAB03: source-complete callback remains useful when another provider
         // reaches its deadline. No individual lane gates all other evidence.
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
@@ -193,6 +198,12 @@ internal object CoverDiscoverySources {
             // AI Scout stays read-only disabled on Turbo: no remote editorial writes.
             reportResult(sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) })
         }
+        val deepRound = if (mode == DiscogsDirectMode.COVER && coverRound >= 2 &&
+            BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
+            async(Dispatchers.IO) {
+                reportResult(sourceLane { discoverYouTubeCoverRound(cleanTitle, coverRound) })
+            }
+        } else null
 
         val resolvedMusicBrainz = musicBrainzLookup.await()
         val musicBrainz = discoverMusicBrainz(cleanTitle, mode, resolvedMusicBrainz)
@@ -205,7 +216,7 @@ internal object CoverDiscoverySources {
                 lrcLib.await(),
                 spotify.await(),
                 ai.await(),
-            )
+            ) + listOfNotNull(deepRound?.await())
 
         val workCredits =
             resolvedMusicBrainz.work
@@ -885,6 +896,51 @@ internal object CoverDiscoverySources {
                 note = if (candidates.isNotEmpty()) "originali collegati" else "nessun hint / non autenticato",
             )
         }
+    }
+
+    // LAB46: YouTube Music candidate discovery only, never certification.
+    // The unchanged same-work and playback hard matcher gate publication.
+    private suspend fun discoverYouTubeCoverRound(
+        title: String,
+        round: Int,
+    ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> = coroutineScope {
+        val queries = CoverRoundSearchPlan.queries(title, round)
+        val results = queries.map { plan ->
+            async(Dispatchers.IO) {
+                withTimeoutOrNull(5_000L) {
+                    YouTube.search(plan.text, YouTube.SearchFilter.FILTER_VIDEO)
+                        .getOrNull()?.items.orEmpty()
+                        .filterIsInstance<SongItem>()
+                        .take(40)
+                        .mapNotNull { item ->
+                            val artist = item.artists.firstOrNull()?.name?.trim().orEmpty()
+                            val id = item.id.trim()
+                            if (!sameBaseTitle(title, item.title) ||
+                                artist.isBlank() ||
+                                !id.matches(Regex("[A-Za-z0-9_-]{11}"))) return@mapNotNull null
+                            CoverSourceCandidate(
+                                title = item.title,
+                                artist = artist,
+                                sources = listOf("YouTube discovery round $round"),
+                                coverUrl = item.thumbnail,
+                                category = plan.categoryHint,
+                                sourceUrl = item.shareLink,
+                                playbackVideoId = id,
+                                playbackVideoTitle = item.title,
+                                playbackVideoSource = "YouTube candidate (unverified)",
+                                workRelationConfirmed = false,
+                                evidenceScore = 1,
+                            )
+                        }
+                }.orEmpty()
+            }
+        }.awaitAll().flatten().distinctBy {
+            it.playbackVideoId ?: "${it.title}|${it.artist}"
+        }
+        results to CoverSourceDiagnostic(
+            "YouTube/Video", true, results.size,
+            "Tornata $round: fonti mirate, identità musicale non presunta",
+        )
     }
 
     private suspend fun discoverCoverInfo(

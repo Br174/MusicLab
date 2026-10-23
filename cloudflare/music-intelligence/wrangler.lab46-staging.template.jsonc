@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "musiclab-turbo-lab46-isolated-staging",
+  "main": "src/worker-v20-runtime.js",
+  "compatibility_date": "2026-09-28",
+  "vars": {
+    "ENGINE_VERSION": "1.5.0-lab46-staging",
+    "LAB46_ISOLATED_STAGING": "1",
+    "LAB46_ISOLATED_DB_NAME": "musiclab-turbo-lab46-staging",
+    "MAX_DISCOVERY_RESULTS": "150"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "musiclab-turbo-lab46-staging",
+      "database_id": "REPLACE_WITH_REAL_ISOLATED_STAGING_D1_ID"
+    }
+  ]
+}

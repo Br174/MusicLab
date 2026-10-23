@@ -2,6 +2,7 @@ package com.metrolist.music.ui.component
 
 import android.content.Context
 import android.util.AtomicFile
+import com.metrolist.music.discogs.DiscogsCredit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -49,11 +50,20 @@ internal object CoverRoundStorage {
         put("formats", JSONArray(seed.formats))
         put("formatDescriptions", JSONArray(seed.formatDescriptions))
         put("labels", JSONArray(seed.labels))
+        // LAB46: credits are light textual metadata and must survive Android restart.
+        put("credits", JSONArray().also { rows ->
+            seed.credits.take(40).forEach { credit ->
+                rows.put(JSONObject().put("name", credit.name).put("role", credit.role))
+            }
+        })
         put("coverUrl", seed.coverUrl)
         put("durationSeconds", seed.durationSeconds)
         put("fingerprint", seed.fingerprint)
         put("language", seed.language)
         put("confidenceScore", seed.confidenceScore)
+        put("musiclabScore100", seed.musiclabScore100)
+        put("coverRound", seed.coverRound)
+        put("roundPosition", seed.roundPosition)
         put("confidenceReasons", JSONArray(seed.confidenceReasons))
         put("resolvedVideoId", seed.resolvedVideoId)
         put("resolvedVideoTitle", seed.resolvedVideoTitle)
@@ -82,11 +92,23 @@ internal object CoverRoundStorage {
             formats = strings(json.optJSONArray("formats")),
             formatDescriptions = strings(json.optJSONArray("formatDescriptions")),
             labels = strings(json.optJSONArray("labels")),
+            credits = json.optJSONArray("credits")?.let { rows ->
+                (0 until rows.length()).mapNotNull { index ->
+                    val credit = rows.optJSONObject(index) ?: return@mapNotNull null
+                    val name = credit.optString("name").trim()
+                    val role = credit.optString("role").trim()
+                    if (name.isBlank() || role.isBlank()) null
+                    else DiscogsCredit(name = name, role = role)
+                }
+            }.orEmpty(),
             coverUrl = text(json, "coverUrl"),
             durationSeconds = int(json, "durationSeconds"),
             fingerprint = json.getString("fingerprint"),
             language = text(json, "language"),
             confidenceScore = json.optInt("confidenceScore", 1).coerceIn(1, 20),
+            musiclabScore100 = int(json, "musiclabScore100")?.takeIf { it in 0..100 },
+            coverRound = int(json, "coverRound")?.takeIf { it >= 1 },
+            roundPosition = int(json, "roundPosition")?.takeIf { it >= 1 },
             confidenceReasons = strings(json.optJSONArray("confidenceReasons")),
             resolvedVideoId = text(json, "resolvedVideoId"),
             resolvedVideoTitle = text(json, "resolvedVideoTitle"),

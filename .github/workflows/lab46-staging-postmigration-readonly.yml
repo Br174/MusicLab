@@ -1,0 +1,123 @@
+name: LAB46 isolated staging post-migration schema audit (read-only)
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab46-cloud-behavior-progressive-family-02
+    paths:
+      - .github/workflows/lab46-staging-postmigration-readonly.yml
+      - cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_once.sql
+      - cloudflare/music-intelligence/lab46-staging-only/worker-entry.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.test.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/reused-sync-signed-e2e.test.mjs
+      - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingDeviceSigner.kt
+      - app/src/test/kotlin/com/metrolist/music/ui/component/Lab46StagingSigningTest.kt
+      - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingSignedTransport.kt
+      - app/src/test/kotlin/com/metrolist/music/ui/component/Lab46SignedTransportSafetyTest.kt
+      - cloudflare/music-intelligence/lab46-staging-only/wrangler.staging.verified.jsonc
+      - cloudflare/music-intelligence/lab46-staging-only/wrangler.staging.https-activation.jsonc
+      - cloudflare/music-intelligence/lab46-staging-only/activation-package.test.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/worker_remote_readonly_inventory.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/activation_one_shot.sh
+      - .github/workflows/lab46-staging-one-shot-deploy-on-owner-approval.yml
+      - app/src/main/AndroidManifest.xml
+      - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46OwnerPairingActivity.kt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab46-staging-postmigration-readonly
+  cancel-in-progress: false
+
+jobs:
+  exact-schema-inspect-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.MUSICLAB_LAB46_CF_PREFLIGHT_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: '5781b597517f6f7fe25751170a99b9ab'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify branch, pristine checkout and exact SQL source
+        run: |
+          test "$(git branch --show-current)" = "uab-build/musiclab-turbo-lab46-cloud-behavior-progressive-family-02" || test "$GITHUB_REF_NAME" = "uab-build/musiclab-turbo-lab46-cloud-behavior-progressive-family-02"
+          git diff --quiet
+          test "$(git hash-object cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_once.sql)" = "f847c5fe17d7b2280b0f64b90edc01a52f795526"
+          node --check cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
+      - name: Audit staging-only private Worker ingress and UUID binding (local, no deploy)
+        run: |
+          node --check cloudflare/music-intelligence/lab46-staging-only/worker-entry.mjs
+          node --check cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.mjs
+          node --test cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.test.mjs cloudflare/music-intelligence/lab46-staging-only/reused-sync-signed-e2e.test.mjs cloudflare/music-intelligence/test/turbo-lab46-sync-receipt.test.mjs cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs cloudflare/music-intelligence/lab46-staging-only/activation-package.test.mjs
+      - name: Lint parked one-shot deployment script (no execution and no Cloudflare writes)
+        run: |
+          set -euo pipefail
+          bash -n cloudflare/music-intelligence/lab46-staging-only/activation_one_shot.sh
+          # Before approval, trigger must be absent; after owner approval, a
+          # strictly scoped trigger is legitimate and does NOT activate this job.
+          node --input-type=module <<'JS'
+          import {existsSync,readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const p='cloudflare/music-intelligence/lab46-staging-only/activation-trigger-approved.json';
+          if(existsSync(p)){
+            const x=JSON.parse(readFileSync(p,'utf8'));
+            const expected={scope:'SINGLE_MUSICLAB_TURBO_LAB46_STAGING_WORKER_ONLY',
+              owner_approved:true,workers_free_confirmed:true,
+              permit_update_existing_staging_worker:true,permit_workers_dev_staging_https:true,
+              production_writes_allowed:false,d1_migrations_allowed:false,
+              paid_services_allowed:false};
+            for(const [k,v] of Object.entries(expected))
+              if(x[k]!==v)throw Error('BAD_STAGING_OWNER_TRIGGER_'+k);
+            const id=createHash('sha256').update(Buffer.from(x.device_public_spki||'','base64url')).digest('base64url');
+            if(id!=='NzGMqTSRrL3LgC5vzD2ECKqItuCFaUwCQ_UTanT1lXk'||x.confirmed_device_key_id!==id)
+              throw Error('BAD_STAGING_OWNER_PUBLIC_KEY');
+            if(!/^[0-9a-f]{40}$/.test(x.approved_source_head||''))throw Error('BAD_STAGING_OWNER_SHA');
+            const allowed=new Set([...Object.keys(expected),
+              'approved_source_head','confirmed_device_key_id','device_public_spki']);
+            if(Object.keys(x).some(k=>!allowed.has(k)))throw Error('UNEXPECTED_TRIGGER_FIELD');
+            console.log('EXISTING_OWNER_APPROVAL_SCOPED_CHECKED_READ_ONLY');
+          }else console.log('OWNER_TRIGGER_NOT_YET_CREATED');
+          JS
+      - name: Bundle staging-only Worker locally with Wrangler dry-run (no network deploy)
+        env:
+          CLOUDFLARE_API_TOKEN: ''
+          CLOUDFLARE_ACCOUNT_ID: ''
+        run: |
+          set -euo pipefail
+          cd cloudflare/music-intelligence
+          npx --yes wrangler@4 deploy --dry-run --config lab46-staging-only/wrangler.staging.verified.jsonc --outdir "$RUNNER_TEMP/lab46-worker-local-bundle"
+          npx --yes wrangler@4 deploy --dry-run --config lab46-staging-only/wrangler.staging.https-activation.jsonc --outdir "$RUNNER_TEMP/lab46-worker-https-local-bundle"
+      - name: Verify remotely applied LAB46 schema using exact D1 READ token
+        run: node cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
+      - name: Inventory staging Worker via GET only (non-blocking if Workers Read missing)
+        run: node cloudflare/music-intelligence/lab46-staging-only/worker_remote_readonly_inventory.mjs
+      - name: READ_ONLY_SCOPED_WORKER_PROBE using existing GitHub secret (no deploy)
+        env:
+          LAB46_DEPLOY_TOKEN: ${{ secrets.MUSICLAB_LAB46_CF_STAGING_DEPLOY_TOKEN }}
+        run: |
+          node --input-type=module <<'JS'
+          const token=process.env.LAB46_DEPLOY_TOKEN||'';
+          const account='5781b597517f6f7fe25751170a99b9ab';
+          const worker='musiclab-turbo-lab46-isolated-staging';
+          if(token.length<20||process.env.CLOUDFLARE_ACCOUNT_ID!==account)
+            throw Error('DEPLOY_TOKEN_MISSING_OR_ACCOUNT_MISMATCH');
+          const url='https://api.cloudflare.com/client/v4/accounts/'+account+'/workers/scripts/'+worker;
+          const get=path=>fetch(url+path,{method:'GET',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
+          const item=await get('');
+          if(item.status!==200)throw Error('SCOPED_WORKER_GET_'+item.status);
+          const sub=await get('/subdomain');
+          if(sub.status!==200)throw Error('SCOPED_WORKER_SUBDOMAIN_GET_'+sub.status);
+          const json=await sub.json();
+          if(json.success!==true||typeof json.result?.enabled!=='boolean')throw Error('SCOPED_WORKER_SUBDOMAIN_INVALID');
+          console.log('STAGING_SCOPED_WORKER_GET_OK_AND_SCRIPT_SUBDOMAIN_GET_OK');
+          console.log('STAGING_SUBDOMAIN_ENABLED='+json.result.enabled);
+          console.log('ONLY_GET_NO_WRITES_NO_DEPLOYS_NO_SECRET_OUTPUT');
+          JS

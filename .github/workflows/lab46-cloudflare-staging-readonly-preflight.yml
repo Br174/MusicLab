@@ -1,0 +1,59 @@
+name: LAB46 Cloudflare isolated staging preflight (read-only)
+
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab46-cloud-behavior-progressive-family-02
+    paths:
+      - .github/workflows/lab46-cloudflare-staging-readonly-preflight.yml
+      - cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/staging_preparation_guard.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/worker_binding_readiness.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/worker_memory_schema_local_smoke.py
+      - cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_once.sql
+      - cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_verify.py
+      - cloudflare/music-intelligence/lab46-staging-only/staging_schema_readonly_preflight.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/bootstrap.sql
+      - cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab46-cloudflare-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  inspect-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.MUSICLAB_LAB46_CF_PREFLIGHT_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: '5781b597517f6f7fe25751170a99b9ab'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require identical LAB46 commit source
+        run: |
+          git diff --quiet
+          node --check cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
+      - name: Verify isolated staging configuration (local only, 1 positive + 5 negative)
+        run: |
+          node --check cloudflare/music-intelligence/lab46-staging-only/staging_preparation_guard.mjs
+          node cloudflare/music-intelligence/lab46-staging-only/staging_preparation_guard.mjs
+      - name: Verify pinned staging Worker D1 binding (local only, 1 positive + 6 negative)
+        run: |
+          node --check cloudflare/music-intelligence/lab46-staging-only/worker_binding_readiness.mjs
+          node cloudflare/music-intelligence/lab46-staging-only/worker_binding_readiness.mjs
+      - name: Verify future LAB46 isolated memory schema in SQLite memory only (no remote SQL)
+        run: python3 cloudflare/music-intelligence/lab46-staging-only/worker_memory_schema_local_smoke.py
+      - name: Verify exact additive migration SQL in memory (never remote)
+        run: python3 cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_verify.py
+      - name: Read-only Cloudflare account, D1 inventory, free-plan evidence
+        run: node cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
+      # The pre-migration, two-table-only remote gate is archived after the
+      # authorized migration. The independent post-migration SELECT-only
+      # workflow now verifies the exact deployed 15-table staging schema.

@@ -4,7 +4,13 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+// org.json is an Android platform API. JVM tests require Robolectric's
+// actual Android implementation, never a production org.json jar that would
+// conflict with the device runtime.
+@RunWith(RobolectricTestRunner::class)
 class CoverEvidenceRecoveryTest {
     @Test fun shsCommonNameIsRecognizedAsPerformer() {
         val item = JSONObject(
