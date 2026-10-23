@@ -90,6 +90,10 @@ test('one-shot staging activation REQUIRES owner-created existing Worker, never 
   assert.match(installer,/git diff --name-only HEAD\^ HEAD/);
   assert.match(installer,/SOURCE_SHA_CHANGED_AFTER_APPROVAL/);
   assert.match(installer,/PUBLIC_SPKI_FINGERPRINT_NOT_CONFIRMED/);
+  assert.match(installer,/const spki=approval\.device_public_spki\|\|'';/);
+  assert.match(installer,/EXTRA_APPROVAL_FIELDS_OR_POSSIBLE_SECRET_REJECTED/);
+  assert.match(installer,/LAB46_DEVICE_PUBLIC_SPKI=\$\(node -e/);
+  assert.doesNotMatch(workflow,/vars\.MUSICLAB_LAB46_DEVICE_PUBLIC_SPKI/);
   assert.match(installer,/staging_schema_postmigration_readonly\.mjs/);
   assert.match(installer,/ROLLBACK_NEEDED=yes/);
   assert.match(workflow,/activation-trigger-approved\.json/);
