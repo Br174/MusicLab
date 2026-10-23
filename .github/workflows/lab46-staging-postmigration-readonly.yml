@@ -75,3 +75,25 @@ jobs:
         run: node cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
       - name: Inventory staging Worker via GET only (non-blocking if Workers Read missing)
         run: node cloudflare/music-intelligence/lab46-staging-only/worker_remote_readonly_inventory.mjs
+      - name: READ_ONLY_SCOPED_WORKER_PROBE using existing GitHub secret (no deploy)
+        env:
+          LAB46_DEPLOY_TOKEN: ${{ secrets.MUSICLAB_LAB46_CF_STAGING_DEPLOY_TOKEN }}
+        run: |
+          node --input-type=module <<'JS'
+          const token=process.env.LAB46_DEPLOY_TOKEN||'';
+          const account='5781b597517f6f7fe25751170a99b9ab';
+          const worker='musiclab-turbo-lab46-isolated-staging';
+          if(token.length<20||process.env.CLOUDFLARE_ACCOUNT_ID!==account)
+            throw Error('DEPLOY_TOKEN_MISSING_OR_ACCOUNT_MISMATCH');
+          const url='https://api.cloudflare.com/client/v4/accounts/'+account+'/workers/scripts/'+worker;
+          const get=path=>fetch(url+path,{method:'GET',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
+          const item=await get('');
+          if(item.status!==200)throw Error('SCOPED_WORKER_GET_'+item.status);
+          const sub=await get('/subdomain');
+          if(sub.status!==200)throw Error('SCOPED_WORKER_SUBDOMAIN_GET_'+sub.status);
+          const json=await sub.json();
+          if(json.success!==true||typeof json.result?.enabled!=='boolean')throw Error('SCOPED_WORKER_SUBDOMAIN_INVALID');
+          console.log('STAGING_SCOPED_WORKER_GET_OK_AND_SCRIPT_SUBDOMAIN_GET_OK');
+          console.log('STAGING_SUBDOMAIN_ENABLED='+json.result.enabled);
+          console.log('ONLY_GET_NO_WRITES_NO_DEPLOYS_NO_SECRET_OUTPUT');
+          JS
