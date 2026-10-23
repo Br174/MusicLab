@@ -181,3 +181,19 @@ test('pending/uncertain remote receipt preserves pending Android revision, not f
  assert.equal((await res.json()).reason,'pending_requires_recovery');
  assert.equal(h.persistCount,1);
 });
+
+
+test('owner-signed empty Android pairing probe yields 422 AFTER auth, with ZERO receipt writes',async()=>{
+ const h=harness();
+ const probe=await signed({});
+ assert.equal(probe.headers.has('authorization'),false);
+ const result=await h.worker.fetch(probe,h.config,{});
+ assert.equal(result.status,422);
+ const body=await result.json();
+ assert.deepEqual(body,{stato:'rifiutato',reason:'invalid_decision_identity'});
+ assert.equal(h.forwardedAuth,'Bearer '+privileged,'server injected privileged token only after owner signature');
+ assert.equal(h.persistCount,0,'no musical save');
+ assert.equal(h.db.receipts.size,0,'no receipt rows');
+ assert.equal(h.db.queries.length,1,'only isolated staging sentinel SELECT permitted');
+ assert.match(h.db.queries[0],/lab46_staging_sentinel/);
+});
