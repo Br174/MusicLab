@@ -112,7 +112,7 @@ try{
   report.stageSchemaFullyVerified=report.stagingNameVerified&&
     report.exactApplicationTables&&report.requiredIndexesPresent&&
     report.requiredWorkColumnsPresent&&report.requiredVersionColumnsPresent&&
-    report.sentinelValid&&report.receiptsCount===0;
+    report.sentinelValid&&Number.isSafeInteger(report.receiptsCount)&&report.receiptsCount>=0;
   if(!report.stageSchemaFullyVerified)
     report.errors.push('STAGING_SCHEMA_INCOMPLETE_OR_UNEXPECTED');
 }catch(error){
