@@ -50,6 +50,26 @@ internal object Lab46StagingDeviceSigner {
         return KeyPair(publicKey, privateKey)
     }
 
+    /**
+     * Read-only lookup for the native manual-sync screen.
+     * Never generates a key, replaces the paired one or exports private data.
+     */
+    internal suspend fun existingEnrollmentOrNull(): Enrollment? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                if (!store.containsAlias(ALIAS)) return@runCatching null
+                val publicSpki = store.getCertificate(ALIAS)?.publicKey?.encoded
+                    ?: return@runCatching null
+                Enrollment(
+                    publicSpkiBase64Url = Lab46SignatureWireFormat.base64Url(publicSpki),
+                    keyId = Lab46SignatureWireFormat.base64Url(
+                        MessageDigest.getInstance("SHA-256").digest(publicSpki)
+                    ),
+                )
+            }.getOrNull()
+        }
+
     suspend fun enrollment(): Enrollment = withContext(Dispatchers.IO) {
         val spki = pair().public.encoded
         Enrollment(
