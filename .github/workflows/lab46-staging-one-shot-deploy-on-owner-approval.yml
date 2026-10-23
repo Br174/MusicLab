@@ -24,7 +24,6 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: '5781b597517f6f7fe25751170a99b9ab'
       LAB46_STAGING_CF_DEPLOY_TOKEN: ${{ secrets.MUSICLAB_LAB46_CF_STAGING_DEPLOY_TOKEN }}
       LAB46_D1_READ_TOKEN: ${{ secrets.MUSICLAB_LAB46_CF_PREFLIGHT_TOKEN }}
-      LAB46_DEVICE_PUBLIC_SPKI: ${{ vars.MUSICLAB_LAB46_DEVICE_PUBLIC_SPKI }}
       WRANGLER_SEND_METRICS: 'false'
     steps:
       - name: Checkout EXACT one-file approval commit from protected LAB46 scope
