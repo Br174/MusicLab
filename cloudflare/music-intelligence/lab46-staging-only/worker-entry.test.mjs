@@ -57,8 +57,9 @@ function validateConfig(c){
   assert.equal(c.d1_databases[0].database_id,STAGING_UUID);
   assert.notEqual(c.d1_databases[0].database_id,PRODUCTION_UUID);
   assert.equal(prod.d1_databases[0].database_id,PRODUCTION_UUID);
-  assert.deepEqual(c.secrets?.required,['LAB46_WRITE_TOKEN']);
+  assert.deepEqual(c.secrets?.required,['LAB46_WRITE_TOKEN','LAB46_DEVICE_PUBLIC_SPKI']);
   assert.ok(!('LAB46_WRITE_TOKEN' in c.vars),'no bearer token in tracked vars');
+  assert.ok(!('LAB46_DEVICE_PUBLIC_SPKI' in c.vars),'no Android key enrolled through code');
   assert.ok(!('GEMINI_API_KEY' in c.vars),'no billable Gemini key');
   assert.ok(!('CLOUDFLARE_API_TOKEN' in c.vars),'no account control-plane credential');
 }
@@ -72,6 +73,7 @@ test('wrong DB, public route, plaintext token or missing secret rejected by conf
     c=>{c.workers_dev=true;},
     c=>{c.vars.LAB46_WRITE_TOKEN=TEST_TOKEN;},
     c=>{c.secrets.required=[];},
+    c=>{c.vars.LAB46_DEVICE_PUBLIC_SPKI='fake-client-key';},
     c=>{c.routes=[{pattern:'*',zone_name:'example.test'}];},
     c=>{c.vars.LAB46_ISOLATED_STAGING='0';},
     c=>{c.d1_databases.push({...c.d1_databases[0]});}
