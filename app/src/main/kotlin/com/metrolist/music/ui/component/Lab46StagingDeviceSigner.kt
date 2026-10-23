@@ -125,8 +125,8 @@ internal object Lab46SignatureWireFormat {
             val start = pos
             val first = der[start].toInt() and 0xff
             val next = if (length > 1) der[start + 1].toInt() and 0xff else 0
-            require(first and 0x80 == 0) // no negative integer
-            require(!(first == 0 && length > 1 && next and 0x80 == 0))
+            require((first and 0x80) == 0) // no negative integer
+            require(!(first == 0 && length > 1 && (next and 0x80) == 0))
             val skip = if (first == 0 && length > 1) 1 else 0
             val usable = length - skip
             require(usable in 1..32)
