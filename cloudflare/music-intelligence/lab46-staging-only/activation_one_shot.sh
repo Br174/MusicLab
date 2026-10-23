@@ -89,11 +89,16 @@ http=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' 
  -H "Authorization: Bearer $LAB46_STAGING_CF_DEPLOY_TOKEN" \
  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$WORKER")
 [[ "$http" == 200 ]] || { echo "STAGING_WORKER_NOT_PROVEN_EXISTING_$http"; exit 16; }
-subdomain=$(curl --fail-with-body --silent --show-error \
+# The owners' verified workers.dev account name is pinned from their dashboard.
+# Do not request account-wide /workers/subdomain: a single-Worker Editor token
+# correctly lacks that permission. Instead verify the scoped script subdomain
+# using the documented per-Worker GET, which is allowed for Individual Workers.
+subdomain='brunoverlezza'
+script_subdomain=$(curl --fail --silent --show-error \
  -H "Authorization: Bearer $LAB46_STAGING_CF_DEPLOY_TOKEN" \
- "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/subdomain" \
- | node -e 'let b="";process.stdin.on("data",x=>b+=x);process.stdin.on("end",()=>{try{const j=JSON.parse(b);const s=j?.result?.subdomain;if(!j.success||typeof s!=="string"||!/^[a-z0-9-]{3,100}$/.test(s))process.exit(2);process.stdout.write(s)}catch{process.exit(2)}})')
-[[ -n "$subdomain" ]] || exit 17
+ "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$WORKER/subdomain" \
+ | node -e 'let b="";process.stdin.on("data",x=>b+=x);process.stdin.on("end",()=>{try{const j=JSON.parse(b);if(!j.success||typeof j?.result?.enabled!=="boolean")process.exit(2);process.stdout.write("VERIFIED")}catch{process.exit(2)}})')
+[[ "$script_subdomain" == VERIFIED && "$subdomain" == brunoverlezza ]] || exit 17
 
 cd "$ROOT"
 # These two steps NEVER deploy or write secrets.
