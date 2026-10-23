@@ -60,6 +60,13 @@ class CoverRecordingMergeRegressionTest {
         ).size)
     }
 
+    @Test fun nearbyReleaseYearsWithDifferentDurationsStaySeparate() {
+        assertEquals(2, DiscogsVersionSource.dedupeVersions(
+            listOf(seed(year = 2008, duration = 221), seed(
+                year = 2010, duration = 325, fingerprint = "different-studio"))
+        ).size)
+    }
+
     @Test fun remasterDoesNotEraseOriginal() {
         val original = seed()
         val remaster = seed(fingerprint = "remaster", releaseTitle = "Album Remastered")
