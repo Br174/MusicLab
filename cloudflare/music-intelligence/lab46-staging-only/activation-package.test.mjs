@@ -51,6 +51,12 @@ test('staging pairing link is exact and separate, existing app UI never auto-pai
   assert.match(ui,/intent\?\.data\?\.toString\(\) != "musiclabturbo:\/\/lab46\/pair"/);
   assert.match(ui,/Lab46StagingDeviceSigner\.enrollment\(\)/);
   assert.match(ui,/Intent\.ACTION_SEND/);
+  assert.match(ui,/probePairingNoWrite\(/);
+  assert.match(ui,/probeButton\.isEnabled=true/);
+  assert.match(ui,/Verifica staging: nessuna scrittura Cloud/);
+  assert.match(transport,/verifiedPairingProbe\(/);
+  assert.match(transport,/"\{\}"\.toByteArray\(Charsets\.UTF_8\)/);
+  assert.match(transport,/PairingProbeResult\.VERIFIED_NO_WRITE/);
   assert.match(ui,/Genera \/ recupera chiave pubblica sul telefono/);
   for(const source of [ui,transport]){
     assert.doesNotMatch(source,/Bearer\s|LAB46_WRITE_TOKEN|CLOUDFLARE_API_TOKEN|GEMINI_API_KEY/);
