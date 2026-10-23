@@ -12,6 +12,7 @@ on:
       - cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs
       - cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.mjs
       - cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.test.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/reused-sync-signed-e2e.test.mjs
       - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingDeviceSigner.kt
       - app/src/test/kotlin/com/metrolist/music/ui/component/Lab46StagingSigningTest.kt
       - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingSignedTransport.kt
@@ -48,7 +49,7 @@ jobs:
         run: |
           node --check cloudflare/music-intelligence/lab46-staging-only/worker-entry.mjs
           node --check cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.mjs
-          node --test cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.test.mjs
+          node --test cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.test.mjs cloudflare/music-intelligence/lab46-staging-only/reused-sync-signed-e2e.test.mjs cloudflare/music-intelligence/test/turbo-lab46-sync-receipt.test.mjs cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs
       - name: Bundle staging-only Worker locally with Wrangler dry-run (no network deploy)
         env:
           CLOUDFLARE_API_TOKEN: ''
