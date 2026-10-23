@@ -170,4 +170,67 @@ internal object Lab46StagingSignedTransport {
         }
     }
 
+
+    /**
+     * An explicitly selected *existing* outbox revision only. A fresh signed
+     * replay verifies remote idempotency, then the exact selected local row
+     * is acknowledged. Never create decisions or silently switch revisions.
+     */
+    internal suspend fun sendOneSelectedPending(
+        context: Context,
+        choice: CoverCloudPendingOutbox.PendingChoice,
+        binding: EnrollmentBinding,
+    ): Result = withContext(Dispatchers.IO) {
+        if (!binding.ownerConfirmed) return@withContext Result.NOT_PAIRED
+        val origin = safeOrigin(binding.explicitlyApprovedOrigin)
+            ?: return@withContext Result.BAD_ENDPOINT
+        // Owner-authorized LAB46 Worker only, never an arbitrary HTTPS sink.
+        if (origin != "https://musiclab-turbo-lab46-isolated-staging.brunoverlezza.workers.dev")
+            return@withContext Result.BAD_ENDPOINT
+        val device = runCatching { Lab46StagingDeviceSigner.enrollment() }
+            .getOrNull() ?: return@withContext Result.NOT_PAIRED
+        if (device.keyId != binding.confirmedDeviceKeyId ||
+            device.keyId != "NzGMqTSRrL3LgC5vzD2ECKqItuCFaUwCQ_UTanT1lXk")
+            return@withContext Result.NOT_PAIRED
+        val item = CoverCloudPendingOutbox.selectedPending(context, choice)
+            ?: return@withContext Result.INVALID_PENDING
+        val revision = item.optString("revision")
+        val fingerprint = item.optString("fingerprint")
+        if (revision != choice.revision || fingerprint != choice.fingerprint ||
+            !revision.matches(Regex(
+                "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-" +
+                "[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
+            )) || item.optJSONObject("payload") == null)
+            return@withContext Result.INVALID_PENDING
+        val body = item.toString().toByteArray(Charsets.UTF_8)
+        suspend fun submit(): Pair<Int, String>? {
+            val signed = runCatching { Lab46StagingDeviceSigner.signSyncEnvelope(body) }
+                .getOrNull() ?: return null
+            val request = Request.Builder()
+                .url(origin + ENDPOINT)
+                .post(signed.bytes.toRequestBody(jsonType))
+                .apply { signed.headers.forEach { (key, value) -> header(key, value) } }
+                .build()
+            val response = runCatching { client.newCall(request).execute() }
+                .getOrNull() ?: return null
+            return response.use {
+                val responseBody = runCatching { it.body?.string() }.getOrNull()
+                    ?: return@use null
+                if (responseBody.length > 16384) null
+                else Pair(it.code, responseBody)
+            }
+        }
+        val first = submit() ?: return@withContext Result.NETWORK_FAILED
+        if (!verifiedReceipt(first.first, first.second, revision, fingerprint))
+            return@withContext Result.REFUSED_OR_UNCERTAIN
+        // Same bytes, revision and fingerprint, but new nonce/signature.
+        // The server must return its prior committed receipt, not write again.
+        val repeat = submit() ?: return@withContext Result.REFUSED_OR_UNCERTAIN
+        if (!verifiedReceipt(repeat.first, repeat.second, revision, fingerprint) ||
+            !runCatching { JSONObject(repeat.second).optBoolean("replayed", false) }
+                .getOrDefault(false))
+            return@withContext Result.REFUSED_OR_UNCERTAIN
+        if (CoverCloudPendingOutbox.acknowledgeSelected(context, choice, revision))
+            Result.ACKNOWLEDGED else Result.LOCAL_ACK_FAILED
+    }
 }
