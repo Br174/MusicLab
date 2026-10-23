@@ -9,10 +9,10 @@ exact = {
     'UAB_FILE_VERSION="TURBO_LAB19"': 'UAB_FILE_VERSION="TURBO_LAB46"',
     'UAB_OUTPUT_NAME="MusicLab-Turbo-LAB19"': 'UAB_OUTPUT_NAME="MusicLab-Turbo-LAB46"',
     'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 19"': 'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 46"',
-    'UAB_UPDATE_FAMILY_VERSION_CODE="1019"': 'UAB_UPDATE_FAMILY_VERSION_CODE="33046"',
+    'UAB_UPDATE_FAMILY_VERSION_CODE="1019"': 'UAB_UPDATE_FAMILY_VERSION_CODE="33047"',
     'export METROLIST_APP_NAME="MusicLab Turbo LAB 19"': 'export METROLIST_APP_NAME="MusicLab Turbo LAB 46"',
-    'export MUSICLAB_VERSION_CODE="1019"': 'export MUSICLAB_VERSION_CODE="33046"',
-    'export MUSICLAB_VERSION_NAME="0.9.14-turbo-lab19"': 'export MUSICLAB_VERSION_NAME="0.9.14-turbo-lab46"',
+    'export MUSICLAB_VERSION_CODE="1019"': 'export MUSICLAB_VERSION_CODE="33047"',
+    'export MUSICLAB_VERSION_NAME="0.9.14-turbo-lab19"': 'export MUSICLAB_VERSION_NAME="0.9.14-turbo-lab46-manualsync"',
 }
 
 for old, new in exact.items():
@@ -28,4 +28,4 @@ if expected_cert not in text:
     raise SystemExit("LAB46 recovery stamp rejected: signing identity changed")
 
 config.write_text(text, encoding="utf-8")
-print("LAB46 Android 33046 recovery identity set, package/signing unchanged")
+print("LAB46 Android 33047 recovery identity set, package/signing unchanged")
