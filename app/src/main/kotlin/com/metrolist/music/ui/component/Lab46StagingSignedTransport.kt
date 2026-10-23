@@ -206,6 +206,11 @@ internal object Lab46StagingSignedTransport {
         choice: CoverCloudPendingOutbox.PendingChoice,
         binding: EnrollmentBinding,
     ): Result = withContext(Dispatchers.IO) {
+        // CANDIDATA 01 is a new Android family with NO staging enrollment.
+        // There is no Cloud submission until owner separately approves an
+        // authenticated candidate pairing and the release gate is rebuilt.
+        if (com.metrolist.music.BuildConfig.APPLICATION_ID ==
+            "it.verlezza.musiclab.candidate01") return@withContext Result.NOT_PAIRED
         if (!binding.ownerConfirmed) return@withContext Result.NOT_PAIRED
         val origin = safeOrigin(binding.explicitlyApprovedOrigin)
             ?: return@withContext Result.BAD_ENDPOINT
