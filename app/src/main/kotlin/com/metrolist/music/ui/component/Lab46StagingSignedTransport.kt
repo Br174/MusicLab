@@ -221,12 +221,12 @@ internal object Lab46StagingSignedTransport {
             }
         }
         val first = submit() ?: return@withContext Result.NETWORK_FAILED
-        if (!verifiedReceipt(first.first, first.second, revision, fingerprint))
+        if (first.first != 200 || !verifiedReceipt(first.second, revision, fingerprint))
             return@withContext Result.REFUSED_OR_UNCERTAIN
         // Same bytes, revision and fingerprint, but new nonce/signature.
         // The server must return its prior committed receipt, not write again.
         val repeat = submit() ?: return@withContext Result.REFUSED_OR_UNCERTAIN
-        if (!verifiedReceipt(repeat.first, repeat.second, revision, fingerprint) ||
+        if (repeat.first != 200 || !verifiedReceipt(repeat.second, revision, fingerprint) ||
             !runCatching { JSONObject(repeat.second).optBoolean("replayed", false) }
                 .getOrDefault(false))
             return@withContext Result.REFUSED_OR_UNCERTAIN
