@@ -20,6 +20,7 @@ on:
       - cloudflare/music-intelligence/lab46-staging-only/wrangler.staging.verified.jsonc
       - cloudflare/music-intelligence/lab46-staging-only/wrangler.staging.https-activation.jsonc
       - cloudflare/music-intelligence/lab46-staging-only/activation-package.test.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/worker_remote_readonly_inventory.mjs
       - app/src/main/AndroidManifest.xml
       - app/src/main/kotlin/com/metrolist/music/ui/component/Lab46OwnerPairingActivity.kt
   workflow_dispatch:
@@ -65,3 +66,5 @@ jobs:
           npx --yes wrangler@4 deploy --dry-run --config lab46-staging-only/wrangler.staging.https-activation.jsonc --outdir "$RUNNER_TEMP/lab46-worker-https-local-bundle"
       - name: Verify remotely applied LAB46 schema using exact D1 READ token
         run: node cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
+      - name: Inventory staging Worker via GET only (non-blocking if Workers Read missing)
+        run: node cloudflare/music-intelligence/lab46-staging-only/worker_remote_readonly_inventory.mjs
