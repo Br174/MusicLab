@@ -4823,17 +4823,23 @@ internal fun DiscogsDirectVersionBrowser(
     // Video verification still updates the touched snapshot immutably.
     // Deduplicate once across persisted and current cards, before dividing
     // them into historical/original and new-cover display sections.
+    val historicalOrOriginal =
+        previousRoundRows.filter {
+            !isRejected(it) && modeAcceptsSeed(it)
+        } + publishedOriginalSnapshots.filterNot(::isHiddenForCurrentCover)
+    val publishedEligibleCovers =
+        publishedCoverSnapshots
+            .filterNot(::isHiddenForCurrentCover)
     val unifiedCoverDisplay = remember(
-        mode, previousRoundRows, publishedOriginalSnapshots, publishedCoverSnapshots,
+        mode, historicalOrOriginal, publishedEligibleCovers,
     ) {
         if (mode == DiscogsDirectMode.COVER) {
             DiscogsVersionSource.dedupeVersions(
-                previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots,
+                historicalOrOriginal + publishedEligibleCovers,
                 preserveInputOrder = true,
             )
         } else emptyList()
     }
-    val historicalOrOriginal = previousRoundRows + publishedOriginalSnapshots
     fun belongsToFirstCoverSection(seed: DiscogsVersionSeed): Boolean =
         historicalOrOriginal.any { earlier ->
             earlier.fingerprint == seed.fingerprint ||
