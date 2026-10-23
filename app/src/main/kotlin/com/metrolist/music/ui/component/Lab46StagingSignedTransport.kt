@@ -39,6 +39,8 @@ internal object Lab46StagingSignedTransport {
         val ownerConfirmed: Boolean,
     )
 
+    internal const val STAGING_ORIGIN = "https://musiclab-turbo-lab46-isolated-staging.brunoverlezza.workers.dev"
+    internal const val PAIRED_KEY_ID = "NzGMqTSRrL3LgC5vzD2ECKqItuCFaUwCQ_UTanT1lXk"
     private const val ENDPOINT = "/api/v1/turbo/decision-sync"
 
     internal fun safeOrigin(value: String): String? {
@@ -208,12 +210,14 @@ internal object Lab46StagingSignedTransport {
         val origin = safeOrigin(binding.explicitlyApprovedOrigin)
             ?: return@withContext Result.BAD_ENDPOINT
         // Owner-authorized LAB46 Worker only, never an arbitrary HTTPS sink.
-        if (origin != "https://musiclab-turbo-lab46-isolated-staging.brunoverlezza.workers.dev")
+        if (origin != STAGING_ORIGIN)
             return@withContext Result.BAD_ENDPOINT
-        val device = runCatching { Lab46StagingDeviceSigner.enrollment() }
-            .getOrNull() ?: return@withContext Result.NOT_PAIRED
+        // Do not generate a new key when manually syncing: the original paired
+        // AndroidKeyStore alias must still exist and match this enrolled phone.
+        val device = Lab46StagingDeviceSigner.existingEnrollmentOrNull()
+            ?: return@withContext Result.NOT_PAIRED
         if (device.keyId != binding.confirmedDeviceKeyId ||
-            device.keyId != "NzGMqTSRrL3LgC5vzD2ECKqItuCFaUwCQ_UTanT1lXk")
+            device.keyId != PAIRED_KEY_ID)
             return@withContext Result.NOT_PAIRED
         val item = CoverCloudPendingOutbox.selectedPending(context, choice)
             ?: return@withContext Result.INVALID_PENDING
