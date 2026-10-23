@@ -116,4 +116,58 @@ internal object Lab46StagingSignedTransport {
                 context, workKey, fingerprint, revision, revision
             )) Result.ACKNOWLEDGED else Result.LOCAL_ACK_FAILED
     }
+
+
+    /** Owner-invoked, deliberately invalid signed payload.
+     * Exact HTTP 422 + invalid_decision_identity is emitted by the existing
+     * D1 sync coordinator BEFORE ANY receipt lookup or database mutation.
+     * This verifies device pairing without creating a musical decision.
+     */
+    internal enum class PairingProbeResult {
+        NOT_PAIRED, BAD_ENDPOINT, NETWORK_FAILED, NOT_VERIFIED, VERIFIED_NO_WRITE
+    }
+
+    internal fun verifiedPairingProbe(code: Int, responseJson: String): Boolean =
+        runCatching {
+            val result=JSONObject(responseJson)
+            code == 422 &&
+                result.optString("stato") == "rifiutato" &&
+                result.optString("reason") == "invalid_decision_identity" &&
+                !result.has("receipt") && !result.has("versionId")
+        }.getOrDefault(false)
+
+    suspend fun probePairingNoWrite(
+        ownerConfirmedOrigin: String, confirmedDeviceKeyId: String,
+    ): PairingProbeResult = withContext(Dispatchers.IO) {
+        if (confirmedDeviceKeyId.isBlank()) return@withContext PairingProbeResult.NOT_PAIRED
+        val origin=safeOrigin(ownerConfirmedOrigin)
+            ?: return@withContext PairingProbeResult.BAD_ENDPOINT
+        val device=runCatching { Lab46StagingDeviceSigner.enrollment() }.getOrNull()
+            ?: return@withContext PairingProbeResult.NOT_PAIRED
+        if(device.keyId!=confirmedDeviceKeyId)
+            return@withContext PairingProbeResult.NOT_PAIRED
+        // No workId, revision, fingerprint or payload, so real existing
+        // syncLab46Decision MUST fail before reading/writing any receipt.
+        val signed=runCatching {
+            Lab46StagingDeviceSigner.signSyncEnvelope(
+                "{}".toByteArray(Charsets.UTF_8)
+            )
+        }.getOrNull() ?: return@withContext PairingProbeResult.NOT_VERIFIED
+        val request=Request.Builder()
+            .url(origin+ENDPOINT)
+            .post(signed.bytes.toRequestBody(jsonType))
+            .apply { signed.headers.forEach { (name,value)->header(name,value) } }
+            .build()
+        val response=runCatching { client.newCall(request).execute() }.getOrNull()
+            ?: return@withContext PairingProbeResult.NETWORK_FAILED
+        response.use {
+            val body=runCatching { it.body?.string() }.getOrNull()
+                ?: return@withContext PairingProbeResult.NOT_VERIFIED
+            if(body.length>4096)return@withContext PairingProbeResult.NOT_VERIFIED
+            if(verifiedPairingProbe(it.code,body))
+                PairingProbeResult.VERIFIED_NO_WRITE
+            else PairingProbeResult.NOT_VERIFIED
+        }
+    }
+
 }
