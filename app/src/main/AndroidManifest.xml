@@ -71,6 +71,15 @@
         </activity>
         <!-- END LAB46 STAGING PAIRING ACTIVITY -->
 
+        <!-- BEGIN LAB46 MANUAL SYNC ACTIVITY: unexported, no deep link -->
+        <activity
+            android:name=".ui.component.Lab46ManualSyncActivity"
+            android:exported="false"
+            android:label="MusicLab LAB46 Sincronizzazione Cloud"
+            android:theme="@style/Theme.Metrolist"
+            android:excludeFromRecents="true" />
+        <!-- END LAB46 MANUAL SYNC ACTIVITY -->
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
