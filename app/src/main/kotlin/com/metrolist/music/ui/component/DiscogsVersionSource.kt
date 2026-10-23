@@ -981,11 +981,11 @@ internal object DiscogsVersionSource {
 
         return when (left.kind) {
             DiscogsVersionKind.STUDIO ->
-                sameMaster || (closeDuration && !distantStudioYears) ||
+                sameMaster || (!distantStudioYears && (closeDuration ||
                     (exactDecoratedTitle && oneExternal &&
                         (sameReleaseContext ||
                             (plausibleSourceDuration &&
-                                (leftDuration == null || rightDuration == null || sameDocumentedYear))))
+                                (leftDuration == null || rightDuration == null || sameDocumentedYear)))))
             DiscogsVersionKind.LIVE,
             DiscogsVersionKind.REMIX,
             DiscogsVersionKind.ACOUSTIC,
