@@ -111,6 +111,9 @@ internal object CoverDiscoverySources {
         forceRefresh: Boolean = false,
         // LAB46: targeted queries only on later manual Cover rounds.
         coverRound: Int = 1,
+        // Only recovery searches traverse additional documentary pages/roots.
+        // The approved first LAB45 search remains exactly as before.
+        deepRecovery: Boolean = false,
         // LAB03: source-complete callback remains useful when another provider
         // reaches its deadline. No individual lane gates all other evidence.
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
@@ -125,6 +128,7 @@ internal object CoverDiscoverySources {
                 canonical(cleanTitle),
                 canonical(cleanArtist),
                 "lab60-lastfm-wikidata-disabled",
+                if (deepRecovery) "work-first-recovery" else "initial",
                 if (aiConfig == null) "no-ai" else "ai",
             ).joinToString("|")
         val now = System.currentTimeMillis()
@@ -151,7 +155,7 @@ internal object CoverDiscoverySources {
         val coverInfo = async(Dispatchers.IO) {
             // COVER.INFO is our lead source. It starts immediately and owns
             // its own lane, independent from auxiliary provider semaphore.
-            val lane = reportResult(discoverCoverInfo(cleanTitle, cleanArtist, mode) { quick ->
+            val lane = reportResult(discoverCoverInfo(cleanTitle, cleanArtist, mode, deepRecovery) { quick ->
                 onEarlyVideoCandidates(quick)
             })
             onEarlyVideoCandidates(
@@ -165,7 +169,10 @@ internal object CoverDiscoverySources {
         val musicBrainzLookup =
             async(Dispatchers.IO) {
                 val lookup = sourceLane {
-                    runCatching { MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist, forceRefresh = forceRefresh) }
+                    runCatching { MusicBrainzCoverSource.lookup(
+                        cleanTitle, cleanArtist, forceRefresh = forceRefresh,
+                        deepRecovery = deepRecovery,
+                    ) }
                         .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) }
                 }
                 reportResult(discoverMusicBrainz(cleanTitle, mode, lookup), lookup.work?.originalYear)
@@ -180,7 +187,7 @@ internal object CoverDiscoverySources {
                     "SecondHandSongs", false, 0, "Interprete di riferimento necessario",
                 ))
             } else {
-                reportResult(sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh) })
+                reportResult(sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh, deepRecovery) })
             }
         }
         val iTunes = async(Dispatchers.IO) {
@@ -432,9 +439,13 @@ internal object CoverDiscoverySources {
         title: String,
         artist: String,
         forceRefresh: Boolean,
+        deepRecovery: Boolean,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
         val lookup = runCatching {
-            SecondHandSongsCoverSource.lookup(title, artist, forceRefresh = forceRefresh)
+            SecondHandSongsCoverSource.lookup(
+                title, artist, forceRefresh = forceRefresh,
+                deepRecovery = deepRecovery,
+            )
         }.getOrElse {
             SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NETWORK_ERROR)
         }
@@ -947,6 +958,7 @@ internal object CoverDiscoverySources {
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
+        deepRecovery: Boolean = false,
         onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
         val cleanTitle = title.replace('"', ' ').trim()
@@ -997,7 +1009,7 @@ internal object CoverDiscoverySources {
                 val matchesWork = precise?.second?.let { page ->
                     parseCoverInfoDocument(page).any { sameBaseTitle(title, it.title) }
                 } == true
-                if (matchesWork) {
+                if (matchesWork && !deepRecovery) {
                     listOfNotNull(precise)
                 } else {
                     val fallback = searchTerms.getOrNull(1)?.let { term ->
@@ -1048,7 +1060,8 @@ internal object CoverDiscoverySources {
                                 sameArtist(originalArtist, seed.artist)
                             )
                 }
-                .take(COVER_INFO_RELATION_ROOT_LIMIT)
+                .take(if (deepRecovery) COVER_INFO_RELATION_ROOT_LIMIT * 3
+                    else COVER_INFO_RELATION_ROOT_LIMIT)
 
         // LAB04: bounded parallel relationship expansion, not serialized
         // batches of two. Each completed page forwards usable candidates
