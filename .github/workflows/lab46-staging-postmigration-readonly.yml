@@ -8,6 +8,9 @@ on:
       - .github/workflows/lab46-staging-postmigration-readonly.yml
       - cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
       - cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_once.sql
+      - cloudflare/music-intelligence/lab46-staging-only/worker-entry.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs
+      - cloudflare/music-intelligence/lab46-staging-only/wrangler.staging.verified.jsonc
   workflow_dispatch:
 
 permissions:
@@ -35,5 +38,9 @@ jobs:
           git diff --quiet
           test "$(git hash-object cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_once.sql)" = "f847c5fe17d7b2280b0f64b90edc01a52f795526"
           node --check cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
+      - name: Audit staging-only private Worker ingress and UUID binding (local, no deploy)
+        run: |
+          node --check cloudflare/music-intelligence/lab46-staging-only/worker-entry.mjs
+          node --test cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs
       - name: Verify remotely applied LAB46 schema using exact D1 READ token
         run: node cloudflare/music-intelligence/lab46-staging-only/staging_schema_postmigration_readonly.mjs
