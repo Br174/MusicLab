@@ -4,13 +4,14 @@ on:
   push:
     branches:
       - uab-build/musiclab-turbo-lab46-cloud-behavior-progressive-family-02
+      - uab-build/musiclab-turbo-lab46-first50-lab45-restore-20261023
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: musiclab-turbo-lab46-cloud-behavior-progressive-family-02
+  group: musiclab-turbo-lab46-first50-restore-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
