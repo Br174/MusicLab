@@ -96,3 +96,24 @@ test('one-shot staging activation REQUIRES owner-created existing Worker, never 
   assert.doesNotMatch(workflow,/workflow_dispatch|schedule:|pull_request:/);
   assert.doesNotMatch(workflow,/MUSICLAB_LAB46_CF_PRODUCTION/);
 });
+
+
+test('one-shot scripts always configure secrets while workers.dev is OFF and only later expose HTTPS',()=>{
+  const script=read('lab46-staging-only/activation_one_shot.sh');
+  assert.match(script,/PRIVATE_BOOTSTRAP_CFG=/);
+  assert.match(script,/delete base\.secrets/);
+  assert.match(script,/writeFileSync\(path,JSON\.stringify\(base,null,2\)/);
+  const privateDeploy=script.indexOf('npx --yes wrangler@4 deploy --config "$PRIVATE_BOOTSTRAP_CFG"');
+  const firstSecret=script.indexOf('npx --yes wrangler@4 secret put LAB46_WRITE_TOKEN');
+  const secondSecret=script.indexOf('npx --yes wrangler@4 secret put LAB46_DEVICE_PUBLIC_SPKI');
+  const publicDeploy=script.indexOf('npx --yes wrangler@4 deploy --config lab46-staging-only/wrangler.staging.https-activation.jsonc',firstSecret);
+  assert.ok(privateDeploy>=0 && firstSecret>privateDeploy && secondSecret>firstSecret &&
+    publicDeploy>secondSecret,'all Worker writes must start private, secrets before public');
+  const secretsSection=script.slice(firstSecret,publicDeploy);
+  assert.match(secretsSection,/--config "\$PRIVATE_BOOTSTRAP_CFG"/);
+  assert.doesNotMatch(secretsSection,/secret put [A-Z_]+.*--config lab46-staging-only\/wrangler\.staging\.verified\.jsonc/);
+  assert.match(script,/ROLLBACK_NEEDED=yes/);
+  assert.match(script,/rm -f -- "\$PRIVATE_BOOTSTRAP_CFG"/);
+  assert.match(script,/STAGING_WORKER_NOT_PROVEN_EXISTING/);
+  assert.match(script,/PUBLIC_SPKI_FINGERPRINT_NOT_CONFIRMED/);
+});
