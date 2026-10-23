@@ -95,6 +95,7 @@ internal class Lab46OwnerPairingActivity : ComponentActivity() {
                 startActivity(Intent.createChooser(share,"Condividi chiave pubblica LAB46"))
             }
         }.apply { isEnabled=false }
+        lateinit var probeButton: Button
         button("Genera / recupera chiave pubblica sul telefono") {
             status.text="Lettura Android Keystore in corso..."
             lifecycleScope.launch {
@@ -122,7 +123,7 @@ internal class Lab46OwnerPairingActivity : ComponentActivity() {
             isSingleLine=true
             column.addView(this)
         }
-        val probeButton=button("Verifica staging: nessuna scrittura Cloud") {
+        probeButton=button("Verifica staging: nessuna scrittura Cloud") {
             enrollment?.let { item ->
                 status.text="Verifica firma in corso, senza modificare il database..."
                 lifecycleScope.launch {
