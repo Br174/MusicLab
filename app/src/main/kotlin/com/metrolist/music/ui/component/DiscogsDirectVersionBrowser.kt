@@ -599,7 +599,7 @@ internal fun DiscogsDirectVersionBrowser(
                 AiBrainDecisionStatus.REJECTED -> 1
                 null -> 5
             }
-        val seed =
+        val baseSeed =
             DiscogsVersionSource.externalSeed(
                 CoverSourceCandidate(
                     title = candidate.title,
@@ -616,6 +616,10 @@ internal fun DiscogsDirectVersionBrowser(
                 originalArtist = resolvedOriginalArtist,
             ).copy(
                 manuallyApproved = false, // LAB43: never import remote approval as proof
+            )
+        // LAB45 first-50 search: keep its original Cloud candidate admission inputs.
+        // LAB46 enrichment stays isolated to the later, explicitly paged rounds.
+        val seed = if (coverRoundNumber == 1) baseSeed else baseSeed.copy(
                 releaseDate = candidate.releaseDate ?: candidate.year?.toString(),
                 country = candidate.country,
                 sourceNames = (seedSourceNamesForCloud(candidate.sourceNames)).distinct(),
@@ -634,6 +638,16 @@ internal fun DiscogsDirectVersionBrowser(
             )
         val playbackId = candidate.playbackVideoId?.trim().orEmpty()
         return if (playbackId.isNotBlank()) {
+            if (coverRoundNumber == 1) {
+                // Restore LAB45 candidate metadata; playability still requires
+                // an independent local verified-video proof.
+                DiscogsVersionSource.markVideoResolved(
+                    seed = seed,
+                    videoId = playbackId,
+                    videoTitle = candidate.playbackVideoTitle?.takeIf(String::isNotBlank) ?: candidate.title,
+                    source = candidate.playbackVideoSource?.takeIf(String::isNotBlank) ?: "Archivio Cloud",
+                )
+            } else {
             // A remote ID is stored metadata, not a fresh proof that YouTube
             // still serves this exact recording. The existing verifier may
             // reuse its own local proof without falsely upgrading Cloud data.
@@ -648,6 +662,7 @@ internal fun DiscogsDirectVersionBrowser(
                 confidenceReasons = (seed.confidenceReasons +
                     "ID video Cloud da riconfermare prima della riproduzione").distinct(),
             )
+            }
         } else {
             seed
         }
@@ -3144,7 +3159,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     ).let { seed ->
                                         // LAB46: Cloud data is restored, never accepted as
                                         // independent evidence of same-work identity.
-                                        seed.copy(
+                                        if (!appendVerifiedRound) seed else seed.copy(
                                             releaseDate = item.releaseDate ?: seed.releaseDate,
                                             country = item.country ?: seed.country,
                                             sourceNames = seedSourceNamesForCloud(item.sourceNames),
@@ -3191,6 +3206,10 @@ internal fun DiscogsDirectVersionBrowser(
                                     ?.key?.let { archiveOriginalArtist.set(it) }
                             val seeds = archiveSeeds(
                                 (listOfNotNull(selectedArchiveItem) + items).distinctBy {
+                                    // Restore LAB45's original first-50 deduplication key.
+                                    if (!appendVerifiedRound) {
+                                        listOf(it.title.lowercase(), it.artist.lowercase(), it.category.lowercase())
+                                    } else {
                                     // Distinct live performances by the SAME singer can
                                     // share a title. Deduplicate actual recordings,
                                     // preferring exact playable-video identity.
@@ -3201,6 +3220,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     } ?: listOf(
                                         it.title.lowercase(), it.artist.lowercase(), it.category.lowercase()
                                     ).joinToString("|")
+                                    }
                                 }
                             )
                                 if (seeds.isNotEmpty()) supplementalSeeds.trySend(seeds)
