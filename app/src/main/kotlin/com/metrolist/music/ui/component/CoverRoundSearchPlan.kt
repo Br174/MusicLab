@@ -33,8 +33,10 @@ internal object CoverRoundSearchPlan {
             else -> longTail
         }
         val offset = if (round <= 3) 0 else ((round - 4) * 2) % family.size
-        return (0 until 2).map { index ->
-            val query = family[(offset + index) % family.size]
+        // Later rounds explore four independent queries, without touching LAB45 round one.
+        val windowStart = if (round <= 3) offset else (offset * 2) % family.size
+        return (0 until 4).map { index ->
+            val query = family[(windowStart + index) % family.size]
             Query(
                 text = "${title.trim()} $query",
                 categoryHint = if (query.contains("live", ignoreCase = true) ||
