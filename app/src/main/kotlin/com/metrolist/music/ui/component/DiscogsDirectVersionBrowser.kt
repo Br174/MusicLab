@@ -3698,7 +3698,10 @@ internal fun DiscogsDirectVersionBrowser(
                             val expectedCriteria = criteria
                             val recoveryArtist = resolvedOriginalArtist
                             coverRecoveryJob = scope.launch {
-                                val recovered = withTimeoutOrNull(60_000L) {
+                                val earlyEvidence = java.util.Collections.synchronizedList(
+                                mutableListOf<CoverSourceCandidate>(),
+                            )
+                            val recovered = withTimeoutOrNull(60_000L) {
                                     // Never compete with the player's start/rebuffer.
                                     while (backgroundWorkBlocked()) delay(250L)
                                     CoverDiscoverySources.discover(
@@ -3710,10 +3713,12 @@ internal fun DiscogsDirectVersionBrowser(
                                         forceRefresh = true,
                                         coverRound = 2,
                                         deepRecovery = true,
+                                        onSourceCompleted = { rows, _, _ ->
+                                            earlyEvidence.addAll(rows)
+                                        },
                                     )
                                 }
-                                if (recovered == null ||
-                                    searchGeneration != turboSearchGeneration ||
+                                if (searchGeneration != turboSearchGeneration ||
                                     activeCriteria != expectedCriteria ||
                                     coverRoundNumber != 1 || !session.turboFinished) return@launch
 
@@ -3721,7 +3726,12 @@ internal fun DiscogsDirectVersionBrowser(
                                 // composition may be admitted. YouTube candidates,
                                 // similarly named unrelated songs and Cloud scores
                                 // are not independently admissible.
-                                val verifiedRecovery = recovered.candidates
+                                // A slower provider must not erase valid early
+                                // documentary results when the deadline expires.
+                                val evidenceRows = synchronized(earlyEvidence) {
+                                    earlyEvidence.toList()
+                                } + recovered?.candidates.orEmpty()
+                                val verifiedRecovery = evidenceRows.distinct()
                                     .map { evidence ->
                                         DiscogsVersionSource.externalSeed(
                                             candidate = evidence,
