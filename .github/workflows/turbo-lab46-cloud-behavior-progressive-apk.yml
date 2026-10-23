@@ -5,6 +5,7 @@ on:
     branches:
       - uab-build/musiclab-turbo-lab46-cloud-behavior-progressive-family-02
       - uab-build/musiclab-turbo-lab46-first50-lab45-restore-20261023
+      - uab-build/musiclab-turbo-lab46-manual-sync-settings-lab-20261023
   workflow_dispatch:
 
 permissions:
@@ -34,7 +35,7 @@ jobs:
           git diff --name-only "$BASE"..HEAD > /tmp/changed-lab46.txt
           while IFS= read -r f; do
             case "$f" in
-              behaviors/*|cloudflare/music-intelligence/migrations/0005*|cloudflare/music-intelligence/lab46-staging-only/*|cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc|cloudflare/music-intelligence/src/worker-v20.js|cloudflare/music-intelligence/src/worker-v20-runtime.js|cloudflare/music-intelligence/src/lab46-staging-write-guard.js|cloudflare/music-intelligence/src/lab46-staging-sync.js|cloudflare/music-intelligence/test/turbo-lab46*|cloudflare/music-intelligence/test/lab46_d1_migration_smoke.py|app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverCloudPendingOutbox.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingDeviceSigner.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingSignedTransport.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46OwnerPairingActivity.kt|app/src/main/AndroidManifest.xml|app/src/test/kotlin/com/metrolist/music/ui/component/Lab46StagingSigningTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab46SignedTransportSafetyTest.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt|app/src/main/kotlin/com/metrolist/music/ui/component/GeminiAiCoverDiscovery.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundStorage.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverQualityScore100.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|tools/universal-apk-builder/prepare-turbo-lab46*|.github/workflows/turbo-lab46*|app/src/test/kotlin/com/metrolist/music/ui/component/CoverEvidenceRecoveryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab44ScoringAndTitleResolverTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngineTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngineTest.kt|.github/workflows/lab46-cloudflare-staging-readonly-preflight.yml|.github/workflows/lab46-staging-postmigration-readonly.yml|.github/workflows/lab46-staging-one-shot-deploy-on-owner-approval.yml) ;;
+              behaviors/*|cloudflare/music-intelligence/migrations/0005*|cloudflare/music-intelligence/lab46-staging-only/*|cloudflare/music-intelligence/wrangler.lab46-staging.template.jsonc|cloudflare/music-intelligence/src/worker-v20.js|cloudflare/music-intelligence/src/worker-v20-runtime.js|cloudflare/music-intelligence/src/lab46-staging-write-guard.js|cloudflare/music-intelligence/src/lab46-staging-sync.js|cloudflare/music-intelligence/test/turbo-lab46*|cloudflare/music-intelligence/test/lab46_d1_migration_smoke.py|app/src/main/kotlin/com/metrolist/music/ui/component/CloudMusicDiscovery.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverCloudPendingOutbox.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingDeviceSigner.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46StagingSignedTransport.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46OwnerPairingActivity.kt|app/src/main/kotlin/com/metrolist/music/ui/component/Lab46ManualSyncActivity.kt|app/src/main/kotlin/com/metrolist/music/ui/screens/settings/SettingsScreen.kt|app/src/main/AndroidManifest.xml|app/src/test/kotlin/com/metrolist/music/ui/component/Lab46StagingSigningTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab46SignedTransportSafetyTest.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt|app/src/main/kotlin/com/metrolist/music/ui/component/GeminiAiCoverDiscovery.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundStorage.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverQualityScore100.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|tools/universal-apk-builder/prepare-turbo-lab46*|.github/workflows/turbo-lab46*|app/src/test/kotlin/com/metrolist/music/ui/component/CoverEvidenceRecoveryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/Lab44ScoringAndTitleResolverTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/AiCoverSearchEngineTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/OriginalVersionSearchEngineTest.kt|.github/workflows/lab46-cloudflare-staging-readonly-preflight.yml|.github/workflows/lab46-staging-postmigration-readonly.yml|.github/workflows/lab46-staging-one-shot-deploy-on-owner-approval.yml) ;;
               *) echo "FORBIDDEN CHANGE: $f"; exit 1 ;;
             esac
           done < /tmp/changed-lab46.txt
@@ -62,7 +63,31 @@ jobs:
           assert 'android:name=".ui.component.Lab46OwnerPairingActivity"' in block
           assert 'android:scheme="musiclabturbo" android:host="lab46" android:path="/pair"' in block
           assert 'android.permission' not in block, 'no new permissions'
-          assert source[:first]+source[last:]==original, 'all previous manifest behavior must remain exact'
+          manual_start = '        <!-- BEGIN LAB46 MANUAL SYNC ACTIVITY: unexported, no deep link -->\\n'.replace('\\\\n','\\n')
+          manual_end = '        <!-- END LAB46 MANUAL SYNC ACTIVITY -->\\n\\n'.replace('\\\\n','\\n')
+          assert source.count(manual_start)==1 and source.count(manual_end)==1
+          manual_first=source.index(manual_start)
+          manual_last=source.index(manual_end,manual_first)+len(manual_end)
+          manual_block=source[manual_first:manual_last]
+          assert manual_block.count('<activity')==1
+          assert 'android:name=".ui.component.Lab46ManualSyncActivity"' in manual_block
+          assert 'android:exported="false"' in manual_block
+          assert '<intent-filter>' not in manual_block
+          assert 'android.permission' not in manual_block
+          original_layout=source[:manual_first]+source[manual_last:]
+          p_start=original_layout.index(start)
+          p_last=original_layout.index(end,p_start)+len(end)
+          assert original_layout[:p_start]+original_layout[p_last:]==original, 'protected manifest behavior changed'
+          settings=Path('app/src/main/kotlin/com/metrolist/music/ui/screens/settings/SettingsScreen.kt').read_text()
+          assert settings.count('Sincronizzazione Cloud (LAB46)')==1
+          assert 'Intent(context, Lab46ManualSyncActivity::class.java)' in settings
+          native=Path('app/src/main/kotlin/com/metrolist/music/ui/component/Lab46ManualSyncActivity.kt').read_text()
+          assert 'sendOneSelectedPending(' in native
+          assert 'setPositiveButton("Confermo una decisione")' in native
+          assert 'existingEnrollmentOrNull()' in native
+          for forbidden in ('LAB46_WRITE_TOKEN','CLOUDFLARE_API_TOKEN','GEMINI_API_KEY','WorkManager','startService('):
+              assert forbidden not in native, 'manual sync must be owner initiated and secret-free'
+          print('LAB46 manual sync Activity and single Settings entry isolated; old Manifest intact')
           code=Path('app/src/main/kotlin/com/metrolist/music/ui/component/Lab46OwnerPairingActivity.kt').read_text()
           assert 'Lab46StagingDeviceSigner.enrollment()' in code
           assert 'Intent.ACTION_SEND' in code
@@ -112,11 +137,11 @@ jobs:
         run: |
           set -euo pipefail
           grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
-          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33046"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33047"' uab-project.env
           grep -Fq 'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 46"' uab-project.env
           grep -Fq 'UAB_UPDATE_FAMILY_CERT_SHA256="9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49"' uab-project.env
           grep -Fq 'export METROLIST_APP_NAME="MusicLab Turbo LAB 46"' uab-project.env
-          grep -Fq 'export MUSICLAB_VERSION_CODE="33046"' uab-project.env
+          grep -Fq 'export MUSICLAB_VERSION_CODE="33047"' uab-project.env
           test "$(git hash-object app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt)" = "03138a7b0d6771e4c7dde0ecc9ab11a8046990ff"
 
   build-update:
@@ -193,7 +218,7 @@ jobs:
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           BADGING="$("$AAPT" dump badging "$APK")"
           printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
-          printf '%s\n' "$BADGING" | grep -F "versionCode='33046'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33047'"
           printf '%s\n' "$BADGING" | grep -F "application-label:'MusicLab Turbo LAB 46'"
 
           EXPECTED="9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
@@ -204,7 +229,7 @@ jobs:
           {
             echo "UPDATE_FAMILY_ID=turbo01"
             echo "APPLICATION_ID=it.verlezza.musiclab.turbo01"
-            echo "VERSION_CODE=33046"
+            echo "VERSION_CODE=33047"
             echo "PREVIOUS_LAB44_VERSION_CODE=33045"
             echo "SIGNING_CERT_SHA256=$APK_CERT"
             echo "PREVIOUS_LAB45_SOURCE_SHA=95c6b07733c4c7a123864fb20e6b12838b5269f0"
