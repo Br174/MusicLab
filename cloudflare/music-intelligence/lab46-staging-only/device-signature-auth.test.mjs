@@ -135,7 +135,7 @@ test('only signed decision sync allowed; no private archive or brain write acces
 test('production name, flag, unavailable D1, missing server secret denied',async()=>{
  const {entry,calls}=worker();
  const variants=[
-  [{LAB46_ISOLATED_STAGING:'0'},403],
+  [{LAB46_ISOLATED_STAGING:'0'},503],
   [{LAB46_ISOLATED_DB_NAME:'musiclab-intelligence-db'},503],
   [{DB:null},503],
   [{LAB46_WRITE_TOKEN:''},503],
