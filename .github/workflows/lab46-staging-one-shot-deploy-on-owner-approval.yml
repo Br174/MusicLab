@@ -1,0 +1,46 @@
+name: LAB46 ONE-SHOT staging Worker - ONLY upon owner's exact approval trigger
+
+# This workflow is INERT until an exact, separate, authorized GitHub commit
+# creates activation-trigger-approved.json. No such file is committed now.
+on:
+  push:
+    branches:
+      - uab-build/musiclab-turbo-lab46-cloud-behavior-progressive-family-02
+    paths:
+      - cloudflare/music-intelligence/lab46-staging-only/activation-trigger-approved.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab46-one-shot-owner-approved-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy-only-on-owner-approval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_ACCOUNT_ID: '5781b597517f6f7fe25751170a99b9ab'
+      LAB46_STAGING_CF_DEPLOY_TOKEN: ${{ secrets.MUSICLAB_LAB46_CF_STAGING_DEPLOY_TOKEN }}
+      LAB46_D1_READ_TOKEN: ${{ secrets.MUSICLAB_LAB46_CF_PREFLIGHT_TOKEN }}
+      LAB46_DEVICE_PUBLIC_SPKI: ${{ vars.MUSICLAB_LAB46_DEVICE_PUBLIC_SPKI }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - name: Checkout EXACT one-file approval commit from protected LAB46 scope
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check fail-closed deploy script, never perform remote operations
+        run: |
+          set -euo pipefail
+          bash -n cloudflare/music-intelligence/lab46-staging-only/activation_one_shot.sh
+          git diff --name-only HEAD^ HEAD
+      - name: Verify original 38 staging / signed Cloud contracts with in-memory D1
+        run: |
+          node --test cloudflare/music-intelligence/lab46-staging-only/worker-entry.test.mjs cloudflare/music-intelligence/lab46-staging-only/device-signature-auth.test.mjs cloudflare/music-intelligence/lab46-staging-only/reused-sync-signed-e2e.test.mjs cloudflare/music-intelligence/lab46-staging-only/activation-package.test.mjs cloudflare/music-intelligence/test/turbo-lab46-sync-receipt.test.mjs cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs
+      - name: Execute exactly one owner-authorized private-first staging activation
+        run: bash cloudflare/music-intelligence/lab46-staging-only/activation_one_shot.sh
