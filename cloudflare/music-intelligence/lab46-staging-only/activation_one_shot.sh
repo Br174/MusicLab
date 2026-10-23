@@ -159,12 +159,26 @@ printf '%s' "$LAB46_DEVICE_PUBLIC_SPKI" | npx --yes wrangler@4 secret put LAB46_
 # staging config (no routes, no custom domains, never production).
 npx --yes wrangler@4 deploy --config lab46-staging-only/wrangler.staging.https-activation.jsonc
 origin="https://$WORKER.$subdomain.workers.dev"
-# Authenticate-negative smoke only, so NEVER create musical decision rows.
-read_http=$(curl --max-time 15 -sS -o /dev/null -w '%{http_code}' "$origin/api/v1/archive/search")
-[[ "$read_http" == 405 ]] || exit 18
-post_http=$(curl --max-time 15 -sS -o /dev/null -w '%{http_code}' \
- -H 'content-type: application/json' -d '{}' "$origin/api/v1/turbo/decision-sync")
-[[ "$post_http" == 401 ]] || exit 19
+# Cloudflare may need propagation time after wrangler reports a successful deploy.
+# Probe ONLY negative, uncredentialed requests: GET -> 405, empty POST -> 401.
+# Never submit an authorized sync payload, never print tokens, bound total probes.
+smoke_ready=no
+read_http=unset
+post_http=unset
+for attempt in 1 2 3 4 5 6; do
+  read_http=$(curl --max-time 10 -sS -o /dev/null -w '%{http_code}' \
+    "$origin/api/v1/archive/search") || read_http=network_error
+  post_http=$(curl --max-time 10 -sS -o /dev/null -w '%{http_code}' \
+    -H 'content-type: application/json' -d '{}' \
+    "$origin/api/v1/turbo/decision-sync") || post_http=network_error
+  echo "LAB46_NEGATIVE_SMOKE_ATTEMPT_$attempt GET=$read_http POST=$post_http"
+  if [[ "$read_http" == 405 && "$post_http" == 401 ]]; then
+    smoke_ready=yes
+    break
+  fi
+  if [[ "$attempt" != 6 ]]; then sleep 3; fi
+done
+[[ "$smoke_ready" == yes ]] || exit 18
 ROLLBACK_NEEDED=no
 echo "LAB46_EXISTING_STAGING_WORKER_UPDATED_WITH_OWNER_PAIRED_PUBLIC_KEY"
 echo "HTTPS_ORIGIN=$origin"
