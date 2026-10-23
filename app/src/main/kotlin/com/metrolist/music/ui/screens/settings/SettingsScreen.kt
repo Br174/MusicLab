@@ -50,6 +50,7 @@ import com.metrolist.music.constants.MusicAiOriginalsEnabledKey
 import com.metrolist.music.constants.MusicAiRemixEnabledKey
 import com.metrolist.music.constants.TitleTapSearchEnabledKey
 import com.metrolist.music.ui.component.IconButton
+import com.metrolist.music.ui.component.Lab46ManualSyncActivity
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.ReleaseNotesCard
@@ -264,6 +265,14 @@ fun SettingsScreen(
                     description = { Text("Riusa subito i risultati già conosciuti") },
                     onClick = { setMusicAiMemory(!musicAiMemory) },
                     trailingContent = { Switch(checked = musicAiMemory, onCheckedChange = setMusicAiMemory) },
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.sync),
+                    title = { Text("Sincronizzazione Cloud (LAB46)") },
+                    description = { Text("Invia manualmente una decisione alla volta allo staging") },
+                    onClick = {
+                        context.startActivity(Intent(context, Lab46ManualSyncActivity::class.java))
+                    },
                 ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.update),
