@@ -170,6 +170,105 @@ internal object CoverCloudPendingOutbox {
         load(file(context, workKey))?.length() ?: -1
 
     /**
+     * Isolated LAB46 owner diagnostics: enumerate ONLY existing private
+     * on-device outbox envelopes, never queue a synthetic test decision.
+     * The original workKey is intentionally hashed in filenames, so a
+     * user-selected existing filename is used to locate and acknowledge it.
+     */
+    internal data class PendingChoice(
+        val filename: String,
+        val revision: String,
+        val fingerprint: String,
+        val title: String,
+        val artist: String,
+        val status: String,
+    )
+
+    private val outboxFilename = Regex("^musiclab-cloud-outbox-[0-9a-f]{32}\\.json$")
+
+    private fun choiceFile(context: Context, name: String): AtomicFile? {
+        if (!outboxFilename.matches(name)) return null
+        return AtomicFile(File(context.applicationContext.filesDir, name))
+    }
+
+    @Synchronized
+    internal fun pendingChoices(context: Context): List<PendingChoice> {
+        val files = context.applicationContext.filesDir.listFiles()
+            ?.asSequence()?.filter { it.isFile && outboxFilename.matches(it.name) }
+            ?.sortedByDescending { it.lastModified() }?.take(200) ?: return emptyList()
+        val choices = mutableListOf<PendingChoice>()
+        for (source in files) {
+            val rows = load(AtomicFile(source)) ?: continue
+            for (i in rows.length() - 1 downTo 0) {
+                val entry = rows.optJSONObject(i) ?: continue
+                val payload = entry.optJSONObject("payload") ?: continue
+                val fingerprint = entry.optString("fingerprint")
+                val revision = entry.optString("revision")
+                val candidate = payload.optJSONObject("candidate") ?: continue
+                if (!revision.matches(Regex(
+                        "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-" +
+                        "[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
+                    )) || fingerprint.isBlank() ||
+                    candidate.optString("versionFingerprint") != fingerprint
+                ) continue
+                choices.add(PendingChoice(
+                    source.name, revision, fingerprint,
+                    candidate.optString("title").take(120),
+                    candidate.optString("artist").take(120),
+                    payload.optString("status"),
+                ))
+                if (choices.size >= 25) return choices
+            }
+        }
+        return choices
+    }
+
+    /** Detect a stale selection, never send another decision in its place. */
+    @Synchronized
+    internal fun selectedPending(context: Context, choice: PendingChoice): JSONObject? {
+        val file = choiceFile(context, choice.filename) ?: return null
+        val rows = load(file) ?: return null
+        for (i in 0 until rows.length()) {
+            val entry = rows.optJSONObject(i) ?: continue
+            if (entry.optString("revision") != choice.revision ||
+                entry.optString("fingerprint") != choice.fingerprint) continue
+            val payload = entry.optJSONObject("payload") ?: return null
+            val candidate = payload.optJSONObject("candidate") ?: return null
+            if (candidate.optString("versionFingerprint") != choice.fingerprint ||
+                candidate.optString("title").take(120) != choice.title ||
+                candidate.optString("artist").take(120) != choice.artist ||
+                payload.optString("status") != choice.status) return null
+            return JSONObject(entry.toString())
+        }
+        return null
+    }
+
+    /** Consume precisely the owner-selected committed revision, not later edits. */
+    @Synchronized
+    internal fun acknowledgeSelected(
+        context: Context, choice: PendingChoice, confirmedRevision: String,
+    ): Boolean {
+        if (choice.revision != confirmedRevision) return false
+        val file = choiceFile(context, choice.filename) ?: return false
+        val current = load(file) ?: return false
+        val next = JSONArray()
+        var removed = false
+        for (i in 0 until current.length()) {
+            val entry = current.optJSONObject(i) ?: continue
+            if (entry.optString("revision") == choice.revision &&
+                entry.optString("fingerprint") == choice.fingerprint) {
+                val candidate = entry.optJSONObject("payload")?.optJSONObject("candidate")
+                if (candidate?.optString("title")?.take(120) != choice.title ||
+                    candidate.optString("artist").take(120) != choice.artist ||
+                    entry.optJSONObject("payload")?.optString("status") != choice.status)
+                    return false
+                removed = true
+            } else next.put(entry)
+        }
+        return removed && write(file, next)
+    }
+
+    /**
      * Called only AFTER the authenticated server responds with a verified,
      * idempotent receipt that echoes the exact pending revision.
      * A stale receipt cannot erase a newer user's change.
