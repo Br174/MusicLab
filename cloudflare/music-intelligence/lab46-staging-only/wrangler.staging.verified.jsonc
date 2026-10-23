@@ -19,7 +19,8 @@
   ],
   "secrets": {
     "required": [
-      "LAB46_WRITE_TOKEN"
+      "LAB46_WRITE_TOKEN",
+      "LAB46_DEVICE_PUBLIC_SPKI"
     ]
   }
 }
