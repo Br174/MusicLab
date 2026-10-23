@@ -29,7 +29,7 @@ const expected={
  scope:'SINGLE_MUSICLAB_TURBO_LAB46_STAGING_WORKER_ONLY',
  owner_approved:true,
  workers_free_confirmed:true,
- permit_one_new_staging_worker:true,
+ permit_update_existing_staging_worker:true,
  permit_workers_dev_staging_https:true,
  production_writes_allowed:false,
  d1_migrations_allowed:false,
@@ -66,11 +66,12 @@ JS
 # D1 proof via the EXISTING READ-ONLY token before any write to Workers.
 CLOUDFLARE_API_TOKEN="$LAB46_D1_READ_TOKEN" \
   node "$ROOT/lab46-staging-only/staging_schema_postmigration_readonly.mjs"
-# Existing Worker might belong to someone else: NEVER overwrite one.
+# Use ONLY an existing owner-prepared staging Worker. A per-Worker Editor token
+# cannot create new Workers and has no permissions on unrelated Workers.
 http=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
  -H "Authorization: Bearer $LAB46_STAGING_CF_DEPLOY_TOKEN" \
  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$WORKER")
-[[ "$http" == 404 ]] || { echo "WORKER_NOT_PROVEN_ABSENT_$http"; exit 16; }
+[[ "$http" == 200 ]] || { echo "STAGING_WORKER_NOT_PROVEN_EXISTING_$http"; exit 16; }
 subdomain=$(curl --fail-with-body --silent --show-error \
  -H "Authorization: Bearer $LAB46_STAGING_CF_DEPLOY_TOKEN" \
  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/subdomain" \
@@ -95,7 +96,8 @@ rollback(){
  fi
 }
 trap rollback EXIT
-# First create exactly ONE unrouted Worker; it is not publicly reachable.
+# First update ONLY the already-existing owner-prepared staging Worker;
+# this disables its workers.dev route before provisioning secrets.
 npx --yes wrangler@4 deploy --config lab46-staging-only/wrangler.staging.verified.jsonc
 # Generate an unexported server-side 48-byte privileged bearer IN CI ONLY.
 value=$(node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64url'))")
@@ -115,6 +117,6 @@ post_http=$(curl --max-time 15 -sS -o /dev/null -w '%{http_code}' \
  -H 'content-type: application/json' -d '{}' "$origin/api/v1/turbo/decision-sync")
 [[ "$post_http" == 401 ]] || exit 19
 ROLLBACK_NEEDED=no
-echo "LAB46_NEW_STAGING_WORKER_DEPLOYED_WITH_OWNER_PAIRED_PUBLIC_KEY"
+echo "LAB46_EXISTING_STAGING_WORKER_UPDATED_WITH_OWNER_PAIRED_PUBLIC_KEY"
 echo "HTTPS_ORIGIN=$origin"
 echo "REMOTE_D1_SCHEMA_NOT_MODIFIED"
