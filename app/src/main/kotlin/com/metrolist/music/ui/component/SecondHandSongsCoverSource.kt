@@ -81,14 +81,17 @@ internal object SecondHandSongsCoverSource {
         val title: String,
     )
 
-    fun lookup(title: String, artist: String, forceRefresh: Boolean = false): SecondHandSongsLookup {
+    fun lookup(
+        title: String, artist: String, forceRefresh: Boolean = false,
+        deepRecovery: Boolean = false,
+    ): SecondHandSongsLookup {
         val cleanTitle = title.trim()
         val cleanArtist = artist.trim()
         if (cleanTitle.isBlank()) {
             return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH)
         }
 
-        val key = "${canonical(cleanTitle)}|${canonical(cleanArtist)}"
+        val key = "${canonical(cleanTitle)}|${canonical(cleanArtist)}|${if (deepRecovery) "deep" else "first"}"
         val now = System.currentTimeMillis()
         if (!forceRefresh) cache[key]?.let { entry ->
             val ttl = if (
@@ -103,12 +106,14 @@ internal object SecondHandSongsCoverSource {
             cache.remove(key)
         }
 
-        val lookup = lookupFresh(cleanTitle, cleanArtist)
+        val lookup = lookupFresh(cleanTitle, cleanArtist, deepRecovery)
         cache[key] = CacheEntry(now, lookup)
         return lookup
     }
 
-    private fun lookupFresh(title: String, artist: String): SecondHandSongsLookup {
+    private fun lookupFresh(
+        title: String, artist: String, deepRecovery: Boolean,
+    ): SecondHandSongsLookup {
         val candidates = linkedMapOf<String, PerformanceRef>()
         var lastUrl: String? = null
         var lastStatus: SecondHandSongsStatus? = null
@@ -155,13 +160,13 @@ internal object SecondHandSongsCoverSource {
                         .forEach { ref -> candidates.putIfAbsent(ref.id, ref) }
                 }
             }
-            if (candidates.size >= MAX_SEARCH_CANDIDATES) break
+            if (candidates.size >= (if (deepRecovery) 12 else MAX_SEARCH_CANDIDATES)) break
         }
 
         if (candidates.isEmpty()) {
             // LAB42: search works but require the selected performer's own
             // recording within the SAME work. Reject homonymous works.
-            val workFallback = lookupByWorkTitle(title, artist)
+            val workFallback = lookupByWorkTitle(title, artist, deepRecovery)
             if (
                 workFallback.status != SecondHandSongsStatus.NO_MATCH ||
                 workFallback.covers.isNotEmpty()
@@ -175,7 +180,7 @@ internal object SecondHandSongsCoverSource {
             )
         }
 
-        for (candidate in candidates.values.take(MAX_SEARCH_CANDIDATES)) {
+        for (candidate in candidates.values.take(if (deepRecovery) 12 else MAX_SEARCH_CANDIDATES)) {
             val detailRoot = fetchPerformanceRoot(candidate.id)
             val detailed = detailRoot
                 ?.let(::collectPerformanceRefs)
@@ -205,7 +210,7 @@ internal object SecondHandSongsCoverSource {
                 .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
                 .take(MAX_DISCOVERED_COVERS)
 
-            if (relationCovers.isNotEmpty()) {
+            if (relationCovers.isNotEmpty() && !deepRecovery) {
                 return SecondHandSongsLookup(
                     covers = relationCovers,
                     status = SecondHandSongsStatus.OK,
@@ -214,7 +219,22 @@ internal object SecondHandSongsCoverSource {
             }
 
             if (workId.isBlank()) continue
-            val workResult = fetchWorkVersions(workId)
+            val workResult = fetchWorkVersions(workId, deepRecovery)
+            if (relationCovers.isNotEmpty() && deepRecovery &&
+                workResult.status == SecondHandSongsStatus.OK) {
+                return workResult.copy(
+                    covers = (relationCovers + workResult.covers).distinctBy {
+                        "${canonical(it.title)}|${canonical(it.artist)}"
+                    },
+                )
+            }
+            if (relationCovers.isNotEmpty() && deepRecovery) {
+                return SecondHandSongsLookup(
+                    covers = relationCovers,
+                    status = SecondHandSongsStatus.OK,
+                    sourceUrl = "$BASE_URL/performance/${candidate.id}",
+                )
+            }
             if (
                 workResult.status == SecondHandSongsStatus.OK ||
                 workResult.status == SecondHandSongsStatus.BLOCKED ||
@@ -225,7 +245,7 @@ internal object SecondHandSongsCoverSource {
             }
         }
 
-        val workFallback = lookupByWorkTitle(title, artist)
+        val workFallback = lookupByWorkTitle(title, artist, deepRecovery)
         if (workFallback.status != SecondHandSongsStatus.NO_MATCH ||
             workFallback.covers.isNotEmpty()
         ) {
@@ -238,6 +258,7 @@ internal object SecondHandSongsCoverSource {
     private fun lookupByWorkTitle(
         title: String,
         originalArtist: String,
+        deepRecovery: Boolean,
     ): SecondHandSongsLookup {
         val searchUrl = buildWorkSearchUrl(title)
         val root = when (val search = fetchJson(searchUrl)) {
@@ -264,7 +285,7 @@ internal object SecondHandSongsCoverSource {
 
         var lastStatus: SecondHandSongsStatus? = null
         for (work in works) {
-            val result = fetchWorkVersions(work.id)
+            val result = fetchWorkVersions(work.id, deepRecovery)
             // The work title is never enough. One of its listed recordings
             // must match the user's singer AND the requested title.
             if (result.status == SecondHandSongsStatus.OK &&
@@ -291,7 +312,9 @@ internal object SecondHandSongsCoverSource {
         )
     }
 
-    private fun fetchWorkVersions(workId: String): SecondHandSongsLookup {
+    private fun fetchWorkVersions(
+        workId: String, deepRecovery: Boolean,
+    ): SecondHandSongsLookup {
         if (workId.isBlank()) {
             return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH)
         }
@@ -313,7 +336,7 @@ internal object SecondHandSongsCoverSource {
                     .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
                     .take(MAX_DISCOVERED_COVERS)
 
-                if (directVersions.isNotEmpty()) {
+                if (directVersions.isNotEmpty() && (!deepRecovery || directVersions.size >= 20)) {
                     return SecondHandSongsLookup(
                         covers = directVersions,
                         status = SecondHandSongsStatus.OK,
@@ -325,9 +348,15 @@ internal object SecondHandSongsCoverSource {
                 // performance references. Those references can omit performer data,
                 // so resolve a bounded number of performance IDs individually.
                 // This mirrors the reference SHS clients instead of discarding them.
-                val versionIds = collectVersionIds(root).take(MAX_WORK_VERSION_DETAILS)
+                val versionIds = collectVersionIds(root)
+                    .take(if (deepRecovery) 24 else MAX_WORK_VERSION_DETAILS)
                 if (versionIds.isEmpty()) {
-                    return SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NO_MATCH, workUrl)
+                    return SecondHandSongsLookup(
+                        directVersions,
+                        if (directVersions.isNotEmpty()) SecondHandSongsStatus.OK
+                        else SecondHandSongsStatus.NO_MATCH,
+                        workUrl,
+                    )
                 }
 
                 val expanded = linkedMapOf<String, SecondHandSongsCover>()
@@ -361,8 +390,10 @@ internal object SecondHandSongsCoverSource {
                 }
 
                 when {
-                    expanded.isNotEmpty() -> SecondHandSongsLookup(
-                        covers = expanded.values.take(MAX_DISCOVERED_COVERS),
+                    expanded.isNotEmpty() || directVersions.isNotEmpty() -> SecondHandSongsLookup(
+                        covers = (directVersions + expanded.values).distinctBy {
+                            "${canonical(it.title)}|${canonical(it.artist)}"
+                        }.take(MAX_DISCOVERED_COVERS),
                         status = SecondHandSongsStatus.OK,
                         sourceUrl = workUrl,
                     )
