@@ -54,7 +54,6 @@ jobs:
         run: python3 cloudflare/music-intelligence/lab46-staging-only/music_schema_additive_verify.py
       - name: Read-only Cloudflare account, D1 inventory, free-plan evidence
         run: node cloudflare/music-intelligence/lab46-staging-only/staging_readonly_preflight.mjs
-      - name: Remote isolated D1 schema and sentinel SELECT-only preflight
-        run: |
-          node --check cloudflare/music-intelligence/lab46-staging-only/staging_schema_readonly_preflight.mjs
-          node cloudflare/music-intelligence/lab46-staging-only/staging_schema_readonly_preflight.mjs
+      # The pre-migration, two-table-only remote gate is archived after the
+      # authorized migration. The independent post-migration SELECT-only
+      # workflow now verifies the exact deployed 15-table staging schema.
