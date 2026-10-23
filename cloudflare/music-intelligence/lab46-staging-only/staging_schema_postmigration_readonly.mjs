@@ -43,6 +43,8 @@ const SQL=Object.freeze({
   versions:"SELECT name FROM pragma_table_info('versions') ORDER BY name",
   sentinel:"SELECT marker FROM lab46_staging_sentinel ORDER BY marker LIMIT 3",
   receipts:"SELECT COUNT(*) AS n FROM lab46_sync_receipts",
+  receiptStates:"SELECT state,COUNT(*) AS n,SUM(CASE WHEN version_id IS NOT NULL AND LENGTH(TRIM(version_id))>0 THEN 1 ELSE 0 END) AS versioned FROM lab46_sync_receipts GROUP BY state ORDER BY state",
+  uniqueRevisions:"SELECT COUNT(DISTINCT revision) AS n FROM lab46_sync_receipts",
 });
 const report={
   check:'LAB46_STAGING_POSTMIGRATION_SCHEMA_READONLY',
@@ -57,6 +59,9 @@ const report={
   requiredVersionColumnsPresent:false,
   sentinelValid:false,
   receiptsCount:null,
+  receiptStates:null,
+  uniqueRevisionsCount:null,
+  receiptLedgerIntegrityVerified:false,
   stageSchemaFullyVerified:false,
   missingTables:[],missingIndexes:[],missingWorkColumns:[],missingVersionColumns:[],
   remoteWrites:0,workerDeploys:0,errors:[],
@@ -109,10 +114,26 @@ try{
   report.sentinelValid=markers.length===1&&markers[0]===SENTINEL;
   const receipts=await call('POST',SQL.receipts);
   report.receiptsCount=receipts.length===1?Number(receipts[0].n):null;
+  const states=await call('POST',SQL.receiptStates);
+  const unique=await call('POST',SQL.uniqueRevisions);
+  report.uniqueRevisionsCount=unique.length===1?Number(unique[0].n):null;
+  report.receiptStates=states.map(row=>({
+    state:String(row.state),count:Number(row.n),versioned:Number(row.versioned)
+  }));
+  const statesValid=report.receiptStates.every(s=>
+    ['pending','failed','committed'].includes(s.state) &&
+    Number.isSafeInteger(s.count)&&s.count>=0 &&
+    Number.isSafeInteger(s.versioned)&&s.versioned>=0&&s.versioned<=s.count &&
+    (s.state!=='committed'||s.versioned===s.count));
+  const total=report.receiptStates.reduce((n,s)=>n+s.count,0);
+  report.receiptLedgerIntegrityVerified=statesValid&&
+    Number.isSafeInteger(report.receiptsCount)&&report.receiptsCount>=0 &&
+    report.uniqueRevisionsCount===report.receiptsCount &&
+    total===report.receiptsCount;
   report.stageSchemaFullyVerified=report.stagingNameVerified&&
     report.exactApplicationTables&&report.requiredIndexesPresent&&
     report.requiredWorkColumnsPresent&&report.requiredVersionColumnsPresent&&
-    report.sentinelValid&&Number.isSafeInteger(report.receiptsCount)&&report.receiptsCount>=0;
+    report.sentinelValid&&report.receiptLedgerIntegrityVerified;
   if(!report.stageSchemaFullyVerified)
     report.errors.push('STAGING_SCHEMA_INCOMPLETE_OR_UNEXPECTED');
 }catch(error){
