@@ -68,4 +68,23 @@ class Lab46SignedTransportSafetyTest {
             revision,fingerprint
         ))
     }
+
+
+    @Test fun publicKeyPairingProbeNeedsExactAuthenticatedNonWriting422() {
+        val proof = """{"stato":"rifiutato","reason":"invalid_decision_identity"}"""
+        assertTrue(Lab46StagingSignedTransport.verifiedPairingProbe(422,proof))
+        for ((status,response) in listOf(
+            200 to proof,
+            401 to proof,
+            403 to proof,
+            422 to """{"stato":"rifiutato","reason":"wrong_key"}""",
+            422 to """{"stato":"salvato","reason":"invalid_decision_identity"}""",
+            422 to """{"stato":"rifiutato","reason":"invalid_decision_identity","receipt":"fake"}""",
+            422 to """{"stato":"rifiutato","reason":"invalid_decision_identity","versionId":"X"}""",
+            422 to "not-json",
+        )) {
+            assertFalse(Lab46StagingSignedTransport.verifiedPairingProbe(status,response))
+        }
+    }
+
 }
