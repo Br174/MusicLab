@@ -1,0 +1,71 @@
+name: MusicLab LAB57 Android11 Update Compatibility
+
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-anr-root-lab57-20261025
+    paths:
+      - .github/workflows/musiclab-turbo-lab57-android11-install-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  test-install-update:
+    name: Real Android 11 package install LAB56 then update LAB57
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download known-good LAB56 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB56-ANRStability-APK-ZIP
+          path: /tmp/musiclab/lab56
+          run-id: 40233230225
+          github-token: ${{ github.token }}
+      - name: Download LAB57 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB57-ANRRoot-APK-ZIP
+          path: /tmp/musiclab/lab57
+          run-id: 40236598857
+          github-token: ${{ github.token }}
+      - name: Inspect APKs before emulation
+        shell: bash
+        run: |
+          set -euo pipefail
+          find /tmp/musiclab -name '*.apk' -type f -printf '%p (%s bytes)\n'
+          BASE="$(find /tmp/musiclab/lab56 -type f -name 'MusicLab-Turbo-LAB56.apk' | head -n1)"
+          NEXT="$(find /tmp/musiclab/lab57 -type f -name 'MusicLab-Turbo-LAB57.apk' | head -n1)"
+          test -s "$BASE" && test -s "$NEXT"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          for APK in "$BASE" "$NEXT"; do
+            "$AAPT" dump badging "$APK" | grep '^package:'
+            "$AAPT" dump badging "$APK" | grep '^sdkVersion:'
+            "$APKSIGNER" verify --min-sdk-version 30 --verbose --print-certs "$APK"
+          done
+      - name: Android 11 emulator package-manager upgrade test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_4
+          disable-animations: true
+          emulator-boot-timeout: 650
+          script: |
+            set -euo pipefail
+            BASE="$(find /tmp/musiclab/lab56 -type f -name 'MusicLab-Turbo-LAB56.apk' | head -n1)"
+            NEXT="$(find /tmp/musiclab/lab57 -type f -name 'MusicLab-Turbo-LAB57.apk' | head -n1)"
+            echo "EMULATOR_ANDROID_SDK=$(adb shell getprop ro.build.version.sdk)"
+            adb install -r -t "$BASE"
+            adb shell dumpsys package it.verlezza.musiclab.turbo01 | grep -E 'versionCode=|versionName=' | head -n3
+            adb install -r -t "$NEXT"
+            adb shell dumpsys package it.verlezza.musiclab.turbo01 | grep -E 'versionCode=|versionName=' | head -n3
+            adb shell dumpsys package it.verlezza.musiclab.turbo01 | grep -F 'versionCode=33059'
+            echo 'ANDROID11_LAB56_TO_LAB57_INSTALL_UPDATE_SUCCESS'
