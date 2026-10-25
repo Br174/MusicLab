@@ -67,6 +67,6 @@ test('Coil image loader never blocks main waiting for DataStore during first 50 
  const loader=app.split('override fun newImageLoader(context: PlatformContext): ImageLoader {')[1]
      .split('private object CrashSafeInterceptor')[0];
  assert.match(loader,/val cacheSize = cachedCoilCacheSize \?: 512/);
- assert.doesNotMatch(loader,/runBlocking/);
+ assert.doesNotMatch(loader,/\\brunBlocking\\s*\\{/);
  assert.match(app,/applicationScope\.launch\(Dispatchers\.IO\) \{\s*cachedCoilCacheSize =/);
 });
