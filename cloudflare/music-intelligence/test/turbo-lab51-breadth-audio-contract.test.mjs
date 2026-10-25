@@ -10,7 +10,7 @@ const recovery = browser.split('fun startDocumentaryRecovery()')[1].split('fun p
 
 test('LAB45 original first search and LAB49 playback priority preserved', () => {
  assert.match(read('CoverRoundSearchPlan.kt'), /if \(round <= 1 \|\| title\.isBlank\(\)\) return emptyList\(\)/);
- assert.match(browser, /while \(playbackIsNormallyPlaying\(\) \|\|/);
+ assert.match(browser, /while \(backgroundWorkBlocked\(\) \|\|/);
  assert.match(browser, /coverRecoveryJob\?\.cancel\(\)/);
  assert.match(recovery, /isCoverAudioAtRisk\(\) == true/);
 });
@@ -39,5 +39,5 @@ test('SecondHandSongs does not run on LAB51 deep rounds', () => {
  assert.match(discovery, /\} else if \(mode != DiscogsDirectMode\.COVER/);
 });
 test('Cancelled or timed-out deep crawl never reports false completion', () => {
- assert.match(recovery, /documentaryRecoveryComplete = recovered != null/);
+ assert.match(recovery, /documentaryRecoveryComplete =\s*publishedCoverSnapshots\.size >= CoverLab53Publication\.COVER_QUOTA/);
 });
