@@ -2616,16 +2616,8 @@ internal fun DiscogsDirectVersionBrowser(
                     if (validatedWorkCredits.isNotEmpty()) {
                         session.originalWorkCredits = authorCredits
                     }
-                    val occupied = (previousRoundRows +
-                        publishedOriginalSnapshots + publishedCoverSnapshots)
-                        .mapTo(HashSet<String>()) {
-                            DiscogsVersionSource.recordingIdentityKey(it)
-                        }
-                    val usedVideoIds = (previousRoundRows +
-                        publishedOriginalSnapshots + publishedCoverSnapshots)
-                        .mapNotNullTo(HashSet<String>()) {
-                            it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
-                        }
+                    // LAB57: do not scan all stored recording/video IDs on
+                    // Main merely to gate a provisional publication pass.
                     // LAB57: up to 300 multi-factor Work evaluations and
                     // normalized artist/title scans formerly blocked Main.
                     val proofSnapshot = pendingCoverProofs.toList()
@@ -2671,34 +2663,42 @@ internal fun DiscogsDirectVersionBrowser(
                         turboSearchGeneration != expectedGeneration ||
                         coverRoundNumber != expectedRound) return@withContext
                     session.turboCoverCandidatePool = completePool
-                    val verified = completePool.filter { seed ->
-                        eligibleCoverForPublication(seed) &&
-                            DiscogsVersionSource.recordingIdentityKey(seed) !in occupied &&
-                            (seed.resolvedVideoId.isNullOrBlank() ||
-                                seed.resolvedVideoId.trim() !in usedVideoIds)
-                    }
-                    if (verified.isEmpty()) {
-                        updateLab53PublicationDiagnostics()
-                        return@withContext
-                    }
+                    // LAB57: 750 expensive per-candidate SHA/editorial checks
+                    // were blocking scrolling on Main during publication.
+                    // LAB55's source-backed candidate gate stays unchanged.
                     val previous = publishedCoverSnapshots
-                    val accepted = CoverLab55VisibleCandidates.publish(
-                        alreadyVisible = previous,
-                        candidates = completePool,
-                        songTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
-                        originalArtist = lockedArtist.ifBlank { recoveryArtist },
-                        isRejected = ::isRejected,
-                    )
+                    val titleSnapshot = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title)
+                    val originalSnapshot = lockedArtist.ifBlank { recoveryArtist }
+                    val accepted = withContext(Dispatchers.Default) {
+                        CoverLab55VisibleCandidates.publish(
+                            alreadyVisible = previous,
+                            candidates = completePool,
+                            songTitle = titleSnapshot,
+                            originalArtist = originalSnapshot,
+                            isRejected = ::isRejected,
+                        )
+                    }
+                    if (!isActive || activeCriteria != expectedCriteria ||
+                        turboSearchGeneration != expectedGeneration ||
+                        coverRoundNumber != expectedRound ||
+                        publishedCoverSnapshots !== previous) return@withContext
                     val additions = accepted.drop(previous.size)
                     val additional = additions.size
                     if (additional <= 0) return@withContext
                     if (additional > 0) {
                     publishedCoverSnapshots = accepted
                     session.publishedCoverSnapshots = accepted
-                    results = DiscogsVersionSource.dedupeVersions(
-                        results + accepted, preserveInputOrder = true,
-                    )
-                    session.results = results
+                    val resultsSnapshot = results
+                    val mergedResults = withContext(Dispatchers.Default) {
+                        DiscogsVersionSource.dedupeVersions(
+                            resultsSnapshot + accepted, preserveInputOrder = true,
+                        )
+                    }
+                    if (!isActive || activeCriteria != expectedCriteria ||
+                        turboSearchGeneration != expectedGeneration ||
+                        coverRoundNumber != expectedRound) return@withContext
+                    results = mergedResults
+                    session.results = mergedResults
                     // LAB50: make newly certified performances visible behind
                     // the committed posters, not behind dozens of uncommitted
                     // low-confidence archive candidates in stableOrder.
@@ -2712,7 +2712,7 @@ internal fun DiscogsDirectVersionBrowser(
                     additions.forEach { seed ->
                         session.turboPosterPublishedAtMs[seed.fingerprint] = now
                     }
-                    session.turboReserve = (session.turboReserve + verified)
+                    session.turboReserve = (session.turboReserve + recoveredSeeds)
                         .distinctBy(DiscogsVersionSource::recordingIdentityKey)
                         .take(TURBO_RESERVE_MAX)
                     sourceDiagnostics = sourceDiagnostics.filterNot {
