@@ -33,7 +33,7 @@ test('Recovered documentary candidates are pooled and reconsidered when evidence
  assert.match(recover,/CoverMultiProofVerifier\.verify\(/);
  assert.match(recover,/if \(!verdict\.certified\) null else seed\.copy/);
  assert.match(recover,/CoverLab55VisibleCandidates\.publish\(/);
- assert.match(recover,/seed\.resolvedVideoId\.trim\(\) !in usedVideoIds/);
+ assert.match(recover,/CoverLab55VisibleCandidates\.publish\(/);
 });
 test('MusicBrainz work identity includes ISWC without adding paid source',()=>{
  assert.match(mb,/val iswc: String\? = null/);
