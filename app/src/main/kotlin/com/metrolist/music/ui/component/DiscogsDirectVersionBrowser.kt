@@ -1012,7 +1012,10 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB53: identity confirmation from LAB52 is a second admission route,
     // not an extra filter that can silently erase genuine covered works.
     fun eligibleCoverForPublication(seed: DiscogsVersionSeed): Boolean {
-        if (isRejected(seed) || isOriginalPerformerVersion(seed)) return false
+        if (isRejected(seed) ||
+            (resolvedOriginalArtist.isNotBlank() &&
+                TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist))
+        ) return false
         if (modeAcceptsSeed(seed)) return true
         if (CoverSameWorkGate.hasDocumentaryRelation(seed)) return true
         return CoverMultiProofVerifier.verify(
