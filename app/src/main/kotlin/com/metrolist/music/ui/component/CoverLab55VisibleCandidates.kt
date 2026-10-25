@@ -38,6 +38,7 @@ internal object CoverLab55VisibleCandidates {
         songTitle: String,
         originalArtist: String,
         isRejected: (DiscogsVersionSeed) -> Boolean,
+        verifiedVideoIds: Set<String>? = null,
     ): List<DiscogsVersionSeed> {
         val seen = LinkedHashSet<String>()
         val videos = HashSet<String>()
@@ -47,10 +48,12 @@ internal object CoverLab55VisibleCandidates {
             if (output.size >= QUOTA) break
             if (isRejected(seed) ||
                 !isRealCandidate(seed, songTitle, originalArtist)) continue
-            val identity = DiscogsVersionSource.recordingIdentityKey(seed)
-            if (!seen.add(identity)) continue
+            // LAB59: a discographic poster is never a VIDEO FIRST result.
             val video = seed.resolvedVideoId?.trim().orEmpty()
-            if (video.isNotBlank() && !videos.add(video)) continue
+            if (!video.matches(Regex("[A-Za-z0-9_-]{11}"))) continue
+            if (verifiedVideoIds != null && video !in verifiedVideoIds) continue
+            val identity = DiscogsVersionSource.recordingIdentityKey(seed)
+            if (!seen.add(identity) || !videos.add(video)) continue
             output += seed
         }
         return output
