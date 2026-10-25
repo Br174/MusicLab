@@ -115,7 +115,7 @@ class App :
         // CrashHandler so the uncaught-exception path can post to GitHub Issues.
         CrashReporter.init(this)
         CrashHandler.install(this)
-        AnrWatchdog.start()
+        AnrWatchdog.start(this)
         ArtistNameAliases.initialize(this)
 
         // preferencesDataStore uses filesDir/datastore; proactive mkdir reduces failures on odd ROM states
