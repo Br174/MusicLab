@@ -1058,9 +1058,11 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun isHiddenForCurrentCover(seed: DiscogsVersionSeed): Boolean =
         mode == DiscogsDirectMode.COVER &&
+            // LAB56: Turbo admits actual source-backed provisional recordings;
+            // do not evaluate the expensive strict multi-proof first.
             (isRejected(seed) ||
-                (!modeAcceptsSeed(seed) &&
-                    (!isTurbo || !eligibleCoverForPublication(seed))))
+                if (isTurbo) !eligibleCoverForPublication(seed)
+                else !modeAcceptsSeed(seed))
 
     fun isOriginalPerformerVersion(seed: DiscogsVersionSeed): Boolean =
         mode == DiscogsDirectMode.COVER &&
@@ -1152,7 +1154,16 @@ internal fun DiscogsDirectVersionBrowser(
                     if (seen.add(seed.fingerprint)) add(seed)
                 }
             }.filter(DiscogsVersionSource::isDisplayableDirectSeed)
-                .filter(::modeAcceptsSeed)
+                .filter { seed ->
+                    // LAB56: do not run the expensive strict Work proof on every
+                    // player/scroll recomposition for provisional Turbo cards.
+                    if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                        CoverLab55VisibleCandidates.isRealCandidate(
+                            seed, TitleMeaningResolver.workAnchorTitle(activeCriteria?.title ?: title),
+                            lockedArtist.ifBlank { resolvedOriginalArtist },
+                        )
+                    } else modeAcceptsSeed(seed)
+                }
 
         val categoryFiltered =
             ordered.filter { seed ->
@@ -5331,12 +5342,18 @@ internal fun DiscogsDirectVersionBrowser(
     val orderedPool = remember(results, session.stableOrder, resolvedOriginalArtist, sortMode, mode) {
         orderedResults(results)
     }
-    val navigablePool =
+    // LAB56: video ticks and header animation do not change candidate
+    // membership. Filter once per actual source/decision change, not each
+    // Compose frame. This preserves LAB55 candidate admission.
+    val navigablePool = remember(
+        orderedPool, mode, isTurbo, category, results,
+        publishedCoverSnapshots, session.originalWorkCredits,
+        lockedArtist, resolvedOriginalArtist, title,
+    ) {
         if (mode == DiscogsDirectMode.COVER) {
             orderedPool.filterNot(::isHiddenForCurrentCover)
-        } else {
-            orderedPool
-        }
+        } else orderedPool
+    }
     // LAB58: the Cover publication quota never counts Originali.
     val publishPool =
         if (mode == DiscogsDirectMode.COVER) {
@@ -5368,13 +5385,26 @@ internal fun DiscogsDirectVersionBrowser(
     // Video verification still updates the touched snapshot immutably.
     // Deduplicate once across persisted and current cards, before dividing
     // them into historical/original and new-cover display sections.
-    val historicalOrOriginal =
+    // LAB56: both source lists previously allocated NEW List objects on
+    // every media-player/scroll recomposition. That invalidated remember()
+    // and ran DiscogsVersionSource.dedupeVersions repeatedly on main.
+    val historicalOrOriginal = remember(
+        previousRoundRows, publishedOriginalSnapshots, mode, isTurbo,
+        session.originalWorkCredits, resolvedOriginalArtist, lockedArtist, title,
+        results,
+    ) {
         previousRoundRows.filter {
-            !isRejected(it) && modeAcceptsSeed(it)
+            !isRejected(it) &&
+                (if (isTurbo && mode == DiscogsDirectMode.COVER)
+                    eligibleCoverForPublication(it) else modeAcceptsSeed(it))
         } + publishedOriginalSnapshots.filterNot(::isHiddenForCurrentCover)
-    val publishedEligibleCovers =
-        publishedCoverSnapshots
-            .filterNot(::isHiddenForCurrentCover)
+    }
+    val publishedEligibleCovers = remember(
+        publishedCoverSnapshots, mode, isTurbo, session.originalWorkCredits,
+        resolvedOriginalArtist, lockedArtist, title, results,
+    ) {
+        publishedCoverSnapshots.filterNot(::isHiddenForCurrentCover)
+    }
     val unifiedCoverDisplay = remember(
         mode, historicalOrOriginal, publishedEligibleCovers,
     ) {
@@ -5385,13 +5415,20 @@ internal fun DiscogsDirectVersionBrowser(
             )
         } else emptyList()
     }
+    // LAB56: hash-index instead of O(50 x 50) repeated matching; keep the
+    // exact same cross-source matching rule for real recording variants.
+    val firstSectionFingerprints = remember(historicalOrOriginal) {
+        historicalOrOriginal.mapTo(HashSet<String>()) { it.fingerprint }
+    }
+    val firstSectionBuckets = remember(historicalOrOriginal) {
+        historicalOrOriginal.groupBy(DiscogsVersionSource::crossSourceBucketKey)
+    }
     fun belongsToFirstCoverSection(seed: DiscogsVersionSeed): Boolean =
-        historicalOrOriginal.any { earlier ->
-            earlier.fingerprint == seed.fingerprint ||
-                (DiscogsVersionSource.crossSourceBucketKey(earlier) ==
-                    DiscogsVersionSource.crossSourceBucketKey(seed) &&
-                    DiscogsVersionSource.sameCrossSourceVersion(earlier, seed))
-        }
+        seed.fingerprint in firstSectionFingerprints ||
+            firstSectionBuckets[DiscogsVersionSource.crossSourceBucketKey(seed)]
+                .orEmpty().any { earlier ->
+                    DiscogsVersionSource.sameCrossSourceVersion(earlier, seed)
+                }
     val visibleOriginalVersions = remember(
         mode, isTurbo, unifiedCoverDisplay, previousRoundRows, publishedOriginalSnapshots,
         category, turboStreamProofVersion, if (isTurbo) null else results,
