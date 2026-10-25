@@ -2390,6 +2390,10 @@ internal fun DiscogsDirectVersionBrowser(
             documentaryRecoveryComplete || coverRecoveryJob?.isActive == true ||
             publishedOriginalSnapshots.size + publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA
         ) return
+        // Kept for source diagnostics; unlike LAB48, 16+ results are
+        // no longer treated as proof that no additional covers exist.
+        val originallySparse =
+            publishedOriginalSnapshots.size + publishedCoverSnapshots.size < 15
         val expectedGeneration = turboSearchGeneration
         val recoveryArtist = resolvedOriginalArtist
         coverRecoveryJob = scope.launch {
@@ -2426,11 +2430,13 @@ internal fun DiscogsDirectVersionBrowser(
                     val reunited = DiscogsVersionSource.dedupeVersions(
                         previous + verified, preserveInputOrder = true,
                     )
-                    val remainingSlots = (TURBO_RESULT_QUOTA -
+                    val freeSlots = (TURBO_RESULT_QUOTA -
                         publishedOriginalSnapshots.size).coerceAtLeast(0)
-                    val accepted = reunited.take(remainingSlots)
+                    val accepted = reunited.take(freeSlots)
                     val additions = accepted.drop(previous.size)
-                    if (additions.isEmpty()) return@withContext
+                    val additional = additions.size
+                    if (additional <= 0) return@withContext
+                    if (additional > 0) {
                     publishedCoverSnapshots = accepted
                     session.publishedCoverSnapshots = accepted
                     results = DiscogsVersionSource.dedupeVersions(
@@ -2448,7 +2454,8 @@ internal fun DiscogsDirectVersionBrowser(
                         it.name == "Recupero opere"
                     } + CoverSourceDiagnostic(
                         "Recupero opere", true, accepted.size - previous.size,
-                        "interpretazioni documentate aggiunte progressivamente",
+                        if (originallySparse) "recupero da pochi risultati"
+                        else "ampliamento interpretazioni già documentate",
                     )
                     session.sourceDiagnostics = sourceDiagnostics
                     val saved = previousRoundRows + publishedOriginalSnapshots + accepted
@@ -2456,6 +2463,7 @@ internal fun DiscogsDirectVersionBrowser(
                         CoverRoundStorage.save(context, sessionKey, 1, saved)
                     }
                     appendedAny = true
+                    }
                 }
             }
 
