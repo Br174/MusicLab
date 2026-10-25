@@ -70,6 +70,20 @@ internal data class CoverSourceOutcome(
 )
 
 internal object CoverDiscoverySources {
+    // A true work/performance relationship can preserve foreign adaptations.
+    // Name similarity, Cloud guesses or a user-uploaded "cover" video never
+    // create this proof. The historical first LAB45 search stays unchanged.
+    internal fun admitsAnchoredAlternateTitle(
+        candidate: CoverSourceCandidate,
+        deepRecovery: Boolean,
+    ): Boolean =
+        deepRecovery && candidate.workRelationConfirmed &&
+            candidate.sources.any { source ->
+                source.equals("MusicBrainz", true) ||
+                    source.equals("SecondHandSongs", true) ||
+                    source.equals("COVER.INFO", true)
+            }
+
     private val client =
         OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
@@ -338,12 +352,7 @@ internal object CoverDiscoverySources {
                 // documentary work/performance relationship. Neither
                 // name equality nor an unverified video is sufficient.
                 val linkedDocumentaryWork =
-                    deepRecovery && candidate.workRelationConfirmed &&
-                        candidate.sources.any {
-                            it.equals("MusicBrainz", true) ||
-                                it.equals("SecondHandSongs", true) ||
-                                it.equals("COVER.INFO", true)
-                        }
+                    admitsAnchoredAlternateTitle(candidate, deepRecovery)
 
                 strictTitleMatch ||
                     aiTrusted ||
