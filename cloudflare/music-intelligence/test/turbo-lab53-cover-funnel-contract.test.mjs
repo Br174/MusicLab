@@ -37,7 +37,7 @@ test('source candidates are retained after short burst and reused on recovery',(
  assert.match(b,/session\.turboCoverCandidatePool = CoverLab53Publication\.retain\(/);
  assert.match(recovery,/appendVerifiedSource\(emptyList\(\)\)/);
  assert.match(recovery,/CoverLab53Publication\.retain\(/);
- assert.match(recovery,/val verified = completePool\.filter/);
+ assert.match(recovery,/val completePool = withContext\(Dispatchers\.Default\)/);
  assert.match(recovery,/eligibleCoverForPublication\(seed\)/);
 });
 test('bounded progressive refill yields to LAB49 audio and does not spin forever',()=>{
