@@ -2037,7 +2037,11 @@ internal fun DiscogsDirectVersionBrowser(
         val firstPasses = session.automaticVideoAttempts
         val fallbackPasses = mutableSetOf<String>()
         fun postedRows(): List<DiscogsVersionSeed> =
-            (publishedOriginalSnapshots + publishedCoverSnapshots).take(TURBO_RESULT_QUOTA)
+            // LAB53: video metadata for 50 covers comes before optional
+            // original-performer variations. Never truncate 50 covers to 40
+            // because ten originals occupied the preceding positions.
+            publishedCoverSnapshots.take(TURBO_RESULT_QUOTA) +
+                publishedOriginalSnapshots.take(10)
         fun currentVideoEndMs(): Long {
             // One bounded overall window, independent from the 10-second
             // 25+25 poster publisher. Each row receives its own 5+5+5 clock
