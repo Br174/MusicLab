@@ -1,0 +1,132 @@
+name: MusicLab Turbo LAB54 Visible50 Signed APK ZIP
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-visible-50-lab54-20261025
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-turbo-lab54-cover-50-publisher
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: LAB54 full-funnel Soli zero-to-visible regression, exact protection, signed APK ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CRASH_REPORT_TOKEN: ''
+      CRASH_REPORT_REPO: ''
+      LASTFM_API_KEY: ''
+      LASTFM_SECRET: ''
+    steps:
+      - name: Checkout isolated LAB54 and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Guard LAB53 source, player LAB49, initial LAB45, UI and signer
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=924e0352cae61f25178d8deb5cd36367b72ddce4
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --name-only "$BASE" HEAD > /tmp/musiclab-lab54-changed.txt
+          cat /tmp/musiclab-lab54-changed.txt
+          while IFS= read -r path; do
+            case "$path" in
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab54FullFunnelTest.kt|cloudflare/music-intelligence/test/turbo-lab54-visible50-full-funnel-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab54-visibility-env.py|scripts/musiclab-lab54-soli-real-work-probe.py|.github/workflows/musiclab-turbo-lab54-visible50-apk.yml) ;;
+              *) echo "OUT OF APPROVED LAB54 SCOPE: $path"; exit 1 ;;
+            esac
+          done < /tmp/musiclab-lab54-changed.txt
+          for protected in app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt app/src/main/AndroidManifest.xml app/build.gradle.kts; do
+            test "$(git hash-object "$protected")" = "$(git rev-parse "$BASE:$protected")"
+          done
+          echo "LAB54 isolation, immutable player, first search, UI, identity protected"
+      - name: Contract regression LAB45 LAB49 LAB51 LAB52 LAB53 LAB54
+        run: |
+          node --test cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs cloudflare/music-intelligence/test/turbo-lab45-persistent-rounds.test.mjs cloudflare/music-intelligence/test/turbo-lab46-round-strategy-score100-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs cloudflare/music-intelligence/test/turbo-lab40-work-identity-speed-artwork.test.mjs cloudflare/music-intelligence/test/turbo-lab43-song-identity-refresh.test.mjs cloudflare/music-intelligence/test/turbo-lab48-work-first-recovery-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab51-breadth-audio-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab52-multiproof-regression-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab54-cover-funnel-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab54-visible50-full-funnel-contract.test.mjs
+
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+      - name: Protobuf
+        uses: ./.github/actions/setup-protobuf
+      - name: Prepare same-family Android versionCode 33056
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-lab54-visibility-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33056"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_CERT_SHA256="9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49"' uab-project.env
+      - name: Android JVM Soli 68-to-zero-to-fifty pipeline and regressions
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Diagnose and compile the signed LAB54 APK ZIP
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Inspect exact installer identity, signature and archive integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB54.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB54-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33056'"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          printf '%s\n' "$CERT_OUTPUT" | grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = "9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+          printf 'APPLICATION_ID=it.verlezza.musiclab.turbo01\nVERSION_CODE=33056\nSIGNING_SHA256=%s\nBASE_SHA=924e0352cae61f25178d8deb5cd36367b72ddce4\n' "$CERT" > dist/uab/UPDATE_FAMILY.txt
+      - name: Publish installable APK and ZIP
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: MusicLab-Turbo-LAB54-Visible50-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB54.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-Turbo-LAB54-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/UPDATE_FAMILY.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  real-source-probe:
+    name: Soli live Work documentation (not device UI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source probe
+        uses: actions/checkout@v4
+      - name: Probe Soli Work identity with referenced performers
+        run: python3 scripts/musiclab-lab54-soli-real-work-probe.py
+      - name: Publish honest real source coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MusicLab-LAB54-Soli-Real-Work-Report
+          path: dist/uab/LAB54_SOLI_LIVE_WORK_PROBE.json
+          if-no-files-found: warn
+          retention-days: 14
