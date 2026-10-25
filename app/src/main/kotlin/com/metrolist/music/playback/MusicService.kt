@@ -4023,7 +4023,7 @@ class MusicService :
         }
 
         incrementRetryCount(mediaId)
-
+        val failedIndex = player.currentMediaItemIndex
         retryJob?.cancel()
         retryJob =
             scope.launch {
@@ -4031,9 +4031,14 @@ class MusicService :
 
                 delay(RETRY_DELAY_MS)
 
-                // Force re-prepare from position 0 to avoid range issues
-                val currentIndex = player.currentMediaItemIndex
-                player.seekTo(currentIndex, 0)
+                // Never reset the next song because an older source failed.
+                if (player.currentMediaItem?.mediaId != mediaId ||
+                    player.currentMediaItemIndex != failedIndex ||
+                    !player.playWhenReady ||
+                    player.playbackState == Player.STATE_READY ||
+                    failedIndex == C.INDEX_UNSET
+                ) return@launch
+                player.seekTo(failedIndex, 0L)
                 player.prepare()
 
                 Timber.tag(TAG).d("Retrying playback for $mediaId after 416 error (from position 0)")
@@ -4051,7 +4056,7 @@ class MusicService :
         }
 
         incrementRetryCount(mediaId)
-
+        val failedIndex = player.currentMediaItemIndex
         retryJob?.cancel()
         retryJob =
             scope.launch {
@@ -4062,9 +4067,14 @@ class MusicService :
                 // Additional delay for page reload errors as they may be rate-limited
                 delay(RETRY_DELAY_MS * 2)
 
+                if (player.currentMediaItem?.mediaId != mediaId ||
+                    player.currentMediaItemIndex != failedIndex ||
+                    !player.playWhenReady ||
+                    player.playbackState == Player.STATE_READY ||
+                    failedIndex == C.INDEX_UNSET
+                ) return@launch
                 val currentPosition = player.currentPosition
-                val currentIndex = player.currentMediaItemIndex
-                player.seekTo(currentIndex, currentPosition)
+                player.seekTo(failedIndex, currentPosition.coerceAtLeast(0L))
                 player.prepare()
 
                 Timber.tag(TAG).d("Retrying playback for $mediaId after page reload error")
@@ -4174,9 +4184,15 @@ class MusicService :
 
         incrementRetryCount(mediaId)
 
+        val failedIndex = player.currentMediaItemIndex
         retryJob?.cancel()
         retryJob =
             scope.launch {
+                if (player.currentMediaItem?.mediaId != mediaId ||
+                    player.currentMediaItemIndex != failedIndex ||
+                    !player.playWhenReady ||
+                    player.playbackState == Player.STATE_READY
+                ) return@launch
                 val currentPosition = player.currentPosition
                 val currentIndex = player.currentMediaItemIndex
                 if (currentIndex == C.INDEX_UNSET) {
