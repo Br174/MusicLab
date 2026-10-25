@@ -2545,6 +2545,7 @@ internal fun DiscogsDirectVersionBrowser(
                         songTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
                         originalArtist = lockedArtist.ifBlank { recoveryArtist },
                         isRejected = ::isRejected,
+                        verifiedVideoIds = session.playReadyVideoIds,
                     )
                     val additions = completed.drop(previous.size)
                         .mapIndexed { index, seed ->
@@ -2689,6 +2690,7 @@ internal fun DiscogsDirectVersionBrowser(
                             songTitle = titleSnapshot,
                             originalArtist = originalSnapshot,
                             isRejected = ::isRejected,
+                            verifiedVideoIds = session.playReadyVideoIds,
                         )
                     }
                     if (!isActive || activeCriteria != expectedCriteria ||
@@ -3126,7 +3128,11 @@ internal fun DiscogsDirectVersionBrowser(
     // they become permanent empty poster slots on every cached search.
     // The video thumbnail is NOT pinned into the editorial-artwork namespace.
     fun stableArtworkFor(seed: DiscogsVersionSeed): String? =
-        if (mode == DiscogsDirectMode.COVER) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            seed.resolvedVideoId?.trim()?.takeIf {
+                it.matches(Regex("[A-Za-z0-9_-]{11}"))
+            }?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+        } else if (mode == DiscogsDirectMode.COVER) {
             // LAB22 manual substitute shows its own verified video thumbnail,
             // never a persisted image belonging to an older recording.
             if (isTurbo && ("MusicLab LAB22 video poster" in seed.sourceNames ||
@@ -3578,7 +3584,9 @@ internal fun DiscogsDirectVersionBrowser(
                             fun sealPostersOnce() {
                                 if (publishedCoverSnapshots.isNotEmpty() ||
                                     publishedOriginalSnapshots.isNotEmpty() || activeCriteria != criteria) return
-                                val ranked = turboRankedPool()
+                                val ranked = turboRankedPool().filter { seed ->
+                                    seed.resolvedVideoId?.trim() in session.playReadyVideoIds
+                                }
                                 val initialOriginals = ranked
                                     .filter(::isDistinctOriginalVersion).take(10)
                                 val initialCovers = CoverLab55VisibleCandidates.publish(
@@ -3587,6 +3595,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     songTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
                                     originalArtist = lockedArtist.ifBlank { resolvedOriginalArtist },
                                     isRejected = ::isRejected,
+                                    verifiedVideoIds = session.playReadyVideoIds,
                                 )
                                 // LAB27: publish the first ten together *as soon
                                 // as* ten ranked documentary candidates exist.
@@ -3596,10 +3605,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 // after 1.2s instead of waiting for ten matches.
                                 // The remaining slots append without reordering.
                                 if (initialOriginals.isEmpty() && initialCovers.isEmpty()) return
-                                val elapsed = SystemClock.elapsedRealtime() - turboCommandStartedAt
-                                if (initialCovers.size < TURBO_MIN_EARLY_POSTER_BLOCK &&
-                                    elapsed < TURBO_FIRST_POSTER_DEADLINE_MS
-                                ) return
+                                // A video-ready card is published without an artificial delay.
                                 val firstBlock = initialOriginals +
                                     initialCovers.take(TURBO_MIN_EARLY_POSTER_BLOCK)
                                 publishedOriginalSnapshots = initialOriginals
@@ -3642,13 +3648,16 @@ internal fun DiscogsDirectVersionBrowser(
                                     publishedCoverSnapshots).mapTo(HashSet<String>()) { it.fingerprint }
                                 val next = CoverLab55VisibleCandidates.publish(
                                     alreadyVisible = publishedCoverSnapshots,
-                                    candidates = turboRankedPool().filterNot {
+                                    candidates = turboRankedPool().filter { seed ->
+                                        seed.resolvedVideoId?.trim() in session.playReadyVideoIds
+                                    }.filterNot {
                                         DiscogsVersionSource.recordingIdentityKey(it) in committedKeys ||
                                             it.fingerprint in committedFingerprints
                                     },
                                     songTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
                                     originalArtist = lockedArtist.ifBlank { resolvedOriginalArtist },
                                     isRejected = ::isRejected,
+                                    verifiedVideoIds = session.playReadyVideoIds,
                                 ).drop(committedCount)
                                 // LAB53: a partial verified refill is not a failed round.
                                 // Publish it now and continue appending toward 50.
@@ -3728,6 +3737,49 @@ internal fun DiscogsDirectVersionBrowser(
                                         session.originalSectionFrozen = true
                                     }
                                     // Even without a callback, Discogs can update the pool.
+                                    sealPostersOnce()
+                                    sealSecondPostersOnce()
+                                }
+                            }
+                            // LAB59: single existing metadata resolver, moved BEFORE video publication.
+                            // No audio stream is opened and the native player is unchanged.
+                            val videoFirstVerifier = launch {
+                                val attempted = HashSet<String>()
+                                while (isActive && activeCriteria == criteria &&
+                                    SystemClock.elapsedRealtime() < stopAt - TURBO_THUMBNAIL_RESERVE_MS &&
+                                    publishedCoverSnapshots.size < TURBO_RESULT_QUOTA
+                                ) {
+                                    val work = TitleMeaningResolver.workAnchorTitle(criteria.title)
+                                    val artist = lockedArtist.ifBlank { resolvedOriginalArtist }
+                                    val pending = results.asSequence()
+                                        .filter { seed ->
+                                            isDistinctOriginalVersion(seed) ||
+                                                CoverLab55VisibleCandidates.isRealCandidate(seed, work, artist)
+                                        }
+                                        .filter { seed ->
+                                            val key = seed.fingerprint + "|" + seed.resolvedVideoId.orEmpty()
+                                            key !in attempted &&
+                                                seed.resolvedVideoId?.trim() !in session.playReadyVideoIds &&
+                                                playableTrack(seed) != null
+                                        }
+                                        .sortedWith(compareByDescending<DiscogsVersionSeed> {
+                                            !it.resolvedVideoId.isNullOrBlank()
+                                        }.thenByDescending { it.confidenceScore })
+                                        .take(if (playbackIsNormallyPlaying()) 1 else 4)
+                                        .toList()
+                                    if (pending.isEmpty() || backgroundWorkBlocked()) {
+                                        delay(120L)
+                                        continue
+                                    }
+                                    pending.forEach {
+                                        attempted += it.fingerprint + "|" + it.resolvedVideoId.orEmpty()
+                                    }
+                                    val remainingMs = stopAt - SystemClock.elapsedRealtime() -
+                                        TURBO_THUMBNAIL_RESERVE_MS
+                                    if (remainingMs <= 0L) break
+                                    withTimeoutOrNull(minOf(2_800L, remainingMs)) {
+                                        resolveVideoChunk(pending)
+                                    }
                                     sealPostersOnce()
                                     sealSecondPostersOnce()
                                 }
@@ -4149,7 +4201,9 @@ internal fun DiscogsDirectVersionBrowser(
                         // Poster publication NEVER depends on a linked video.
                         // A real candidate with no artwork keeps its row as an
                         // explicit image-unavailable state rather than vanishing.
-                        val finalRanked = turboRankedPool().distinctBy { it.fingerprint }
+                        val finalRanked = turboRankedPool()
+                            .filter { seed -> seed.resolvedVideoId?.trim() in session.playReadyVideoIds }
+                            .distinctBy { it.fingerprint }
                         // LAB53: original-performer versions have their own section.
                         // They NEVER consume any of the 50 COVER places.
                         if (publishedOriginalSnapshots.isEmpty()) {
@@ -4163,6 +4217,7 @@ internal fun DiscogsDirectVersionBrowser(
                             songTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
                             originalArtist = lockedArtist.ifBlank { resolvedOriginalArtist },
                             isRejected = ::isRejected,
+                            verifiedVideoIds = session.playReadyVideoIds,
                         )
                         session.publishedCoverSnapshots = publishedCoverSnapshots
                         // LAB46: preserve LAB45's first-50 order and /20 rating,
@@ -6940,14 +6995,23 @@ private fun DiscogsVersionCard(
     // Editorial image stays first; video thumbnails do not overwrite its cache.
     val posterFallbacks = remember(stableArtworkUrl, seed.coverUrl, seed.resolvedVideoId) {
         buildList {
-            stableArtworkUrl?.takeIf { it.startsWith("https://", ignoreCase = true) }?.let(::add)
-            seed.coverUrl?.replaceFirst(Regex("^http:", RegexOption.IGNORE_CASE), "https:")
-                ?.takeIf { it.startsWith("https:", ignoreCase = true) }?.let(::add)
-            seed.resolvedVideoId?.trim()?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
-                ?.let { id ->
+            if (modernCoverCard) {
+                seed.resolvedVideoId?.trim()?.takeIf {
+                    it.matches(Regex("[A-Za-z0-9_-]{11}"))
+                }?.let { id ->
                     add("https://i.ytimg.com/vi/$id/hqdefault.jpg")
                     add("https://i.ytimg.com/vi/$id/mqdefault.jpg")
                 }
+            } else {
+                stableArtworkUrl?.takeIf { it.startsWith("https://", ignoreCase = true) }?.let(::add)
+                seed.coverUrl?.replaceFirst(Regex("^http:", RegexOption.IGNORE_CASE), "https:")
+                    ?.takeIf { it.startsWith("https:", ignoreCase = true) }?.let(::add)
+                seed.resolvedVideoId?.trim()?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+                    ?.let { id ->
+                        add("https://i.ytimg.com/vi/$id/hqdefault.jpg")
+                        add("https://i.ytimg.com/vi/$id/mqdefault.jpg")
+                    }
+            }
         }.distinct()
     }
     var posterIndex by remember(seed.fingerprint, posterFallbacks) {
