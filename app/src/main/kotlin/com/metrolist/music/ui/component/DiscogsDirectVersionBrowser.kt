@@ -2696,6 +2696,63 @@ internal fun DiscogsDirectVersionBrowser(
                 turboSearchGeneration != expectedGeneration
             ) return@launch
 
+            // LAB55: the original ten-second burst cancels unfinished Cloud
+            // requests. Recover stored Cloud archive/memory independently,
+            // read-only, then reuse its complete source and credit metadata.
+            // Do this BEFORE expensive Discogs release-by-release verification.
+            foreignScoutConfig?.let { config ->
+                val recoveredArchive = withTimeoutOrNull(11_000L) {
+                    CloudMusicDiscovery.searchArchive(
+                        query = expectedCriteria.title,
+                        config = config,
+                        limit = 100,
+                        coverRound = 0,
+                    )
+                }.orEmpty()
+                val archiveSeeds = CoverLab55VisibleCandidates.cloudArchiveSeeds(
+                    rows = recoveredArchive,
+                    songTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
+                    originalArtist = recoveryArtist,
+                )
+                if (archiveSeeds.isNotEmpty()) appendCatalogEvidence(archiveSeeds)
+                if (publishedCoverSnapshots.size < CoverLab55VisibleCandidates.QUOTA &&
+                    config.useCloudMemory) {
+                    val memorySnapshot = withTimeoutOrNull(11_000L) {
+                        CloudMusicDiscovery.cachedMemoryState(
+                            context = context, title = expectedCriteria.title,
+                            artist = recoveryArtist, config = config,
+                        ) ?: CloudMusicDiscovery.discoverMemoryState(
+                            title = expectedCriteria.title,
+                            artist = recoveryArtist,
+                            config = config, limit = 150,
+                            cacheContext = context,
+                        )
+                    }
+                    if (memorySnapshot?.discovery?.versions?.isNotEmpty() == true) {
+                        val memorySeeds = memorySnapshot.discovery.versions
+                            .map(::memoryCandidateToSeed)
+                        appendCatalogEvidence(memorySeeds)
+                    }
+                    memorySnapshot?.discovery?.original?.let { original ->
+                        val credits = buildList {
+                            original.songwriters.forEach { add(DiscogsCredit(it, "Songwriter")) }
+                            original.composers.forEach { add(DiscogsCredit(it, "Composer")) }
+                            original.lyricists.forEach { add(DiscogsCredit(it, "Lyricist")) }
+                        }
+                        if (credits.isNotEmpty()) {
+                            session.originalWorkCredits =
+                                (session.originalWorkCredits + credits)
+                                    .distinctBy { it.name.lowercase() + "|" + it.role.lowercase() }
+                        }
+                    }
+                }
+                updateLab53PublicationDiagnostics()
+            }
+            if (publishedCoverSnapshots.size >= CoverLab55VisibleCandidates.QUOTA) {
+                documentaryRecoveryComplete = true
+                return@launch
+            }
+
             // LAB54: repair the empty Work-author evidence of the Turbo burst.
             // The source work is preferred; Discogs original performer details
             // provide an independent, bounded fallback when MusicBrainz fails.
