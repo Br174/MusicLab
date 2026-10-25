@@ -122,6 +122,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
@@ -2578,8 +2579,13 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
 
+            val proofAppendMutex = Mutex()
             suspend fun appendVerifiedSource(rows: List<CoverSourceCandidate>) {
                 if (rows.isEmpty() && session.turboCoverCandidatePool.isEmpty()) return
+                // The two source callbacks can overlap. Serialize evidence
+                // without ever holding a synchronized lock on Android main.
+                proofAppendMutex.lock()
+                try {
                 withContext(Dispatchers.Main.immediate) {
                     if (!isActive || activeCriteria != expectedCriteria ||
                         turboSearchGeneration != expectedGeneration ||
@@ -2620,7 +2626,12 @@ internal fun DiscogsDirectVersionBrowser(
                         .mapNotNullTo(HashSet<String>()) {
                             it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
                         }
-                    val recoveredSeeds = pendingCoverProofs.mapNotNull { candidate ->
+                    // LAB57: up to 300 multi-factor Work evaluations and
+                    // normalized artist/title scans formerly blocked Main.
+                    val proofSnapshot = pendingCoverProofs.toList()
+                    val creditsSnapshot = session.originalWorkCredits.toList()
+                    val recoveredSeeds = withContext(Dispatchers.Default) {
+                        proofSnapshot.mapNotNull { candidate ->
                         val seed = DiscogsVersionSource.externalSeed(
                             candidate = candidate,
                             targetTitle = expectedCriteria.title,
@@ -2633,7 +2644,7 @@ internal fun DiscogsDirectVersionBrowser(
                             seed = seed,
                             workTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
                             originalArtist = recoveryArtist,
-                            originalCredits = session.originalWorkCredits,
+                            originalCredits = creditsSnapshot,
                         )
                         if (!verdict.certified) null else seed.copy(
                             confidenceScore = if (directRelation) seed.confidenceScore else
@@ -2645,12 +2656,20 @@ internal fun DiscogsDirectVersionBrowser(
                                 verdict.sharedAuthors.map { "Autore verificato: $it" })
                                 .distinct(),
                         )
+                        }
                     }
+                    if (!isActive || activeCriteria != expectedCriteria ||
+                        turboSearchGeneration != expectedGeneration ||
+                        coverRoundNumber != expectedRound) return@withContext
                     // Previously found candidate records are not deleted when
                     // the first ten-second discovery burst closes.
-                    val completePool = CoverLab53Publication.retain(
-                        session.turboCoverCandidatePool, recoveredSeeds,
-                    )
+                    val poolSnapshot = session.turboCoverCandidatePool
+                    val completePool = withContext(Dispatchers.Default) {
+                        CoverLab53Publication.retain(poolSnapshot, recoveredSeeds)
+                    }
+                    if (!isActive || activeCriteria != expectedCriteria ||
+                        turboSearchGeneration != expectedGeneration ||
+                        coverRoundNumber != expectedRound) return@withContext
                     session.turboCoverCandidatePool = completePool
                     val verified = completePool.filter { seed ->
                         eligibleCoverForPublication(seed) &&
@@ -2713,6 +2732,9 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     appendedAny = true
                     }
+                }
+                } finally {
+                    proofAppendMutex.unlock()
                 }
             }
 
