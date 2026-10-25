@@ -628,7 +628,8 @@ internal fun DiscogsDirectVersionBrowser(
             )
         // LAB45 first-50 search: keep its original Cloud candidate admission inputs.
         // LAB46 enrichment stays isolated to the later, explicitly paged rounds.
-        val seed = if (coverRoundNumber == 1) baseSeed else baseSeed.copy(
+        val seed = baseSeed.copy(
+                // LAB55: first-round Cloud records must keep their source proofs.
                 releaseDate = candidate.releaseDate ?: candidate.year?.toString(),
                 country = candidate.country,
                 sourceNames = (seedSourceNamesForCloud(candidate.sourceNames)).distinct(),
@@ -1016,6 +1017,11 @@ internal fun DiscogsDirectVersionBrowser(
             (resolvedOriginalArtist.isNotBlank() &&
                 TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist))
         ) return false
+        if (isTurbo && CoverLab55VisibleCandidates.isRealCandidate(
+                seed, TitleMeaningResolver.workAnchorTitle(activeCriteria?.title ?: title),
+                lockedArtist.ifBlank { resolvedOriginalArtist },
+            )
+        ) return true
         if (modeAcceptsSeed(seed)) return true
         if (CoverSameWorkGate.hasDocumentaryRelation(seed)) return true
         return CoverMultiProofVerifier.verify(
@@ -2483,10 +2489,12 @@ internal fun DiscogsDirectVersionBrowser(
                                 })
                     }
                     val previous = publishedCoverSnapshots
-                    val completed = CoverLab53Publication.fill(
-                        published = previous,
-                        candidates = eligible,
-                        eligibleCover = ::eligibleCoverForPublication,
+                    val completed = CoverLab55VisibleCandidates.publish(
+                        alreadyVisible = previous,
+                        candidates = candidatePool,
+                        songTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
+                        originalArtist = lockedArtist.ifBlank { recoveryArtist },
+                        isRejected = ::isRejected,
                     )
                     val additions = completed.drop(previous.size)
                         .mapIndexed { index, seed ->
@@ -2616,10 +2624,12 @@ internal fun DiscogsDirectVersionBrowser(
                         return@withContext
                     }
                     val previous = publishedCoverSnapshots
-                    val accepted = CoverLab53Publication.fill(
-                        published = previous,
-                        candidates = verified,
-                        eligibleCover = ::eligibleCoverForPublication,
+                    val accepted = CoverLab55VisibleCandidates.publish(
+                        alreadyVisible = previous,
+                        candidates = completePool,
+                        songTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
+                        originalArtist = lockedArtist.ifBlank { recoveryArtist },
+                        isRejected = ::isRejected,
                     )
                     val additions = accepted.drop(previous.size)
                     val additional = additions.size
@@ -3436,9 +3446,13 @@ internal fun DiscogsDirectVersionBrowser(
                                 val ranked = turboRankedPool()
                                 val initialOriginals = ranked
                                     .filter(::isDistinctOriginalVersion).take(10)
-                                val initialCovers = ranked
-                                    .filter(::eligibleCoverForPublication)
-                                    .take(CoverLab53Publication.COVER_QUOTA)
+                                val initialCovers = CoverLab55VisibleCandidates.publish(
+                                    alreadyVisible = emptyList(),
+                                    candidates = ranked,
+                                    songTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
+                                    originalArtist = lockedArtist.ifBlank { resolvedOriginalArtist },
+                                    isRejected = ::isRejected,
+                                )
                                 // LAB27: publish the first ten together *as soon
                                 // as* ten ranked documentary candidates exist.
                                 // No artificial 1.2s minimum wait or video gate.
@@ -3491,13 +3505,15 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                 val committedFingerprints = (publishedOriginalSnapshots +
                                     publishedCoverSnapshots).mapTo(HashSet<String>()) { it.fingerprint }
-                                val next = CoverLab53Publication.fill(
-                                    published = publishedCoverSnapshots,
+                                val next = CoverLab55VisibleCandidates.publish(
+                                    alreadyVisible = publishedCoverSnapshots,
                                     candidates = turboRankedPool().filterNot {
                                         DiscogsVersionSource.recordingIdentityKey(it) in committedKeys ||
                                             it.fingerprint in committedFingerprints
                                     },
-                                    eligibleCover = ::eligibleCoverForPublication,
+                                    songTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
+                                    originalArtist = lockedArtist.ifBlank { resolvedOriginalArtist },
+                                    isRejected = ::isRejected,
                                 ).drop(committedCount)
                                 // LAB53: a partial verified refill is not a failed round.
                                 // Publish it now and continue appending toward 50.
@@ -3620,7 +3636,8 @@ internal fun DiscogsDirectVersionBrowser(
                                     ).let { seed ->
                                         // LAB46: Cloud data is restored, never accepted as
                                         // independent evidence of same-work identity.
-                                        if (!appendVerifiedRound) seed else seed.copy(
+                                        seed.copy(
+                                            // LAB55: never drop full Cloud metadata in round ONE.
                                             releaseDate = item.releaseDate ?: seed.releaseDate,
                                             country = item.country ?: seed.country,
                                             sourceNames = seedSourceNamesForCloud(item.sourceNames),
@@ -4005,10 +4022,12 @@ internal fun DiscogsDirectVersionBrowser(
                                 .filter(::isDistinctOriginalVersion).take(10)
                             session.publishedOriginalSnapshots = publishedOriginalSnapshots
                         }
-                        publishedCoverSnapshots = CoverLab53Publication.fill(
-                            published = publishedCoverSnapshots,
+                        publishedCoverSnapshots = CoverLab55VisibleCandidates.publish(
+                            alreadyVisible = publishedCoverSnapshots,
                             candidates = finalRanked,
-                            eligibleCover = ::eligibleCoverForPublication,
+                            songTitle = TitleMeaningResolver.workAnchorTitle(criteria.title),
+                            originalArtist = lockedArtist.ifBlank { resolvedOriginalArtist },
+                            isRejected = ::isRejected,
                         )
                         session.publishedCoverSnapshots = publishedCoverSnapshots
                         // LAB46: preserve LAB45's first-50 order and /20 rating,
@@ -6112,7 +6131,17 @@ internal fun DiscogsDirectVersionBrowser(
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
-                            showConfidence = category == DirectVersionCategory.ALL,
+                            showConfidence = category == DirectVersionCategory.ALL &&
+                                !CoverLab55VisibleCandidates.isProvisional(
+                                    seed, lockedArtist.ifBlank { resolvedOriginalArtist },
+                                    session.originalWorkCredits,
+                                ),
+                            provisional = isTurbo &&
+                                !isOriginalPerformerVersion(seed) &&
+                                CoverLab55VisibleCandidates.isProvisional(
+                                    seed, lockedArtist.ifBlank { resolvedOriginalArtist },
+                                    session.originalWorkCredits,
+                                ),
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
                             onPlay = { play(seed) },
@@ -6148,7 +6177,17 @@ internal fun DiscogsDirectVersionBrowser(
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
-                            showConfidence = category == DirectVersionCategory.ALL,
+                            showConfidence = category == DirectVersionCategory.ALL &&
+                                !CoverLab55VisibleCandidates.isProvisional(
+                                    seed, lockedArtist.ifBlank { resolvedOriginalArtist },
+                                    session.originalWorkCredits,
+                                ),
+                            provisional = isTurbo &&
+                                !isOriginalPerformerVersion(seed) &&
+                                CoverLab55VisibleCandidates.isProvisional(
+                                    seed, lockedArtist.ifBlank { resolvedOriginalArtist },
+                                    session.originalWorkCredits,
+                                ),
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
                             onPlay = { play(seed) },
@@ -6663,6 +6702,7 @@ private fun DiscogsVersionCard(
     videoReadyVerified: Boolean = false,
     audioReadyVerified: Boolean = false,
     modernCoverCard: Boolean = false,
+    provisional: Boolean = false,
     isPlaying: Boolean = false,
     automaticVideoManaged: Boolean = false,
     automaticVideoSearching: Boolean = false,
@@ -6794,6 +6834,14 @@ private fun DiscogsVersionCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (provisional) {
+                        Text(
+                            "Da verificare · registrazione candidata",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            maxLines = 1,
+                        )
+                    }
                     val shownYear = seed.releaseDate?.take(4)?.takeIf(String::isNotBlank)
                         ?: seed.displayDate?.take(4)?.takeIf(String::isNotBlank) ?: "—"
                     Text(
