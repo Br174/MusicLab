@@ -24,10 +24,21 @@ internal object CoverLab53Publication {
     internal fun retain(
         previous: List<DiscogsVersionSeed>,
         newCandidates: List<DiscogsVersionSeed>,
-    ): List<DiscogsVersionSeed> =
-        DiscogsVersionSource.dedupeVersions(
+    ): List<DiscogsVersionSeed> {
+        val all = DiscogsVersionSource.dedupeVersions(
             previous + newCandidates, preserveInputOrder = true,
-        ).take(MAX_RETAINED_CANDIDATES)
+        )
+        if (all.size <= MAX_RETAINED_CANDIDATES) return all
+        // A large title-only archive must never eject a late, verified Work
+        // relation or catalog composer proof from the retained candidate pool.
+        val documentary = all.filter {
+            it.workRelationConfirmed || it.credits.isNotEmpty()
+        }
+        val weaker = all.filterNot {
+            it.workRelationConfirmed || it.credits.isNotEmpty()
+        }
+        return (documentary + weaker).take(MAX_RETAINED_CANDIDATES)
+    }
 
     /**
      * Append only confirmed, distinct cover recordings. Original-performer
