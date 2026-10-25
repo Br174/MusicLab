@@ -252,6 +252,7 @@ internal object MusicBrainzCoverSource {
         }
 
         var sawNetworkError = false
+        var bestAnchoredWork: MusicBrainzLookup? = null
         for (work in works) {
             val result = browseValidatedWork(
                 workId = work.id,
@@ -265,8 +266,19 @@ internal object MusicBrainzCoverSource {
                 sawNetworkError = true
                 continue
             }
-            if (result.work != null) return result
+            // A matching title alone is never a cover. Every considered work
+            // must independently contain the selected performer's recording.
+            if (result.work != null) {
+                if (!deepRecovery) return result
+                if (bestAnchoredWork == null ||
+                    result.covers.size > bestAnchoredWork.covers.size
+                ) bestAnchoredWork = result
+                // Limit expensive deep browsing even if the public work-search
+                // endpoint has hundreds of homonymous compositions.
+                if (bestAnchoredWork.covers.size >= 120) break
+            }
         }
+        bestAnchoredWork?.let { return it }
 
         return MusicBrainzLookup(
             emptyList(),
