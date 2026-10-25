@@ -1039,10 +1039,20 @@ internal fun DiscogsDirectVersionBrowser(
             visible = publishedCoverSnapshots,
             eligibleCover = ::eligibleCoverForPublication,
         )
-        sourceDiagnostics = sourceDiagnostics.filterNot { it.name == "LAB53 Lista cover" } +
-            CoverSourceDiagnostic(
-                "LAB53 Lista cover", true, count.visible, count.diagnostic(),
+        val confirmed = publishedCoverSnapshots.count {
+            !CoverLab55VisibleCandidates.isProvisional(
+                it, lockedArtist.ifBlank { resolvedOriginalArtist },
+                session.originalWorkCredits,
             )
+        }
+        sourceDiagnostics = sourceDiagnostics.filterNot {
+            it.name == "LAB53 Lista cover" || it.name == "LAB55 Lista cover"
+        } + CoverSourceDiagnostic(
+            "LAB55 Lista cover", true, count.visible,
+            "trovate=${count.found} · pubblicabili=${count.certified} · " +
+                "cover confermate=$confirmed · da verificare=${count.visible - confirmed} · " +
+                "mostrate=${count.visible}/50",
+        )
         session.sourceDiagnostics = sourceDiagnostics
     }
 
@@ -5440,12 +5450,21 @@ internal fun DiscogsDirectVersionBrowser(
                 session.turboCoverCandidatePool, publishedCoverSnapshots,
                 ::eligibleCoverForPublication,
             )
+            val confirmed = visibleTrueCovers.count {
+                !CoverLab55VisibleCandidates.isProvisional(
+                    it, lockedArtist.ifBlank { resolvedOriginalArtist },
+                    session.originalWorkCredits,
+                )
+            }
             val diagnostic = CoverSourceDiagnostic(
-                "LAB53 Lista cover", true, visibleTrueCovers.size,
-                stats.diagnostic() + " · in lista=${visibleTrueCovers.size}",
+                "LAB55 Lista cover", true, visibleTrueCovers.size,
+                "trovate=${stats.found} · pubblicabili=${stats.certified} · " +
+                    "cover confermate=$confirmed · " +
+                    "da verificare=${visibleTrueCovers.size - confirmed} · " +
+                    "in lista=${visibleTrueCovers.size}/50",
             )
             sourceDiagnostics = sourceDiagnostics.filterNot {
-                it.name == "LAB53 Lista cover"
+                it.name == "LAB53 Lista cover" || it.name == "LAB55 Lista cover"
             } + diagnostic
             session.sourceDiagnostics = sourceDiagnostics
         }
@@ -6035,7 +6054,13 @@ internal fun DiscogsDirectVersionBrowser(
                             Text(
                                 text =
                                     if (isTurbo) {
-                                        "Locandine: ${visibleTrueCovers.size + visibleOriginalVersions.size}/50 · " +
+                                        "Cover visibili: ${visibleTrueCovers.size}/50 · " +
+                                            "Da verificare: ${visibleTrueCovers.count {
+                                                CoverLab55VisibleCandidates.isProvisional(
+                                                    it, lockedArtist.ifBlank { resolvedOriginalArtist },
+                                                    session.originalWorkCredits,
+                                                )
+                                            }} · " +
                                             "Video verificati: ${(visibleTrueCovers + visibleOriginalVersions).count(::hasPublishableVideo)} · " +
                                             if (loading) "Raccolta locandine · video 5+5+5 s per scheda visibile"
                                             else "Tocca una locandina senza video per cercarlo"
@@ -6145,7 +6170,7 @@ internal fun DiscogsDirectVersionBrowser(
                         if (isTurbo) {
                             when {
                                 session.turboFinished ->
-                                    "Nessuna locandina confermata. Riprova o cambia titolo."
+                                    "Nessuna locandina ancora disponibile. Controlla le fonti o riprova."
                                 else ->
                                     "Carico prima 25 locandine (obiettivo 5 secondi), poi altre 25 entro 10 secondi…"
                             }
@@ -6289,7 +6314,13 @@ internal fun DiscogsDirectVersionBrowser(
                             Text("Cerca ancora · fino a 50 nuove cover")
                         }
                         Text(
-                            "Tornata ${coverRoundNumber} · ${visibleResults.size} risultati verificati in elenco",
+                            "Tornata ${coverRoundNumber} · ${visibleTrueCovers.size}/50 cover visibili · " +
+                                "${visibleTrueCovers.count {
+                                    CoverLab55VisibleCandidates.isProvisional(
+                                        it, lockedArtist.ifBlank { resolvedOriginalArtist },
+                                        session.originalWorkCredits,
+                                    )
+                                }} da verificare",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
