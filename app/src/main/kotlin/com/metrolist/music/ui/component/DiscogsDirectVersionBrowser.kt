@@ -2686,8 +2686,6 @@ internal fun DiscogsDirectVersionBrowser(
                     val additional = additions.size
                     if (additional <= 0) return@withContext
                     if (additional > 0) {
-                    publishedCoverSnapshots = accepted
-                    session.publishedCoverSnapshots = accepted
                     val resultsSnapshot = results
                     val mergedResults = withContext(Dispatchers.Default) {
                         DiscogsVersionSource.dedupeVersions(
@@ -2696,7 +2694,13 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     if (!isActive || activeCriteria != expectedCriteria ||
                         turboSearchGeneration != expectedGeneration ||
-                        coverRoundNumber != expectedRound) return@withContext
+                        coverRoundNumber != expectedRound ||
+                        results !== resultsSnapshot ||
+                        publishedCoverSnapshots !== previous) return@withContext
+                    // Atomically publish both lists only after off-main merging
+                    // completes. No half-visible/half-merged intermediate frame.
+                    publishedCoverSnapshots = accepted
+                    session.publishedCoverSnapshots = accepted
                     results = mergedResults
                     session.results = mergedResults
                     // LAB50: make newly certified performances visible behind
