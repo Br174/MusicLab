@@ -16,7 +16,7 @@ test('LAB45: verified multi-round cards are saved through an atomic file',()=>{
 test('LAB45: full Android process restart restores round number and existing cards',()=>{
   assert.match(screen,/CoverRoundStorage\.load\(context, sessionKey\)/);
   assert.match(screen,/session\.previousRoundRows = saved\.rows/);
-  assert.match(screen,/existing\.coverRoundNumber = saved\.round/);
+  assert.match(screen,/session\.coverRoundNumber = saved\.round/);
   assert.match(store,/fun load\(context: Context, workKey: String\): Snapshot/);
 });
 
