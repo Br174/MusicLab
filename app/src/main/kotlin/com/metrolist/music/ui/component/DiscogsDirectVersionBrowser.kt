@@ -2420,6 +2420,23 @@ internal fun DiscogsDirectVersionBrowser(
                     )
                     pendingCoverProofs.clear()
                     pendingCoverProofs.addAll(remembered.take(300))
+                    // LAB52: Turbo's rapid first search intentionally has no
+                    // work credits. Recover the actual composer/lyricist credits
+                    // from a separately validated MusicBrainz Work before using
+                    // a candidate catalog's own writing credits as proof.
+                    val validatedWorkCredits = pendingCoverProofs
+                        .filter { evidence ->
+                            evidence.workRelationConfirmed &&
+                                evidence.sources.any { it.equals("MusicBrainz", true) }
+                        }.flatMap { it.credits }
+                    val authorCredits = (session.originalWorkCredits + validatedWorkCredits)
+                        .distinctBy { credit ->
+                            TitleMeaningResolver.canonical(credit.name) + "|" +
+                                TitleMeaningResolver.canonical(credit.role)
+                        }
+                    if (validatedWorkCredits.isNotEmpty()) {
+                        session.originalWorkCredits = authorCredits
+                    }
                     val occupied = (previousRoundRows +
                         publishedOriginalSnapshots + publishedCoverSnapshots)
                         .mapTo(HashSet<String>()) {
