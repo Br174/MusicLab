@@ -2469,10 +2469,13 @@ internal fun DiscogsDirectVersionBrowser(
 
             // Playback may last longer than 60 seconds; this is a pause,
             // not an empty or failed recovery attempt.
-            while (isActive && (
-                    playbackIsNormallyPlaying() || backgroundWorkBlocked() ||
-                        playerConnection?.service?.isCoverAudioAtRisk() == true
-                )) delay(500L)
+            while (playbackIsNormallyPlaying() ||
+                backgroundWorkBlocked() ||
+                playerConnection?.service?.isCoverAudioAtRisk() == true
+            ) {
+                if (!isActive) return@launch
+                delay(500L)
+            }
             if (!isActive || activeCriteria != expectedCriteria ||
                 turboSearchGeneration != expectedGeneration
             ) return@launch
@@ -2483,7 +2486,9 @@ internal fun DiscogsDirectVersionBrowser(
                     originalArtist = recoveryArtist,
                     mode = DiscogsDirectMode.COVER,
                     aiConfig = foreignScoutConfig,
-                    maxNetworkFanOut = 1,
+                    // Two documentary providers may progress in parallel,
+                    // but only when the LAB49 player is idle.
+                    maxNetworkFanOut = 2,
                     forceRefresh = false,
                     coverRound = 1,
                     deepRecovery = true,
