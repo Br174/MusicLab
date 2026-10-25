@@ -25,7 +25,10 @@ test('LAB55 supports 50 real catalog results pending certification, never synthe
  assert.match(engine,/if \(seed\.sourceNames\.isEmpty\(\)\) return false/);
  assert.match(engine,/TitleMeaningResolver\.matchesBaseTitle\(songTitle, seed\.trackTitle\)/);
  assert.match(engine,/DiscogsVersionSource\.recordingIdentityKey\(seed\)/);
- assert.match(engine,/if \(video\.isNotBlank\(\) && !videos\.add\(video\)\) continue/);
+ // LAB59 replaces the LAB55 poster-only policy; retain documentary proof and dedup.
+ assert.match(engine,/if \(!video\.matches\(Regex\(/);
+ assert.match(engine,/verifiedVideoIds != null && video !in verifiedVideoIds/);
+ assert.match(engine,/!seen\.add\(identity\) \|\| !videos\.add\(video\)/);
  assert.match(browser,/publishedCoverSnapshots = CoverLab55VisibleCandidates\.publish/);
  assert.match(browser,/val initialCovers = CoverLab55VisibleCandidates\.publish/);
 });
