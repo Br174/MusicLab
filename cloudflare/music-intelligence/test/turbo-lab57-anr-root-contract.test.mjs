@@ -37,7 +37,7 @@ test('poster recovery no longer loops 750 work-identity checks simply to log',()
  assert.match(catalog,/val offMainPool = withContext\(Dispatchers\.Default\)/);
 });
 test('300 per-source documentary proofs and canonical merges never run on Main',()=>{
- assert.match(work,/val proofAppendMutex = Mutex\(/); // Mutex declaration is just before the method
+ assert.match(recovery,/val proofAppendMutex = Mutex\(/);
  assert.match(work,/proofAppendMutex\.lock\(\)/);
  assert.match(work,/proofAppendMutex\.unlock\(\)/);
  assert.match(work,/val recoveredSeeds = withContext\(Dispatchers\.Default\)/);
