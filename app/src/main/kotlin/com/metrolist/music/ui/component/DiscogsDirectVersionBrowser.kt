@@ -5160,6 +5160,27 @@ internal fun DiscogsDirectVersionBrowser(
         }
     val nextBlockReady = nextBlockPool.count(::isPlayReady)
 
+    // LAB53 diagnostic uses the FINAL list's actual count, not only the
+    // publisher's in-memory snapshot. No extra UI controls or layout changes.
+    LaunchedEffect(
+        isTurbo, mode, visibleTrueCovers.size, publishedCoverSnapshots.size,
+    ) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            val stats = CoverLab53Publication.funnel(
+                session.turboCoverCandidatePool, publishedCoverSnapshots,
+                ::eligibleCoverForPublication,
+            )
+            val diagnostic = CoverSourceDiagnostic(
+                "LAB53 Lista cover", true, visibleTrueCovers.size,
+                stats.diagnostic() + " · in lista=${visibleTrueCovers.size}",
+            )
+            sourceDiagnostics = sourceDiagnostics.filterNot {
+                it.name == "LAB53 Lista cover"
+            } + diagnostic
+            session.sourceDiagnostics = sourceDiagnostics
+        }
+    }
+
     LaunchedEffect(listState) {
         var previousIndex = listState.firstVisibleItemIndex
         var previousOffset = listState.firstVisibleItemScrollOffset
