@@ -1034,11 +1034,11 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun updateLab53PublicationDiagnostics() {
         if (!isTurbo || mode != DiscogsDirectMode.COVER) return
-        val count = CoverLab53Publication.funnel(
-            candidates = session.turboCoverCandidatePool,
-            visible = publishedCoverSnapshots,
-            eligibleCover = ::eligibleCoverForPublication,
-        )
+        // LAB56: diagnostics do not rerun hundreds of expensive SHA-256
+        // preference lookups, semantic matching and work-proof tests on MAIN.
+        // Found != certified; actual list count is the published snapshot.
+        val foundCount = session.turboCoverCandidatePool.size
+        val shownCount = publishedCoverSnapshots.size
         val confirmed = publishedCoverSnapshots.count {
             !CoverLab55VisibleCandidates.isProvisional(
                 it, lockedArtist.ifBlank { resolvedOriginalArtist },
@@ -1046,12 +1046,12 @@ internal fun DiscogsDirectVersionBrowser(
             )
         }
         sourceDiagnostics = sourceDiagnostics.filterNot {
-            it.name == "LAB53 Lista cover" || it.name == "LAB55 Lista cover"
+            it.name == "LAB53 Lista cover" || it.name == "LAB55 Lista cover" ||
+                it.name == "LAB56 Lista cover"
         } + CoverSourceDiagnostic(
-            "LAB55 Lista cover", true, count.visible,
-            "trovate=${count.found} · pubblicabili=${count.certified} · " +
-                "cover confermate=$confirmed · da verificare=${count.visible - confirmed} · " +
-                "mostrate=${count.visible}/50",
+            "LAB56 Lista cover", true, shownCount,
+            "trovate=$foundCount · cover confermate=$confirmed · " +
+                "da verificare=${shownCount - confirmed} · mostrate=$shownCount/50",
         )
         session.sourceDiagnostics = sourceDiagnostics
     }
@@ -5483,10 +5483,7 @@ internal fun DiscogsDirectVersionBrowser(
         isTurbo, mode, visibleTrueCovers.size, publishedCoverSnapshots.size,
     ) {
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
-            val stats = CoverLab53Publication.funnel(
-                session.turboCoverCandidatePool, publishedCoverSnapshots,
-                ::eligibleCoverForPublication,
-            )
+            val foundCount = session.turboCoverCandidatePool.size
             val confirmed = visibleTrueCovers.count {
                 !CoverLab55VisibleCandidates.isProvisional(
                     it, lockedArtist.ifBlank { resolvedOriginalArtist },
@@ -5494,14 +5491,14 @@ internal fun DiscogsDirectVersionBrowser(
                 )
             }
             val diagnostic = CoverSourceDiagnostic(
-                "LAB55 Lista cover", true, visibleTrueCovers.size,
-                "trovate=${stats.found} · pubblicabili=${stats.certified} · " +
-                    "cover confermate=$confirmed · " +
+                "LAB56 Lista cover", true, visibleTrueCovers.size,
+                "trovate=$foundCount · cover confermate=$confirmed · " +
                     "da verificare=${visibleTrueCovers.size - confirmed} · " +
                     "in lista=${visibleTrueCovers.size}/50",
             )
             sourceDiagnostics = sourceDiagnostics.filterNot {
-                it.name == "LAB53 Lista cover" || it.name == "LAB55 Lista cover"
+                it.name == "LAB53 Lista cover" || it.name == "LAB55 Lista cover" ||
+                    it.name == "LAB56 Lista cover"
             } + diagnostic
             session.sourceDiagnostics = sourceDiagnostics
         }
