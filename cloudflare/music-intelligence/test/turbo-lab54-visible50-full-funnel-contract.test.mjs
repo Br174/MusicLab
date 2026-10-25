@@ -24,7 +24,7 @@ test('LAB54 confirms original work credits without title-only or video-only admi
  assert.match(recovery,/DiscogsVersionSource\.loadOriginalWorkCredits\(/);
  assert.match(recovery,/DiscogsVersionSource\.enrichSeedsForRanking\(/);
  assert.match(recovery,/it\.releaseId > 0 && !it\.discogsVerificationChecked/);
- assert.match(recovery,/eligibleCoverForPublication\(seed\)/);
+ assert.match(recovery,/CoverLab55VisibleCandidates\.publish\(/);
  assert.match(recovery,/CoverRoundStorage\.save\(context, sessionKey, expectedRound, saved\)/);
  assert.match(b,/CoverMultiProofVerifier\.verify\(/);
 });
