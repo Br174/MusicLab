@@ -1039,7 +1039,9 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun isHiddenForCurrentCover(seed: DiscogsVersionSeed): Boolean =
         mode == DiscogsDirectMode.COVER &&
-            (isRejected(seed) || !modeAcceptsSeed(seed))
+            (isRejected(seed) ||
+                (!modeAcceptsSeed(seed) &&
+                    (!isTurbo || !eligibleCoverForPublication(seed))))
 
     fun isOriginalPerformerVersion(seed: DiscogsVersionSeed): Boolean =
         mode == DiscogsDirectMode.COVER &&
@@ -2422,14 +2424,16 @@ internal fun DiscogsDirectVersionBrowser(
         if (!isTurbo || mode != DiscogsDirectMode.COVER ||
             !session.turboFinished ||
             documentaryRecoveryComplete || coverRecoveryJob?.isActive == true ||
-            publishedOriginalSnapshots.size + publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA
+            publishedCoverSnapshots.size >= CoverLab53Publication.COVER_QUOTA ||
+            session.turboRecoveryPasses >= 3
         ) return
         // Kept for source diagnostics; unlike LAB48, 16+ results are
         // no longer treated as proof that no additional covers exist.
-        val originallySparse =
-            publishedOriginalSnapshots.size + publishedCoverSnapshots.size < 15
+        val originallySparse = publishedCoverSnapshots.size < 15
         val expectedGeneration = turboSearchGeneration
         val expectedRound = coverRoundNumber
+        val recoveryPass = session.turboRecoveryPasses + 1
+        session.turboRecoveryPasses = recoveryPass
         val recoveryArtist = resolvedOriginalArtist
         coverRecoveryJob = scope.launch {
             val earlyEvidence = java.util.Collections.synchronizedList(
@@ -2437,7 +2441,7 @@ internal fun DiscogsDirectVersionBrowser(
             )
             var appendedAny = false
             suspend fun appendVerifiedSource(rows: List<CoverSourceCandidate>) {
-                if (rows.isEmpty()) return
+                if (rows.isEmpty() && session.turboCoverCandidatePool.isEmpty()) return
                 withContext(Dispatchers.Main.immediate) {
                     if (!isActive || activeCriteria != expectedCriteria ||
                         turboSearchGeneration != expectedGeneration ||
@@ -2478,7 +2482,7 @@ internal fun DiscogsDirectVersionBrowser(
                         .mapNotNullTo(HashSet<String>()) {
                             it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
                         }
-                    val verified = pendingCoverProofs.mapNotNull { candidate ->
+                    val recoveredSeeds = pendingCoverProofs.mapNotNull { candidate ->
                         val seed = DiscogsVersionSource.externalSeed(
                             candidate = candidate,
                             targetTitle = expectedCriteria.title,
@@ -2503,26 +2507,29 @@ internal fun DiscogsDirectVersionBrowser(
                                 verdict.sharedAuthors.map { "Autore verificato: $it" })
                                 .distinct(),
                         )
-                    }.filter { seed ->
-                        !isRejected(seed) && !isOriginalPerformerVersion(seed) &&
+                    }
+                    // Previously found candidate records are not deleted when
+                    // the first ten-second discovery burst closes.
+                    val completePool = CoverLab53Publication.retain(
+                        session.turboCoverCandidatePool, recoveredSeeds,
+                    )
+                    session.turboCoverCandidatePool = completePool
+                    val verified = completePool.filter { seed ->
+                        eligibleCoverForPublication(seed) &&
                             DiscogsVersionSource.recordingIdentityKey(seed) !in occupied &&
                             (seed.resolvedVideoId.isNullOrBlank() ||
-                                seed.resolvedVideoId.trim() !in usedVideoIds) &&
-                            (modeAcceptsSeed(seed) ||
-                                seed.sourceNames.any { source ->
-                                    source.equals("MusicBrainz", true) ||
-                                        source.equals("SecondHandSongs", true) ||
-                                        source.equals("COVER.INFO", true)
-                                })
+                                seed.resolvedVideoId.trim() !in usedVideoIds)
                     }
-                    if (verified.isEmpty()) return@withContext
+                    if (verified.isEmpty()) {
+                        updateLab53PublicationDiagnostics()
+                        return@withContext
+                    }
                     val previous = publishedCoverSnapshots
-                    val reunited = DiscogsVersionSource.dedupeVersions(
-                        previous + verified, preserveInputOrder = true,
+                    val accepted = CoverLab53Publication.fill(
+                        published = previous,
+                        candidates = verified,
+                        eligibleCover = ::eligibleCoverForPublication,
                     )
-                    val freeSlots = (TURBO_RESULT_QUOTA -
-                        publishedOriginalSnapshots.size).coerceAtLeast(0)
-                    val accepted = reunited.take(freeSlots)
                     val additions = accepted.drop(previous.size)
                     val additional = additions.size
                     if (additional <= 0) return@withContext
@@ -2559,6 +2566,7 @@ internal fun DiscogsDirectVersionBrowser(
                             " · verifiche dirette o multiprova",
                     )
                     session.sourceDiagnostics = sourceDiagnostics
+                    updateLab53PublicationDiagnostics()
                     val saved = previousRoundRows + publishedOriginalSnapshots + accepted
                     scope.launch(Dispatchers.IO) {
                         CoverRoundStorage.save(context, sessionKey, expectedRound, saved)
@@ -2568,10 +2576,16 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
 
-            // Playback may last longer than 60 seconds; this is a pause,
-            // not an empty or failed recovery attempt.
-            while (playbackIsNormallyPlaying() ||
-                backgroundWorkBlocked() ||
+            // LAB53: restore qualified cached candidates before waiting for
+            // additional sources. This work is local and does not fetch audio.
+            appendVerifiedSource(emptyList())
+            if (publishedCoverSnapshots.size >= CoverLab53Publication.COVER_QUOTA) {
+                documentaryRecoveryComplete = true
+                return@launch
+            }
+            // Playback startup/rebuffer owns the HTTP lane. Ordinary stable
+            // playback allows just ONE source request at a time.
+            while (backgroundWorkBlocked() ||
                 playerConnection?.service?.isCoverAudioAtRisk() == true
             ) {
                 if (!isActive) return@launch
@@ -2589,9 +2603,9 @@ internal fun DiscogsDirectVersionBrowser(
                     aiConfig = foreignScoutConfig,
                     // Two documentary providers may progress in parallel,
                     // but only when the LAB49 player is idle.
-                    maxNetworkFanOut = 2,
-                    forceRefresh = false,
-                    coverRound = expectedRound,
+                    maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
+                    forceRefresh = recoveryPass > 1,
+                    coverRound = expectedRound + recoveryPass - 1,
                     deepRecovery = true,
                     onEarlyVideoCandidates = { rows ->
                         earlyEvidence.addAll(rows)
@@ -2612,10 +2626,24 @@ internal fun DiscogsDirectVersionBrowser(
             if (isActive && activeCriteria == expectedCriteria &&
                 turboSearchGeneration == expectedGeneration
             ) {
-                documentaryRecoveryComplete = recovered != null
+                documentaryRecoveryComplete =
+                    publishedCoverSnapshots.size >= CoverLab53Publication.COVER_QUOTA ||
+                        session.turboRecoveryPasses >= 3
+                updateLab53PublicationDiagnostics()
                 if (appendedAny && !backgroundWorkBlocked() &&
                     !session.turboVideoComplete
                 ) turboSearchGeneration++
+                if (!documentaryRecoveryComplete && !backgroundWorkBlocked()) {
+                    // Three finite, resume-safe progressive passes. Do not
+                    // loop indefinitely for an obscure work with <50 covers.
+                    scope.launch {
+                        delay(900L)
+                        if (isActive && activeCriteria == expectedCriteria &&
+                            coverRoundNumber == expectedRound &&
+                            !documentaryRecoveryComplete
+                        ) startDocumentaryRecovery()
+                    }
+                }
             }
         }
     }
