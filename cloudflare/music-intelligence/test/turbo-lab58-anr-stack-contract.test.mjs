@@ -33,6 +33,14 @@ test('LAB58: Copyable Android ANR diagnostic in the existing Cover header menu',
  assert.match(screen,/newPlainText\("MusicLab ANR stack", anrDiagnosticText\)/);
  assert.match(screen,/scope\.launch\(Dispatchers\.IO\)/);
 });
+test('LAB58: provisional poster rendering skips expensive video preferences reads',()=>{
+ const scaler=screen.split('fun videoCalibratedDisplaySeed(seed: DiscogsVersionSeed): DiscogsVersionSeed {')[1]
+    .split('fun hasTurboStreamReady(')[0];
+ assert.match(scaler,/CoverLab55VisibleCandidates\.isProvisional\(/);
+ assert.match(scaler,/\) return seed/);
+ assert.match(scaler,/val raw = seed\.confidenceScore/);
+});
+
 test('LAB58: source-backed LAB55 candidate publication and LAB57 async restoration preserved',()=>{
  assert.match(screen,/val initialCovers = CoverLab55VisibleCandidates\.publish/);
  assert.match(screen,/publishedCoverSnapshots = CoverLab55VisibleCandidates\.publish/);
