@@ -443,6 +443,9 @@ internal fun DiscogsDirectVersionBrowser(
     var originalSectionFrozen by remember(sessionKey) { mutableStateOf(session.originalSectionFrozen) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var coverRecoveryJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
+    // LAB52: pending evidence survives recovery cancellation and manual rounds
+    // within this search session without creating heavy Compose recompositions.
+    val pendingCoverProofs = remember(sessionKey) { mutableListOf<CoverSourceCandidate>() }
     var documentaryRecoveryComplete by remember(sessionKey) { mutableStateOf(false) }
     var paginationJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
     var videoPreloadJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -2410,6 +2413,13 @@ internal fun DiscogsDirectVersionBrowser(
                         coverRoundNumber != expectedRound || !session.turboFinished
                     ) return@withContext
 
+                    // Merge weak candidate evidence with later catalog/author
+                    // proof instead of rejecting it on first observation.
+                    val remembered = CoverMultiProofVerifier.accumulate(
+                        pendingCoverProofs, rows,
+                    )
+                    pendingCoverProofs.clear()
+                    pendingCoverProofs.addAll(remembered.take(300))
                     val occupied = (previousRoundRows +
                         publishedOriginalSnapshots + publishedCoverSnapshots)
                         .mapTo(HashSet<String>()) {
@@ -2420,15 +2430,30 @@ internal fun DiscogsDirectVersionBrowser(
                         .mapNotNullTo(HashSet<String>()) {
                             it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
                         }
-                    val verified = rows.map { candidate ->
-                        DiscogsVersionSource.externalSeed(
+                    val verified = pendingCoverProofs.mapNotNull { candidate ->
+                        val seed = DiscogsVersionSource.externalSeed(
                             candidate = candidate,
                             targetTitle = expectedCriteria.title,
                             originalArtist = recoveryArtist,
                         )
+                        val verdict = CoverMultiProofVerifier.verify(
+                            seed = seed,
+                            workTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
+                            originalArtist = recoveryArtist,
+                            originalCredits = session.originalWorkCredits,
+                        )
+                        if (!verdict.certified) null else seed.copy(
+                            confidenceScore = maxOf(seed.confidenceScore,
+                                if (verdict.methods.contains(
+                                    CoverMultiProofVerifier.Method.CATALOG_CONVERGENCE
+                                )) 15 else 13),
+                            confidenceReasons = (seed.confidenceReasons +
+                                verdict.methods.map { "LAB52 prova: ${it.name}" } +
+                                verdict.sharedAuthors.map { "Autore verificato: $it" })
+                                .distinct(),
+                        )
                     }.filter { seed ->
-                        CoverSameWorkGate.hasDocumentaryRelation(seed) &&
-                            !isRejected(seed) && !isOriginalPerformerVersion(seed) &&
+                        !isRejected(seed) && !isOriginalPerformerVersion(seed) &&
                             DiscogsVersionSource.recordingIdentityKey(seed) !in occupied &&
                             (seed.resolvedVideoId.isNullOrBlank() ||
                                 seed.resolvedVideoId.trim() !in usedVideoIds) &&
@@ -2477,8 +2502,10 @@ internal fun DiscogsDirectVersionBrowser(
                         it.name == "Recupero opere"
                     } + CoverSourceDiagnostic(
                         "Recupero opere", true, accepted.size - previous.size,
-                        if (originallySparse) "recupero da pochi risultati"
-                        else "ampliamento interpretazioni già documentate",
+                        (if (originallySparse) "recupero da pochi risultati"
+                        else "ampliamento interpretazioni già documentate") +
+                            " · prove accumulate ${pendingCoverProofs.size}" +
+                            " · verifiche dirette o multiprova",
                     )
                     session.sourceDiagnostics = sourceDiagnostics
                     val saved = previousRoundRows + publishedOriginalSnapshots + accepted
@@ -3041,7 +3068,10 @@ internal fun DiscogsDirectVersionBrowser(
         turboVisibleJobs.values.forEach { it.cancel() }
         turboVisibleJobs.clear()
         turboReplacementClaims.clear()
-        if (!repeatSameWork) session.turboReserve = emptyList()
+        if (!repeatSameWork) {
+            session.turboReserve = emptyList()
+            pendingCoverProofs.clear()
+        }
         session.turboBurstStartedAtMs = if (isTurbo && mode == DiscogsDirectMode.COVER) turboCommandStartedAt else 0L
         session.turboArchiveMatches = 0
         // An intentional repeat should not replay rejected Cloud snapshots.
