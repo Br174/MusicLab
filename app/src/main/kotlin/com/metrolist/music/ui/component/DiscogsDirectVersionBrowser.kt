@@ -494,6 +494,7 @@ internal fun DiscogsDirectVersionBrowser(
             coverSwipeJob?.cancel()
             CoverSwipeBridge.clear(sessionKey)
             searchJob?.cancel()
+            coverRecoveryJob?.cancel()
             paginationJob?.cancel()
             verificationJob?.cancel()
             videoPreloadJob?.cancel()
@@ -2379,6 +2380,10 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun pauseCoverBackgroundForPlayback() {
+        // LAB49: an ongoing composition crawl is background work as well.
+        // It must never outlive the selected music or compete with start/rebuffer.
+        coverRecoveryJob?.cancel()
+        coverRecoveryJob = null
         // LAB54: only the short playback-start critical lane owns the network.
         // Discovery/pagination survive because Cover must remain usable while music plays.
         backgroundPausedForPlayback = true
@@ -3702,8 +3707,16 @@ internal fun DiscogsDirectVersionBrowser(
                                 mutableListOf<CoverSourceCandidate>(),
                             )
                             val recovered = withTimeoutOrNull(60_000L) {
-                                    // Never compete with the player's start/rebuffer.
-                                    while (backgroundWorkBlocked()) delay(250L)
+                                    // LAB49: documentary requests are entirely
+                                    // idle-only. A playing track is never
+                                    // sacrificed for an extended metadata crawl.
+                                    while (playbackIsNormallyPlaying() ||
+                                        backgroundWorkBlocked() ||
+                                        playerConnection?.service?.isCoverAudioAtRisk() == true
+                                    ) delay(300L)
+                                    if (!isActive || activeCriteria != expectedCriteria) {
+                                        return@withTimeoutOrNull null
+                                    }
                                     CoverDiscoverySources.discover(
                                         title = TitleMeaningResolver.workAnchorTitle(criteria.title),
                                         originalArtist = recoveryArtist,
