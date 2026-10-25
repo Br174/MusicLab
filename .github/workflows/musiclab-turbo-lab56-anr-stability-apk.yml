@@ -38,7 +38,7 @@ jobs:
           cat /tmp/musiclab-lab56-changed.txt
           while IFS= read -r path; do
             case "$path" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab53-cover-funnel-contract.test.mjs|cloudflare/music-intelligence/test/turbo-lab56-anr-frame-pacing-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab56-anr-env.py|.github/workflows/musiclab-turbo-lab56-anr-stability-apk.yml) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab43-song-identity-refresh.test.mjs|cloudflare/music-intelligence/test/turbo-lab53-cover-funnel-contract.test.mjs|cloudflare/music-intelligence/test/turbo-lab56-anr-frame-pacing-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab56-anr-env.py|.github/workflows/musiclab-turbo-lab56-anr-stability-apk.yml) ;;
               *) echo "OUT OF APPROVED LAB56 SCOPE: $path"; exit 1 ;;
             esac
           done < /tmp/musiclab-lab56-changed.txt
