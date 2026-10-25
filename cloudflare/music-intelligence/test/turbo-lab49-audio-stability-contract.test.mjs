@@ -23,7 +23,8 @@ test('LAB49 cancels heavy Cover work on screen exit and prioritizes playback', (
 });
 
 test('LAB49 never runs extended documentary recovery against playing or buffering music', () => {
-  assert.match(screen, /while \(playbackIsNormallyPlaying\(\) \|\|/);
+  assert.match(screen, /while \(backgroundWorkBlocked\(\) \|\|/);
+  assert.match(screen, /maxNetworkFanOut = if \(playbackIsNormallyPlaying\(\)\) 1 else 2/);
   assert.match(screen, /playerConnection\?\.service\?\.isCoverAudioAtRisk\(\) == true/);
   assert.match(screen, /deepRecovery = true/);
   assert.match(screen, /CoverSameWorkGate\.hasDocumentaryRelation\(seed\)/);
@@ -76,5 +77,5 @@ test('LAB49 adapts rebuffer reserve without regressing rapid initial song start'
 test('LAB49 retains the Cover first-batch gate and work-based rejection', () => {
   assert.match(screen, /coverRound = if \(appendVerifiedRound\) coverRoundNumber else 1/);
   assert.match(screen, /CoverSameWorkGate\.hasDocumentaryRelation/);
-  assert.match(screen, /publishedOriginalSnapshots\.size \+ publishedCoverSnapshots\.size < 15/);
+  assert.match(screen, /val originallySparse = publishedCoverSnapshots\.size < 15/);
 });
