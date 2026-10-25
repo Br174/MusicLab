@@ -54,7 +54,7 @@ test('funnel diagnostics account for the actually displayed list, not just found
  assert.match(p,/certificate=\$certified/);
  assert.match(p,/escluse=\$excluded/);
  assert.match(p,/mostrate=\$visible/);
- assert.match(b,/stats\.diagnostic\(\) \+ " · in lista=\$\{visibleTrueCovers\.size\}"/);
+ assert.match(b,/da verificare=\$\{visibleTrueCovers\.size - confirmed\}/);
 });
 test('documented sources remain authoritative; LAB52 composer proof is an alternative, not a guess',()=>{
  assert.match(b,/CoverMultiProofVerifier\.verify\(/);
