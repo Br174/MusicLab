@@ -5339,6 +5339,21 @@ internal fun DiscogsDirectVersionBrowser(
         }
     val nextBlockReady = nextBlockPool.count(::isPlayReady)
 
+    // LAB54 resume recovery from previously empty snapshots. A process
+    // restoration with many candidate summaries but zero committed cards
+    // must not remain permanently empty until another manual search.
+    LaunchedEffect(
+        isTurbo, mode, activeCriteria, loading, sourceDiscoveryLoading,
+        publishedCoverSnapshots.size,
+    ) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER &&
+            activeCriteria != null && !loading && !sourceDiscoveryLoading &&
+            session.turboFinished && publishedCoverSnapshots.size <
+                CoverLab53Publication.COVER_QUOTA &&
+            !documentaryRecoveryComplete && coverRecoveryJob?.isActive != true
+        ) startDocumentaryRecovery()
+    }
+
     // LAB53 diagnostic uses the FINAL list's actual count, not only the
     // publisher's in-memory snapshot. No extra UI controls or layout changes.
     LaunchedEffect(
