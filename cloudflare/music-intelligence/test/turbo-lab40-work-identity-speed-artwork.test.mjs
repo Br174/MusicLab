@@ -45,7 +45,7 @@ test('LAB40: first verified posters need not wait for ten candidates', () => {
   assert.match(first, /elapsed < TURBO_FIRST_POSTER_DEADLINE_MS/);
   assert.match(first, /TURBO_MIN_EARLY_POSTER_BLOCK/);
   assert.match(second, /committedCount == 0 && publishedOriginalSnapshots\.isEmpty\(\)/);
-  assert.match(second, /CoverLab53Publication\.fill\(/);
+  assert.match(second, /CoverLab55VisibleCandidates\.publish\(/);
 });
 
 test('LAB40: coalesce provider callbacks before ranked UI state changes', () => {
