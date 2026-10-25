@@ -1581,6 +1581,15 @@ internal fun DiscogsDirectVersionBrowser(
      * in a catalogue or has been editorially approved.
      */
     fun videoCalibratedDisplaySeed(seed: DiscogsVersionSeed): DiscogsVersionSeed {
+        // LAB58: provisional cards do not display a confidence score and
+        // are not video-certified. Avoid 50 x synchronized SharedPreferences
+        // lookups and duplicate-release comparisons during list rendering.
+        if (isTurbo && mode == DiscogsDirectMode.COVER &&
+            CoverLab55VisibleCandidates.isProvisional(
+                seed, lockedArtist.ifBlank { resolvedOriginalArtist },
+                session.originalWorkCredits,
+            )
+        ) return seed
         val raw = seed.confidenceScore.coerceIn(1, 20)
         val videoId = seed.resolvedVideoId?.trim().orEmpty()
         val match = playableTrack(seed)?.let { track ->
