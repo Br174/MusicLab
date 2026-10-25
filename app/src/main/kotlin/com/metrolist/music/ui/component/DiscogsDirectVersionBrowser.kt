@@ -2594,9 +2594,13 @@ internal fun DiscogsDirectVersionBrowser(
 
                     // Merge weak candidate evidence with later catalog/author
                     // proof instead of rejecting it on first observation.
-                    val remembered = CoverMultiProofVerifier.accumulate(
-                        pendingCoverProofs, rows,
-                    )
+                    val priorProofs = pendingCoverProofs.toList()
+                    val remembered = withContext(Dispatchers.Default) {
+                        CoverMultiProofVerifier.accumulate(priorProofs, rows)
+                    }
+                    if (!isActive || activeCriteria != expectedCriteria ||
+                        turboSearchGeneration != expectedGeneration ||
+                        coverRoundNumber != expectedRound) return@withContext
                     pendingCoverProofs.clear()
                     pendingCoverProofs.addAll(remembered.take(300))
                     // LAB52: Turbo's rapid first search intentionally has no
