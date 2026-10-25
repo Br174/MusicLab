@@ -284,6 +284,7 @@ internal object SecondHandSongsCoverSource {
         }
 
         var lastStatus: SecondHandSongsStatus? = null
+        var bestVerifiedWork: SecondHandSongsLookup? = null
         for (work in works) {
             val result = fetchWorkVersions(work.id, deepRecovery)
             // The work title is never enough. One of its listed recordings
@@ -296,15 +297,21 @@ internal object SecondHandSongsCoverSource {
                 }
             ) continue
             when (result.status) {
-                SecondHandSongsStatus.OK -> return result
+                SecondHandSongsStatus.OK -> {
+                    if (!deepRecovery) return result
+                    if (result.covers.size > (bestVerifiedWork?.covers?.size ?: 0)) {
+                        bestVerifiedWork = result
+                    }
+                }
                 SecondHandSongsStatus.BLOCKED,
                 SecondHandSongsStatus.AUTH_REQUIRED,
-                SecondHandSongsStatus.RATE_LIMITED -> return result
+                SecondHandSongsStatus.RATE_LIMITED -> return bestVerifiedWork ?: result
                 SecondHandSongsStatus.NETWORK_ERROR -> lastStatus = result.status
                 SecondHandSongsStatus.NO_MATCH -> Unit
             }
         }
 
+        bestVerifiedWork?.let { return it }
         return SecondHandSongsLookup(
             emptyList(),
             lastStatus ?: SecondHandSongsStatus.NO_MATCH,
