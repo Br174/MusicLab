@@ -2453,6 +2453,9 @@ internal fun DiscogsDirectVersionBrowser(
                             targetTitle = expectedCriteria.title,
                             originalArtist = recoveryArtist,
                         )
+                        // Keep direct Work provenance distinct from new
+                        // independent author-and-catalog certification.
+                        val directRelation = CoverSameWorkGate.hasDocumentaryRelation(seed)
                         val verdict = CoverMultiProofVerifier.verify(
                             seed = seed,
                             workTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
@@ -2460,8 +2463,8 @@ internal fun DiscogsDirectVersionBrowser(
                             originalCredits = session.originalWorkCredits,
                         )
                         if (!verdict.certified) null else seed.copy(
-                            confidenceScore = maxOf(seed.confidenceScore,
-                                if (verdict.methods.contains(
+                            confidenceScore = if (directRelation) seed.confidenceScore else
+                                maxOf(seed.confidenceScore, if (verdict.methods.contains(
                                     CoverMultiProofVerifier.Method.CATALOG_CONVERGENCE
                                 )) 15 else 13),
                             confidenceReasons = (seed.confidenceReasons +
