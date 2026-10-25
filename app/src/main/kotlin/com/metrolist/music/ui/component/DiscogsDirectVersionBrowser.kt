@@ -5777,7 +5777,12 @@ internal fun DiscogsDirectVersionBrowser(
                     DirectCategorySelector(
                         selected = category,
                         twoLine = true,
-                        results = results,
+                        // LAB54: raw catalog summaries are NOT cover cards.
+                        // The five counters must describe the same membership
+                        // actually sent to LazyColumn, never "68 found / 0 shown".
+                        results = if (isTurbo && mode == DiscogsDirectMode.COVER) {
+                            visibleResults
+                        } else results,
                         onSelected = { selected ->
                             category = selected
                             session.category = selected
