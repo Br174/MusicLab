@@ -334,11 +334,22 @@ internal object CoverDiscoverySources {
                 val independentSourceConsensus = candidate.sources.distinct().size >= 2
                 val crossVerifiedRelation =
                     candidate.workRelationConfirmed && independentSourceConsensus
+                // LAB50: a translated title must not erase a DIRECT
+                // documentary work/performance relationship. Neither
+                // name equality nor an unverified video is sufficient.
+                val linkedDocumentaryWork =
+                    deepRecovery && candidate.workRelationConfirmed &&
+                        candidate.sources.any {
+                            it.equals("MusicBrainz", true) ||
+                                it.equals("SecondHandSongs", true) ||
+                                it.equals("COVER.INFO", true)
+                        }
 
                 strictTitleMatch ||
                     aiTrusted ||
                     musicBrainzWork ||
                     crossVerifiedRelation ||
+                    linkedDocumentaryWork ||
                     independentSourceConsensus
             }
 
