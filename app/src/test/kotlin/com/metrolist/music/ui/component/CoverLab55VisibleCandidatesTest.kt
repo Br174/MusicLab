@@ -98,7 +98,10 @@ class CoverLab55VisibleCandidatesTest {
             seed, "Adriano Celentano", emptyList(),
         )
         assertTrue(status.startsWith("Da verificare"))
-        val definitive = seed.copy(workRelationConfirmed = true)
+        val definitive = seed.copy(
+            workRelationConfirmed = true,
+            sourceNames = listOf("MusicBrainz"),
+        )
         assertFalse(CoverLab55VisibleCandidates.isProvisional(
             definitive, "Adriano Celentano",
             listOf(DiscogsCredit("Toto Cutugno", "Composer")),
