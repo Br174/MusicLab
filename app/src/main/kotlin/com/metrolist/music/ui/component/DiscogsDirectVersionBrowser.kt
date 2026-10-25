@@ -2480,15 +2480,29 @@ internal fun DiscogsDirectVersionBrowser(
             // only hit. The 68 search summaries previously had no verification
             // consumer in Turbo and were discarded at the poster deadline.
             suspend fun appendCatalogEvidence(rows: List<DiscogsVersionSeed>) {
+                // LAB56: cross-provider canonical deduplication can compare
+                // hundreds of recordings. It must not run on Android's UI
+                // looper or block scrolling and Media3 progress frames.
+                val poolBefore = withContext(Dispatchers.Main.immediate) {
+                    session.turboCoverCandidatePool to results
+                }
+                val offMainPool = withContext(Dispatchers.Default) {
+                    CoverLab53Publication.retain(
+                        poolBefore.first, poolBefore.second + rows,
+                    )
+                }
                 withContext(Dispatchers.Main.immediate) {
                     if (!isActive || activeCriteria != expectedCriteria ||
                         turboSearchGeneration != expectedGeneration ||
                         coverRoundNumber != expectedRound || !session.turboFinished
                     ) return@withContext
-                    val candidatePool = CoverLab53Publication.retain(
-                        session.turboCoverCandidatePool,
-                        results + rows,
-                    )
+                    // Rare overlapping callbacks must not drop late records.
+                    val candidatePool =
+                        if (session.turboCoverCandidatePool === poolBefore.first &&
+                            results === poolBefore.second
+                        ) offMainPool else CoverLab53Publication.retain(
+                            session.turboCoverCandidatePool, offMainPool,
+                        )
                     session.turboCoverCandidatePool = candidatePool
                     val occupied = (previousRoundRows + publishedOriginalSnapshots)
                         .mapTo(HashSet<String>()) {
