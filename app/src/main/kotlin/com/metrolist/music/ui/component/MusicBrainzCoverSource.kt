@@ -37,6 +37,8 @@ internal data class MusicBrainzWorkAnchor(
     val title: String,
     val originalYear: Int?,
     val credits: List<MusicBrainzWorkCredit>,
+    // ISWC identifies a composition, not an individual recording.
+    val iswc: String? = null,
 )
 
 internal data class MusicBrainzLookup(
@@ -349,7 +351,8 @@ internal object MusicBrainzCoverSource {
                 .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}|${it.recordingId}" }
 
         val originalYear = originalVersions.mapNotNull { it.year }.minOrNull()
-        val workCredits = loadWorkCredits(workId)
+        val workEvidence = loadWorkEvidence(workId)
+        val workCredits = workEvidence.first
 
         val covers =
             distinctRecordings
@@ -369,6 +372,7 @@ internal object MusicBrainzCoverSource {
                     title = workTitle.ifBlank { wantedTitle },
                     originalYear = originalYear,
                     credits = workCredits,
+                    iswc = workEvidence.second,
                 ),
         )
     }
@@ -384,11 +388,13 @@ internal object MusicBrainzCoverSource {
         return recordings.drop(offset).take(250)
     }
 
-    private fun loadWorkCredits(workId: String): List<MusicBrainzWorkCredit> {
+    private fun loadWorkEvidence(workId: String): Pair<List<MusicBrainzWorkCredit>, String?> {
         val detailUrl =
             "$BASE_URL/work/${URLEncoder.encode(workId, "UTF-8")}?inc=artist-rels"
-        val document = fetchXml(detailUrl) ?: return emptyList()
-        return parseWorkCredits(document)
+        val document = fetchXml(detailUrl) ?: return emptyList<MusicBrainzWorkCredit>() to null
+        val iswc = document.selectFirst("iswc-list > iswc")
+            ?.text()?.trim()?.takeIf { it.matches(Regex("T-[0-9.-]{8,20}")) }
+        return parseWorkCredits(document) to iswc
     }
 
     internal fun parseWorkCredits(document: Document): List<MusicBrainzWorkCredit> =
