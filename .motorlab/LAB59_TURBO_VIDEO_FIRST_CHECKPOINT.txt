@@ -1,0 +1,15 @@
+MOTORLAB_PROJECT=MusicLab
+OPERATION_ID=musiclab-20261026-turbo-video-first-lab59
+BRANCH=lab/musiclab-turbo-video-first-lab59-20261026
+BASE_SHA=26bcfbb594bc3335c326c187a22fcf5f69d16cd5
+CORE_RELEASE=2026.10.22-r38
+AUTHORIZED=VIDEO_FIRST in isolated LAB; preserve player, UI, Android identity, production, MADRE, Cloud
+APP_CODE_CHANGED=DiscogsDirectVersionBrowser.kt; CoverLab55VisibleCandidates.kt
+VIDEO_FIRST=metadata-first verification; no artwork-only publication; direct YouTube thumbnails; no duplicate videoId
+NATIVE_PLAYER=unchanged
+ANDROID_APP_ID=it.verlezza.musiclab.turbo01
+VERSION_CODE=33061
+SIGNING_CERT_SHA256=9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749
+BUILD_WORKFLOW=.github/workflows/musiclab-turbo-lab59-video-first-apk.yml
+PRODUCTION=UNTOUCHED
+NEXT_SAFE_STEP=run CI; fix in LAB59 if needed; verify signed APK ZIP; device playback smoke test pending
