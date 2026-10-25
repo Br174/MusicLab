@@ -2443,6 +2443,15 @@ internal fun DiscogsDirectVersionBrowser(
                         results + accepted, preserveInputOrder = true,
                     )
                     session.results = results
+                    // LAB50: make newly certified performances visible behind
+                    // the committed posters, not behind dozens of uncommitted
+                    // low-confidence archive candidates in stableOrder.
+                    val committedOrder = (previousRoundRows +
+                        publishedOriginalSnapshots + accepted)
+                        .map { it.fingerprint }.distinct()
+                    val committedSet = committedOrder.toHashSet()
+                    session.stableOrder = committedOrder +
+                        session.stableOrder.filterNot { it in committedSet }
                     val now = SystemClock.elapsedRealtime()
                     additions.forEach { seed ->
                         session.turboPosterPublishedAtMs[seed.fingerprint] = now
