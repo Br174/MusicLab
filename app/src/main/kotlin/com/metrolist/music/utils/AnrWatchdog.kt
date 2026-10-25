@@ -5,6 +5,7 @@
 
 package com.metrolist.music.utils
 
+import android.content.Context
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
@@ -30,6 +31,15 @@ object AnrWatchdog {
 
     /** After detecting an ANR, wait this long before checking again to avoid a flood. */
     private const val POST_ANR_BACKOFF_MS = 30_000L
+    private const val PREF = "musiclab_anr_local_diagnostic"
+    private const val KEY_REPORT = "last_anr"
+    @Volatile private var appContext: Context? = null
+    /** Returns only technical stack-frame symbols; never songs, URLs or settings. */
+    fun latestReport(context: Context): String =
+        runCatching {
+            context.applicationContext.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+                .getString(KEY_REPORT, null)
+        }.getOrNull() ?: "Nessun blocco registrato dal watchdog. Prova a riaprire MusicLab dopo l'ANR."
 
     @Volatile
     private var ticked = true
@@ -39,13 +49,14 @@ object AnrWatchdog {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    fun start() {
+    fun start(context: Context) {
+        appContext = context.applicationContext
         if (started) return
         started = true
         Thread(::run).apply {
             name = "Meld-ANR-Watchdog"
             isDaemon = true
-            priority = Thread.MIN_PRIORITY + 2
+            priority = Thread.NORM_PRIORITY
             start()
         }
     }
@@ -74,6 +85,24 @@ object AnrWatchdog {
             }
 
             if (mainStack.isNotEmpty()) {
+                // LAB58: retain one locally inspectable stack even when
+                // crash-upload credentials are absent. Store from this daemon,
+                // never on Main; metadata-only, no private song/title content.
+                val stackReport = buildString {
+                    appendLine("MusicLab LAB58 · ANR main thread")
+                    appendLine("Soglia blocco: ${ANR_THRESHOLD_MS}ms")
+                    appendLine("Istante UTC ms: ${System.currentTimeMillis()}")
+                    mainStack.take(22).forEach { frame ->
+                        appendLine(
+                            frame.className + "." + frame.methodName +
+                                ":" + frame.lineNumber
+                        )
+                    }
+                }.take(3500)
+                runCatching {
+                    appContext?.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+                        ?.edit()?.putString(KEY_REPORT, stackReport)?.apply()
+                }
                 Timber.tag("AnrWatchdog").w(
                     "Main thread blocked >${ANR_THRESHOLD_MS}ms — top: %s.%s",
                     mainStack[0].className.substringAfterLast('.'),
