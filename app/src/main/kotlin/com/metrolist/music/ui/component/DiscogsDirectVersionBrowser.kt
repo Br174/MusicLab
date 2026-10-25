@@ -5664,21 +5664,11 @@ internal fun DiscogsDirectVersionBrowser(
         if (!restorationReady) return@LaunchedEffect
         if (!session.initialized && initialTitle.isNotBlank()) {
             runSearch()
-        } else if (isTurbo && mode == DiscogsDirectMode.COVER &&
-            session.turboFinished && initialTitle.isNotBlank() &&
-            (session.publishedCoverSnapshots + session.publishedOriginalSnapshots).any {
-                !hasPublishableVideo(it)
-            }) {
-            // LAB25: a cold/reopened archive search with missing links is
-            // incomplete. Revalidate at most once per 10 minutes per work.
-            // Verified bindings, ranking decisions and Cloud data are not deleted.
-            val now = SystemClock.elapsedRealtime()
-            if (session.turboLastAutoRepairAtMs == 0L ||
-                now - session.turboLastAutoRepairAtMs >= 600_000L) {
-                session.turboLastAutoRepairAtMs = now
-                runSearch()
-            }
         }
+        // LAB58: never synchronously inspect every video binding or relaunch
+        // the ENTIRE Cloud/Discogs search when merely reopening 50 posters.
+        // Users retain explicit "Ripeti ricerca" and "Cerca ancora".
+        // A missing video does not invalidate an already discovered cover.
     }
 
     // Fully verified sessions remain cache-only; incomplete sessions can repair.
@@ -5692,6 +5682,8 @@ internal fun DiscogsDirectVersionBrowser(
     var musiclabArtistMenu by remember(sessionKey) { mutableStateOf(false) }
     var showAudioDiagnostic by remember(sessionKey) { mutableStateOf(false) }
     var audioDiagnosticText by remember(sessionKey) { mutableStateOf("") }
+    var showAnrDiagnostic by remember(sessionKey) { mutableStateOf(false) }
+    var anrDiagnosticText by remember(sessionKey) { mutableStateOf("") }
     val musiclabArtistPoster = visibleOriginalVersions.firstOrNull()?.coverUrl
         ?: results.firstOrNull {
             it.artist.equals(resolvedOriginalArtist, ignoreCase = true)
@@ -5832,6 +5824,19 @@ internal fun DiscogsDirectVersionBrowser(
                                             playerConnection?.service?.lab31AudioDiagnosticReport()
                                                 ?: "Player non disponibile"
                                         showAudioDiagnostic = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Diagnostica blocchi") },
+                                    onClick = {
+                                        musiclabArtistMenu = false
+                                        scope.launch(Dispatchers.IO) {
+                                            val report = com.metrolist.music.utils.AnrWatchdog.latestReport(context)
+                                            withContext(Dispatchers.Main.immediate) {
+                                                anrDiagnosticText = report
+                                                showAnrDiagnostic = true
+                                            }
+                                        }
                                     },
                                 )
                             }
@@ -6501,6 +6506,33 @@ internal fun DiscogsDirectVersionBrowser(
         SourceDiagnosticsDialog(
             diagnostics = sourceDiagnostics,
             onDismiss = { showSourceDiagnostics = false },
+        )
+    }
+    if (showAnrDiagnostic && isTurbo && mode == DiscogsDirectMode.COVER) {
+        AlertDialog(
+            onDismissRequest = { showAnrDiagnostic = false },
+            title = { Text("Diagnostica blocchi Android") },
+            text = {
+                Text(
+                    anrDiagnosticText,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.height(320.dp).verticalScroll(rememberScrollState()),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as? android.content.ClipboardManager
+                    clipboard?.setPrimaryClip(
+                        android.content.ClipData.newPlainText("MusicLab ANR stack", anrDiagnosticText)
+                    )
+                    Toast.makeText(context, "Diagnostica copiata", Toast.LENGTH_SHORT).show()
+                    showAnrDiagnostic = false
+                }) { Text("Copia") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAnrDiagnostic = false }) { Text("Chiudi") }
+            },
         )
     }
     if (showAudioDiagnostic && isTurbo && mode == DiscogsDirectMode.COVER) {
