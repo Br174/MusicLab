@@ -33,9 +33,9 @@ test('LAB48 retains source-complete early evidence when slower providers exceed 
 });
 
 test('LAB48 auto recovery requires sparse first-round snapshot and caps result count', () => {
-  assert.match(screen,/publishedOriginalSnapshots\.size \+ publishedCoverSnapshots\.size < 15/);
-  assert.match(screen,/coverRoundNumber == 1/);
-  assert.match(screen,/val freeSlots = \(TURBO_RESULT_QUOTA -/);
+  assert.match(screen,/val originallySparse = publishedCoverSnapshots\.size < 15/);
+  assert.match(screen,/val expectedRound = coverRoundNumber/);
+  assert.match(screen,/val accepted = CoverLab53Publication\.fill\(/);
   assert.match(screen,/if \(additional > 0\)/);
 });
 
