@@ -282,6 +282,9 @@ private data class DirectVersionSession(
     var turboBurstStartedAtMs: Long = 0L,
     var turboArchiveMatches: Int = 0,
     var turboReserve: List<DiscogsVersionSeed> = emptyList(),
+    // LAB53: source candidates remain available after the 10-second poster burst.
+    var turboCoverCandidatePool: List<DiscogsVersionSeed> = emptyList(),
+    var turboRecoveryPasses: Int = 0,
     var turboVideoComplete: Boolean = false,
     // LAB25: one bounded automatic repair on re-entry, not an eternal cloud negative cache.
     var turboLastAutoRepairAtMs: Long = 0L,
@@ -1004,6 +1007,34 @@ internal fun DiscogsDirectVersionBrowser(
             resolvedOriginalArtist.isNotBlank() &&
                 TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist)
         return originalArtistOk && titleOk
+    }
+
+    // LAB53: identity confirmation from LAB52 is a second admission route,
+    // not an extra filter that can silently erase genuine covered works.
+    fun eligibleCoverForPublication(seed: DiscogsVersionSeed): Boolean {
+        if (isRejected(seed) || isOriginalPerformerVersion(seed)) return false
+        if (modeAcceptsSeed(seed)) return true
+        if (CoverSameWorkGate.hasDocumentaryRelation(seed)) return true
+        return CoverMultiProofVerifier.verify(
+            seed = seed,
+            workTitle = TitleMeaningResolver.workAnchorTitle(activeCriteria?.title ?: title),
+            originalArtist = resolvedOriginalArtist,
+            originalCredits = session.originalWorkCredits,
+        ).certified
+    }
+
+    fun updateLab53PublicationDiagnostics() {
+        if (!isTurbo || mode != DiscogsDirectMode.COVER) return
+        val count = CoverLab53Publication.funnel(
+            candidates = session.turboCoverCandidatePool,
+            visible = publishedCoverSnapshots,
+            eligibleCover = ::eligibleCoverForPublication,
+        )
+        sourceDiagnostics = sourceDiagnostics.filterNot { it.name == "LAB53 Lista cover" } +
+            CoverSourceDiagnostic(
+                "LAB53 Lista cover", true, count.visible, count.diagnostic(),
+            )
+        session.sourceDiagnostics = sourceDiagnostics
     }
 
     fun isHiddenForCurrentCover(seed: DiscogsVersionSeed): Boolean =
@@ -3088,8 +3119,10 @@ internal fun DiscogsDirectVersionBrowser(
         turboVisibleJobs.values.forEach { it.cancel() }
         turboVisibleJobs.clear()
         turboReplacementClaims.clear()
-        if (!repeatSameWork) {
+        if (!repeatSameWork || appendVerifiedRound) {
             session.turboReserve = emptyList()
+            session.turboCoverCandidatePool = emptyList()
+            session.turboRecoveryPasses = 0
             pendingCoverProofs.clear()
         }
         session.turboBurstStartedAtMs = if (isTurbo && mode == DiscogsDirectMode.COVER) turboCommandStartedAt else 0L
@@ -3214,8 +3247,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 if (publishedCoverSnapshots.isNotEmpty() ||
                                     publishedOriginalSnapshots.isNotEmpty() || activeCriteria != criteria) return
                                 val ranked = turboRankedPool()
-                                    .filter(::modeAcceptsSeed)
-                                    .take(TURBO_RESULT_QUOTA)
+                                val initialOriginals = ranked
+                                    .filter(::isDistinctOriginalVersion).take(10)
+                                val initialCovers = ranked
+                                    .filter(::eligibleCoverForPublication)
+                                    .take(CoverLab53Publication.COVER_QUOTA)
                                 // LAB27: publish the first ten together *as soon
                                 // as* ten ranked documentary candidates exist.
                                 // No artificial 1.2s minimum wait or video gate.
@@ -3223,16 +3259,17 @@ internal fun DiscogsDirectVersionBrowser(
                                 // LAB40: show available, verified same-work rows
                                 // after 1.2s instead of waiting for ten matches.
                                 // The remaining slots append without reordering.
-                                if (ranked.isEmpty()) return
+                                if (initialOriginals.isEmpty() && initialCovers.isEmpty()) return
                                 val elapsed = SystemClock.elapsedRealtime() - turboCommandStartedAt
-                                if (ranked.size < TURBO_MIN_EARLY_POSTER_BLOCK &&
+                                if (initialCovers.size < TURBO_MIN_EARLY_POSTER_BLOCK &&
                                     elapsed < TURBO_FIRST_POSTER_DEADLINE_MS
                                 ) return
-                                val firstBlock = ranked.distinctBy { it.fingerprint }
-                                    .take(TURBO_MIN_EARLY_POSTER_BLOCK)
-                                publishedOriginalSnapshots = firstBlock.filter(::isDistinctOriginalVersion)
+                                val firstBlock = initialOriginals +
+                                    initialCovers.take(TURBO_MIN_EARLY_POSTER_BLOCK)
+                                publishedOriginalSnapshots = initialOriginals
                                 session.publishedOriginalSnapshots = publishedOriginalSnapshots
-                                publishedCoverSnapshots = firstBlock.filterNot(::isDistinctOriginalVersion)
+                                publishedCoverSnapshots = initialCovers
+                                    .take(TURBO_MIN_EARLY_POSTER_BLOCK)
                                 session.publishedCoverSnapshots = publishedCoverSnapshots
                                 val sealedAt = SystemClock.elapsedRealtime()
                                 firstBlock.forEachIndexed { index, seed ->
@@ -3257,25 +3294,27 @@ internal fun DiscogsDirectVersionBrowser(
                             // never wait for a mandatory five-second boundary.
                             // Never insert before or rerank committed first rows.
                             fun sealSecondPostersOnce() {
-                                val committedCount =
-                                    publishedOriginalSnapshots.size + publishedCoverSnapshots.size
+                                val committedCount = publishedCoverSnapshots.size
                                 if (activeCriteria != criteria ||
-                                    committedCount == 0 || committedCount >= TURBO_RESULT_QUOTA) return
+                                    (committedCount == 0 && publishedOriginalSnapshots.isEmpty()) ||
+                                    committedCount >= TURBO_RESULT_QUOTA) return
                                 val committedKeys = (publishedOriginalSnapshots + publishedCoverSnapshots)
                                     .mapTo(HashSet<String>()) {
                                         DiscogsVersionSource.recordingIdentityKey(it)
                                     }
                                 val committedFingerprints = (publishedOriginalSnapshots +
                                     publishedCoverSnapshots).mapTo(HashSet<String>()) { it.fingerprint }
-                                val next = turboRankedPool()
-                                    .filter(::modeAcceptsSeed)
-                                    .filterNot {
+                                val next = CoverLab53Publication.fill(
+                                    published = publishedCoverSnapshots,
+                                    candidates = turboRankedPool().filterNot {
                                         DiscogsVersionSource.recordingIdentityKey(it) in committedKeys ||
                                             it.fingerprint in committedFingerprints
-                                    }
-                                    .distinctBy { it.fingerprint }
-                                    .take(TURBO_RESULT_QUOTA - committedCount)
-                                if (next.size < TURBO_RESULT_QUOTA - committedCount) return
+                                    },
+                                    eligibleCover = ::eligibleCoverForPublication,
+                                ).drop(committedCount)
+                                // LAB53: a partial verified refill is not a failed round.
+                                // Publish it now and continue appending toward 50.
+                                if (next.isEmpty()) return
                                 // Append atomically; none of the first ten shifts.
                                 val firstCount = publishedOriginalSnapshots.size +
                                     publishedCoverSnapshots.size
@@ -3286,11 +3325,13 @@ internal fun DiscogsDirectVersionBrowser(
                                     session.turboPosterPublishedAtMs[seed.fingerprint] = shown
                                     session.turboSlotKeys[seed.fingerprint] = "slot-${firstCount + index}"
                                 }
-                                publishedReadyLimit = TURBO_RESULT_QUOTA
-                                session.publishedReadyLimit = TURBO_RESULT_QUOTA
+                                publishedReadyLimit = publishedOriginalSnapshots.size +
+                                    publishedCoverSnapshots.size
+                                session.publishedReadyLimit = publishedReadyLimit
                             }
                             fun stopAtFullQuota(): Boolean {
-                                if (coverCandidatePool().count(::hasPublishableVideo) < TURBO_RESULT_QUOTA) return false
+                                // A video quota is not a COVER publication quota.
+                                if (publishedCoverSnapshots.size < TURBO_RESULT_QUOTA) return false
                                 if (!quotaReached) {
                                     quotaReached = true
                                     // Stop just the producer runners; cancellation of
@@ -3758,39 +3799,20 @@ internal fun DiscogsDirectVersionBrowser(
                         // Poster publication NEVER depends on a linked video.
                         // A real candidate with no artwork keeps its row as an
                         // explicit image-unavailable state rather than vanishing.
-                        val finalRanked = turboRankedPool()
-                            .filter(::modeAcceptsSeed)
-                            .distinctBy { it.fingerprint }
-                        if (publishedCoverSnapshots.isEmpty() && publishedOriginalSnapshots.isEmpty()) {
-                            // Low-yield search: publish only real found candidates.
-                            val completeBlock = finalRanked.take(TURBO_RESULT_QUOTA)
-                            publishedOriginalSnapshots = completeBlock.filter(::isDistinctOriginalVersion)
+                        val finalRanked = turboRankedPool().distinctBy { it.fingerprint }
+                        // LAB53: original-performer versions have their own section.
+                        // They NEVER consume any of the 50 COVER places.
+                        if (publishedOriginalSnapshots.isEmpty()) {
+                            publishedOriginalSnapshots = finalRanked
+                                .filter(::isDistinctOriginalVersion).take(10)
                             session.publishedOriginalSnapshots = publishedOriginalSnapshots
-                            publishedCoverSnapshots = completeBlock.filterNot(::isDistinctOriginalVersion)
-                            session.publishedCoverSnapshots = publishedCoverSnapshots
-                        } else {
-                            val committedKeys = (publishedOriginalSnapshots + publishedCoverSnapshots)
-                                .mapTo(HashSet<String>()) {
-                                    DiscogsVersionSource.recordingIdentityKey(it)
-                                }
-                            // Append, never insert before visible positions 1..25.
-                            // The physical row order is frozen even when a late
-                            // original-performer source arrives in the second batch.
-                            val committedFingerprints = (publishedOriginalSnapshots +
-                                publishedCoverSnapshots).mapTo(HashSet<String>()) { it.fingerprint }
-                            val secondBlock = finalRanked
-                                .filterNot {
-                                    DiscogsVersionSource.recordingIdentityKey(it) in committedKeys ||
-                                        it.fingerprint in committedFingerprints
-                                }
-                                .take(
-                                    (TURBO_RESULT_QUOTA -
-                                        publishedOriginalSnapshots.size -
-                                        publishedCoverSnapshots.size).coerceAtLeast(0)
-                                )
-                            publishedCoverSnapshots = publishedCoverSnapshots + secondBlock
-                            session.publishedCoverSnapshots = publishedCoverSnapshots
                         }
+                        publishedCoverSnapshots = CoverLab53Publication.fill(
+                            published = publishedCoverSnapshots,
+                            candidates = finalRanked,
+                            eligibleCover = ::eligibleCoverForPublication,
+                        )
+                        session.publishedCoverSnapshots = publishedCoverSnapshots
                         // LAB46: preserve LAB45's first-50 order and /20 rating,
                         // but remember original positions for ALL rounds, including
                         // round one. Only later rounds gain distinct /100 points.
@@ -3826,6 +3848,9 @@ internal fun DiscogsDirectVersionBrowser(
                         // LAB14: preserve ranked, off-screen documentary candidates
                         // as a bounded in-memory reserve for video-safe replacements.
                         // Not a new database. Never expose reserve cards to UI.
+                        session.turboCoverCandidatePool = CoverLab53Publication.retain(
+                            session.turboCoverCandidatePool, results,
+                        )
                         session.turboReserve = turboRankedPool()
                             .filterNot { it.fingerprint in frozenIds }
                             .take(TURBO_RESERVE_MAX)
@@ -3896,6 +3921,7 @@ internal fun DiscogsDirectVersionBrowser(
                         sourceDiagnostics = sourceDiagnostics
                             .filter { it.name == "Discogs" } + cloudDiagnostic + completed
                         session.sourceDiagnostics = sourceDiagnostics
+                        updateLab53PublicationDiagnostics()
                         sourceDiscoveryLoading = false
                         loading = false
                         verificationJob?.cancel()
