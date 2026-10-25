@@ -143,6 +143,9 @@ internal object CoverDiscoverySources {
                 canonical(cleanArtist),
                 "lab60-lastfm-wikidata-disabled",
                 if (deepRecovery) "work-first-recovery" else "initial",
+                // A new manual round must not replay a cached deep crawl.
+                // LAB45's first round remains unchanged.
+                if (deepRecovery) "deep-round-${coverRound.coerceAtLeast(1)}" else "first",
                 if (aiConfig == null) "no-ai" else "ai",
             ).joinToString("|")
         val now = System.currentTimeMillis()
@@ -188,6 +191,7 @@ internal object CoverDiscoverySources {
                             MusicBrainzCoverSource.lookup(
                                 cleanTitle, cleanArtist, forceRefresh = forceRefresh,
                                 deepRecovery = true,
+                                deepRound = coverRound,
                             )
                         } else {
                             MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist, forceRefresh = forceRefresh)
@@ -202,7 +206,13 @@ internal object CoverDiscoverySources {
         // Already available in MusicLab, now used in the Turbo discovery fan-out.
         // A missing artist cannot safely anchor ambiguous song titles.
         val secondHandSongs = async(Dispatchers.IO) {
-            if (mode != DiscogsDirectMode.COVER || cleanArtist.isBlank()) {
+            if (deepRecovery) {
+                // LAB51: no reliance on a provider that yielded zero covers.
+                // Keep historic LAB45 first-search behavior untouched.
+                Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
+                    "SecondHandSongs", false, 0, "Escluso dal recupero approfondito",
+                ))
+            } else if (mode != DiscogsDirectMode.COVER || cleanArtist.isBlank()) {
                 Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
                     "SecondHandSongs", false, 0, "Interprete di riferimento necessario",
                 ))
