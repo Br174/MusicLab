@@ -59,7 +59,8 @@ test('funnel diagnostics account for the actually displayed list, not just found
 test('documented sources remain authoritative; LAB52 composer proof is an alternative, not a guess',()=>{
  assert.match(b,/CoverMultiProofVerifier\.verify\(/);
  assert.match(b,/CoverSameWorkGate\.hasDocumentaryRelation\(seed\)/);
- assert.match(b,/\(!modeAcceptsSeed\(seed\) &&\s*\(!isTurbo \|\| !eligibleCoverForPublication\(seed\)\)\)/);
+ assert.match(b,/if \(isTurbo\) !eligibleCoverForPublication\(seed\)/);
+ assert.match(b,/else !modeAcceptsSeed\(seed\)/);
  assert.match(p,/DiscogsVersionSource\.recordingIdentityKey\(seed\)/);
  assert.match(p,/if \(videoId\.isNotEmpty\(\) && videoId in usedVideos\) return/);
 });
