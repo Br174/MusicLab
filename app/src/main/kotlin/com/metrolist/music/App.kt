@@ -375,9 +375,13 @@ class App :
     private var cachedCoilCacheSize: Int? = null
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
-        val cacheSize = cachedCoilCacheSize ?: runBlocking {
-            dataStore.data.map { it[MaxImageCacheSizeKey] ?: 512 }.first()
-        }
+        // LAB57 ANR: Coil's singleton factory may be called on Android Main
+        // when the first of fifty posters enters composition. Waiting for
+        // DataStore under runBlocking here can freeze that entire Looper and
+        // trigger "L'app non risponde". The preferred value is already being
+        // prefetched on Dispatchers.IO in onCreate; use a safe default until
+        // that asynchronous read finishes. Never block poster creation.
+        val cacheSize = cachedCoilCacheSize ?: 512
         return ImageLoader
             .Builder(this)
             .apply {
