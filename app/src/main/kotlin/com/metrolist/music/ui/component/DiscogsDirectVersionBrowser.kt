@@ -2686,7 +2686,63 @@ internal fun DiscogsDirectVersionBrowser(
                 turboSearchGeneration != expectedGeneration
             ) return@launch
 
-            val recovered = withTimeoutOrNull(90_000L) {
+            // LAB54: repair the empty Work-author evidence of the Turbo burst.
+            // The source work is preferred; Discogs original performer details
+            // provide an independent, bounded fallback when MusicBrainz fails.
+            if (session.originalWorkCredits.isEmpty() &&
+                discogsToken.isNotBlank() && recoveryArtist.isNotBlank()
+            ) {
+                val originalCredits = withTimeoutOrNull(12_000L) {
+                    DiscogsVersionSource.loadOriginalWorkCredits(
+                        token = discogsToken,
+                        title = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
+                        originalArtist = recoveryArtist,
+                    )
+                }.orEmpty()
+                if (isActive && originalCredits.isNotEmpty() &&
+                    activeCriteria == expectedCriteria
+                ) {
+                    session.originalWorkCredits = originalCredits
+                    appendCatalogEvidence(emptyList())
+                }
+            }
+
+            // The first provider round returns *summaries*. LAB53 never
+            // fetched their release tracklists, so zero of sixty-eight could
+            // pass the author-proof gate. Inspect release details in short
+            // playback-priority-aware batches, not a 50-request audio burst.
+            if (discogsToken.isNotBlank()) {
+                val pendingDetails = (session.turboCoverCandidatePool + results)
+                    .distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                    .filter { it.releaseId > 0 && !it.discogsVerificationChecked }
+                    .take(24)
+                for (batch in pendingDetails.chunked(if (playbackIsNormallyPlaying()) 1 else 4)) {
+                    while (isActive && (backgroundWorkBlocked() ||
+                        playerConnection?.service?.isCoverAudioAtRisk() == true)
+                    ) delay(500L)
+                    if (!isActive || activeCriteria != expectedCriteria ||
+                        turboSearchGeneration != expectedGeneration ||
+                        publishedCoverSnapshots.size >= CoverLab53Publication.COVER_QUOTA
+                    ) break
+                    val details = withTimeoutOrNull(15_000L) {
+                        DiscogsVersionSource.enrichSeedsForRanking(
+                            token = discogsToken,
+                            seeds = batch,
+                            targetTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
+                            mode = DiscogsDirectMode.COVER,
+                            originalArtist = recoveryArtist,
+                        )
+                    }.orEmpty()
+                    if (details.isNotEmpty()) appendCatalogEvidence(details)
+                }
+            }
+            appendCatalogEvidence(emptyList())
+            if (publishedCoverSnapshots.size >= CoverLab53Publication.COVER_QUOTA) {
+                documentaryRecoveryComplete = true
+                return@launch
+            }
+
+            val recovered = withTimeoutOrNull(75_000L) {
                 CoverDiscoverySources.discover(
                     title = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
                     originalArtist = recoveryArtist,
@@ -2713,7 +2769,19 @@ internal fun DiscogsDirectVersionBrowser(
             val allEvidence = synchronized(earlyEvidence) {
                 earlyEvidence.toList()
             } + recovered?.candidates.orEmpty()
+            // Late Work credits may have arrived with the complete MusicBrainz
+            // response. Re-evaluate every retained candidate against them.
+            if (recovered?.workCredits?.isNotEmpty() == true &&
+                activeCriteria == expectedCriteria
+            ) {
+                session.originalWorkCredits = (session.originalWorkCredits +
+                    recovered.workCredits).distinctBy { credit ->
+                    TitleMeaningResolver.canonical(credit.name) + "|" +
+                        TitleMeaningResolver.canonical(credit.role)
+                }
+            }
             appendVerifiedSource(allEvidence.distinct())
+            appendCatalogEvidence(emptyList())
             if (isActive && activeCriteria == expectedCriteria &&
                 turboSearchGeneration == expectedGeneration
             ) {
