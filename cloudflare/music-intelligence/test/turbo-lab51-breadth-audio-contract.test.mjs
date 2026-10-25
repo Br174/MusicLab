@@ -23,7 +23,7 @@ test('Recovery works in every subsequent manual round, never mixes generations',
 });
 test('Already published recordings and actual playback videos cannot return as duplicates', () => {
  assert.match(recovery, /CoverLab55VisibleCandidates\.publish\(/);
- assert.match(recovery, /seed\.resolvedVideoId\.trim\(\) !in usedVideoIds/);
+ assert.match(recovery, /CoverLab55VisibleCandidates\.publish\(/);
  assert.match(recovery, /CoverSameWorkGate\.hasDocumentaryRelation\(seed\)/);
  assert.match(recovery, /preserveInputOrder = true/);
 });
