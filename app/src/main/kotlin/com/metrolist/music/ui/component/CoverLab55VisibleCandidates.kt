@@ -56,6 +56,57 @@ internal object CoverLab55VisibleCandidates {
         return output
     }
 
+    /** Read-only Cloud archive rows carry credits in BOTH round one and later. */
+    internal fun cloudArchiveSeeds(
+        rows: List<CloudArchiveItem>,
+        songTitle: String,
+        originalArtist: String,
+    ): List<DiscogsVersionSeed> = rows.mapNotNull { item ->
+        val effectiveTitle = item.workTitle.ifBlank { item.title }
+        if (!TitleMeaningResolver.matchesBaseTitle(songTitle, effectiveTitle) &&
+            !TitleMeaningResolver.matchesBaseTitle(songTitle, item.title)) {
+            return@mapNotNull null
+        }
+        val kind = when (item.category.lowercase()) {
+            "live", "dal vivo" -> AiCoverCategory.LIVE
+            "remix", "mix", "rework" -> AiCoverCategory.REMIX
+            "foreign", "straniera", "adattamento" -> AiCoverCategory.FOREIGN
+            else -> AiCoverCategory.COVER
+        }
+        val credits = item.creditDetails.ifEmpty {
+            buildList {
+                item.songwriters.forEach { add(com.metrolist.music.discogs.DiscogsCredit(it, "Songwriter")) }
+                item.composers.forEach { add(com.metrolist.music.discogs.DiscogsCredit(it, "Composer")) }
+                item.lyricists.forEach { add(com.metrolist.music.discogs.DiscogsCredit(it, "Lyricist")) }
+                item.producers.forEach { add(com.metrolist.music.discogs.DiscogsCredit(it, "Producer")) }
+            }
+        }
+        DiscogsVersionSource.externalSeed(
+            CoverSourceCandidate(
+                title = item.title, artist = item.artist,
+                sources = (listOf("Archivio Cloud") + item.sourceNames).distinct(),
+                year = item.year, album = item.album,
+                coverUrl = item.coverUrl, language = item.language,
+                category = kind,
+                playbackVideoId = item.playbackVideoId,
+                playbackVideoTitle = item.playbackVideoTitle,
+                playbackVideoSource = item.playbackVideoSource,
+                credits = credits,
+                evidenceScore = (((item.sameWorkScore ?: 30) +
+                    (item.versionTypeScore ?: 30)) / 10).coerceIn(1, 20),
+                workRelationConfirmed = false,
+            ), targetTitle = songTitle, originalArtist = originalArtist,
+        ).copy(
+            credits = credits,
+            sourceUrl = item.sourceUrl,
+            releaseDate = item.releaseDate,
+            country = item.country,
+            musiclabScore100 = item.musiclabScore100,
+            coverRound = item.coverRound,
+            roundPosition = item.roundPosition,
+        )
+    }
+
     internal fun labelFor(
         seed: DiscogsVersionSeed,
         originalArtist: String,
