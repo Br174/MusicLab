@@ -12,7 +12,7 @@ const part=(a,z)=>b.slice(b.indexOf(a),b.indexOf(z,b.indexOf(a)));
 test('LAB52 leaves the first LAB45 search path and LAB49 playback safety untouched',()=>{
  const round=readFileSync(r+'CoverRoundSearchPlan.kt','utf8');
  assert.match(round,/if \(round <= 1 \|\| title\.isBlank\(\)\) return emptyList\(\)/);
- assert.match(b,/while \(playbackIsNormallyPlaying\(\) \|\|/);
+ assert.match(b,/while \(backgroundWorkBlocked\(\) \|\|/);
  assert.match(b,/playerConnection\?\.service\?\.isCoverAudioAtRisk\(\) == true/);
  assert.match(b,/coverRecoveryJob\?\.cancel\(\)/);
 });
