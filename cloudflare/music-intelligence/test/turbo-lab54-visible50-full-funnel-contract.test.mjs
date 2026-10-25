@@ -18,7 +18,7 @@ test('LAB54 retains original sixty-eight Discogs summaries for source-to-visible
  assert.match(b,/fun appendCatalogEvidence\(rows: List<DiscogsVersionSeed>\)/);
  assert.match(recovery,/appendCatalogEvidence\(details\)/);
  assert.match(recovery,/appendCatalogEvidence\(emptyList\(\)\)/);
- assert.match(recovery,/CoverLab53Publication\.fill\(/);
+ assert.match(recovery,/CoverLab55VisibleCandidates\.publish\(/);
 });
 test('LAB54 confirms original work credits without title-only or video-only admission',()=>{
  assert.match(recovery,/DiscogsVersionSource\.loadOriginalWorkCredits\(/);
