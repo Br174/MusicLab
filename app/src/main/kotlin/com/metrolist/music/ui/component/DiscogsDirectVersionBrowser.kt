@@ -2380,13 +2380,13 @@ internal fun DiscogsDirectVersionBrowser(
         turboAutoClosedTick++
     }
 
-    // LAB50: documentary recovery is lifecycle-owned, append-only and
-    // resumable after LAB49 playback pre-empts metadata work. Waiting for
+    // LAB51: documentary recovery is append-only across Cover rounds.
+    // It resumes after LAB49 playback pre-empts metadata work. Waiting for
     // an active song never consumes the provider network deadline.
     fun startDocumentaryRecovery() {
         val expectedCriteria = activeCriteria ?: return
         if (!isTurbo || mode != DiscogsDirectMode.COVER ||
-            coverRoundNumber != 1 || !session.turboFinished ||
+            !session.turboFinished ||
             documentaryRecoveryComplete || coverRecoveryJob?.isActive == true ||
             publishedOriginalSnapshots.size + publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA
         ) return
@@ -2395,6 +2395,7 @@ internal fun DiscogsDirectVersionBrowser(
         val originallySparse =
             publishedOriginalSnapshots.size + publishedCoverSnapshots.size < 15
         val expectedGeneration = turboSearchGeneration
+        val expectedRound = coverRoundNumber
         val recoveryArtist = resolvedOriginalArtist
         coverRecoveryJob = scope.launch {
             val earlyEvidence = java.util.Collections.synchronizedList(
@@ -2406,9 +2407,19 @@ internal fun DiscogsDirectVersionBrowser(
                 withContext(Dispatchers.Main.immediate) {
                     if (!isActive || activeCriteria != expectedCriteria ||
                         turboSearchGeneration != expectedGeneration ||
-                        coverRoundNumber != 1 || !session.turboFinished
+                        coverRoundNumber != expectedRound || !session.turboFinished
                     ) return@withContext
 
+                    val occupied = (previousRoundRows +
+                        publishedOriginalSnapshots + publishedCoverSnapshots)
+                        .mapTo(HashSet<String>()) {
+                            DiscogsVersionSource.recordingIdentityKey(it)
+                        }
+                    val usedVideoIds = (previousRoundRows +
+                        publishedOriginalSnapshots + publishedCoverSnapshots)
+                        .mapNotNullTo(HashSet<String>()) {
+                            it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
+                        }
                     val verified = rows.map { candidate ->
                         DiscogsVersionSource.externalSeed(
                             candidate = candidate,
@@ -2418,6 +2429,9 @@ internal fun DiscogsDirectVersionBrowser(
                     }.filter { seed ->
                         CoverSameWorkGate.hasDocumentaryRelation(seed) &&
                             !isRejected(seed) && !isOriginalPerformerVersion(seed) &&
+                            DiscogsVersionSource.recordingIdentityKey(seed) !in occupied &&
+                            (seed.resolvedVideoId.isNullOrBlank() ||
+                                seed.resolvedVideoId.trim() !in usedVideoIds) &&
                             (modeAcceptsSeed(seed) ||
                                 seed.sourceNames.any { source ->
                                     source.equals("MusicBrainz", true) ||
@@ -2469,7 +2483,7 @@ internal fun DiscogsDirectVersionBrowser(
                     session.sourceDiagnostics = sourceDiagnostics
                     val saved = previousRoundRows + publishedOriginalSnapshots + accepted
                     scope.launch(Dispatchers.IO) {
-                        CoverRoundStorage.save(context, sessionKey, 1, saved)
+                        CoverRoundStorage.save(context, sessionKey, expectedRound, saved)
                     }
                     appendedAny = true
                     }
@@ -2499,7 +2513,7 @@ internal fun DiscogsDirectVersionBrowser(
                     // but only when the LAB49 player is idle.
                     maxNetworkFanOut = 2,
                     forceRefresh = false,
-                    coverRound = 1,
+                    coverRound = expectedRound,
                     deepRecovery = true,
                     onEarlyVideoCandidates = { rows ->
                         earlyEvidence.addAll(rows)
@@ -2520,7 +2534,7 @@ internal fun DiscogsDirectVersionBrowser(
             if (isActive && activeCriteria == expectedCriteria &&
                 turboSearchGeneration == expectedGeneration
             ) {
-                documentaryRecoveryComplete = true
+                documentaryRecoveryComplete = recovered != null
                 if (appendedAny && !backgroundWorkBlocked() &&
                     !session.turboVideoComplete
                 ) turboSearchGeneration++
