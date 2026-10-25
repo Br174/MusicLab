@@ -2447,6 +2447,90 @@ internal fun DiscogsDirectVersionBrowser(
                 mutableListOf<CoverSourceCandidate>(),
             )
             var appendedAny = false
+
+            // LAB54: independently verify catalog recordings already found in
+            // the first search; this path never invents or publishes a title-
+            // only hit. The 68 search summaries previously had no verification
+            // consumer in Turbo and were discarded at the poster deadline.
+            suspend fun appendCatalogEvidence(rows: List<DiscogsVersionSeed>) {
+                withContext(Dispatchers.Main.immediate) {
+                    if (!isActive || activeCriteria != expectedCriteria ||
+                        turboSearchGeneration != expectedGeneration ||
+                        coverRoundNumber != expectedRound || !session.turboFinished
+                    ) return@withContext
+                    val candidatePool = CoverLab53Publication.retain(
+                        session.turboCoverCandidatePool,
+                        results + rows,
+                    )
+                    session.turboCoverCandidatePool = candidatePool
+                    val occupied = (previousRoundRows + publishedOriginalSnapshots)
+                        .mapTo(HashSet<String>()) {
+                            DiscogsVersionSource.recordingIdentityKey(it)
+                        }
+                    val previouslyUsedVideoIds = (previousRoundRows +
+                        publishedOriginalSnapshots + publishedCoverSnapshots)
+                        .mapNotNullTo(HashSet<String>()) {
+                            it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
+                        }
+                    val eligible = candidatePool.filter { seed ->
+                        eligibleCoverForPublication(seed) &&
+                            DiscogsVersionSource.recordingIdentityKey(seed) !in occupied &&
+                            (seed.resolvedVideoId.isNullOrBlank() ||
+                                seed.resolvedVideoId.trim() !in previouslyUsedVideoIds ||
+                                publishedCoverSnapshots.any {
+                                    DiscogsVersionSource.recordingIdentityKey(it) ==
+                                        DiscogsVersionSource.recordingIdentityKey(seed)
+                                })
+                    }
+                    val previous = publishedCoverSnapshots
+                    val completed = CoverLab53Publication.fill(
+                        published = previous,
+                        candidates = eligible,
+                        eligibleCover = ::eligibleCoverForPublication,
+                    )
+                    val additions = completed.drop(previous.size)
+                        .mapIndexed { index, seed ->
+                            seed.copy(
+                                coverRound = expectedRound,
+                                roundPosition = previousRoundRows.size +
+                                    publishedOriginalSnapshots.size + previous.size + index + 1,
+                            )
+                        }
+                    if (additions.isNotEmpty()) {
+                        publishedCoverSnapshots = previous + additions
+                        session.publishedCoverSnapshots = publishedCoverSnapshots
+                        results = mergePage(results, rows + additions, replace = false)
+                        session.results = results
+                        val committed = (previousRoundRows + publishedOriginalSnapshots +
+                            publishedCoverSnapshots).map { it.fingerprint }.distinct()
+                        val committedKeys = committed.toHashSet()
+                        session.stableOrder = committed +
+                            session.stableOrder.filterNot { it in committedKeys }
+                        publishedReadyLimit =
+                            publishedOriginalSnapshots.size + publishedCoverSnapshots.size
+                        session.publishedReadyLimit = publishedReadyLimit
+                        val now = SystemClock.elapsedRealtime()
+                        additions.forEach { seed ->
+                            session.turboPosterPublishedAtMs[seed.fingerprint] = now
+                        }
+                        appendedAny = true
+                        val saved = previousRoundRows + publishedOriginalSnapshots +
+                            publishedCoverSnapshots
+                        scope.launch(Dispatchers.IO) {
+                            CoverRoundStorage.save(context, sessionKey, expectedRound, saved)
+                        }
+                    }
+                    updateLab53PublicationDiagnostics()
+                    android.util.Log.i(
+                        "MusicLabLAB54Funnel",
+                        "found=${candidatePool.size} " +
+                            "credits=${session.originalWorkCredits.size} " +
+                            "eligible=${eligible.size} published=${publishedCoverSnapshots.size} " +
+                            "rejected=${candidatePool.size - eligible.size}",
+                    )
+                }
+            }
+
             suspend fun appendVerifiedSource(rows: List<CoverSourceCandidate>) {
                 if (rows.isEmpty() && session.turboCoverCandidatePool.isEmpty()) return
                 withContext(Dispatchers.Main.immediate) {
