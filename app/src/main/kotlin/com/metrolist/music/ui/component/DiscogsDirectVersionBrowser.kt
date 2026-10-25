@@ -2524,25 +2524,10 @@ internal fun DiscogsDirectVersionBrowser(
                             session.turboCoverCandidatePool, offMainPool,
                         )
                     session.turboCoverCandidatePool = candidatePool
-                    val occupied = (previousRoundRows + publishedOriginalSnapshots)
-                        .mapTo(HashSet<String>()) {
-                            DiscogsVersionSource.recordingIdentityKey(it)
-                        }
-                    val previouslyUsedVideoIds = (previousRoundRows +
-                        publishedOriginalSnapshots + publishedCoverSnapshots)
-                        .mapNotNullTo(HashSet<String>()) {
-                            it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
-                        }
-                    val eligible = candidatePool.filter { seed ->
-                        eligibleCoverForPublication(seed) &&
-                            DiscogsVersionSource.recordingIdentityKey(seed) !in occupied &&
-                            (seed.resolvedVideoId.isNullOrBlank() ||
-                                seed.resolvedVideoId.trim() !in previouslyUsedVideoIds ||
-                                publishedCoverSnapshots.any {
-                                    DiscogsVersionSource.recordingIdentityKey(it) ==
-                                        DiscogsVersionSource.recordingIdentityKey(seed)
-                                })
-                    }
+                    // LAB57 ANR: this entire 750-item proof/video scan was
+                    // used ONLY for Log.i counters, never for publication.
+                    // It hit synchronous editorial storage and SHA-256 on main
+                    // for each Cloud callback. Do not run a hidden second pass.
                     val previous = publishedCoverSnapshots
                     val completed = CoverLab55VisibleCandidates.publish(
                         alreadyVisible = previous,
@@ -2588,8 +2573,7 @@ internal fun DiscogsDirectVersionBrowser(
                         "MusicLabLAB54Funnel",
                         "found=${candidatePool.size} " +
                             "credits=${session.originalWorkCredits.size} " +
-                            "eligible=${eligible.size} published=${publishedCoverSnapshots.size} " +
-                            "rejected=${candidatePool.size - eligible.size}",
+                            "new=${additions.size} published=${publishedCoverSnapshots.size}",
                     )
                 }
             }
