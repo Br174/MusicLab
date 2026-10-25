@@ -24,7 +24,8 @@ test('LAB43: local editorial decisions are scoped to song AND original singer', 
 });
 
 test('LAB43: stale frozen snapshot entries must also pass the same work gate', () => {
-  assert.match(direct, /fun isHiddenForCurrentCover\(seed: DiscogsVersionSeed\): Boolean =\s*mode == DiscogsDirectMode\.COVER &&\s*\(isRejected\(seed\) \|\| !modeAcceptsSeed\(seed\)\)/);
+  assert.match(direct, /fun isHiddenForCurrentCover\(seed: DiscogsVersionSeed\): Boolean =\s*mode == DiscogsDirectMode\.COVER &&\s*\(isRejected\(seed\) \|\|/);
+  assert.match(direct, /!eligibleCoverForPublication\(seed\)/);
   assert.match(direct, /publishedCoverSnapshots\s*\.filterNot\(::isHiddenForCurrentCover\)/);
   assert.match(direct, /fun modeAcceptsSeed\(seed: DiscogsVersionSeed\)/);
   assert.match(direct, /CoverSameWorkGate\.hasWorkIdentity\(/);
@@ -75,6 +76,7 @@ test('LAB43: no audio engine, cover card, category or album visuals replaced',()
 
 test('LAB43: cached video metadata is not assumed to certify an unrelated work',()=>{
   assert.match(direct,/hasPublishableVideo\(seed: DiscogsVersionSeed\)/);
-  assert.match(direct,/isRejected\(seed\) \|\| !modeAcceptsSeed\(seed\)/);
+  assert.match(direct,/!modeAcceptsSeed\(seed\) &&/);
+  assert.match(direct,/CoverSameWorkGate\.hasDocumentaryRelation\(seed\)/);
   assert.match(gate,/Identità dell’opera non verificata/);
 });
