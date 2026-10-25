@@ -3726,12 +3726,23 @@ internal fun DiscogsDirectVersionBrowser(
                             val originalYear = sourceOriginalYear.get()
                                 ?: memoryState?.discovery?.original?.year
                                 ?: external?.originalYear
+                            // LAB54: the initial Turbo path used to certify all
+                            // catalog candidates with empty Work credits. That
+                            // made a work-authored cover impossible to admit.
+                            // MusicBrainz returns independently attributed Work
+                            // writers; propagate them BEFORE any classification.
+                            session.originalWorkCredits = external?.workCredits.orEmpty()
+                                .distinctBy { credit ->
+                                    TitleMeaningResolver.canonical(credit.name) + "|" +
+                                        TitleMeaningResolver.canonical(credit.role)
+                                }
                             merged = withContext(Dispatchers.Default) {
                                 merged.map { seed ->
                                     DiscogsVersionSource.certifyForFrozenRanking(
                                         seed = seed, targetTitle = workTitle,
                                         originalArtist = resolvedOriginalArtist,
-                                        originalYear = originalYear, originalCredits = emptyList(),
+                                        originalYear = originalYear,
+                                        originalCredits = session.originalWorkCredits,
                                     )
                                 }
                             }
@@ -3885,6 +3896,15 @@ internal fun DiscogsDirectVersionBrowser(
                         // Not a new database. Never expose reserve cards to UI.
                         session.turboCoverCandidatePool = CoverLab53Publication.retain(
                             session.turboCoverCandidatePool, results,
+                        )
+                        // LAB54: capture all fetched summaries before clearing
+                        // the visible list. Unverified Discogs records remain in
+                        // the proof queue for later release-detail verification.
+                        android.util.Log.i(
+                            "MusicLabLAB54Funnel",
+                            "found=${session.turboCoverCandidatePool.size} " +
+                                "published=${publishedCoverSnapshots.size} " +
+                                "credits=${session.originalWorkCredits.size}",
                         )
                         session.turboReserve = turboRankedPool()
                             .filterNot { it.fingerprint in frozenIds }
