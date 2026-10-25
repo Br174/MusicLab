@@ -17,12 +17,12 @@ test('50 is a cover-only quota, originals in independent section',()=>{
  assert.match(p,/if \(eligibilityRequired && !eligibleCover\(seed\)\) return/);
  assert.match(publisher,/val committedCount = publishedCoverSnapshots\.size/);
  assert.match(finallyPublisher,/filter\(::isDistinctOriginalVersion\)\.take\(10\)/);
- assert.match(finallyPublisher,/publishedCoverSnapshots = CoverLab53Publication\.fill\(/);
+ assert.match(finallyPublisher,/publishedCoverSnapshots = CoverLab55VisibleCandidates\.publish\(/);
  assert.doesNotMatch(finallyPublisher,/TURBO_RESULT_QUOTA -\s*publishedOriginalSnapshots\.size/);
 });
 test('the first ten and next partial covers actually publish before full quota',()=>{
  assert.match(publisher,/initialCovers\.take\(TURBO_MIN_EARLY_POSTER_BLOCK\)/);
- assert.match(publisher,/val next = CoverLab53Publication\.fill\(/);
+ assert.match(publisher,/val next = CoverLab55VisibleCandidates\.publish\(/);
  assert.doesNotMatch(publisher,/if \(next\.size < TURBO_RESULT_QUOTA - committedCount\) return/);
  assert.match(publisher,/if \(next\.isEmpty\(\)\) return/);
  assert.match(b,/if \(publishedCoverSnapshots\.size < TURBO_RESULT_QUOTA\) return false/);
