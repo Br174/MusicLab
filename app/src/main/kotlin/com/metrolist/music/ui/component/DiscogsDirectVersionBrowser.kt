@@ -385,16 +385,11 @@ internal fun DiscogsDirectVersionBrowser(
         append('|')
         append(lockedArtist.trim().lowercase())
     }
+    // LAB57 ANR: loading CoverRoundStorage is synchronized disk I/O plus
+    // JSON/canonical metadata deduplication. Never call it from remember()
+    // on the Android UI thread. The next LaunchedEffect restores it on IO.
     val session = remember(sessionKey) {
-        DirectVersionSessionStore.get(sessionKey, initialTitle).also { existing ->
-            if (isTurbo && mode == DiscogsDirectMode.COVER &&
-                !existing.initialized && existing.previousRoundRows.isEmpty()
-            ) {
-                val saved = CoverRoundStorage.load(context, sessionKey)
-                existing.previousRoundRows = saved.rows
-                existing.coverRoundNumber = saved.round
-            }
-        }
+        DirectVersionSessionStore.get(sessionKey, initialTitle)
     }
     // LAB12: protect UI/audio and source quotas from an unbounded 50-way
     // metadata burst. Four verifiers may run; providers retain own limits.
@@ -442,6 +437,10 @@ internal fun DiscogsDirectVersionBrowser(
     var publishedCoverSnapshots by remember(sessionKey) { mutableStateOf(session.publishedCoverSnapshots) }
     var previousRoundRows by remember(sessionKey) { mutableStateOf(session.previousRoundRows) }
     var coverRoundNumber by remember(sessionKey) { androidx.compose.runtime.mutableIntStateOf(session.coverRoundNumber) }
+    var restorationReady by remember(sessionKey) {
+        mutableStateOf(!isTurbo || mode != DiscogsDirectMode.COVER ||
+            session.initialized || session.previousRoundRows.isNotEmpty())
+    }
     var turboStreamProofVersion by remember(sessionKey) { mutableStateOf(0) }
     var originalSectionFrozen by remember(sessionKey) { mutableStateOf(session.originalSectionFrozen) }
     var searchJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
@@ -483,6 +482,27 @@ internal fun DiscogsDirectVersionBrowser(
         initialFirstVisibleItemIndex = session.listIndex,
         initialFirstVisibleItemScrollOffset = session.listOffset,
     )
+
+    // Read the LAST_GOOD archive asynchronously, with no UI-thread file lock.
+    // Starting first discovery only after restoration avoids overwriting prior
+    // rounds with an empty snapshot during Android cold start.
+    LaunchedEffect(sessionKey, isTurbo, mode) {
+        if (!restorationReady && isTurbo && mode == DiscogsDirectMode.COVER) {
+            try {
+                val saved = withContext(Dispatchers.IO) {
+                    CoverRoundStorage.load(context, sessionKey)
+                }
+                if (!session.initialized && previousRoundRows.isEmpty()) {
+                    session.previousRoundRows = saved.rows
+                    session.coverRoundNumber = saved.round
+                    previousRoundRows = saved.rows
+                    coverRoundNumber = saved.round
+                }
+            } finally {
+                restorationReady = true
+            }
+        }
+    }
 
     DisposableEffect(sessionKey) {
         if (mode == DiscogsDirectMode.COVER) {
@@ -5626,7 +5646,8 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
 
-    LaunchedEffect(sessionKey, discogsToken) {
+    LaunchedEffect(sessionKey, discogsToken, restorationReady) {
+        if (!restorationReady) return@LaunchedEffect
         if (!session.initialized && initialTitle.isNotBlank()) {
             runSearch()
         } else if (isTurbo && mode == DiscogsDirectMode.COVER &&
