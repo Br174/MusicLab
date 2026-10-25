@@ -61,3 +61,12 @@ test('untouched direct search and player compatibility contracts',()=>{
  assert.match(screen,/isCoverAudioAtRisk\(\) == true/);
  assert.match(screen,/while \(backgroundWorkBlocked\(\) \|\|/);
 });
+
+test('Coil image loader never blocks main waiting for DataStore during first 50 covers',()=>{
+ const app=readFileSync('app/src/main/kotlin/com/metrolist/music/App.kt','utf8');
+ const loader=app.split('override fun newImageLoader(context: PlatformContext): ImageLoader {')[1]
+     .split('private object CrashSafeInterceptor')[0];
+ assert.match(loader,/val cacheSize = cachedCoilCacheSize \?: 512/);
+ assert.doesNotMatch(loader,/runBlocking/);
+ assert.match(app,/applicationScope\.launch\(Dispatchers\.IO\) \{\s*cachedCoilCacheSize =/);
+});
