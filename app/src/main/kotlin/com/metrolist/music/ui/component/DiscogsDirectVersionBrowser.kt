@@ -2100,6 +2100,27 @@ internal fun DiscogsDirectVersionBrowser(
 
     // LAB24: one existing coordinator, four fair result partitions and
     // immediate cancellation on playback start. Do not duplicate workers.
+    // LAB63: never strand the second-round spinner if a provider deadlocks or
+    // a coroutine fails to finish its 10-second burst. This is a UI/lifecycle
+    // fuse, not an additional network probe or a permanent negative result.
+    LaunchedEffect(sessionKey, sourceDiscoveryLoading, turboSearchGeneration) {
+        if (isTurbo && mode == DiscogsDirectMode.COVER && sourceDiscoveryLoading) {
+            delay(22_000L)
+            if (isActive && sourceDiscoveryLoading) {
+                searchJob?.cancel()
+                documentaryRecoveryComplete = true
+                session.turboFinished = true
+                session.sourceDiscoveryComplete = true
+                sourceDiscoveryLoading = false
+                loading = false
+                playerConnection?.service?.setCoverPerformanceLoad(
+                    active = false, heavy = false,
+                )
+                android.util.Log.w("MusicLabLAB63", "Burst watchdog released unresponsive Cover round")
+            }
+        }
+    }
+
     LaunchedEffect(sessionKey, turboSearchGeneration) {
         if (!isTurbo || mode != DiscogsDirectMode.COVER) return@LaunchedEffect
         turboAutoVideoJob = currentCoroutineContext()[Job]
@@ -2567,6 +2588,8 @@ internal fun DiscogsDirectVersionBrowser(
                         isRejected = ::isRejected,
                         verifiedVideoIds = session.playReadyVideoIds,
                         history = previousRoundRows,
+                        originalYear = session.originalYear,
+                        originalCredits = session.originalWorkCredits,
                     )
                     val additions = completed.drop(previous.size)
                         .mapIndexed { index, seed ->
@@ -2713,6 +2736,8 @@ internal fun DiscogsDirectVersionBrowser(
                             isRejected = ::isRejected,
                             verifiedVideoIds = session.playReadyVideoIds,
                             history = previousRoundRows,
+                            originalYear = session.originalYear,
+                            originalCredits = session.originalWorkCredits,
                         )
                     }
                     if (!isActive || activeCriteria != expectedCriteria ||
@@ -3460,7 +3485,7 @@ internal fun DiscogsDirectVersionBrowser(
             (lockedArtist.isBlank() || TitleMeaningResolver.sameArtist(
                 lockedArtist, resolvedOriginalArtist,
             ))
-        if (!forceRefresh && isTurbo && repeatSameWork && session.turboFinished &&
+        if (!appendVerifiedRound && !forceRefresh && isTurbo && repeatSameWork && session.turboFinished &&
             (session.publishedCoverSnapshots.isNotEmpty() || session.publishedOriginalSnapshots.isNotEmpty()) &&
             (session.publishedCoverSnapshots + session.publishedOriginalSnapshots).all(::hasPublishableVideo)) {
             // Only a fully linked, verified session may be replayed without refreshing.
@@ -3560,7 +3585,7 @@ internal fun DiscogsDirectVersionBrowser(
         session.resultPageIndex = 0
         session.sourceDiagnostics = emptyList()
         session.sourceDiscoveryComplete = false
-        session.originalYear = null
+        if (!appendVerifiedRound) session.originalYear = null
         session.rankingFrozen = false
         session.publishedReadyLimit = 0
         session.publishedOriginalSnapshots = emptyList()
@@ -3635,6 +3660,8 @@ internal fun DiscogsDirectVersionBrowser(
                                     isRejected = ::isRejected,
                                     verifiedVideoIds = session.playReadyVideoIds,
                                     history = previousRoundRows,
+                                    originalYear = session.originalYear,
+                                    originalCredits = session.originalWorkCredits,
                                 )
                                 // LAB27: publish the first ten together *as soon
                                 // as* ten ranked documentary candidates exist.
@@ -3698,6 +3725,8 @@ internal fun DiscogsDirectVersionBrowser(
                                     isRejected = ::isRejected,
                                     verifiedVideoIds = session.playReadyVideoIds,
                                     history = previousRoundRows,
+                                    originalYear = session.originalYear,
+                                    originalCredits = session.originalWorkCredits,
                                 ).drop(committedCount)
                                 // LAB53: a partial verified refill is not a failed round.
                                 // Publish it now and continue appending toward 50.
@@ -3768,9 +3797,14 @@ internal fun DiscogsDirectVersionBrowser(
                                     val cloudSeedsNow = supplementalSeeds.tryReceive().getOrNull().orEmpty()
                                     val seeds = documentedSeeds + cloudSeedsNow
                                     if (seeds.isNotEmpty()) {
-                                        results = mergePage(results, seeds, replace = false)
-                                        session.results = results
-                                        rebuildStableOrder()
+                                        val mergedNow = withContext(Dispatchers.Default) {
+                                            mergePage(results, seeds, replace = false)
+                                        }
+                                        results = mergedNow
+                                        session.results = mergedNow
+                                        session.stableOrder = withContext(Dispatchers.Default) {
+                                            sortedPool(mergedNow).map { it.fingerprint }
+                                        }
                                         rankingFrozen = true
                                         originalSectionFrozen = true
                                         session.rankingFrozen = true
@@ -4090,7 +4124,9 @@ internal fun DiscogsDirectVersionBrowser(
                                     originalArtist = resolvedOriginalArtist,
                                 )
                             }
-                            var merged = mergePage(results, cloudSeeds + memorySeeds + externalSeeds, replace = false)
+                            var merged = withContext(Dispatchers.Default) {
+                                mergePage(results, cloudSeeds + memorySeeds + externalSeeds, replace = false)
+                            }
                             val workTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
                             // Original-work fallback when the user started
                             // from a COVER and no archive/memory attribution was
@@ -4234,17 +4270,24 @@ internal fun DiscogsDirectVersionBrowser(
                                 )
                             }
                         if (bufferedSeeds.isNotEmpty() || documentarySeeds.isNotEmpty()) {
-                            results = mergePage(results, bufferedSeeds + documentarySeeds, replace = false)
-                            session.results = results
-                            rebuildStableOrder()
+                            val mergedFinal = withContext(Dispatchers.Default) {
+                                mergePage(results, bufferedSeeds + documentarySeeds, replace = false)
+                            }
+                            results = mergedFinal
+                            session.results = mergedFinal
+                            session.stableOrder = withContext(Dispatchers.Default) {
+                                sortedPool(mergedFinal).map { it.fingerprint }
+                            }
                         }
                         // LAB09: prefer the user's 20/20 -> 1/20 ranking.
                         // Poster publication NEVER depends on a linked video.
                         // A real candidate with no artwork keeps its row as an
                         // explicit image-unavailable state rather than vanishing.
-                        val finalRanked = turboRankedPool()
-                            .filter { seed -> seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds }
-                            .distinctBy { it.fingerprint }
+                        val finalRanked = withContext(Dispatchers.Default) {
+                            turboRankedPool()
+                                .filter { seed -> seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds }
+                                .distinctBy { it.fingerprint }
+                        }
                         // LAB53: original-performer versions have their own section.
                         // They NEVER consume any of the 50 COVER places.
                         if (publishedOriginalSnapshots.isEmpty()) {
@@ -4260,6 +4303,8 @@ internal fun DiscogsDirectVersionBrowser(
                             isRejected = ::isRejected,
                             verifiedVideoIds = session.playReadyVideoIds,
                             history = previousRoundRows,
+                            originalYear = session.originalYear,
+                            originalCredits = session.originalWorkCredits,
                         )
                         session.publishedCoverSnapshots = publishedCoverSnapshots
                         // LAB46: preserve LAB45's first-50 order and /20 rating,
@@ -4297,9 +4342,12 @@ internal fun DiscogsDirectVersionBrowser(
                         // LAB14: preserve ranked, off-screen documentary candidates
                         // as a bounded in-memory reserve for video-safe replacements.
                         // Not a new database. Never expose reserve cards to UI.
-                        session.turboCoverCandidatePool = CoverLab53Publication.retain(
-                            session.turboCoverCandidatePool, results,
-                        )
+                        val retainedCandidates = withContext(Dispatchers.Default) {
+                            CoverLab53Publication.retain(
+                                session.turboCoverCandidatePool, results,
+                            )
+                        }
+                        session.turboCoverCandidatePool = retainedCandidates
                         // LAB54: capture all fetched summaries before clearing
                         // the visible list. Unverified Discogs records remain in
                         // the proof queue for later release-detail verification.
