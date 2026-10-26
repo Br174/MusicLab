@@ -3405,8 +3405,9 @@ internal fun DiscogsDirectVersionBrowser(
         // the same work; old identities are excluded from new publication.
         val discogsRoundPage = if (appendVerifiedRound) coverRoundNumber + 1 else 1
         if (appendVerifiedRound) {
+            // LAB61: immutable VIDEO FIRST history survives later rounds.
             val alreadyCommitted = (publishedOriginalSnapshots + publishedCoverSnapshots)
-                .filter(::modeAcceptsSeed)
+                .filter(::hasPublishableVideo)
             val occupied = previousRoundRows.mapTo(HashSet<String>()) {
                 DiscogsVersionSource.recordingIdentityKey(it)
             }
@@ -3500,8 +3501,10 @@ internal fun DiscogsDirectVersionBrowser(
         selectedFingerprint = null
         visibleLimit = if (isTurbo && mode == DiscogsDirectMode.COVER) TURBO_RESULT_QUOTA else pageSize
         resultPageIndex = 0
-        headerExpanded = false
-        session.headerExpanded = false
+        if (!appendVerifiedRound) {
+            headerExpanded = false
+            session.headerExpanded = false
+        }
         sourcePrefetchedForVisibleLimit = -1
         sourceDiagnostics = emptyList()
         sourceDiscoveryLoading = true
@@ -3528,8 +3531,11 @@ internal fun DiscogsDirectVersionBrowser(
         session.totalDiscogsResults = 0
         session.activeCriteria = criteria
         session.selectedFingerprint = null
-        session.listIndex = 0
-        session.listOffset = 0
+        // Preserve the scroll anchor for appended results.
+        if (!appendVerifiedRound) {
+            session.listIndex = 0
+            session.listOffset = 0
+        }
         session.stableOrder = retainedOrder
         session.visibleLimit = if (isTurbo && mode == DiscogsDirectMode.COVER) TURBO_RESULT_QUOTA else pageSize
         session.resultPageIndex = 0
@@ -3552,7 +3558,7 @@ internal fun DiscogsDirectVersionBrowser(
             session.transientVideoRetries.clear()
             session.automaticVideoAttempts.clear()
         }
-        session.originalWorkCredits = emptyList()
+        if (!appendVerifiedRound) session.originalWorkCredits = emptyList()
 
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
             // Turbo LAB02: replace LAB01's staged discovery/publisher entirely.
@@ -5466,8 +5472,14 @@ internal fun DiscogsDirectVersionBrowser(
 
     // LAB68: ignore unrelated player/animation recompositions when the
     // ranking inputs did not change. No cached mutable UI state is duplicated.
-    val orderedPool = remember(results, session.stableOrder, resolvedOriginalArtist, sortMode, mode) {
-        orderedResults(results)
+    val orderedPool = remember(results, session.stableOrder, resolvedOriginalArtist, sortMode, mode,
+        isTurbo, loading, previousRoundRows,
+    ) {
+        // During append do not repeatedly sort the transient catalogue on
+        // Compose's UI thread. Historical posters own the visible prefix.
+        if (isTurbo && mode == DiscogsDirectMode.COVER &&
+            loading && previousRoundRows.isNotEmpty()
+        ) emptyList() else orderedResults(results)
     }
     // LAB56: video ticks and header animation do not change candidate
     // membership. Filter once per actual source/decision change, not each
@@ -5518,17 +5530,18 @@ internal fun DiscogsDirectVersionBrowser(
     val historicalOrOriginal = remember(
         previousRoundRows, publishedOriginalSnapshots, mode, isTurbo,
         session.originalWorkCredits, resolvedOriginalArtist, lockedArtist, title,
-        results,
     ) {
+        // The already-verified rows must never run another strict admission
+        // proof during append, which formerly hid them and blocked the UI.
         previousRoundRows.filter {
             !isRejected(it) &&
                 (if (isTurbo && mode == DiscogsDirectMode.COVER)
-                    eligibleCoverForPublication(it) else modeAcceptsSeed(it))
+                    hasPublishableVideo(it) else modeAcceptsSeed(it))
         } + publishedOriginalSnapshots.filterNot(::isHiddenForCurrentCover)
     }
     val publishedEligibleCovers = remember(
         publishedCoverSnapshots, mode, isTurbo, session.originalWorkCredits,
-        resolvedOriginalArtist, lockedArtist, title, results,
+        resolvedOriginalArtist, lockedArtist, title,
     ) {
         publishedCoverSnapshots.filterNot(::isHiddenForCurrentCover)
     }
@@ -5573,7 +5586,8 @@ internal fun DiscogsDirectVersionBrowser(
         mode, isTurbo, loading, unifiedCoverDisplay, visibleLimit, previousRoundRows,
         publishedOriginalSnapshots, turboStreamProofVersion, if (isTurbo) null else results,
     ) {
-        if (mode == DiscogsDirectMode.COVER && (!isTurbo || !loading)) {
+        if (mode == DiscogsDirectMode.COVER &&
+            (!isTurbo || !loading || previousRoundRows.isNotEmpty())) {
             unifiedCoverDisplay
                 .filterNot(::belongsToFirstCoverSection)
                 .filterNot(::isHiddenForCurrentCover)
@@ -6058,7 +6072,7 @@ internal fun DiscogsDirectVersionBrowser(
                         // The five counters must describe the same membership
                         // actually sent to LazyColumn, never "68 found / 0 shown".
                         results = if (isTurbo && mode == DiscogsDirectMode.COVER) {
-                            visibleResults
+                            unifiedCoverDisplay // cumulative published VIDEO FIRST
                         } else results,
                         onSelected = { selected ->
                             category = selected
@@ -6132,7 +6146,8 @@ internal fun DiscogsDirectVersionBrowser(
 
                     DirectCategorySelector(
                         selected = category,
-                        results = results,
+                        results = if (isTurbo && mode == DiscogsDirectMode.COVER)
+                            unifiedCoverDisplay else results,
                         onSelected = { selected ->
                             category = selected
                             session.category = selected
@@ -6365,7 +6380,9 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     itemsIndexed(
                         items = visibleOriginalVersions,
-                        key = { index, _ -> "discogs_direct_original_slot_$index" },
+                        key = { index, seed -> if (isTurbo)
+                            "discogs_direct_turbo_${seed.fingerprint}"
+                            else "discogs_direct_original_slot_$index" },
                     ) { _, seed ->
                         DiscogsVersionCard(
                             seed = seed,
@@ -6411,7 +6428,9 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     itemsIndexed(
                         items = visibleTrueCovers,
-                        key = { index, _ -> "discogs_direct_cover_slot_$index" },
+                        key = { index, seed -> if (isTurbo)
+                            "discogs_direct_turbo_${seed.fingerprint}"
+                            else "discogs_direct_cover_slot_$index" },
                     ) { _, seed ->
                         DiscogsVersionCard(
                             seed = seed,
@@ -6465,6 +6484,24 @@ internal fun DiscogsDirectVersionBrowser(
                         onSearchVideo = { searchVideoForRecording(seed) },
                         onDetails = { detailSeed = seed },
                     )
+                }
+            }
+
+            // Bounded progress row, always below the unchanged historical
+            // posters; never clear LazyColumn when another batch is underway.
+            if (isTurbo && mode == DiscogsDirectMode.COVER &&
+                activeCriteria != null && sourceDiscoveryLoading &&
+                previousRoundRows.isNotEmpty()) {
+                item(key = "musiclab_lab61_append_progress") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Cerco altre cover; le precedenti restano disponibili…")
+                    }
                 }
             }
 
