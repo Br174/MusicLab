@@ -67,8 +67,18 @@ internal object CoverLab66DirectYouTube {
         ).containsMatchIn(videoTitle)
         val signals = listOf(titleMatch, performerMatch, evidence).count { it } +
             if (documentedWorkRelation) 3 else 0
+        // An exact requested title performed by the known ORIGINAL artist
+        // is already a high-confidence official recording, even when the
+        // uploader omitted "official" from the video's displayed title.
+        val knownOriginalPerformance = titleMatch && performerMatch &&
+            originalArtist.isNotBlank()
+        val explicitlyOfficial = titleMatch && Regex(
+            "\\b(official|vevo|licensed)\\b", RegexOption.IGNORE_CASE,
+        ).containsMatchIn(videoTitle)
         return if (round >= 4) {
             if (titleMatch || documentedWorkRelation) maxOf(signals, 1) else 0
+        } else if (round == 1 && (knownOriginalPerformance || explicitlyOfficial)) {
+            maxOf(signals, 3)
         } else signals
     }
 
