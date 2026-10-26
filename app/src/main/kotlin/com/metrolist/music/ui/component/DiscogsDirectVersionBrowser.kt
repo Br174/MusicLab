@@ -3610,8 +3610,8 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     // YouTube search is the FIRST source, not a catalog lookup.
                     // COVER.INFO is queried in parallel, including foreign adaptations.
+                    val documentaryCompleted = java.util.concurrent.atomic.AtomicBoolean(!includeDocumentary)
                     coroutineScope {
-                        val documentaryCompleted = java.util.concurrent.atomic.AtomicBoolean(!includeDocumentary)
                         val documents = if (includeDocumentary) launch(Dispatchers.IO) {
                             val fullDiscovery = withTimeoutOrNull(16_000L) {
                                 CoverDiscoverySources.discover(
