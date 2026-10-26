@@ -71,7 +71,7 @@ class CoverLabTurboRoundAdmissionTest {
     }
 
     @Test fun authoritativeTopicChannelStillQualifiesOriginal() {
-        val originalChannel = candidate(artist = "Lucio Dalla - Topic")
+        val originalChannel = candidate(title = "Felicità", artist = "Lucio Dalla - Topic")
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
             originalChannel, "Felicità", "Lucio Dalla", 1,
             "Lucio Dalla - Felicità"
