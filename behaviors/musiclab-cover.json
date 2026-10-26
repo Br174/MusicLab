@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "musiclab",
   "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
-  "status": "USER_DEVICE_VERIFIED_GOOD_SEARCH_BASELINE_LAB66; REFINEMENTS_PENDING",
+  "status": "USER_APPROVED_FOUNDATIONS_COMMITTED_IN_MEMORY_BRANCH; APP_IMPLEMENTATION_PENDING_LAB71_APPROVAL",
   "rules": [
     {
       "id": "musiclab.cover.same-work",
@@ -181,7 +181,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 2,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "Musical-work admission becomes intentionally less strict each manual round: first round requires strong independent matches (three sound evidentiary signals as the working model); second needs two credible matches; third needs one; fourth and later may admit a YouTube result on requested title alone, explicitly accepting possible non-covers. A YouTube video ID/link validity check is separate and NEVER loosened. Strong matches discovered late remain eligible. Do not keep an always-on same-Work gate that silently defeats the later rounds.",
       "acceptance": [
@@ -240,7 +240,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 2,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "First round seeks highest-confidence official/released covers, original performer's studio/live/duets, strong documented renditions, and FOREIGN/LANGUAGE-ADAPTED covers from COVER.INFO FROM THE VERY FIRST SEARCH in parallel with YouTube and other useful sources. Exploit existing COVER.INFO YouTube video IDs after technical metadata confirmation rather than rediscovering them. Second round expands to talent, live, acoustic, semi-official; third to independent, amateur, instruments; fourth+ rare/long-tail/title-only. These are preferences, not exclusivity: a strong official match found late is still admitted. Never make SecondHandSongs the main provider. Keep categories Tutto/Studio/Live/Remix/Stranieri without replacing the native categorization system.",
       "acceptance": [
@@ -325,16 +325,126 @@
       ],
       "testPaths": [],
       "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.work-identity-progressive.v3",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 3,
+      "status": "active",
+      "protected": true,
+      "behavior": "FOUNDATIONAL immutable title and musical Work identity in ALL rounds. Searching 'Felicità' must match the exact normalized whole musical song title 'Felicità', optionally with non-title recording qualifiers '(Live)', '(Studio)', '(Remix)', 'Official'; never title substring/prefix matches such as a different song 'Felicità puttana', unrelated titles or spurious metadata ('lead journalist'). Reject distinct same-title musical works when evidence disambiguates them. A foreign-language title variation is allowed ONLY with independently documented SAME musical composition (COVER.INFO/MusicBrainz or equally reliable work relation). Technical YouTube ID validity cannot replace correct musical identity. Musical evidence threshold can progressively widen for true same-Work candidate discoveries, but original title identity, disambiguation, proof for translated titles and forbidden content NEVER become optional in late rounds; no title-only arbitrary additions in round 4+.",
+      "acceptance": [
+        "Reject 'Felicità puttana' for 'Felicità' in round 1 through 4+",
+        "Accept title 'Felicità (Live)' only if the recording is the requested musical composition",
+        "Accept translated titles only with reliable same-composition documentary evidence",
+        "Reject same-title unrelated compositions despite verified video IDs",
+        "Permit late legitimate covers without abandoning title/work identity"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.work-identity-progressive.v2"
+      ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v3",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 3,
+      "status": "active",
+      "protected": true,
+      "behavior": "Keep verified LAB66 YouTube original-video-thumbnail publication and LAB70 source-backed credited lookup. First round actively searches professionally documented high-quality COVER performances BY OTHER SINGERS, popular studio renditions, bona fide original versions and COVER.INFO-backed foreign adaptations; consult relevant MusicBrainz, Discogs, Apple/iTunes, Spotify and YouTube when useful. Do not rely mainly on SecondHandSongs. Subsequent manual rounds widen to talent, artistic live/acoustic, amateur and rare interpreted covers, WITHOUT permitting wrong-title/different-Work results, karaoke/MIDI/backing tracks or duplicates in ANY tier. Artistic credited instrumental reinterpretation is different from karaoke/accompaniment and may qualify only with real performance evidence. No source timeout becomes permanent absence or blacklist. At most 50 genuine unique YouTube video-linked results PER round if available; never invent results; prefer other interpreters once canonical original-artist recordings are represented.",
+      "acceptance": [
+        "Broader genuine high-quality alternate singers in first round",
+        "COVER.INFO documented foreign versions considered already in first round",
+        "Strict title/work and global exclusions remain enforced in later rounds",
+        "Never substitute album-art posters for original verified YouTube thumbnail",
+        "Quantity comes only from proven distinct renditions, not fabricated 50"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v2"
+      ]
+    },
+    {
+      "id": "musiclab.cover.global-karaoke-midi-exclusion.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "PERMANENT GLOBAL CoverLab veto: NO karaoke, MIDI file or MIDI-generated song, minus-one track, karaoke instrumental base, backing/accompaniment track, sing-along accompaniment, video tutorial/exercise masquerading as a cover. Apply to first/best-quality and every lower-precision round, all categories, direct and documentary providers, Cloud/cache and prior-round results, regardless of title match, uploader or video ID. A different upload of the SAME forbidden performance stays forbidden. Avoid falsely rejecting a genuinely performed and credited artistic instrumental arrangement solely because it lacks sung vocals; this is distinct from a backing track. Reject the offending recording, not the entire song or artist.",
+      "acceptance": [
+        "No karaoke/MIDI/backing-track publication in ANY round or quality tier",
+        "Reuploads under other video IDs remain vetoed",
+        "Keep bona fide performed artistic instrumental versions distinct from karaoke",
+        "No wholesale permanent blacklist of song or artist"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.original-performer-version-caps.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "During an active CoverLab visit, for the ORIGINAL interpreter of one song retain at most 1 canonical studio recording, up to 2 GENUINELY DISTINCT live performances, up to 2 GENUINELY DISTINCT remixes, and only a small number of verifiable DISTINCT duets/collaborations (no invented numeric hard cap for duets). Same performance republished as official, lyric, remastered, shortened, compilation or other-channel upload is ONE recording, never extra posters. Caps apply across every search round and source, while existing poster positions never shift. DO NOT impose the same narrow limits on cover versions sung by DIFFERENT artists.",
+      "acceptance": [
+        "At most one original-studio, two different original-live, two different original-remix results",
+        "Ten reuploads of one live performance produce only one poster",
+        "Allow a small number of real independently recorded original-artist duets",
+        "Do not cap distinct other artists' true live covers as if original singer",
+        "Previously published session poster positions remain frozen"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.cross-upload-recording-dedupe.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Deduplicate identical YouTube video ID and identical audio/performance/recording across multiple IDs, providers, channels, reuploads, cover images, titles and prior manual search rounds. A new genuinely different studio take, live concert recording, authentic remix, duet or other artist's version may appear, subject only to original-performer caps. Do not collapse distinct actual singers or independent cover performances; do not hide existing rows or reshuffle published results. A fresh CoverLab visit clears session-level exclusion as in session-lifecycle.v2.",
+      "acceptance": [
+        "Same recording with different video IDs is ONE result across rounds",
+        "Different live takes and other artist's genuine performances remain eligible",
+        "No previously displayed cards disappear or change order",
+        "On CoverLab exit and new visit temporary blacklist resets"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.best-covers-other-artists-breadth.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "In the BEST/MOST FAITHFUL covers section, increase genuine, technically verified, documentary-supported versions by OTHER singers, in particular professional/famous/foreign performances found in the FIRST round, not repeated originals. Avoid rejecting legitimate performers solely because channel names lack 'official' or another magic word when other reliable musical evidence exists. Stay strict on identity, forbidden karaoke/MIDI, deduplication and video thumbnail ID; widen admissible artist/source coverage instead. Up to 50 NEW real different versions per round when discoverable, not an artificial fill guarantee.",
+      "acceptance": [
+        "First round meaningfully retrieves genuine versions by other singers",
+        "Professionally documented foreign adaptations eligible first round",
+        "No original-upload flooding, irrelevant filler, karaoke or wrong song",
+        "Preserve source-backed video links, thumbnails and player stability"
+      ],
+      "testPaths": [],
+      "supersedes": []
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-26-video-thumb-progressive-manual-rounds-v2",
-  "authorityNote": "User-approved canonical planned CoverLab behavior, preserved in a clean main-based metadata-only branch. Existing APK/current main are not modified until later authorized implementation/promotion. Conflicting old contract rules are retired in THIS contract; legacy app enforcement still requires negative regressions in the next authorized LAB.",
+  "canonicalBehaviorRevision": "2026-10-27-coverlab-foundational-immutable-title-global-exclusions-and-diversity-v3",
+  "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
       "oldRule": "musiclab.cover.same-work",
-      "disposition": "RETIRED_IN_CONTRACT",
-      "replacementRule": "musiclab.cover.work-identity-progressive.v2",
-      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+      "disposition": "SUPERSEDED_BY_NEWER_USER_FOUNDATION",
+      "replacementRule": "musiclab.cover.work-identity-progressive.v3",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
+      "intermediateReplacementRule": "musiclab.cover.work-identity-progressive.v2"
     },
     {
       "oldRule": "musiclab.cover.first-fifty",
@@ -350,15 +460,28 @@
     },
     {
       "oldRule": "musiclab.cover.category-rounds",
-      "disposition": "RETIRED_IN_CONTRACT",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v2",
-      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+      "disposition": "SUPERSEDED_BY_NEWER_USER_FOUNDATION",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v3",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v2"
     },
     {
       "oldRule": "musiclab.cover.score-separation",
       "disposition": "RETIRED_IN_CONTRACT",
       "replacementRule": "musiclab.cover.visible-confidence-percent.v2",
       "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+    },
+    {
+      "oldRule": "musiclab.cover.work-identity-progressive.v2",
+      "disposition": "RETIRED_IN_FOUNDATIONAL_MEMORY_CONTRACT",
+      "replacementRule": "musiclab.cover.work-identity-progressive.v3",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v2",
+      "disposition": "RETIRED_IN_FOUNDATIONAL_MEMORY_CONTRACT",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v3",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71"
     }
   ],
   "confirmedGoodBaseline": {
@@ -400,7 +523,7 @@
     }
   ],
   "implementationPolicy": "LAB66 is confirmed user-visible LAST_GOOD for thumbnail production. Future LAB67 changes must be strictly selective, non-destructive, with source-diff and regression guard. Save memory before modifying app. Approval for 4 refinements is user-granted; don't alter existing good method.",
-  "memoryUpdatedAt": "2026-10-26",
+  "memoryUpdatedAt": "2026-10-27",
   "knownBadRegressions": [
     {
       "id": "LAB67_WRONG_THREAD_AND_STALE_SOURCE_DIAG",
@@ -422,5 +545,16 @@
       },
       "guard": "Never mark LAB67 as device-verified good or silently promote LAB68 over LAB66 before explicit user device confirmation."
     }
+  ],
+  "foundationsApprovedAt": "2026-10-27",
+  "foundationsImplementationState": "DOCUMENTED_NOT_IMPLEMENTED; LAB71_NOT_AUTHORIZED",
+  "foundationsNextStep": "LAB71 pre-change report + distinct user approval; implement guard once centrally, regression tests and device tests, preserve player/cloud/signature/main",
+  "pendingFoundationalImplementation": [
+    "Title exact and same composition everywhere including round 4+, foreign translations only documentary-proven",
+    "Karaoke/MIDI/backing tracks forbidden globally, artistic real instrumental covers disambiguated",
+    "Original performer: one studio, at most two distinct live and two distinct remixes, few authentic duets",
+    "Deduplicate recordings across different IDs/providers/rounds without harming real other singers",
+    "Broad first-round high-quality actual covers by other interpreters, up to 50 real verified renditions if found",
+    "Preserve LAB66 YouTube thumbnail and LAB70 fixes, player, graphics, signing, main/MADRE and production"
   ]
 }
