@@ -37,8 +37,8 @@ internal object CoverLab55VisibleCandidates {
         candidates: List<DiscogsVersionSeed>,
         songTitle: String,
         originalArtist: String,
-        isRejected: (DiscogsVersionSeed) -> Boolean,
         verifiedVideoIds: Set<String>? = null,
+        isRejected: (DiscogsVersionSeed) -> Boolean,
     ): List<DiscogsVersionSeed> {
         val seen = LinkedHashSet<String>()
         val videos = HashSet<String>()
