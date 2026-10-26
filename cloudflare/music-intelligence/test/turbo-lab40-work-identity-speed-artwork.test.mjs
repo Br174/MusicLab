@@ -43,7 +43,7 @@ test('LAB40: recurring query keeps performer identity', () => {
 test('LAB40: first verified posters need not wait for ten candidates', () => {
   assert.match(first, /if \(initialOriginals\.isEmpty\(\) && initialCovers\.isEmpty\(\)\) return/);
   // LAB59 supersedes the former 1.2s poster gate: first verified video appears immediately.
-  assert.match(first, /seed\.resolvedVideoId\?\.trim\(\) in session\.playReadyVideoIds/);
+  assert.match(first, /seed\.resolvedVideoId\?\.trim\(\)\.orEmpty\(\) in session\.playReadyVideoIds/);
   assert.doesNotMatch(first, /elapsed < TURBO_FIRST_POSTER_DEADLINE_MS/);
   assert.match(first, /TURBO_MIN_EARLY_POSTER_BLOCK/);
   assert.match(second, /committedCount == 0 && publishedOriginalSnapshots\.isEmpty\(\)/);
