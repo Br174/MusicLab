@@ -1,0 +1,364 @@
+{
+  "schemaVersion": 1,
+  "project": "musiclab",
+  "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
+  "status": "APPROVED_CANONICAL_BEHAVIOR_CONTRACT_MEMORY_ONLY_RUNTIME_NOT_YET_IMPLEMENTED",
+  "rules": [
+    {
+      "id": "musiclab.cover.same-work",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "The same musical composition, not title resemblance alone, is mandatory for admitting a Cover candidate.",
+      "acceptance": [
+        "CoverSameWorkGate retains identity verification",
+        "Cloud approval never grants work identity"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.first-fifty",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "First 50 results must preserve the verified LAB45 search, display, ranked audio and UI behavior.",
+      "acceptance": [
+        "TURBO_RESULT_QUOTA remains 50",
+        "No UI geometry/player regression"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.paged-rounds",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Cerca ancora appends up to 50 NEW recordings each round, keeping all prior rows frozen, order stable, no exact recording or video ID duplicates.",
+      "acceptance": [
+        "Old rows retained across restart",
+        "New results exclude prior rounds"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs",
+        "cloudflare/music-intelligence/test/turbo-lab45-persistent-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.manual-controls",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Cerca video re-resolves the same recording; Cambia cover selects a DIFFERENT rendition, with separate actions and fresh results.",
+      "acceptance": [
+        "Separate callbacks",
+        "No identical recording swap"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.category-rounds",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Prefer official/released renditions in initial round, talent/live/semi-official in second, amateurs/instrumental in third, and targeted long-tail in later rounds; admit any valid missed sources in later rounds.",
+      "acceptance": [
+        "Adaptive query families without title-only false positives",
+        "Category does not override verified work"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.cloud-complete",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "A Cloud record must retain and restore all AVAILABLE title, original-work, artist, image, verified playback, date, credits, score, category, round and position metadata; missing provider fields stay null, never fabricated.",
+      "acceptance": [
+        "Additive D1 migration and read/write contract test",
+        "No false claim that stale image/video is playable"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab46-cloud-complete-contract.test.mjs",
+        "cloudflare/music-intelligence/test/turbo-lab46-cloud-roundtrip.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.score-separation",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Approval is not evidence score; preserve legacy integer 1..20 plus independently computed 0..100 MusicLab points without calling it statistically calibrated reliability.",
+      "acceptance": [
+        "Store both scales",
+        "Equal /100 scores allowed with deterministic tie handling"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab46-round-strategy-score100-contract.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.no-replay-audio",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Discovery must remain bounded and not steal audio resources from actual playback; release jobs on exit and avoid redundant probes.",
+      "acceptance": [
+        "Preserve prior audio isolation contracts"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/lab68-cloud-first-cache-player-fluidity-contract.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.cloud-staging",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Cloud writes require authenticated and confirmed server pathway, staging isolation and separate production approval; Android Turbo current D1 shared writes remain blocked.",
+      "acceptance": [
+        "No write in current shared read-only Turbo",
+        "No unverified production migration"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab46-staging-auth-outbox.test.mjs",
+        "cloudflare/music-intelligence/test/lab46_d1_migration_smoke.py"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.behavior-contract",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Verified rules remain durable in GitHub with ownership, tests, supersession; native app implements stable operational behavior without host chat.",
+      "acceptance": [
+        "No secondary rule coordinator",
+        "Run contract preflight before release"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab46-cloud-complete-contract.test.mjs"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.work-identity-progressive.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "Musical-work admission becomes intentionally less strict each manual round: first round requires strong independent matches (three sound evidentiary signals as the working model); second needs two credible matches; third needs one; fourth and later may admit a YouTube result on requested title alone, explicitly accepting possible non-covers. A YouTube video ID/link validity check is separate and NEVER loosened. Strong matches discovered late remain eligible. Do not keep an always-on same-Work gate that silently defeats the later rounds.",
+      "acceptance": [
+        "Round 1 rejects a same-title unrelated 1924 work when seeking a known later work",
+        "Round 2 admits candidate with two available musical identity clues without demanding third",
+        "Round 3 admits candidate with one clue",
+        "Round 4 admits same-title video without documentary authorship/year, without labeling it guaranteed cover",
+        "Audio/video technical validity remains unchanged in every round"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.same-work"
+      ]
+    },
+    {
+      "id": "musiclab.cover.fast-first-fifty.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "Each round adds up to 50 genuine NEW YouTube-linked visible results when available, with no need to fill a quota. Publish each verified video thumbnail immediately, one by one, without waiting for a 5/10/25/50-item batch, a global 5/10-second seal, mandatory first-block gate, or other batch threshold. Preserve existing positions, do not rerank displayed rows, and keep player/UI/audio responsive. Do not invent results.",
+      "acceptance": [
+        "First verified thumbnail appears before the remainder of that round has completed",
+        "A second verified thumbnail appends without moving the first",
+        "Empty or slow sources do not block a verified video from another source",
+        "At most 50 new results per round and no false placeholder"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.first-fifty"
+      ]
+    },
+    {
+      "id": "musiclab.cover.manual-round-state.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "Only ONE button below the visible results, with two mutually exclusive states: ORANGE 'Completa tornata' while the CURRENT round still has planned searches/pages/verifications that can continue; each press resumes from durable in-session query/page checkpoints under the SAME musical-identity strictness. GREEN 'Cerca ancora' only when the current round's planned work is genuinely exhausted (or its 50-new-video quota reached with no further publication this round), then pressing starts the NEXT less strict round and returns the button to orange. No separate second button, no automatic transition to a lower-precision round, no timeout falsely counted as source exhaustion. Previous thumbnails stay cumulative, immovable, no identical recording/video duplicates.",
+      "acceptance": [
+        "Two states of one button; orange 'Completa tornata' and green 'Cerca ancora'",
+        "Repeating orange continues previously unfinished queries/pages and never resets already completed work",
+        "An empty batch while unfinished keeps orange; timeout does not falsely mark complete",
+        "Green initiates exactly next round with relaxed precision threshold",
+        "Already displayed results stable and duplicates excluded through the session"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.paged-rounds"
+      ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "First round seeks highest-confidence official/released covers, original performer's studio/live/duets, strong documented renditions, and FOREIGN/LANGUAGE-ADAPTED covers from COVER.INFO FROM THE VERY FIRST SEARCH in parallel with YouTube and other useful sources. Exploit existing COVER.INFO YouTube video IDs after technical metadata confirmation rather than rediscovering them. Second round expands to talent, live, acoustic, semi-official; third to independent, amateur, instruments; fourth+ rare/long-tail/title-only. These are preferences, not exclusivity: a strong official match found late is still admitted. Never make SecondHandSongs the main provider. Keep categories Tutto/Studio/Live/Remix/Stranieri without replacing the native categorization system.",
+      "acceptance": [
+        "Foreign COVER.INFO records are considered in round 1, including different-language titles with documentary relation",
+        "Pre-linked COVER.INFO YouTube IDs go through lightweight technical verification and correct YouTube thumbnail",
+        "Round families expand without disabling high-confidence matches",
+        "Fourth round permits title-only candidates",
+        "Native five categories remain usable"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.category-rounds"
+      ]
+    },
+    {
+      "id": "musiclab.cover.visible-confidence-percent.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "All visible ranking/confidence labels on CoverLab cards are a single approximate 0%-100% musical-match precision percentage (e.g. 10%, 70%, 80%, 95%). NEVER display legacy 1..20, 20/20, 10/20, or a raw 0..100 points score as a distinct scale. Percentage is an estimate, NOT a statistical guarantee that the item is a cover; very low precision remains allowed in later rounds. Remove every percentage-based distribution/quota formula between rounds (such as 20% previous, 10% old categories), preserving only the per-card confidence percentage. Legacy numerical fields may remain in archival storage for backward compatibility but cannot override active visible rules.",
+      "acceptance": [
+        "No /20 or /100 point indicators visible on Turbo Cover cards",
+        "Cards show percent signs for estimated match precision only",
+        "Rounds do not enforce percentage-based source/category quotas",
+        "10% candidates are not automatically rejected in later rounds"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.score-separation"
+      ]
+    },
+    {
+      "id": "musiclab.cover.youtube-thumbnail-and-link.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "CoverLab visible results show ONLY each found YouTube video's authentic thumbnail derived from that video's valid video ID and its corresponding already-identified YouTube link. NO discographic record covers, editorial poster fallback, grey/red provisional nonvideo cards, embedded autoplay video inside scrolling wall, or red/green status dots. On tap pass the SAME video ID to the existing native playback path without re-searching which video matches; stream resolution on playback is allowed. Verify YouTube metadata/availability before first publication to the feasible level, but do not claim metadata check guarantees streaming on every device.",
+      "acceptance": [
+        "Every published visible result has a valid YouTube video ID, thumbnail URL and link bound to the same ID",
+        "No catalog-only or poster-first visible path, including Cloud cache/fallbacks and recovered old history",
+        "No red or green status dots in Turbo results",
+        "Tap never searches for a different video ID; native player receives selected ID",
+        "No embedded video surface within the scrolling cards"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.session-lifecycle.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "Same-session results and cursor are cumulative append-only and previous cards never shift, including while showing details and returning; dedupe exact video ID and identical recording within that active CoverLab visit. When user truly leaves CoverLab and later starts a new visit/search, clear round counters/cursors/temporary exclusions and retry state; no permanent user-wide rejection blacklist. Audio keeps precedence and searching must not cause stutter, ANR or playback interruption.",
+      "acceptance": [
+        "Exiting CoverLab then starting a fresh visit resets temporary rounds/exclusions",
+        "Opening details then returning retains active session and scroll position",
+        "No persistence of temporary negative matches as a global exclusion list",
+        "Playback and scrolling remain responsive while discovery runs"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.change-safety-and-preflight.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "Before ANY future app implementation, read this canonical behavior contract, old version/history and current code, identify old conflicting enforcement routes, and present the specific old->new conflict and exact protected scope to the user for approval. The new approved requirement replaces contradictory rules in the SAME scope only; retain compatible functioning behavior, exact signing/package ID, native player, graphics outside requested button/dot/score changes, LAST_GOOD, main/MADRE/production, and free-only dependencies. Do not assert implemented before device/end-to-end test; static tests and compiled APK alone cannot prove search quality.",
+      "acceptance": [
+        "Pre-change report identifies conflicts and protected components before writing app code",
+        "Negative tests prove poster-first/batch-first/strict-work-after-round3 and old scores no longer run after implementation",
+        "Live sample search verifies quick YouTube thumbnail publication, categories, progressive manual turns and playback",
+        "No protected production/MADRE/player regression"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    }
+  ],
+  "canonicalBehaviorRevision": "2026-10-26-video-thumb-progressive-manual-rounds-v2",
+  "authorityNote": "User-approved canonical planned CoverLab behavior, preserved in a clean main-based metadata-only branch. Existing APK/current main are not modified until later authorized implementation/promotion. Conflicting old contract rules are retired in THIS contract; legacy app enforcement still requires negative regressions in the next authorized LAB.",
+  "conflictDispositions": [
+    {
+      "oldRule": "musiclab.cover.same-work",
+      "disposition": "RETIRED_IN_CONTRACT",
+      "replacementRule": "musiclab.cover.work-identity-progressive.v2",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+    },
+    {
+      "oldRule": "musiclab.cover.first-fifty",
+      "disposition": "RETIRED_IN_CONTRACT",
+      "replacementRule": "musiclab.cover.fast-first-fifty.v2",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+    },
+    {
+      "oldRule": "musiclab.cover.paged-rounds",
+      "disposition": "RETIRED_IN_CONTRACT",
+      "replacementRule": "musiclab.cover.manual-round-state.v2",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+    },
+    {
+      "oldRule": "musiclab.cover.category-rounds",
+      "disposition": "RETIRED_IN_CONTRACT",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v2",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+    },
+    {
+      "oldRule": "musiclab.cover.score-separation",
+      "disposition": "RETIRED_IN_CONTRACT",
+      "replacementRule": "musiclab.cover.visible-confidence-percent.v2",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+    }
+  ]
+}
