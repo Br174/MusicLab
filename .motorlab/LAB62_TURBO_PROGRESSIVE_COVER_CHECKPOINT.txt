@@ -1,0 +1,11 @@
+PROJECT=MusicLab
+MOTORLAB_RELEASE=2026.10.22-r38
+DATE=2026-10-26
+LAST_GOOD=LAB61
+BASE_SHA=4453eaee2be45babef9934aa91a654d5f274f3ab
+LAB62_BRANCH=lab/musiclab-turbo-lab62-progressive-cover-20261026
+LAB62_SOURCE_COMMIT=4651c79a52c860899a22b0e6c83d22273b758a3b
+CHANGE=CoverLab entry-scoped session; recording/video dedup for current session; documentary recovery across search rounds, pause under player load; first-round COVER.INFO documentary foreign; chronology initial
+PROTECTED=LAB60,LAB61,MADRE,main,production,player,UI,Cloud,Android ID/signing
+ANDROID_VERSION_CODE=33064
+PENDING=CI,compile,APK,ZIP,hash/signature validation; no field performance claims
