@@ -3552,9 +3552,12 @@ internal fun DiscogsDirectVersionBrowser(
                     CoverSourceDiagnostic("YouTube diretto", false, 0, "ricerca avviata"),
                     CoverSourceDiagnostic("COVER.INFO", false, 0, "ricerca e adattamenti in corso"),
                     CoverSourceDiagnostic("MusicBrainz", false, 0, "metadati in corso"),
-                    CoverSourceDiagnostic("Discogs", discogsToken.isNotBlank(), 0,
-                        if (discogsToken.isNotBlank()) "consultazione in corso"
-                        else "chiave Discogs non configurata"),
+                    CoverSourceDiagnostic("Discogs", false, 0,
+                        when {
+                            thisRound > 1 -> "solo prima tornata"
+                            discogsToken.isBlank() -> "chiave Discogs non configurata"
+                            else -> "consultazione in corso"
+                        }),
                     CoverSourceDiagnostic("Apple/iTunes", false, 0, "da controllare"),
                     CoverSourceDiagnostic("Spotify", false, 0, "da controllare"),
                     CoverSourceDiagnostic("LRCLIB", false, 0, "da controllare"),
@@ -3848,7 +3851,15 @@ internal fun DiscogsDirectVersionBrowser(
                                             .getOrNull()?.items
                                             ?.filterIsInstance<SongItem>()?.take(12)
                                     }
-                                }
+                                } ?: if (!backgroundWorkBlocked() &&
+                                    playerConnection?.service?.isCoverAudioAtRisk() != true
+                                ) withTimeoutOrNull(2_000L) {
+                                    withContext(Dispatchers.IO) {
+                                        YouTube.search(query.text, YouTube.SearchFilter.FILTER_VIDEO)
+                                            .getOrNull()?.items
+                                            ?.filterIsInstance<SongItem>()?.take(12)
+                                    }
+                                } else null
                                 if (found == null) {
                                     recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0,
                                         "richiesta non riuscita; riprova con Completa tornata"))
