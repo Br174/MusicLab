@@ -1579,7 +1579,11 @@ internal fun DiscogsDirectVersionBrowser(
     // Deliberately NO audio stream is requested for this check.
     fun hasPublishableVideo(seed: DiscogsVersionSeed): Boolean {
         val id = seed.resolvedVideoId?.trim().orEmpty()
-        if (id.isBlank() || id in CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)) return false
+        if (id.isBlank()) return false
+        // LAB66: a freshly checked YouTube ID wins over stale rejection
+        // memory from a previous Cover visit, but not over missing metadata.
+        if (id in session.playReadyVideoIds) return true
+        if (id in CoverPlaybackMemory.rejectedVideoIds(context, seed.fingerprint)) return false
         if (id in session.playReadyVideoIds ||
             CoverPlaybackMemory.verifiedVideo(context, seed.fingerprint) == id ||
             CoverPlaybackMemory.metadataVerifiedVideo(context, seed.fingerprint) == id
@@ -3532,6 +3536,13 @@ internal fun DiscogsDirectVersionBrowser(
                         val id = candidate.playbackVideoId?.trim().orEmpty()
                         if (!videoIdPattern.matches(id)) return
                         if (!isActive || generation != turboSearchGeneration) return
+                        // An already shown video must not be reverified while
+                        // two providers report the same record.
+                        if (previousRoundRows.any { it.resolvedVideoId == id } ||
+                            publishedCoverSnapshots.any { it.resolvedVideoId == id }) return
+                        while (isActive && (backgroundWorkBlocked() ||
+                            playerConnection?.service?.isCoverAudioAtRisk() == true)
+                        ) delay(300L)
                         val metadata = withTimeoutOrNull(3_000L) {
                             withContext(Dispatchers.IO) {
                                 YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
@@ -3664,8 +3675,8 @@ internal fun DiscogsDirectVersionBrowser(
                                 val found = withTimeoutOrNull(5_500L) {
                                     withContext(Dispatchers.IO) {
                                         YouTube.search(query.text, YouTube.SearchFilter.FILTER_VIDEO)
-                                            .getOrNull()?.items.orEmpty()
-                                            .filterIsInstance<SongItem>().take(18)
+                                            .getOrNull()?.items
+                                            ?.filterIsInstance<SongItem>()?.take(18)
                                     }
                                 }
                                 if (found == null) {
@@ -6760,7 +6771,7 @@ internal fun DiscogsDirectVersionBrowser(
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
-                            showConfidence = category == DirectVersionCategory.ALL,
+                            showConfidence = isTurbo || category == DirectVersionCategory.ALL,
                             provisional = false,
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
@@ -6799,7 +6810,7 @@ internal fun DiscogsDirectVersionBrowser(
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
-                            showConfidence = category == DirectVersionCategory.ALL,
+                            showConfidence = isTurbo || category == DirectVersionCategory.ALL,
                             provisional = false,
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
