@@ -278,6 +278,11 @@ private data class DirectVersionSession(
     // LAB45: immutable cards committed in earlier 50-result search rounds.
     var previousRoundRows: List<DiscogsVersionSeed> = emptyList(),
     var coverRoundNumber: Int = 1,
+    // LAB66: explicit manual same-round cursor; only green advances precision.
+    var youtubeQueryCursor: Int = 0,
+    var roundPlanComplete: Boolean = false,
+    var roundSourceChecked: Boolean = false,
+    var roundQueryRetries: Int = 0,
     var originalSectionFrozen: Boolean = false,
     var originalGateStartedAtMs: Long = 0L,
     var coverBatchStartedAtMs: Long = 0L,
@@ -457,6 +462,7 @@ internal fun DiscogsDirectVersionBrowser(
     var publishedCoverSnapshots by remember(sessionKey) { mutableStateOf(session.publishedCoverSnapshots) }
     var previousRoundRows by remember(sessionKey) { mutableStateOf(session.previousRoundRows) }
     var coverRoundNumber by remember(sessionKey) { androidx.compose.runtime.mutableIntStateOf(session.coverRoundNumber) }
+    var roundPlanComplete by remember(sessionKey) { mutableStateOf(session.roundPlanComplete) }
     var restorationReady by remember(sessionKey) {
         mutableStateOf(!isTurbo || mode != DiscogsDirectMode.COVER ||
             session.initialized || session.previousRoundRows.isNotEmpty())
@@ -3446,6 +3452,233 @@ internal fun DiscogsDirectVersionBrowser(
             error = "Interprete originale di riferimento mancante."
             return
         }
+        // LAB66 canonical Behavior Memory: the Turbo path does not run the
+        // obsolete poster-sealing/strict-Work batch pipeline below. It streams
+        // actual YouTube thumbnails as individual metadata checks succeed.
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            if (loading || sourceDiscoveryLoading) return
+            val sameSearch = activeCriteria == criteria
+            if (!appendRound || !sameSearch) {
+                searchJob?.cancel()
+                coverRecoveryJob?.cancel()
+                verificationJob?.cancel()
+                previousRoundRows = emptyList()
+                session.previousRoundRows = emptyList()
+                publishedCoverSnapshots = emptyList()
+                session.publishedCoverSnapshots = emptyList()
+                publishedOriginalSnapshots = emptyList()
+                session.publishedOriginalSnapshots = emptyList()
+                results = emptyList()
+                session.results = emptyList()
+                session.stableOrder = emptyList()
+                session.playReadyVideoIds.clear()
+                session.preparedVideoSongs.clear()
+                session.usedVideoIds.clear()
+                coverRoundNumber = 1
+                session.coverRoundNumber = 1
+                session.youtubeQueryCursor = 0
+                session.roundSourceChecked = false
+                session.roundQueryRetries = 0
+                roundPlanComplete = false
+                session.roundPlanComplete = false
+                scope.launch(Dispatchers.IO) { CoverRoundStorage.clear(context, sessionKey) }
+            } else if (roundPlanComplete) {
+                val old = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots
+                previousRoundRows = old.distinctBy { it.resolvedVideoId }
+                session.previousRoundRows = previousRoundRows
+                publishedOriginalSnapshots = emptyList()
+                session.publishedOriginalSnapshots = emptyList()
+                publishedCoverSnapshots = emptyList()
+                session.publishedCoverSnapshots = emptyList()
+                coverRoundNumber++
+                session.coverRoundNumber = coverRoundNumber
+                session.youtubeQueryCursor = 0
+                session.roundSourceChecked = false
+                session.roundQueryRetries = 0
+                roundPlanComplete = false
+                session.roundPlanComplete = false
+            }
+            val thisRound = coverRoundNumber
+            val queries = CoverRoundSearchPlan.queries(
+                TitleMeaningResolver.workAnchorTitle(criteria.title), thisRound,
+                lockedArtist.ifBlank { resolvedOriginalArtist },
+            )
+            val cursor = session.youtubeQueryCursor
+            val querySlice = queries.drop(cursor).take(2)
+            val includeDocumentary = !session.roundSourceChecked
+            activeCriteria = criteria
+            session.activeCriteria = criteria
+            session.initialized = true
+            session.turboFinished = true // legacy per-poster video/recovery schedulers disabled
+            session.turboVideoComplete = true
+            documentaryRecoveryComplete = true
+            rankingFrozen = true
+            originalSectionFrozen = true
+            session.rankingFrozen = true
+            session.originalSectionFrozen = true
+            sourceDiscoveryLoading = true
+            loading = true
+            error = null
+            turboSearchGeneration++
+            val generation = turboSearchGeneration
+            // One published row is immutable; later videos are strictly appended.
+            searchJob = scope.launch {
+                try {
+                    val originalArtist = lockedArtist.ifBlank { resolvedOriginalArtist }
+                    val searchedTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
+                    val videoIdPattern = Regex("[A-Za-z0-9_-]{11}")
+                    suspend fun tryPublish(candidate: CoverSourceCandidate) {
+                        val id = candidate.playbackVideoId?.trim().orEmpty()
+                        if (!videoIdPattern.matches(id)) return
+                        if (!isActive || generation != turboSearchGeneration) return
+                        val metadata = withTimeoutOrNull(3_000L) {
+                            withContext(Dispatchers.IO) {
+                                YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
+                            }
+                        } ?: return
+                        if (metadata.id != id || metadata.title.isBlank()) return
+                        val verdict = CoverLabTurboRoundAdmission.evaluate(
+                            candidate, searchedTitle, originalArtist, thisRound, metadata.title,
+                        )
+                        if (!verdict.admitted) return
+                        val seed = withContext(Dispatchers.Default) {
+                            DiscogsVersionSource.externalSeed(
+                                candidate = candidate,
+                                targetTitle = searchedTitle,
+                                originalArtist = originalArtist,
+                            ).let {
+                                DiscogsVersionSource.markVideoResolved(
+                                    seed = it, videoId = id, videoTitle = metadata.title,
+                                    source = candidate.playbackVideoSource ?: "YouTube",
+                                )
+                            }.copy(
+                                musiclabScore100 = verdict.confidencePercent,
+                                coverRound = thisRound,
+                            )
+                        }
+                        val priorVideos = previousRoundRows.mapNotNull { it.resolvedVideoId }.toSet()
+                        val currentVideos = publishedCoverSnapshots.mapNotNull { it.resolvedVideoId }.toSet()
+                        if (id in priorVideos || id in currentVideos ||
+                            publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) return
+                        val priorEntries = previousRoundRows + publishedCoverSnapshots
+                        if (priorEntries.any { DiscogsVersionSource.sameCrossSourceVersion(it, seed) }) return
+                        withContext(Dispatchers.IO) {
+                            CoverPlaybackMemory.saveMetadataVerifiedVideo(context, seed.fingerprint, id)
+                        }
+                        if (!isActive || generation != turboSearchGeneration ||
+                            thisRound != coverRoundNumber) return
+                        session.preparedVideoSongs[id] = metadata
+                        session.playReadyVideoIds.add(id)
+                        session.usedVideoIds.add(id)
+                        val admitted = seed.copy(
+                            roundPosition = previousRoundRows.size +
+                                publishedCoverSnapshots.size + 1,
+                        )
+                        publishedCoverSnapshots = publishedCoverSnapshots + admitted
+                        session.publishedCoverSnapshots = publishedCoverSnapshots
+                        results = results + admitted
+                        session.results = results
+                        session.stableOrder = session.stableOrder + admitted.fingerprint
+                        session.publishedReadyLimit = previousRoundRows.size +
+                            publishedCoverSnapshots.size
+                        publishedReadyLimit = session.publishedReadyLimit
+                        visibleLimit = previousRoundRows.size + TURBO_RESULT_QUOTA
+                        session.visibleLimit = visibleLimit
+                    }
+                    // YouTube search is the FIRST source, not a catalog lookup.
+                    // COVER.INFO is queried in parallel, including foreign adaptations.
+                    coroutineScope {
+                        val documents = if (includeDocumentary) launch(Dispatchers.IO) {
+                            withTimeoutOrNull(9_000L) {
+                                CoverDiscoverySources.discover(
+                                    title = searchedTitle,
+                                    originalArtist = originalArtist,
+                                    mode = DiscogsDirectMode.COVER,
+                                    aiConfig = null, // remote Cloud sources are separate gated lanes
+                                    maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
+                                    coverRound = thisRound,
+                                    deepRecovery = thisRound > 1,
+                                    onEarlyVideoCandidates = { candidates ->
+                                        for (candidate in candidates) {
+                                            withContext(Dispatchers.Main.immediate) {
+                                                tryPublish(candidate)
+                                            }
+                                        }
+                                    },
+                                    onSourceCompleted = { candidates, _, _ ->
+                                        for (candidate in candidates.filter {
+                                            !it.playbackVideoId.isNullOrBlank()
+                                        }) {
+                                            withContext(Dispatchers.Main.immediate) {
+                                                tryPublish(candidate)
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                        } else null
+                        val youtube = launch {
+                            for ((offset, query) in querySlice.withIndex()) {
+                                if (!isActive || publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) break
+                                while (isActive && (backgroundWorkBlocked() ||
+                                    playerConnection?.service?.isCoverAudioAtRisk() == true)
+                                ) delay(300L)
+                                val found = withTimeoutOrNull(5_500L) {
+                                    withContext(Dispatchers.IO) {
+                                        YouTube.search(query.text, YouTube.SearchFilter.FILTER_VIDEO)
+                                            .getOrNull()?.items.orEmpty()
+                                            .filterIsInstance<SongItem>().take(18)
+                                    }
+                                }
+                                if (found == null) {
+                                    session.roundQueryRetries++
+                                    // Do not mark a timeout as exhaustion. An orange
+                                    // button retries the SAME query on next press.
+                                    break
+                                }
+                                for (video in found) {
+                                    if (!isActive || publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) break
+                                    val candidate = CoverSourceCandidate(
+                                        title = video.title,
+                                        artist = video.artists.firstOrNull()?.name.orEmpty()
+                                            .ifBlank { "YouTube" },
+                                        sources = listOf("YouTube"),
+                                        category = query.categoryHint,
+                                        coverUrl = "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg",
+                                        sourceUrl = video.shareLink,
+                                        playbackVideoId = video.id,
+                                        playbackVideoTitle = video.title,
+                                        playbackVideoSource = "YouTube",
+                                        evidenceScore = 1,
+                                    )
+                                    tryPublish(candidate)
+                                }
+                                session.youtubeQueryCursor = cursor + offset + 1
+                                session.roundQueryRetries = 0
+                            }
+                        }
+                        youtube.join()
+                        documents?.join()
+                    }
+                    session.roundSourceChecked = true
+                    roundPlanComplete = publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA ||
+                        session.youtubeQueryCursor >= queries.size
+                    session.roundPlanComplete = roundPlanComplete
+                    val saved = previousRoundRows + publishedCoverSnapshots
+                    withContext(Dispatchers.IO) {
+                        CoverRoundStorage.save(context, sessionKey, thisRound, saved)
+                    }
+                } finally {
+                    loading = false
+                    sourceDiscoveryLoading = false
+                    playerConnection?.service?.setCoverPerformanceLoad(
+                        active = false, heavy = false,
+                    )
+                }
+            }
+            return
+        }
+
         // A further Cover round never clears or reorders already committed
         // cards. Only the new round's ranking/publisher gets another 50 slots.
         val appendVerifiedRound = appendRound && isTurbo &&
