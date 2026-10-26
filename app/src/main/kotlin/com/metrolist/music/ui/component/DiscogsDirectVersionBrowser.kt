@@ -1083,7 +1083,8 @@ internal fun DiscogsDirectVersionBrowser(
     }
 
     fun updateLab53PublicationDiagnostics() {
-        if (!isTurbo || mode != DiscogsDirectMode.COVER) return
+        if (!isTurbo || mode != DiscogsDirectMode.COVER ||
+            (session.turboFinished && activeCriteria != null)) return
         // LAB56: diagnostics do not rerun hundreds of expensive SHA-256
         // preference lookups, semantic matching and work-proof tests on MAIN.
         // Found != certified; actual list count is the published snapshot.
@@ -3535,6 +3536,29 @@ internal fun DiscogsDirectVersionBrowser(
             // Declared in the runSearch lexical scope so both nested source
             // jobs and the final round state see the same completion flag.
             val documentaryCompleted = java.util.concurrent.atomic.AtomicBoolean(!includeDocumentary)
+            // LAB68 all player state is captured on Main, never on an IO
+            // provider callback. ExoPlayer rejects DefaultDispatcher/IO access.
+            val documentaryFanOut = if (playbackIsNormallyPlaying()) 1 else 2
+            fun recordSource(diagnostic: CoverSourceDiagnostic) {
+                // Caller must be Main; source worker callbacks hop explicitly.
+                sourceDiagnostics = sourceDiagnostics.filterNot { it.name == diagnostic.name } +
+                    diagnostic
+                session.sourceDiagnostics = sourceDiagnostics
+            }
+            if (includeDocumentary) {
+                sourceDiagnostics = listOf(
+                    CoverSourceDiagnostic("YouTube diretto", true, 0, "ricerca avviata"),
+                    CoverSourceDiagnostic("COVER.INFO", true, 0, "ricerca e adattamenti in corso"),
+                    CoverSourceDiagnostic("MusicBrainz", true, 0, "metadati in corso"),
+                    CoverSourceDiagnostic("Discogs", discogsToken.isNotBlank(), 0,
+                        if (discogsToken.isNotBlank()) "consultazione in corso"
+                        else "chiave Discogs non configurata"),
+                    CoverSourceDiagnostic("Apple/iTunes", true, 0, "da controllare"),
+                    CoverSourceDiagnostic("Spotify", true, 0, "da controllare"),
+                    CoverSourceDiagnostic("LrcLib", true, 0, "da controllare"),
+                )
+                session.sourceDiagnostics = sourceDiagnostics
+            }
             // One published row is immutable; later videos are strictly appended.
             searchJob = scope.launch {
                 try {
@@ -3621,7 +3645,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     originalArtist = originalArtist,
                                     mode = DiscogsDirectMode.COVER,
                                     aiConfig = null, // remote Cloud sources are separate gated lanes
-                                    maxNetworkFanOut = if (playbackIsNormallyPlaying()) 1 else 2,
+                                    maxNetworkFanOut = documentaryFanOut,
                                     coverRound = thisRound,
                                     deepRecovery = thisRound > 1,
                                     onEarlyVideoCandidates = { candidates ->
@@ -3632,6 +3656,9 @@ internal fun DiscogsDirectVersionBrowser(
                                         }
                                     },
                                     onSourceCompleted = { candidates, diagnostic, _ ->
+                                        withContext(Dispatchers.Main.immediate) {
+                                            recordSource(diagnostic)
+                                        }
                                         // A linked COVER.INFO ID takes the short route:
                                         // never make it wait for a new YouTube search.
                                         for (candidate in candidates.filter {
@@ -3652,10 +3679,12 @@ internal fun DiscogsDirectVersionBrowser(
                                                 diagnostic.name == "MusicBrainz")
                                         ) {
                                             for (lead in candidates) {
-                                                if (!isActive || documentarySearchKeys.size >= 4 ||
+                                                if (!isActive || documentarySearchKeys.size >= 4) break
+                                                val audioBusy = withContext(Dispatchers.Main.immediate) {
                                                     backgroundWorkBlocked() ||
-                                                    playerConnection?.service?.isCoverAudioAtRisk() == true
-                                                ) break
+                                                        playerConnection?.service?.isCoverAudioAtRisk() == true
+                                                }
+                                                if (audioBusy) break
                                                 if (!lead.playbackVideoId.isNullOrBlank()) continue
                                                 if (!lead.workRelationConfirmed &&
                                                     !TitleMeaningResolver.sameArtist(lead.artist, originalArtist)
@@ -3747,11 +3776,17 @@ internal fun DiscogsDirectVersionBrowser(
                                     }
                                 }
                                 if (found == null) {
+                                    recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0,
+                                        "richiesta non riuscita; riprova con Completa tornata"))
                                     session.roundQueryRetries++
                                     // Do not mark a timeout as exhaustion. An orange
                                     // button retries the SAME query on next press.
                                     break
                                 }
+                                recordSource(CoverSourceDiagnostic(
+                                    "YouTube diretto", true, found.size,
+                                    "video candidati nell'ultima ricerca (non tutti pubblicati)"
+                                ))
                                 for (video in found) {
                                     if (!isActive || publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) break
                                     val candidate = CoverSourceCandidate(
@@ -6071,6 +6106,10 @@ internal fun DiscogsDirectVersionBrowser(
         isTurbo, mode, visibleTrueCovers.size, publishedCoverSnapshots.size,
     ) {
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            // LAB68: new Turbo results are already verified YouTube thumbnails.
+            // Never replace actual provider diagnostics with LAB56 provisional
+            // poster counts from a bypassed historical publication system.
+            if (session.turboFinished && activeCriteria != null) return@LaunchedEffect
             val foundCount = session.turboCoverCandidatePool.size
             val confirmed = visibleTrueCovers.count {
                 !CoverLab55VisibleCandidates.isProvisional(
@@ -7050,6 +7089,7 @@ internal fun DiscogsDirectVersionBrowser(
     if (showSourceDiagnostics) {
         SourceDiagnosticsDialog(
             diagnostics = sourceDiagnostics,
+            turbo = isTurbo && mode == DiscogsDirectMode.COVER,
             onDismiss = { showSourceDiagnostics = false },
         )
     }
@@ -7211,6 +7251,7 @@ private fun DiscogsVersionDetailsDialog(
 @Composable
 private fun SourceDiagnosticsDialog(
     diagnostics: List<CoverSourceDiagnostic>,
+    turbo: Boolean,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -7238,7 +7279,8 @@ private fun SourceDiagnosticsDialog(
                     )
                 }
                 Text(
-                    "Le fonti forniscono prove; MusicLab certifica identità, cronologia, crediti e punteggio prima di congelare la graduatoria.",
+                    if (turbo) "Fonti consultate nella tornata: i candidati documentari possono non avere un video YouTube. Soltanto i video verificati diventano miniature; i numeri delle fonti non sono cover pubblicate."
+                    else "Le fonti forniscono prove; MusicLab certifica identità, cronologia, crediti e punteggio prima di congelare la graduatoria.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
