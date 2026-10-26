@@ -11,7 +11,7 @@ permissions:
 concurrency:
   # LAB61 resume recovery: prior runner remains stuck in_progress without steps.
   # Keep the repaired build independent of that stale concurrency reservation.
-  group: musiclab-turbo-lab61-append-scroll-recovery-v2
+  group: musiclab-turbo-lab61-append-scroll-recovery-v3
   cancel-in-progress: true
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
           cat /tmp/musiclab-lab61-changed.txt
           while IFS= read -r path; do
             case "$path" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab61-append-scroll-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab61-append-scroll-env.py|.github/workflows/musiclab-turbo-lab61-append-scroll-apk.yml|.motorlab/LAB61_TURBO_APPEND_SCROLL_CHECKPOINT.txt) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab54-visible50-full-funnel-contract.test.mjs|cloudflare/music-intelligence/test/turbo-lab61-append-scroll-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab61-append-scroll-env.py|.github/workflows/musiclab-turbo-lab61-append-scroll-apk.yml|.motorlab/LAB61_TURBO_APPEND_SCROLL_CHECKPOINT.txt) ;;
               *) echo "OUTSIDE APPROVED LAB61 SCOPE: $path"; exit 1 ;;
             esac
           done < /tmp/musiclab-lab61-changed.txt
