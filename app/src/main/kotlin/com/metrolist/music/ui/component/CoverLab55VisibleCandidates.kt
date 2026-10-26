@@ -39,6 +39,8 @@ internal object CoverLab55VisibleCandidates {
         originalArtist: String,
         verifiedVideoIds: Set<String>? = null,
         history: List<DiscogsVersionSeed> = emptyList(),
+        originalYear: Int? = null,
+        originalCredits: List<com.metrolist.music.discogs.DiscogsCredit> = emptyList(),
         isRejected: (DiscogsVersionSeed) -> Boolean,
     ): List<DiscogsVersionSeed> {
         // Only prior rounds in this visit: never a persistent recording ban.
@@ -48,6 +50,16 @@ internal object CoverLab55VisibleCandidates {
         val priorVideos = history.mapNotNullTo(HashSet<String>()) {
             it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
         }
+        // LAB63: a matching title does not prove the same musical Work.
+        // A trustworthy Work chronology can reject older homonyms (1924 vs
+        // the documented 1980s Work) without banning older recordings blindly.
+        // Where the original date has not arrived yet, a source-linked
+        // performance supplies a provisional chronological lower bound.
+        val referenceYear = originalYear ?: (alreadyVisible + candidates)
+            .asSequence()
+            .filter(CoverSameWorkGate::hasDocumentaryRelation)
+            .mapNotNull { it.year }
+            .minOrNull()
         val seen = LinkedHashSet<String>()
         val videos = HashSet<String>()
         val output = ArrayList<DiscogsVersionSeed>(QUOTA)
@@ -56,6 +68,14 @@ internal object CoverLab55VisibleCandidates {
             if (output.size >= QUOTA) break
             if (isRejected(seed) ||
                 !isRealCandidate(seed, songTitle, originalArtist)) continue
+            // If a candidate predates the established Work, it is most likely
+            // an unrelated same-title composition. Require work-level proof
+            // instead of publishing a speculative dated record as a Cover.
+            if (referenceYear != null && seed.year != null &&
+                seed.year < referenceYear && !seed.manuallyApproved &&
+                !CoverSameWorkGate.hasDocumentaryRelation(seed) &&
+                DiscogsVersionSource.sharedWorkCreditNames(seed, originalCredits).isEmpty()
+            ) continue
             // LAB59: a discographic poster is never a VIDEO FIRST result.
             val video = seed.resolvedVideoId?.trim().orEmpty()
             if (!video.matches(Regex("[A-Za-z0-9_-]{11}"))) continue
