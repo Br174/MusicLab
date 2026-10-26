@@ -3539,7 +3539,7 @@ internal fun DiscogsDirectVersionBrowser(
                     val searchedTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
                     val videoIdPattern = Regex("[A-Za-z0-9_-]{11}")
                     val earlyVideoIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-                    val documentarySearchKeys = linkedSetOf<String>()
+                    val documentarySearchKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
                     suspend fun tryPublish(candidate: CoverSourceCandidate) {
                         val id = candidate.playbackVideoId?.trim().orEmpty()
                         if (!videoIdPattern.matches(id)) return
@@ -3611,8 +3611,9 @@ internal fun DiscogsDirectVersionBrowser(
                     // YouTube search is the FIRST source, not a catalog lookup.
                     // COVER.INFO is queried in parallel, including foreign adaptations.
                     coroutineScope {
+                        val documentaryCompleted = java.util.concurrent.atomic.AtomicBoolean(!includeDocumentary)
                         val documents = if (includeDocumentary) launch(Dispatchers.IO) {
-                            withTimeoutOrNull(16_000L) {
+                            val fullDiscovery = withTimeoutOrNull(16_000L) {
                                 CoverDiscoverySources.discover(
                                     title = searchedTitle,
                                     originalArtist = originalArtist,
@@ -3649,7 +3650,10 @@ internal fun DiscogsDirectVersionBrowser(
                                                 diagnostic.name == "MusicBrainz")
                                         ) {
                                             for (lead in candidates) {
-                                                if (!isActive || documentarySearchKeys.size >= 4) break
+                                                if (!isActive || documentarySearchKeys.size >= 4 ||
+                                                    backgroundWorkBlocked() ||
+                                                    playerConnection?.service?.isCoverAudioAtRisk() == true
+                                                ) break
                                                 if (!lead.playbackVideoId.isNullOrBlank()) continue
                                                 if (!lead.workRelationConfirmed &&
                                                     !TitleMeaningResolver.sameArtist(lead.artist, originalArtist)
@@ -3688,6 +3692,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     },
                                 )
                             }
+                            if (fullDiscovery != null) documentaryCompleted.set(true)
                         } else null
                         // The TWO existing switches are actual source gates:
                         // Cloud OFF => no memory/remote/archive fetch; Archive OFF
@@ -3770,7 +3775,7 @@ internal fun DiscogsDirectVersionBrowser(
                         documents?.join()
                         cloud?.join()
                     }
-                    session.roundSourceChecked = true
+                    session.roundSourceChecked = documentaryCompleted.get()
                     if (publishedCoverSnapshots.size == visibleBefore) {
                         session.roundEmptyPasses++
                     } else {
