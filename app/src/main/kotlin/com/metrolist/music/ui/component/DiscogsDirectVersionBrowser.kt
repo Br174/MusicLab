@@ -3529,7 +3529,9 @@ internal fun DiscogsDirectVersionBrowser(
             val artistName = documented?.artist?.takeIf(String::isNotBlank)
                 ?: song.artists.firstOrNull()?.name?.trim().orEmpty()
             if (artistName.isBlank()) return
-            val matchingArtist = original.ifBlank { artistName }
+            // The uploader is NOT proof of the original artist when the
+            // user has no anchored original performer yet.
+            val matchingArtist = original
             val candidateTitle = documented?.title?.takeIf(String::isNotBlank) ?: song.title
             val isDocumented = documented?.workRelationConfirmed == true
             val signals = CoverLab66DirectYouTube.admissionSignals(
