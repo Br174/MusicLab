@@ -2790,14 +2790,16 @@ internal fun DiscogsDirectVersionBrowser(
             // read-only, then reuse its complete source and credit metadata.
             // Do this BEFORE expensive Discogs release-by-release verification.
             foreignScoutConfig?.let { config ->
-                val recoveredArchive = if (coverArchiveEnabled && coverCloudEnabled) withTimeoutOrNull(11_000L) {
-                    CloudMusicDiscovery.searchArchive(
-                        query = expectedCriteria.title,
-                        config = config,
-                        limit = 100,
-                        coverRound = 0,
-                    )
-                }.orEmpty()
+                val recoveredArchive = if (coverArchiveEnabled && coverCloudEnabled) {
+                    withTimeoutOrNull(11_000L) {
+                        CloudMusicDiscovery.searchArchive(
+                            query = expectedCriteria.title,
+                            config = config,
+                            limit = 100,
+                            coverRound = 0,
+                        )
+                    }.orEmpty()
+                } else emptyList()
                 val archiveSeeds = CoverLab55VisibleCandidates.cloudArchiveSeeds(
                     rows = recoveredArchive,
                     songTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
