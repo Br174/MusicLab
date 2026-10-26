@@ -3572,11 +3572,14 @@ internal fun DiscogsDirectVersionBrowser(
                     val videoIdPattern = Regex("[A-Za-z0-9_-]{11}")
                     val earlyVideoIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
                     val documentarySearchKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-                    suspend fun tryPublish(candidate: CoverSourceCandidate) {
+                    suspend fun tryPublish(candidate: CoverSourceCandidate, searchedVideo: SongItem? = null) {
                         val id = candidate.playbackVideoId?.trim().orEmpty()
                         if (!videoIdPattern.matches(id)) return
                         if (!isActive || generation != turboSearchGeneration) return
                         if (!earlyVideoIds.add(id)) return
+                        // LAB70: only an IN-FLIGHT lock. Failed metadata checks
+                        // cannot permanently blacklist a valid video ID.
+                        try {
                         // An already shown video must not be reverified while
                         // two providers report the same record.
                         if (previousRoundRows.any { it.resolvedVideoId == id } ||
@@ -3584,10 +3587,25 @@ internal fun DiscogsDirectVersionBrowser(
                         while (isActive && (backgroundWorkBlocked() ||
                             playerConnection?.service?.isCoverAudioAtRisk() == true)
                         ) delay(300L)
-                        val metadata = withTimeoutOrNull(3_000L) {
-                            withContext(Dispatchers.IO) {
-                                YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
+                        // LAB70: a SongItem freshly returned by the real YouTube/YTM
+                        // search already carries source-backed video metadata.
+                        // Do not serialize a second YouTube.queue for every hit.
+                        // Documentary IDs without a search result still require
+                        // independent metadata lookup, with one bounded retry.
+                        val metadata = searchedVideo?.takeIf { searched ->
+                            searched.id == id && searched.title.isNotBlank() &&
+                                searched.artists.any { it.name.isNotBlank() }
+                        } ?: run {
+                            var resolved: SongItem? = null
+                            for (attempt in 0..1) {
+                                resolved = withTimeoutOrNull(if (attempt == 0) 1_900L else 2_500L) {
+                                    withContext(Dispatchers.IO) {
+                                        YouTube.queue(videoIds = listOf(id)).getOrNull()?.firstOrNull()
+                                    }
+                                }
+                                if (resolved != null) break
                             }
+                            resolved
                         } ?: return
                         if (metadata.id != id || metadata.title.isBlank()) return
                         val verdict = CoverLabTurboRoundAdmission.evaluate(
@@ -3639,6 +3657,9 @@ internal fun DiscogsDirectVersionBrowser(
                         publishedReadyLimit = session.publishedReadyLimit
                         visibleLimit = previousRoundRows.size + TURBO_RESULT_QUOTA
                         session.visibleLimit = visibleLimit
+                        } finally {
+                            earlyVideoIds.remove(id)
+                        }
                     }
                     // YouTube search is the FIRST source, not a catalog lookup.
                     // COVER.INFO is queried in parallel, including foreign adaptations.
@@ -3860,19 +3881,47 @@ internal fun DiscogsDirectVersionBrowser(
                                             ?.filterIsInstance<SongItem>()?.take(12)
                                     }
                                 } else null
-                                if (found == null) {
+                                // LAB70: the first official-artist query gets the
+                                // native YouTube Music SONG catalogue as well as VIDEO.
+                                // The musical track carries the credited interpreter,
+                                // often missing from an uploader's video channel.
+                                val musicSongs = if (thisRound == 1 && offset == 0 &&
+                                    originalArtist.isNotBlank()
+                                ) withTimeoutOrNull(4_200L) {
+                                    withContext(Dispatchers.IO) {
+                                        YouTube.search(query.text, YouTube.SearchFilter.FILTER_SONG)
+                                            .getOrNull()?.items?.filterIsInstance<SongItem>()
+                                            ?.take(12)
+                                    }
+                                }.orEmpty() else emptyList()
+                                // Web video search is an independent bounded fallback
+                                // only when both native shelves produced nothing.
+                                val webSongs = if (found.isNullOrEmpty() && musicSongs.isEmpty()
+                                ) withTimeoutOrNull(2_500L) {
+                                    withContext(Dispatchers.IO) {
+                                        YouTubeWebSearch.search(query.text)?.items?.take(12)
+                                    }
+                                }.orEmpty() else emptyList()
+                                if (found == null && musicSongs.isEmpty() && webSongs.isEmpty()) {
                                     recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0,
                                         "richiesta non riuscita; riprova con Completa tornata"))
                                     session.roundQueryRetries++
-                                    // Do not mark a timeout as exhaustion. An orange
-                                    // button retries the SAME query on next press.
+                                    // No cursor advancement on a provider failure.
                                     break
                                 }
+                                if (thisRound == 1 && offset == 0) {
+                                    recordSource(CoverSourceDiagnostic(
+                                        "YouTube Music", musicSongs.isNotEmpty(), musicSongs.size,
+                                        "registrazioni con interprete accreditato, video da verificare"
+                                    ))
+                                }
+                                val providerVideos = (musicSongs + found.orEmpty() + webSongs)
+                                    .distinctBy { it.id }
                                 recordSource(CoverSourceDiagnostic(
-                                    "YouTube diretto", true, found.size,
+                                    "YouTube diretto", providerVideos.isNotEmpty(), providerVideos.size,
                                     "video candidati nell'ultima ricerca (non tutti pubblicati)"
                                 ))
-                                for (video in found) {
+                                for (video in providerVideos) {
                                     if (!isActive || publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) break
                                     val candidate = CoverSourceCandidate(
                                         title = video.title,
@@ -3887,7 +3936,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         playbackVideoSource = "YouTube",
                                         evidenceScore = 1,
                                     )
-                                    tryPublish(candidate)
+                                    tryPublish(candidate, searchedVideo = video)
                                 }
                                 session.youtubeQueryCursor = cursor + offset + 1
                                 session.roundQueryRetries = 0
@@ -3917,9 +3966,11 @@ internal fun DiscogsDirectVersionBrowser(
                     } else {
                         session.roundEmptyPasses = 0
                     }
+                    // LAB70: zero results do NOT exhaust untried official, live
+                    // and foreign queries. Complete the round only when its
+                    // real query cursor reaches the end (or 50 unique videos).
                     roundPlanComplete = publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA ||
-                        session.youtubeQueryCursor >= queries.size ||
-                        session.roundEmptyPasses >= 2
+                        session.youtubeQueryCursor >= queries.size
                     session.roundPlanComplete = roundPlanComplete
                     val saved = previousRoundRows + publishedCoverSnapshots
                     withContext(Dispatchers.IO) {
