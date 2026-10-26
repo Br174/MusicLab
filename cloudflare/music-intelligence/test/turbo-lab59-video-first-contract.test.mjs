@@ -5,10 +5,11 @@ const root='app/src/main/kotlin/com/metrolist/music/ui/component/';
 const screen=readFileSync(root+'DiscogsDirectVersionBrowser.kt','utf8');
 const pub=readFileSync(root+'CoverLab55VisibleCandidates.kt','utf8');
 
-test('LAB59/LAB64: verified video first, documentary posters pending without video',()=>{
- assert.ok(pub.includes('val videoVerified = rawVideo.matches(Regex("[A-Za-z0-9_-]{11}"))'));
- assert.ok(pub.includes('if (!videoVerified && !evidenceEnoughWithoutVideo) continue'));
- assert.ok(pub.includes('if (videoVerified) seed else seed.copy(resolvedVideoId = null)'));
+test('LAB65: covers require a verified video before entering the visible list',()=>{
+ assert.ok(pub.includes('if (!video.matches(Regex("[A-Za-z0-9_-]{11}"))) continue'));
+ assert.ok(pub.includes('if (verifiedVideoIds != null && video !in verifiedVideoIds) continue'));
+ assert.ok(pub.includes('if (!seen.add(identity) || !videos.add(video)) continue'));
+ assert.equal(pub.includes('evidenceEnoughWithoutVideo'),false);
  assert.equal(screen.split('verifiedVideoIds = session.playReadyVideoIds,').length-1,5);
 });
 test('LAB59: reuse existing hard-compatible metadata verifier before video publication',()=>{
