@@ -3762,6 +3762,74 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
                         } else null
+                        // LAB68: Discogs was bypassed entirely by the LAB66
+                        // Turbo early return. It is now an optional documentary
+                        // lane (only when configured), never a poster publisher.
+                        // A few original-artist studio records are linked to
+                        // real YouTube IDs and verified through tryPublish().
+                        val discogs = if (includeDocumentary && thisRound == 1 &&
+                            discogsToken.isNotBlank()
+                        ) launch(Dispatchers.IO) {
+                            val page = withTimeoutOrNull(7_000L) {
+                                DiscogsVersionSource.loadVersionPage(
+                                    token = discogsToken,
+                                    mode = DiscogsDirectMode.COVER,
+                                    criteria = criteria,
+                                    originalArtist = originalArtist,
+                                    page = 1,
+                                    perPage = 15,
+                                ).getOrNull()
+                            }
+                            withContext(Dispatchers.Main.immediate) {
+                                recordSource(CoverSourceDiagnostic(
+                                    "Discogs", page != null, page?.items?.size ?: 0,
+                                    if (page == null) "richiesta fallita o scaduta"
+                                    else "registrazioni discografiche rilevate; collegamenti YouTube da verificare",
+                                ))
+                            }
+                            var checked = 0
+                            for (record in page?.items.orEmpty()) {
+                                if (!isActive || checked >= 2) break
+                                if (!TitleMeaningResolver.matchesBaseTitle(
+                                        searchedTitle, record.trackTitle
+                                    ) || !TitleMeaningResolver.sameArtist(
+                                        record.artist, originalArtist
+                                    )
+                                ) continue
+                                val audioBusy = withContext(Dispatchers.Main.immediate) {
+                                    backgroundWorkBlocked() ||
+                                        playerConnection?.service?.isCoverAudioAtRisk() == true
+                                }
+                                if (audioBusy) break
+                                checked++
+                                val videos = withTimeoutOrNull(3_000L) {
+                                    YouTube.search(
+                                        "${record.artist} ${record.trackTitle} official audio",
+                                        YouTube.SearchFilter.FILTER_VIDEO,
+                                    ).getOrNull()?.items
+                                        ?.filterIsInstance<SongItem>()?.take(2)
+                                }.orEmpty()
+                                for (video in videos) {
+                                    if (!video.title.contains(
+                                            record.trackTitle.trim(), ignoreCase = true
+                                        )
+                                    ) continue
+                                    val documented = CoverSourceCandidate(
+                                        title = record.trackTitle,
+                                        artist = record.artist,
+                                        sources = listOf("Discogs", "YouTube"),
+                                        year = record.year,
+                                        sourceUrl = record.discogsUrl,
+                                        playbackVideoId = video.id,
+                                        playbackVideoTitle = video.title,
+                                        playbackVideoSource = "Discogs/YouTube",
+                                    )
+                                    withContext(Dispatchers.Main.immediate) {
+                                        tryPublish(documented)
+                                    }
+                                }
+                            }
+                        } else null
                         val youtube = launch {
                             for ((offset, query) in querySlice.withIndex()) {
                                 if (!isActive || publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) break
@@ -3811,6 +3879,7 @@ internal fun DiscogsDirectVersionBrowser(
                         youtube.join()
                         documents?.join()
                         cloud?.join()
+                        discogs?.join()
                     }
                     session.roundSourceChecked = documentaryCompleted.get()
                     if (publishedCoverSnapshots.size == visibleBefore) {
