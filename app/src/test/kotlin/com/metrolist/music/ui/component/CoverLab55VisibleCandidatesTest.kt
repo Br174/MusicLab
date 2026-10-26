@@ -107,6 +107,45 @@ class CoverLab55VisibleCandidatesTest {
         assertEquals(first, last.take(6))
     }
 
+
+    @Test fun earlierSameNamedRecordIsNotPublishedAsEightyYearsLaterWork() {
+        val confirmed1981 = song(10, "L'addio", "Verified Artist").copy(
+            year = 1981,
+            workRelationConfirmed = true,
+            sourceNames = listOf("COVER.INFO"),
+        )
+        val unrelated1924 = song(11, "L'addio", "Unrelated Catalog Artist").copy(
+            year = 1924, sourceNames = listOf("Discogs"),
+        )
+        val later2003 = song(12, "L'addio", "Later Recording").copy(year = 2003)
+        val output = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(confirmed1981, unrelated1924, later2003),
+            "L'addio", "Franco Battiato", originalYear = 1981,
+        ) { false }
+        assertEquals(listOf(confirmed1981, later2003), output)
+    }
+
+    @Test fun confirmedWorkYearCanAnchorPublicationWithoutEarlySourceYear() {
+        val linked1981 = song(21, "L'addio", "Work Linked Artist").copy(
+            year = 1981, workRelationConfirmed = true,
+            sourceNames = listOf("MusicBrainz"),
+        )
+        val homonym1924 = song(22, "L'addio", "Unrelated Old Singer").copy(year = 1924)
+        val output = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(homonym1924, linked1981),
+            "L'addio", "Franco Battiato",
+        ) { false }
+        assertEquals(listOf(linked1981), output)
+    }
+
+    @Test fun unconfirmedDateNeverCreatesAUniversalBlacklist() {
+        val older = song(30, "Historic Work", "Catalog Singer").copy(year = 1924)
+        val output = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(older), "Historic Work", "Reference Singer",
+        ) { false }
+        assertEquals(listOf(older), output)
+    }
+
     @Test fun sameNamedUnconfirmedRecordingIsClearlyLabeledAsPending() {
         val seed = song(1, "Soli")
         val status = CoverLab55VisibleCandidates.labelFor(
