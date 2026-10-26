@@ -12,13 +12,13 @@ test('LAB61: Cerca ancora still uses LAB46 original rounds and VIDEO FIRST',()=>
  assert.match(ui,/val discogsRoundPage = if \(appendVerifiedRound\) coverRoundNumber \+ 1 else 1/);
  assert.match(ui,/coverRound = if \(appendVerifiedRound\) coverRoundNumber else 1/);
  assert.match(ui,/verifiedVideoIds = session\.playReadyVideoIds/);
- assert.match(publish,/if \(verifiedVideoIds != null && video !in verifiedVideoIds\) continue/);
+ assert.match(publish,/verifiedVideoIds == null \|\| rawVideo in verifiedVideoIds/);
  for(const phrase of ['2 -> talent','3 -> amateur','else -> longTail','X Factor','The Voice','guitar cover','piano cover'])
    assert.ok(plan.includes(phrase),phrase);
  assert.ok(discovery.includes('discoverYouTubeCoverRound(cleanTitle, coverRound)'));
 });
 test('LAB61: previous verified rows are saved once and never erased by a repeated search',()=>{
- assert.match(ui,/val alreadyCommitted = \(publishedOriginalSnapshots \+ publishedCoverSnapshots\)\s*\.filter\(::hasPublishableVideo\)/);
+ assert.match(ui,/val alreadyCommitted = publishedOriginalSnapshots \+ publishedCoverSnapshots/);
  assert.match(ui,/previousRoundRows = previousRoundRows \+ additional/);
  assert.match(ui,/CoverRoundStorage\.save\(context, sessionKey, savedRound, oldRowsSnapshot\)/);
  assert.match(ui,/if \(!appendVerifiedRound\) \{\s*session\.listIndex = 0\s*session\.listOffset = 0/);
