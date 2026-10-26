@@ -32,7 +32,7 @@ test('The live source dialog never substitutes provisional LAB56 scores for Turb
   assert.match(b,/recordSource\(diagnostic\)/);
   assert.match(b,/SourceDiagnosticsDialog\(\s*diagnostics = sourceDiagnostics,\s*turbo = isTurbo/);
   assert.match(b,/Fonti consultate nella tornata/);
-  assert.match(b,/CoverSourceDiagnostic\("Discogs", discogsToken\.isNotBlank\(\)/);
+  assert.match(b,/CoverSourceDiagnostic\("Discogs", false, 0,/);
 });
 
 test('First strict round requires channel evidence or documented work and late rounds remain permissive',()=>{
