@@ -24,7 +24,7 @@ test('LAB62: recovery pages never restart at page one every round',()=>{
 });
 test('LAB62: session-only same-video and same-recording duplicates excluded',()=>{
  assert.match(p,/history: List<DiscogsVersionSeed> = emptyList\(\)/);
- assert.match(p,/if \(identity in priorRecordings \|\| \(videoVerified && rawVideo in priorVideos\)\) continue/);
+ assert.match(p,/if \(identity in priorRecordings \|\| video in priorVideos\) continue/);
  assert.equal((b.match(/history = previousRoundRows,/g)||[]).length,5);
 });
 test('LAB62: COVER.INFO confirmed foreign work admitted on initial round; no video-only proof',()=>{
@@ -32,6 +32,6 @@ test('LAB62: COVER.INFO confirmed foreign work admitted on initial round; no vid
  assert.match(s,/val coverInfo = async\(Dispatchers\.IO\)/);
  assert.match(s,/if \(coverRound <= 1 && !deepRecovery/);
  assert.match(p,/TitleMeaningResolver\.matchesBaseTitle\(songTitle, seed\.trackTitle\)/);
- assert.match(p,/verifiedVideoIds == null \|\| rawVideo in verifiedVideoIds/);
+ assert.match(p,/if \(verifiedVideoIds != null && video !in verifiedVideoIds\) continue/);
  for(const x of ['2 -> talent','3 -> amateur','else -> longTail'])assert.ok(r.includes(x));
 });
