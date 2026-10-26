@@ -3618,6 +3618,43 @@ internal fun DiscogsDirectVersionBrowser(
                                 )
                             }
                         } else null
+                        // The TWO existing switches are actual source gates:
+                        // Cloud OFF => no memory/remote/archive fetch; Archive OFF
+                        // => no archive-backed records or archive cache admission.
+                        val cloud = if (includeDocumentary && coverCloudEnabled &&
+                            coverArchiveEnabled && foreignScoutConfig != null
+                        ) launch(Dispatchers.IO) {
+                            val config = foreignScoutConfig!!
+                            withTimeoutOrNull(6_500L) {
+                                val stored = CloudMusicDiscovery.searchArchive(
+                                    query = searchedTitle, config = config, limit = 100,
+                                    coverRound = 0,
+                                )
+                                for (item in stored) {
+                                    val linked = item.playbackVideoId?.trim().orEmpty()
+                                    if (linked.isBlank()) continue
+                                    val relation = item.sourceNames.any { it.equals("COVER.INFO", true) } &&
+                                        item.sameWorkScore != null && item.sameWorkScore >= 80
+                                    val candidate = CoverSourceCandidate(
+                                        title = item.title, artist = item.artist,
+                                        sources = (listOf("Archivio Cloud") + item.sourceNames).distinct(),
+                                        year = item.year,
+                                        category = when (item.category.lowercase()) {
+                                            "live" -> AiCoverCategory.LIVE
+                                            "remix" -> AiCoverCategory.REMIX
+                                            "foreign", "straniera" -> AiCoverCategory.FOREIGN
+                                            else -> AiCoverCategory.COVER
+                                        },
+                                        playbackVideoId = linked,
+                                        playbackVideoTitle = item.playbackVideoTitle,
+                                        playbackVideoSource = "Archivio Cloud",
+                                        workRelationConfirmed = relation,
+                                        evidenceScore = 1,
+                                    )
+                                    withContext(Dispatchers.Main.immediate) { tryPublish(candidate) }
+                                }
+                            }
+                        } else null
                         val youtube = launch {
                             for ((offset, query) in querySlice.withIndex()) {
                                 if (!isActive || publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) break
@@ -3660,6 +3697,7 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                         youtube.join()
                         documents?.join()
+                        cloud?.join()
                     }
                     session.roundSourceChecked = true
                     roundPlanComplete = publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA ||
@@ -5915,7 +5953,7 @@ internal fun DiscogsDirectVersionBrowser(
             (!isTurbo || !loading || publishedCoverSnapshots.isNotEmpty() || previousRoundRows.isNotEmpty())) {
             unifiedCoverDisplay
                 .filterNot(::belongsToFirstCoverSection)
-                .filterNot(::isHiddenForCurrentCover)
+                .filterNot { if (isTurbo) isRejected(it) else isHiddenForCurrentCover(it) }
                 .take(visibleLimit)
                 .map(::videoCalibratedDisplaySeed)
         } else emptyList()
