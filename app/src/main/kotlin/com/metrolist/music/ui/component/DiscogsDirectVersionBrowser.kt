@@ -3614,7 +3614,11 @@ internal fun DiscogsDirectVersionBrowser(
                         if (!verdict.admitted) return
                         val seed = withContext(Dispatchers.Default) {
                             DiscogsVersionSource.externalSeed(
-                                candidate = candidate,
+                                // YouTube's real song metadata contributes timing
+                                // for recording twins; no audio stream is opened.
+                                candidate = candidate.copy(
+                                    durationSeconds = candidate.durationSeconds ?: metadata.duration,
+                                ),
                                 targetTitle = searchedTitle,
                                 originalArtist = originalArtist,
                             ).let {
@@ -3631,9 +3635,16 @@ internal fun DiscogsDirectVersionBrowser(
                         val currentVideos = publishedCoverSnapshots.mapNotNull { it.resolvedVideoId }.toSet()
                         if (id in priorVideos || id in currentVideos ||
                             publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) return
-                        val priorEntries = previousRoundRows + publishedCoverSnapshots
+                        val priorEntries = previousRoundRows + publishedOriginalSnapshots +
+                            publishedCoverSnapshots
+                        // LAB71: global bans, recording-twin guard and original
+                        // singer 1 studio / max 2 live / max 2 remix apply to
+                        // ALL rounds. Other genuine singers are never capped.
                         if (withContext(Dispatchers.Default) {
-                                priorEntries.any { CoverLabTurboTwinGuard.sameRecording(it, seed) }
+                                CoverLab71FoundationGate.isDuplicate(seed, priorEntries) ||
+                                    !CoverLab71FoundationGate.withinOriginalCaps(
+                                        seed, originalArtist, priorEntries
+                                    )
                             }) return
                         withContext(Dispatchers.IO) {
                             CoverPlaybackMemory.saveMetadataVerifiedVideo(context, seed.fingerprint, id)
@@ -3734,10 +3745,12 @@ internal fun DiscogsDirectVersionBrowser(
                                                     }
                                                 }.orEmpty()
                                                 for (video in matches) {
+                                                    if (CoverLab71FoundationGate.isForbidden(
+                                                            video.title, lead.title, lead.artist
+                                                        )) continue
                                                     if (!TitleMeaningResolver.matchesBaseTitle(
-                                                            lead.title, video.title
-                                                        ) && !video.title.contains(
-                                                            lead.title.trim(), ignoreCase = true
+                                                            lead.title, video.title,
+                                                            setOf(lead.artist, originalArtist)
                                                         )
                                                     ) continue
                                                     val linked = lead.copy(
@@ -3840,8 +3853,11 @@ internal fun DiscogsDirectVersionBrowser(
                                         ?.filterIsInstance<SongItem>()?.take(2)
                                 }.orEmpty()
                                 for (video in videos) {
-                                    if (!video.title.contains(
-                                            record.trackTitle.trim(), ignoreCase = true
+                                    if (CoverLab71FoundationGate.isForbidden(
+                                            video.title, record.trackTitle, record.artist
+                                        ) || !TitleMeaningResolver.matchesBaseTitle(
+                                            record.trackTitle, video.title,
+                                            setOf(record.artist, originalArtist)
                                         )
                                     ) continue
                                     val documented = CoverSourceCandidate(
@@ -3934,6 +3950,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         playbackVideoId = video.id,
                                         playbackVideoTitle = video.title,
                                         playbackVideoSource = "YouTube",
+                                        durationSeconds = video.duration,
                                         evidenceScore = 1,
                                     )
                                     tryPublish(candidate, searchedVideo = video)
