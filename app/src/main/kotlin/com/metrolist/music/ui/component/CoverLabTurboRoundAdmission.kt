@@ -15,10 +15,19 @@ internal object CoverLabTurboRoundAdmission {
         metadataTitle: String = candidate.playbackVideoTitle.orEmpty(),
     ): Verdict {
         val videoTitle = metadataTitle.ifBlank { candidate.title }
-        val exactTitle = TitleMeaningResolver.matchesBaseTitle(targetTitle, videoTitle) ||
-            TitleMeaningResolver.matchesBaseTitle(targetTitle, candidate.title)
-        val containsTitle = videoTitle.contains(targetTitle.trim(), ignoreCase = true) ||
-            candidate.title.contains(targetTitle.trim(), ignoreCase = true)
+        // LAB71: foundational musical identity and forbidden-recording gate
+        // applies BEFORE any of the progressive confidence thresholds.
+        if (!CoverLab71FoundationGate.matchesRequestedWork(
+                candidate, targetTitle, originalArtist, videoTitle
+            )) return Verdict(false, 1)
+        val exactTitle = TitleMeaningResolver.matchesBaseTitle(
+            targetTitle, videoTitle, setOf(candidate.artist, originalArtist)
+        ) && TitleMeaningResolver.matchesBaseTitle(
+            targetTitle, candidate.title, setOf(candidate.artist, originalArtist)
+        )
+        // No substring/prefix escape hatch: "Felicità puttana" is not
+        // "Felicità", regardless of loose round or YouTube ID validity.
+        val containsTitle = exactTitle
         val relation = candidate.workRelationConfirmed &&
             candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) }
         // LAB68: video title saying "Lucio Dalla" does NOT prove that
@@ -48,7 +57,11 @@ internal object CoverLabTurboRoundAdmission {
             officialMarker
         val strong = relation || (titleSignal && originalPerformer) ||
             (titleSignal && namedOfficialWhenArtistUnknown) ||
-            (titleSignal && renditionMarker && officialMarker && credibleOfficialChannel)
+            (titleSignal && renditionMarker && officialMarker && credibleOfficialChannel) ||
+            // LAB71: properly attributed real alternate-singer covers
+            // belong in the BEST first round too, not only weaker tiers.
+            (titleSignal && renditionMarker && candidate.artist.isNotBlank() &&
+                !candidate.artist.equals("YouTube", ignoreCase = true))
         val medium = relation || (titleSignal && (originalPerformer || renditionMarker || officialMarker))
         val weak = relation || titleSignal
         val admissible = when {
