@@ -3628,12 +3628,61 @@ internal fun DiscogsDirectVersionBrowser(
                                             }
                                         }
                                     },
-                                    onSourceCompleted = { candidates, _, _ ->
+                                    onSourceCompleted = { candidates, diagnostic, _ ->
+                                        // A linked COVER.INFO ID takes the short route:
+                                        // never make it wait for a new YouTube search.
                                         for (candidate in candidates.filter {
                                             !it.playbackVideoId.isNullOrBlank()
                                         }) {
                                             withContext(Dispatchers.Main.immediate) {
                                                 tryPublish(candidate)
+                                            }
+                                        }
+                                        // LAB67 quality recovery: MusicBrainz and
+                                        // COVER.INFO professional editions often
+                                        // document the recording but have no direct
+                                        // video ID. Resolve a FEW strong leads using
+                                        // targeted YouTube searches, not generic
+                                        // album posters or unlimited background jobs.
+                                        if (thisRound == 1 &&
+                                            (diagnostic.name == "COVER.INFO" ||
+                                                diagnostic.name == "MusicBrainz")
+                                        ) {
+                                            for (lead in candidates) {
+                                                if (!isActive || documentarySearchKeys.size >= 4) break
+                                                if (!lead.playbackVideoId.isNullOrBlank()) continue
+                                                if (!lead.workRelationConfirmed &&
+                                                    !TitleMeaningResolver.sameArtist(lead.artist, originalArtist)
+                                                ) continue
+                                                val key = lead.artist.trim().lowercase() + "|" +
+                                                    lead.title.trim().lowercase()
+                                                if (!documentarySearchKeys.add(key)) continue
+                                                val matches = withTimeoutOrNull(3_800L) {
+                                                    withContext(Dispatchers.IO) {
+                                                        YouTube.search(
+                                                            "${lead.artist} ${lead.title} official",
+                                                            YouTube.SearchFilter.FILTER_VIDEO,
+                                                        ).getOrNull()?.items
+                                                            ?.filterIsInstance<SongItem>()?.take(2)
+                                                    }
+                                                }.orEmpty()
+                                                for (video in matches) {
+                                                    if (!TitleMeaningResolver.matchesBaseTitle(
+                                                            lead.title, video.title
+                                                        ) && !video.title.contains(
+                                                            lead.title.trim(), ignoreCase = true
+                                                        )
+                                                    ) continue
+                                                    val linked = lead.copy(
+                                                        playbackVideoId = video.id,
+                                                        playbackVideoTitle = video.title,
+                                                        playbackVideoSource = "YouTube documentary",
+                                                        coverUrl = "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg",
+                                                    )
+                                                    withContext(Dispatchers.Main.immediate) {
+                                                        tryPublish(linked)
+                                                    }
+                                                }
                                             }
                                         }
                                     },
@@ -3687,7 +3736,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     withContext(Dispatchers.IO) {
                                         YouTube.search(query.text, YouTube.SearchFilter.FILTER_VIDEO)
                                             .getOrNull()?.items
-                                            ?.filterIsInstance<SongItem>()?.take(18)
+                                            ?.filterIsInstance<SongItem>()?.take(12)
                                     }
                                 }
                                 if (found == null) {
