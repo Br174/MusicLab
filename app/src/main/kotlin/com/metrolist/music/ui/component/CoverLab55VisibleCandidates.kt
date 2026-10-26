@@ -41,6 +41,7 @@ internal object CoverLab55VisibleCandidates {
         history: List<DiscogsVersionSeed> = emptyList(),
         originalYear: Int? = null,
         originalCredits: List<com.metrolist.music.discogs.DiscogsCredit> = emptyList(),
+        coverRound: Int = 1,
         isRejected: (DiscogsVersionSeed) -> Boolean,
     ): List<DiscogsVersionSeed> {
         // Only prior rounds in this visit: never a persistent recording ban.
@@ -66,24 +67,47 @@ internal object CoverLab55VisibleCandidates {
         // Existing card positions are stable; do not mutate their audio/video.
         for (seed in alreadyVisible + candidates) {
             if (output.size >= QUOTA) break
+            val sharedWorkCredits = if (coverRound >= 2) {
+                DiscogsVersionSource.sharedWorkCreditNames(seed, originalCredits).isNotEmpty()
+            } else false
+            val sameTitle = TitleMeaningResolver.matchesBaseTitle(songTitle, seed.trackTitle)
+            val documentedWork = CoverSameWorkGate.hasDocumentaryRelation(seed)
             if (isRejected(seed) ||
-                !isRealCandidate(seed, songTitle, originalArtist)) continue
+                !(isRealCandidate(seed, songTitle, originalArtist) ||
+                    (coverRound >= 2 && sharedWorkCredits))) continue
             // If a candidate predates the established Work, it is most likely
             // an unrelated same-title composition. Require work-level proof
             // instead of publishing a speculative dated record as a Cover.
             if (referenceYear != null && seed.year != null &&
                 seed.year < referenceYear && !seed.manuallyApproved &&
-                !CoverSameWorkGate.hasDocumentaryRelation(seed) &&
-                DiscogsVersionSource.sharedWorkCreditNames(seed, originalCredits).isEmpty()
+                !documentedWork && !sharedWorkCredits
             ) continue
-            // LAB59: a discographic poster is never a VIDEO FIRST result.
-            val video = seed.resolvedVideoId?.trim().orEmpty()
-            if (!video.matches(Regex("[A-Za-z0-9_-]{11}"))) continue
-            if (verifiedVideoIds != null && video !in verifiedVideoIds) continue
+            // LAB64: a real documented recording is NOT a video. Keep video
+            // first for round one, but never erase genuine Work-linked cards
+            // merely because the video has not yet been found. Later turns
+            // widen admission, without admitting an unsupported different Work.
+            val rawVideo = seed.resolvedVideoId?.trim().orEmpty()
+            val videoVerified = rawVideo.matches(Regex("[A-Za-z0-9_-]{11}")) &&
+                (verifiedVideoIds == null || rawVideo in verifiedVideoIds)
+            val independentSources = seed.sourceNames.map { it.trim().lowercase() }
+                .filter { it.isNotBlank() && it != "archivio cloud" && it != "musiclab interno" }
+                .distinct().size
+            val catalogBacked = seed.sourceNames.any {
+                it.equals("Discogs", true) || it.equals("MusicBrainz", true) ||
+                    it.equals("COVER.INFO", true) || it.equals("Apple/iTunes", true) ||
+                    it.equals("Spotify", true)
+            }
+            val chronological = referenceYear == null || seed.year == null ||
+                seed.year >= referenceYear
+            val evidenceEnoughWithoutVideo = documentedWork || sharedWorkCredits ||
+                (coverRound >= 2 && sameTitle && chronological && independentSources >= 2) ||
+                (coverRound >= 3 && sameTitle && chronological && catalogBacked)
+            if (!videoVerified && !evidenceEnoughWithoutVideo) continue
             val identity = DiscogsVersionSource.recordingIdentityKey(seed)
-            if (identity in priorRecordings || video in priorVideos) continue
-            if (!seen.add(identity) || !videos.add(video)) continue
-            output += seed
+            if (identity in priorRecordings || (videoVerified && rawVideo in priorVideos)) continue
+            if (!seen.add(identity) || (videoVerified && !videos.add(rawVideo))) continue
+            // An unverified URL is never an audio-ready/video-ready promise.
+            output += if (videoVerified) seed else seed.copy(resolvedVideoId = null)
         }
         return output
     }
