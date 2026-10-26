@@ -11,7 +11,7 @@ permissions:
 concurrency:
   # LAB60 resume recovery: prior runner remains stuck in_progress without steps.
   # Keep the repaired build independent of that stale concurrency reservation.
-  group: musiclab-turbo-lab60-cover-compilation
+  group: musiclab-turbo-lab60-cover-compilation-recovery-v2
   cancel-in-progress: true
 
 jobs:
