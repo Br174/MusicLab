@@ -8,7 +8,7 @@ const b=read('DiscogsDirectVersionBrowser.kt');
 const p=read('CoverLab53Publication.kt');
 const recovery=b.split('fun startDocumentaryRecovery()')[1].split('fun pauseCoverBackgroundForPlayback()')[0];
 const publisher=b.split('fun sealPostersOnce()')[1].split('fun stopAtFullQuota()')[0];
-const finallyPublisher=b.split('val finalRanked = turboRankedPool()')[1].split('// LAB46: preserve LAB45')[0];
+const finallyPublisher=b.split('val finalRanked = withContext(Dispatchers.Default) {')[1].split('// LAB46: preserve LAB45')[0];
 
 test('50 is a cover-only quota, originals in independent section',()=>{
  assert.match(p,/const val COVER_QUOTA = 50/);
@@ -34,7 +34,7 @@ test('the initial search LAB45 stays intact and no video ID is needed for visual
  assert.match(b,/val ready = turboRankedPool\(\)/);
 });
 test('source candidates are retained after short burst and reused on recovery',()=>{
- assert.match(b,/session\.turboCoverCandidatePool = CoverLab53Publication\.retain\(/);
+ assert.match(b,/val retainedCandidates = withContext\(Dispatchers\.Default\)[\s\S]*?CoverLab53Publication\.retain\(/);
  assert.match(recovery,/appendVerifiedSource\(emptyList\(\)\)/);
  assert.match(recovery,/CoverLab53Publication\.retain\(/);
  assert.match(recovery,/val completePool = withContext\(Dispatchers\.Default\)/);
