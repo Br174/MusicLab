@@ -13,7 +13,7 @@ test('LAB54 fixes original writers empty in first Turbo admission',()=>{
  assert.doesNotMatch(first,/originalYear = originalYear, originalCredits = emptyList\(\)/);
 });
 test('LAB54 retains original sixty-eight Discogs summaries for source-to-visible audit',()=>{
- assert.match(b,/session\.turboCoverCandidatePool = CoverLab53Publication\.retain\(/);
+ assert.match(b,/val retainedCandidates = withContext\(Dispatchers\.Default\)[\s\S]*?CoverLab53Publication\.retain\(/);
  assert.match(first,/session\.turboCoverCandidatePool, results/);
  assert.match(b,/fun appendCatalogEvidence\(rows: List<DiscogsVersionSeed>\)/);
  assert.match(recovery,/appendCatalogEvidence\(details\)/);
