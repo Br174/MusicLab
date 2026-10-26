@@ -17,6 +17,10 @@ val MusicAiLiveEnabledKey = booleanPreferencesKey("musicAiLiveEnabled")
 val MusicAiRemixEnabledKey = booleanPreferencesKey("musicAiRemixEnabled")
 val MusicAiForeignEnabledKey = booleanPreferencesKey("musicAiForeignEnabled")
 val MusicAiCloudMemoryEnabledKey = booleanPreferencesKey("musicAiCloudMemoryEnabled")
+
+/** LAB60: independent switches, default on, never delete archive or Cloud data. */
+val MusicLabCoverArchiveEnabledKey = booleanPreferencesKey("musicLabCoverArchiveEnabled")
+val MusicLabCloudEnabledKey = booleanPreferencesKey("musicLabCloudEnabled")
 val MusicAiBackgroundMetadataEnabledKey = booleanPreferencesKey("musicAiBackgroundMetadataEnabled")
 
 /** Endpoint del Worker centrale MusicLab LAB11. */
