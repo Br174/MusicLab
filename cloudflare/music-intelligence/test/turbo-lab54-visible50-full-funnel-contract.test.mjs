@@ -38,7 +38,8 @@ test('LAB54 keeps playback priority while searching progressively for covers',()
  assert.match(recovery,/while \(isActive && \(backgroundWorkBlocked\(\) \|\|/);
  assert.match(recovery,/isCoverAudioAtRisk\(\) == true/);
  assert.match(recovery,/pendingDetails\.chunked\(if \(playbackIsNormallyPlaying\(\)\) 1 else 4\)/);
- assert.match(recovery,/session\.turboRecoveryPasses >= 3/);
+ assert.match(recovery,/session\.turboRecoveryRoundPasses >=/);
+ assert.doesNotMatch(recovery,/session\.turboRecoveryPasses >= 3/);
  assert.match(b,/coverRecoveryJob\?\.cancel\(\)/);
 });
 test('LAB54 never fills fifty with synthetic names and protects LAB45',()=>{

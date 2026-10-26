@@ -41,12 +41,13 @@ test('source candidates are retained after short burst and reused on recovery',(
  assert.match(recovery,/CoverLab55VisibleCandidates\.publish\(/);
 });
 test('bounded progressive refill yields to LAB49 audio and does not spin forever',()=>{
- assert.match(recovery,/session\.turboRecoveryPasses >= 3/);
+ assert.match(recovery,/session\.turboRecoveryRoundPasses >=/);
+ assert.doesNotMatch(recovery,/session\.turboRecoveryPasses >= 3/);
  assert.match(recovery,/while \(backgroundWorkBlocked\(\) \|\|/);
  assert.match(recovery,/isCoverAudioAtRisk\(\) == true/);
  assert.match(recovery,/maxNetworkFanOut = if \(playbackIsNormallyPlaying\(\)\) 1 else 2/);
  assert.match(recovery,/forceRefresh = recoveryPass > 1/);
- assert.match(recovery,/coverRound = expectedRound \+ recoveryPass - 1/);
+ assert.match(recovery,/coverRound = recoveryPass,/);
  assert.match(b,/coverRecoveryJob\?\.cancel\(\)/);
 });
 test('funnel diagnostics account for the actually displayed list, not just found count',()=>{
