@@ -6,7 +6,8 @@ internal object CoverRoundSearchPlan {
 
     private val official = listOf(
         "official audio", "official music video", "original recording", "studio version",
-        "official cover", "famous cover version", "duet official", "live official",
+        "official cover", "professional singer cover", "famous cover version",
+        "studio cover by other singers", "cover interpretation", "duet official", "live official",
         "foreign language cover", "adaptation cover", "cover studio", "official performance",
     )
     private val talent = listOf(
@@ -19,7 +20,7 @@ internal object CoverRoundSearchPlan {
         "guitar cover", "piano cover", "home studio cover", "independent artist cover",
         "instrumental interpretation", "bedroom cover", "street performance cover",
         "acoustic vocal cover", "amateur cover", "local band cover",
-        "karaoke singer cover", "solo voice cover",
+        "independent vocalist cover", "solo voice cover",
     )
     private val longTail = listOf(
         "rare cover version", "foreign language adaptation", "tribute band cover",
@@ -48,7 +49,9 @@ internal object CoverRoundSearchPlan {
         val first = if (round == 1) {
             listOf(
                 Query("$clean $artist", AiCoverCategory.COVER),
+                Query("$clean $artist cover", AiCoverCategory.COVER),
                 Query("$clean $artist official", AiCoverCategory.COVER),
+                Query("$clean $artist cover studio", AiCoverCategory.COVER),
             )
         } else {
             listOf(Query(if (round >= 4) clean else "$clean cover", AiCoverCategory.COVER))
