@@ -3587,9 +3587,11 @@ internal fun DiscogsDirectVersionBrowser(
             // Only one Compose snapshot membership change per ready video.
             session.playReadyVideoIds.add(id)
             rememberPreparedVideoSong(song)
-            CoverPlaybackMemory.saveMetadataVerifiedVideo(
-                context, seed.fingerprint, id,
-            )
+            scope.launch(Dispatchers.IO) {
+                CoverPlaybackMemory.saveMetadataVerifiedVideo(
+                    context, seed.fingerprint, id,
+                )
+            }
             // LAB66 one append-only wall. Later original singers do not
             // jump in front of already displayed YouTube thumbnails.
             publishedCoverSnapshots = publishedCoverSnapshots + seed
