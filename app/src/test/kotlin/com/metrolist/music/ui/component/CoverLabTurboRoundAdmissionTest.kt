@@ -54,6 +54,26 @@ class CoverLabTurboRoundAdmissionTest {
         ).admitted)
     }
 
+    @Test fun unrelatedUploaderDoesNotBecomeOriginalFromVideoTitleAlone() {
+        val parishUpload = candidate(artist = "Parrocchia Immacolata")
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+            parishUpload, "Felicità", "Lucio Dalla", 1,
+            "Felicità - Lucio Dalla"
+        ).admitted)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
+            parishUpload, "Felicità", "Lucio Dalla", 3,
+            "Felicità - Lucio Dalla"
+        ).admitted)
+    }
+
+    @Test fun authoritativeTopicChannelStillQualifiesOriginal() {
+        val originalChannel = candidate(artist = "Lucio Dalla - Topic")
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
+            originalChannel, "Felicità", "Lucio Dalla", 1,
+            "Lucio Dalla - Felicità"
+        ).admitted)
+    }
+
     @Test fun estimateIsPercentageNotHardAdmissionThreshold() {
         val v = CoverLabTurboRoundAdmission.evaluate(
             candidate(), "Sapore di sale", "Gino Paoli", 4
