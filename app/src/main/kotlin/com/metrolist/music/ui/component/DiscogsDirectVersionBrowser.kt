@@ -3585,7 +3585,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 if (publishedCoverSnapshots.isNotEmpty() ||
                                     publishedOriginalSnapshots.isNotEmpty() || activeCriteria != criteria) return
                                 val ranked = turboRankedPool().filter { seed ->
-                                    seed.resolvedVideoId?.trim() in session.playReadyVideoIds
+                                    seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds
                                 }
                                 val initialOriginals = ranked
                                     .filter(::isDistinctOriginalVersion).take(10)
@@ -3649,7 +3649,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 val next = CoverLab55VisibleCandidates.publish(
                                     alreadyVisible = publishedCoverSnapshots,
                                     candidates = turboRankedPool().filter { seed ->
-                                        seed.resolvedVideoId?.trim() in session.playReadyVideoIds
+                                        seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds
                                     }.filterNot {
                                         DiscogsVersionSource.recordingIdentityKey(it) in committedKeys ||
                                             it.fingerprint in committedFingerprints
@@ -3759,7 +3759,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         .filter { seed ->
                                             val key = seed.fingerprint + "|" + seed.resolvedVideoId.orEmpty()
                                             key !in attempted &&
-                                                seed.resolvedVideoId?.trim() !in session.playReadyVideoIds &&
+                                                seed.resolvedVideoId?.trim().orEmpty() !in session.playReadyVideoIds &&
                                                 playableTrack(seed) != null
                                         }
                                         .sortedWith(compareByDescending<DiscogsVersionSeed> {
@@ -4202,7 +4202,7 @@ internal fun DiscogsDirectVersionBrowser(
                         // A real candidate with no artwork keeps its row as an
                         // explicit image-unavailable state rather than vanishing.
                         val finalRanked = turboRankedPool()
-                            .filter { seed -> seed.resolvedVideoId?.trim() in session.playReadyVideoIds }
+                            .filter { seed -> seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds }
                             .distinctBy { it.fingerprint }
                         // LAB53: original-performer versions have their own section.
                         // They NEVER consume any of the 50 COVER places.
