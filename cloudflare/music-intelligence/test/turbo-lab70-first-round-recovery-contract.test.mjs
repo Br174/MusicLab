@@ -14,7 +14,8 @@ test('Preserve the original device-tested LAB66 publisher and identity',()=>{
   assert.equal(memory.confirmedGoodBaseline.commit,'26f652fd34cbf6856d76c6efc8baf3fd14bf333f');
   assert.match(active,/publishedCoverSnapshots = publishedCoverSnapshots \+ admitted/);
   assert.match(active,/session\.playReadyVideoIds\.add\(id\)/);
-  assert.match(active,/CoverLabTurboTwinGuard\.sameRecording\(it, seed\)/);
+  assert.match(active,/CoverLab71FoundationGate\.isDuplicate\(seed, priorEntries\)/);
+  assert.match(readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGate.kt','utf8'),/CoverLabTurboTwinGuard\.sameRecording\(previous, seed\)/);
   assert.match(active,/YouTube\.search\(query\.text, YouTube\.SearchFilter\.FILTER_VIDEO\)/);
 });
 test('Felicità: first original-artist query consults credited YouTube Music songs',()=>{
