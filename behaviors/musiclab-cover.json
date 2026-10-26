@@ -400,5 +400,27 @@
     }
   ],
   "implementationPolicy": "LAB66 is confirmed user-visible LAST_GOOD for thumbnail production. Future LAB67 changes must be strictly selective, non-destructive, with source-diff and regression guard. Save memory before modifying app. Approval for 4 refinements is user-granted; don't alter existing good method.",
-  "memoryUpdatedAt": "2026-10-26"
+  "memoryUpdatedAt": "2026-10-26",
+  "knownBadRegressions": [
+    {
+      "id": "LAB67_WRONG_THREAD_AND_STALE_SOURCE_DIAG",
+      "sourceCommit": "ec316ae4243192b02de5574b08bfaa1598ec626b",
+      "observedOnDevice": "2026-10-26",
+      "symptoms": [
+        "java.lang.IllegalStateException: Player is accessed on wrong thread; current DefaultDispatcher-worker-2, expected main",
+        "Old LAB56 provisional covers source dialog while seven YouTube thumbnails are shown",
+        "Weak first-round cover quality, unattributed original artist uploads",
+        "No Discogs query in active Turbo LAB67 path"
+      ],
+      "rootCause": "Playback-priority checks executed from Dispatchers.IO onSourceCompleted and network fan-out; stale LAB56 diagnostics; Discogs not wired into Turbo LAB67 direct branch; first round trusted video title performer text instead of original channel.",
+      "goldenReference": "LAB66_USER_DEVICE_VERIFIED_GOOD_SEARCH_BASELINE",
+      "patchCandidate": {
+        "branch": "lab/musiclab-turbo-lab68-main-thread-sources-20261026",
+        "commit": "192c99150b78318bc4a72901b51c6b0f02b3cdbc",
+        "githubActions": "https://github.com/Br174/MusicLab/actions/runs/40387604610",
+        "ci": "17/17 passed, APK signed; physical device quality/stability not yet verified"
+      },
+      "guard": "Never mark LAB67 as device-verified good or silently promote LAB68 over LAB66 before explicit user device confirmation."
+    }
+  ]
 }
