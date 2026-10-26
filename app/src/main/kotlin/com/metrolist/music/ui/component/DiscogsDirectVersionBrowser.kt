@@ -3545,7 +3545,7 @@ internal fun DiscogsDirectVersionBrowser(
                 publishedCoverSnapshots
             if (currentPublished.any { it.resolvedVideoId?.trim() == id }) return
             val source = documented?.sources?.filter(String::isNotBlank)
-                ?.ifEmpty { null } ?: listOf("YouTube")
+                ?.takeIf { it.isNotEmpty() } ?: listOf("YouTube")
             val seed = DiscogsVersionSource.externalSeed(
                 candidate = CoverSourceCandidate(
                     title = candidateTitle,
