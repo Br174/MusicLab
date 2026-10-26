@@ -278,6 +278,10 @@ private data class DirectVersionSession(
     // LAB45: immutable cards committed in earlier 50-result search rounds.
     var previousRoundRows: List<DiscogsVersionSeed> = emptyList(),
     var coverRoundNumber: Int = 1,
+    // LAB66: independently checkpointed search cursor for each manual level.
+    var directYouTubeV2: Boolean = false,
+    var directQueryCursor: Int = 0,
+    var directRoundExhausted: Boolean = false,
     var originalSectionFrozen: Boolean = false,
     var originalGateStartedAtMs: Long = 0L,
     var coverBatchStartedAtMs: Long = 0L,
@@ -457,6 +461,7 @@ internal fun DiscogsDirectVersionBrowser(
     var publishedCoverSnapshots by remember(sessionKey) { mutableStateOf(session.publishedCoverSnapshots) }
     var previousRoundRows by remember(sessionKey) { mutableStateOf(session.previousRoundRows) }
     var coverRoundNumber by remember(sessionKey) { androidx.compose.runtime.mutableIntStateOf(session.coverRoundNumber) }
+    var directRoundExhausted by remember(sessionKey) { mutableStateOf(session.directRoundExhausted) }
     var restorationReady by remember(sessionKey) {
         mutableStateOf(!isTurbo || mode != DiscogsDirectMode.COVER ||
             session.initialized || session.previousRoundRows.isNotEmpty())
@@ -1053,6 +1058,13 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB53: identity confirmation from LAB52 is a second admission route,
     // not an extra filter that can silently erase genuine covered works.
     fun eligibleCoverForPublication(seed: DiscogsVersionSeed): Boolean {
+        // LAB66: direct YouTube thumbnail cards were admitted by the
+        // progressive ROUND gate; never run the old strict Work gate again.
+        if (isTurbo && session.directYouTubeV2) {
+            val id = seed.resolvedVideoId?.trim().orEmpty()
+            return id.matches(Regex("[A-Za-z0-9_-]{11}")) &&
+                id in session.playReadyVideoIds && !isRejected(seed)
+        }
         if (isRejected(seed) ||
             (resolvedOriginalArtist.isNotBlank() &&
                 TitleMeaningResolver.sameArtist(seed.artist, resolvedOriginalArtist))
@@ -3425,6 +3437,239 @@ internal fun DiscogsDirectVersionBrowser(
         return true
     }
 
+    // LAB66: the first playable YouTube thumbnail is appended as soon as its
+    // own metadata is ready. No poster-first queue, ten-second snapshot or
+    // five/ten/fifty-result publication barrier. Nothing is fetched from Cloud.
+    fun runDirectYouTubeSearch(advanceRound: Boolean = false) {
+        persistInputs()
+        val criteria = buildCriteria()
+        if (criteria.title.isBlank()) {
+            error = "Inserisci il titolo del brano."
+            return
+        }
+        if (sourceDiscoveryLoading) return
+        val sameWork = activeCriteria == criteria
+        if (advanceRound && (!sameWork || !session.directRoundExhausted)) return
+        if (!sameWork || !session.directYouTubeV2) {
+            session.directQueryCursor = 0
+            session.directRoundExhausted = false
+            directRoundExhausted = false
+            coverRoundNumber = 1
+            session.coverRoundNumber = 1
+            previousRoundRows = emptyList()
+            session.previousRoundRows = emptyList()
+            publishedOriginalSnapshots = emptyList()
+            publishedCoverSnapshots = emptyList()
+            session.publishedOriginalSnapshots = emptyList()
+            session.publishedCoverSnapshots = emptyList()
+            session.playReadyVideoIds.clear()
+            session.preparedVideoSongs.clear()
+            results = emptyList()
+            session.results = emptyList()
+            session.usedVideoIds.clear()
+        } else if (advanceRound) {
+            previousRoundRows = previousRoundRows +
+                (publishedOriginalSnapshots + publishedCoverSnapshots)
+            session.previousRoundRows = previousRoundRows
+            publishedOriginalSnapshots = emptyList()
+            publishedCoverSnapshots = emptyList()
+            session.publishedOriginalSnapshots = emptyList()
+            session.publishedCoverSnapshots = emptyList()
+            coverRoundNumber += 1
+            session.coverRoundNumber = coverRoundNumber
+            session.directQueryCursor = 0
+            session.directRoundExhausted = false
+            directRoundExhausted = false
+        }
+        session.directYouTubeV2 = true
+        val round = coverRoundNumber
+        val original = lockedArtist.ifBlank { resolvedOriginalArtist }
+            .ifBlank { TitleMeaningResolver.trailingArtistHint(criteria.title).orEmpty() }
+        val work = TitleMeaningResolver.workAnchorTitle(criteria.title)
+        val queries = CoverLab66DirectYouTube.queries(work, original, round)
+        val fromCursor = session.directQueryCursor.coerceIn(0, queries.size)
+        val toCursor = CoverLab66DirectYouTube.nextCursor(fromCursor, queries.size)
+        val selectedQueries = queries.subList(fromCursor, toCursor)
+        activeCriteria = criteria
+        session.activeCriteria = criteria
+        session.initialized = true
+        session.directQueryCursor = toCursor
+        rankingFrozen = true
+        session.rankingFrozen = true
+        originalSectionFrozen = true
+        session.originalSectionFrozen = true
+        visibleLimit = (previousRoundRows.size + 50).coerceAtLeast(50)
+        session.visibleLimit = visibleLimit
+        headerExpanded = false
+        session.headerExpanded = false
+        sourceDiscoveryLoading = true
+        loading = false
+        error = null
+        documentaryRecoveryComplete = true
+        searchJob?.cancel()
+        coverRecoveryJob?.cancel()
+        verificationJob?.cancel()
+        videoPreloadJob?.cancel()
+        paginationJob?.cancel()
+        turboAutoVideoJob?.cancel()
+        turboSearchGeneration++
+        session.turboFinished = false
+        playerConnection?.service?.setCoverPerformanceLoad(active = true, heavy = false)
+
+        fun publishVerifiedThumbnail(
+            song: SongItem,
+            documented: CoverSourceCandidate? = null,
+        ) {
+            val id = song.id.trim()
+            if (!id.matches(Regex("[A-Za-z0-9_-]{11}"))) return
+            if (coverRoundNumber != round || activeCriteria != criteria) return
+            val artistName = documented?.artist?.takeIf(String::isNotBlank)
+                ?: song.artists.firstOrNull()?.name?.trim().orEmpty()
+            if (artistName.isBlank()) return
+            val matchingArtist = original.ifBlank { artistName }
+            val candidateTitle = documented?.title?.takeIf(String::isNotBlank) ?: song.title
+            val isDocumented = documented?.workRelationConfirmed == true
+            val signals = CoverLab66DirectYouTube.admissionSignals(
+                requestedTitle = work,
+                originalArtist = matchingArtist,
+                videoTitle = song.title,
+                uploader = artistName,
+                round = round,
+                documentedWorkRelation = isDocumented,
+            )
+            if (!CoverLab66DirectYouTube.accepted(signals, round)) return
+            val currentPublished = previousRoundRows + publishedOriginalSnapshots +
+                publishedCoverSnapshots
+            if (currentPublished.any { it.resolvedVideoId?.trim() == id }) return
+            val source = documented?.sources?.filter(String::isNotBlank)
+                ?.ifEmpty { null } ?: listOf("YouTube")
+            val seed = DiscogsVersionSource.externalSeed(
+                candidate = CoverSourceCandidate(
+                    title = candidateTitle,
+                    artist = artistName,
+                    sources = source,
+                    category = documented?.category ?: AiCoverCategory.COVER,
+                    year = documented?.year,
+                    language = documented?.language,
+                    sourceUrl = "https://www.youtube.com/watch?v=$id",
+                    coverUrl = "https://i.ytimg.com/vi/$id/hqdefault.jpg",
+                    playbackVideoId = id,
+                    playbackVideoTitle = song.title,
+                    playbackVideoSource = if (isDocumented) "COVER.INFO / YouTube" else "YouTube",
+                    workRelationConfirmed = isDocumented,
+                    evidenceScore = signals.coerceAtLeast(1),
+                ),
+                targetTitle = work,
+                originalArtist = original,
+            ).let { incoming ->
+                DiscogsVersionSource.markVideoResolved(
+                    seed = incoming,
+                    videoId = id,
+                    videoTitle = song.title,
+                    source = if (isDocumented) "COVER.INFO / YouTube" else "YouTube",
+                ).copy(
+                    coverRound = round,
+                    roundPosition = currentPublished.size + 1,
+                    musiclabScore100 = CoverLab66DirectYouTube.estimatedPrecision(
+                        signals, round, isDocumented,
+                    ),
+                )
+            }
+            if (currentPublished.any { old ->
+                DiscogsVersionSource.sameCrossSourceVersion(old, seed)
+            }) return
+            val currentRoundCount =
+                publishedOriginalSnapshots.size + publishedCoverSnapshots.size
+            if (currentRoundCount >= CoverLab66DirectYouTube.MAX_VISIBLE_PER_ROUND) return
+            // Only one Compose snapshot membership change per ready video.
+            session.playReadyVideoIds.add(id)
+            rememberPreparedVideoSong(song)
+            CoverPlaybackMemory.saveMetadataVerifiedVideo(
+                context, seed.fingerprint, id,
+            )
+            if (original.isNotBlank() &&
+                TitleMeaningResolver.sameArtist(artistName, original)) {
+                publishedOriginalSnapshots = publishedOriginalSnapshots + seed
+                session.publishedOriginalSnapshots = publishedOriginalSnapshots
+            } else {
+                publishedCoverSnapshots = publishedCoverSnapshots + seed
+                session.publishedCoverSnapshots = publishedCoverSnapshots
+            }
+            results = results + seed
+            session.results = results
+            publishedReadyLimit = currentPublished.size + 1
+            session.publishedReadyLimit = publishedReadyLimit
+            session.turboPosterPublishedAtMs[seed.fingerprint] = SystemClock.elapsedRealtime()
+        }
+
+        searchJob = scope.launch {
+            try {
+                coroutineScope {
+                    selectedQueries.forEach { query ->
+                        launch(Dispatchers.IO) {
+                            // One fast query at a time per lane; search returns
+                            // video metadata, NOT an album-artwork candidate.
+                            val songs = withTimeoutOrNull(6_500L) {
+                                YouTube.search(query, YouTube.SearchFilter.FILTER_VIDEO)
+                                    .getOrNull()?.items.orEmpty()
+                                    .filterIsInstance<SongItem>()
+                                    .take(40)
+                            }.orEmpty()
+                            songs.forEach { song ->
+                                withContext(Dispatchers.Main.immediate) {
+                                    publishVerifiedThumbnail(song)
+                                }
+                            }
+                        }
+                    }
+                    if (round == 1 && fromCursor == 0) {
+                        launch(Dispatchers.IO) {
+                            val accepted = HashSet<String>()
+                            suspend fun ingest(rows: List<CoverSourceCandidate>) {
+                                rows.forEach { source ->
+                                    val id = source.playbackVideoId?.trim().orEmpty()
+                                    if (!id.matches(Regex("[A-Za-z0-9_-]{11}")) ||
+                                        !accepted.add(id)) return@forEach
+                                    val song = withTimeoutOrNull(1_800L) {
+                                        YouTube.queue(videoIds = listOf(id))
+                                            .getOrNull()?.firstOrNull()
+                                    }
+                                    if (song != null && song.id == id) {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            publishVerifiedThumbnail(song, source)
+                                        }
+                                    }
+                                }
+                            }
+                            val remaining = CoverDiscoverySources.coverInfoDirectVideoHints(
+                                title = work,
+                                originalArtist = original,
+                                onEarly = ::ingest,
+                            )
+                            ingest(remaining)
+                        }
+                    }
+                }
+            } finally {
+                if (activeCriteria == criteria && coverRoundNumber == round) {
+                    session.directRoundExhausted =
+                        CoverLab66DirectYouTube.isExhausted(
+                            session.directQueryCursor, queries.size,
+                            publishedOriginalSnapshots.size + publishedCoverSnapshots.size,
+                        )
+                    directRoundExhausted = session.directRoundExhausted
+                    session.turboFinished = true
+                    session.sourceDiscoveryComplete = session.directRoundExhausted
+                    sourceDiscoveryLoading = false
+                    loading = false
+                    playerConnection?.service?.setCoverPerformanceLoad(
+                        active = false, heavy = false,
+                    )
+                }
+            }
+        }
+    }
+
     fun runSearch(
         requestedSort: DirectVersionSort = sortMode,
         forceRefresh: Boolean = false,
@@ -3432,6 +3677,10 @@ internal fun DiscogsDirectVersionBrowser(
     ) {
         sortMode = requestedSort
         session.sortMode = requestedSort
+        if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            runDirectYouTubeSearch(advanceRound = appendRound)
+            return
+        }
         persistInputs()
         val explicitArtistHint = TitleMeaningResolver.trailingArtistHint(title)
         if (!explicitArtistHint.isNullOrBlank()) {
