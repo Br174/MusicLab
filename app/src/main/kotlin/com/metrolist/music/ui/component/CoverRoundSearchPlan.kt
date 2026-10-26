@@ -38,7 +38,11 @@ internal object CoverRoundSearchPlan {
             1 -> official
             2 -> talent
             3 -> amateur
-            else -> longTail
+            else -> {
+                // In broad rounds rotate to four completely new topic queries.
+                val start = ((round - 4) * 4) % longTail.size
+                (0 until 4).map { longTail[(start + it) % longTail.size] }
+            }
         }
         // Strongest quick discovery is always first, also in later rounds.
         val first = if (round == 1) {
@@ -47,9 +51,9 @@ internal object CoverRoundSearchPlan {
                 Query("$clean $artist official", AiCoverCategory.COVER),
             )
         } else {
-            listOf(Query("$clean cover", AiCoverCategory.COVER))
+            listOf(Query(if (round >= 4) clean else "$clean cover", AiCoverCategory.COVER))
         }
-        val offset = if (round <= 3) 0 else ((round - 4) * 3) % family.size
+        val offset = 0 // later-round families already rotated above without overlaps
         val targeted = family.indices.map { idx ->
             val keyword = family[(offset + idx) % family.size]
             Query(
