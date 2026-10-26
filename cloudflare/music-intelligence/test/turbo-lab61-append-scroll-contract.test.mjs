@@ -31,7 +31,7 @@ test('LAB61: visible video and counter remain cumulative, including while loadin
  assert.match(ui,/results = if \(isTurbo && mode == DiscogsDirectMode\.COVER\)\s*unifiedCoverDisplay else results/);
  assert.match(ui,/"musiclab_lab61_append_progress"/);
  assert.match(ui,/"discogs_direct_turbo_\$\{seed\.fingerprint\}"/);
- assert.doesNotMatch(ui,/publishedCoverSnapshots = emptyList\(\)[\s\S]*?previousRoundRows = emptyList\(\)/);
+ assert.match(ui,/else if \(!appendRound && activeCriteria != null && activeCriteria != criteria\)/);
 });
 test('LAB61: suppress heavy sorting during append and preserve protected source modules',()=>{
  assert.match(ui,/sourceDiscoveryLoading && previousRoundRows\.isNotEmpty\(\)\s*\) emptyList\(\) else orderedResults\(results\)/);
