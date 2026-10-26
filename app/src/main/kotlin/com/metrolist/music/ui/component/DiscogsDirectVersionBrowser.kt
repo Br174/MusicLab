@@ -3532,6 +3532,9 @@ internal fun DiscogsDirectVersionBrowser(
             error = null
             turboSearchGeneration++
             val generation = turboSearchGeneration
+            // Declared in the runSearch lexical scope so both nested source
+            // jobs and the final round state see the same completion flag.
+            val documentaryCompleted = java.util.concurrent.atomic.AtomicBoolean(!includeDocumentary)
             // One published row is immutable; later videos are strictly appended.
             searchJob = scope.launch {
                 try {
@@ -3610,7 +3613,6 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     // YouTube search is the FIRST source, not a catalog lookup.
                     // COVER.INFO is queried in parallel, including foreign adaptations.
-                    val documentaryCompleted = java.util.concurrent.atomic.AtomicBoolean(!includeDocumentary)
                     coroutineScope {
                         val documents = if (includeDocumentary) launch(Dispatchers.IO) {
                             val fullDiscovery = withTimeoutOrNull(16_000L) {
