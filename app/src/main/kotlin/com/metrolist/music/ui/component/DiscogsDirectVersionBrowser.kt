@@ -2580,7 +2580,8 @@ internal fun DiscogsDirectVersionBrowser(
                     // It hit synchronous editorial storage and SHA-256 on main
                     // for each Cloud callback. Do not run a hidden second pass.
                     val previous = publishedCoverSnapshots
-                    val completed = CoverLab55VisibleCandidates.publish(
+                    val completed = withContext(Dispatchers.Default) {
+                        CoverLab55VisibleCandidates.publish(
                         alreadyVisible = previous,
                         candidates = candidatePool,
                         songTitle = TitleMeaningResolver.workAnchorTitle(expectedCriteria.title),
@@ -2588,9 +2589,11 @@ internal fun DiscogsDirectVersionBrowser(
                         isRejected = ::isRejected,
                         verifiedVideoIds = session.playReadyVideoIds,
                         history = previousRoundRows,
+                        coverRound = coverRoundNumber,
                         originalYear = session.originalYear,
                         originalCredits = session.originalWorkCredits,
                     )
+                    }
                     val additions = completed.drop(previous.size)
                         .mapIndexed { index, seed ->
                             seed.copy(
@@ -2602,8 +2605,11 @@ internal fun DiscogsDirectVersionBrowser(
                     if (additions.isNotEmpty()) {
                         publishedCoverSnapshots = previous + additions
                         session.publishedCoverSnapshots = publishedCoverSnapshots
-                        results = mergePage(results, rows + additions, replace = false)
-                        session.results = results
+                        val mergedRows = withContext(Dispatchers.Default) {
+                            mergePage(results, rows + additions, replace = false)
+                        }
+                        results = mergedRows
+                        session.results = mergedRows
                         val committed = (previousRoundRows + publishedOriginalSnapshots +
                             publishedCoverSnapshots).map { it.fingerprint }.distinct()
                         val committedKeys = committed.toHashSet()
@@ -2736,6 +2742,7 @@ internal fun DiscogsDirectVersionBrowser(
                             isRejected = ::isRejected,
                             verifiedVideoIds = session.playReadyVideoIds,
                             history = previousRoundRows,
+                            coverRound = coverRoundNumber,
                             originalYear = session.originalYear,
                             originalCredits = session.originalWorkCredits,
                         )
@@ -2908,11 +2915,15 @@ internal fun DiscogsDirectVersionBrowser(
             // pass the author-proof gate. Inspect release details in short
             // playback-priority-aware batches, not a 50-request audio burst.
             if (discogsToken.isNotBlank()) {
-                val pendingDetails = (session.turboCoverCandidatePool + results)
-                    .distinctBy(DiscogsVersionSource::recordingIdentityKey)
-                    .filter { it.releaseId > 0 && !it.discogsVerificationChecked }
-                    .take(24)
-                for (batch in pendingDetails.chunked(if (playbackIsNormallyPlaying()) 1 else 4)) {
+                val pendingDetails = withContext(Dispatchers.Default) {
+                    (session.turboCoverCandidatePool + results)
+                        .distinctBy(DiscogsVersionSource::recordingIdentityKey)
+                        .filter { it.releaseId > 0 && !it.discogsVerificationChecked }
+                        // Per-turn bounded metadata budget avoids saturating
+                        // the CPU/network alongside continuous Media3 audio.
+                        .take(if (playbackIsNormallyPlaying()) 6 else 12)
+                }
+                for (batch in pendingDetails.chunked(if (playbackIsNormallyPlaying()) 1 else 3)) {
                     while (isActive && (backgroundWorkBlocked() ||
                         playerConnection?.service?.isCoverAudioAtRisk() == true)
                     ) delay(500L)
@@ -3447,8 +3458,9 @@ internal fun DiscogsDirectVersionBrowser(
         val discogsRoundPage = if (appendVerifiedRound) coverRoundNumber + 1 else 1
         if (appendVerifiedRound) {
             // LAB61: immutable VIDEO FIRST history survives later rounds.
-            val alreadyCommitted = (publishedOriginalSnapshots + publishedCoverSnapshots)
-                .filter(::hasPublishableVideo)
+            // LAB64: every admitted recording survives Cerca ancora, whether
+            // its playable video is resolved or still pending.
+            val alreadyCommitted = publishedOriginalSnapshots + publishedCoverSnapshots
             val occupied = previousRoundRows.mapTo(HashSet<String>()) {
                 DiscogsVersionSource.recordingIdentityKey(it)
             }
@@ -3660,6 +3672,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     isRejected = ::isRejected,
                                     verifiedVideoIds = session.playReadyVideoIds,
                                     history = previousRoundRows,
+                                    coverRound = coverRoundNumber,
                                     originalYear = session.originalYear,
                                     originalCredits = session.originalWorkCredits,
                                 )
@@ -3725,6 +3738,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     isRejected = ::isRejected,
                                     verifiedVideoIds = session.playReadyVideoIds,
                                     history = previousRoundRows,
+                                    coverRound = coverRoundNumber,
                                     originalYear = session.originalYear,
                                     originalCredits = session.originalWorkCredits,
                                 ).drop(committedCount)
@@ -4029,6 +4043,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         aiConfig = foreignScoutConfig,
                                         maxNetworkFanOut = if (playbackIsNormallyPlaying() || playbackIsCritical()) 2 else 5,
                                         coverRound = if (appendVerifiedRound) coverRoundNumber else 1,
+                                        deepRecovery = appendVerifiedRound,
                                         // Always refresh the Turbo metadata sources. The
                                         // nested MB/SHS caches are bypassed on manual retry.
                                         forceRefresh = forceRefresh,
@@ -4284,9 +4299,15 @@ internal fun DiscogsDirectVersionBrowser(
                         // A real candidate with no artwork keeps its row as an
                         // explicit image-unavailable state rather than vanishing.
                         val finalRanked = withContext(Dispatchers.Default) {
-                            turboRankedPool()
-                                .filter { seed -> seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds }
-                                .distinctBy { it.fingerprint }
+                            val playable = turboRankedPool().filter { seed ->
+                                seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds
+                            }
+                            // Documented, source-backed cover recordings remain
+                            // eligible even before any YouTube video is found.
+                            // Subsequent rounds widen progressively in the
+                            // publisher, not in the actual Work identity check.
+                            (playable + results)
+                                .distinctBy(DiscogsVersionSource::recordingIdentityKey)
                         }
                         // LAB53: original-performer versions have their own section.
                         // They NEVER consume any of the 50 COVER places.
@@ -4303,6 +4324,7 @@ internal fun DiscogsDirectVersionBrowser(
                             isRejected = ::isRejected,
                             verifiedVideoIds = session.playReadyVideoIds,
                             history = previousRoundRows,
+                            coverRound = coverRoundNumber,
                             originalYear = session.originalYear,
                             originalCredits = session.originalWorkCredits,
                         )
@@ -4357,9 +4379,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 "published=${publishedCoverSnapshots.size} " +
                                 "credits=${session.originalWorkCredits.size}",
                         )
-                        session.turboReserve = turboRankedPool()
-                            .filterNot { it.fingerprint in frozenIds }
-                            .take(TURBO_RESERVE_MAX)
+                        session.turboReserve = withContext(Dispatchers.Default) {
+                            turboRankedPool()
+                                .filterNot { it.fingerprint in frozenIds }
+                                .take(TURBO_RESERVE_MAX)
+                        }
                         val frozenResults = results.filter {
                             it.fingerprint in frozenIds ||
                                 (appendVerifiedRound &&
