@@ -19,7 +19,7 @@ class CoverLab55VisibleCandidatesTest {
             ),
             targetTitle = title,
             originalArtist = "Gino Paoli",
-        )
+        ).copy(resolvedVideoId = "vid" + i.toString().padStart(8, '0'))
 
     @Test fun sixDozenCatalogCandidatesFillFiftyProvisionalCardsWithoutFabrication() {
         val discovered = (1..68).map { song(it) }
@@ -32,6 +32,21 @@ class CoverLab55VisibleCandidatesTest {
             CoverLab55VisibleCandidates.isProvisional(it, "Gino Paoli", emptyList())
         })
         assertTrue(output.all { it.artist.startsWith("Singer ") })
+    }
+
+    @Test fun videoFirstRejectsPosterOnlyAndUnverifiedVideoIds() {
+        val confirmed = song(1)
+        val pending = song(2).copy(resolvedVideoId = null)
+        val output = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(pending, confirmed), "Sapore di sale", "Gino Paoli",
+            verifiedVideoIds = setOf(confirmed.resolvedVideoId!!),
+        ) { false }
+        assertEquals(listOf(confirmed), output)
+        val unverified = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(confirmed), "Sapore di sale", "Gino Paoli",
+            verifiedVideoIds = emptySet(),
+        ) { false }
+        assertTrue(unverified.isEmpty())
     }
 
     @Test fun cloudArchiveCreditsSurviveTheFirstRound() {
@@ -69,8 +84,8 @@ class CoverLab55VisibleCandidatesTest {
     }
 
     @Test fun explicitRejectionAndRepeatedVideosPreventDoubleCount() {
-        val one = song(1).copy(resolvedVideoId = "same-vid")
-        val two = song(2).copy(resolvedVideoId = "same-vid")
+        val one = song(1).copy(resolvedVideoId = "same-vid001")
+        val two = song(2).copy(resolvedVideoId = "same-vid001")
         val third = song(3)
         val out = CoverLab55VisibleCandidates.publish(
             emptyList(), listOf(one, two, third, third), "Sapore di sale",
