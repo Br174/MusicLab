@@ -36,8 +36,8 @@ jobs:
           set -euo pipefail
           BASE=4453eaee2be45babef9934aa91a654d5f274f3ab
           git merge-base --is-ancestor "$BASE" HEAD
-          git diff --name-only "$BASE" HEAD > /tmp/musiclab-lab61-changed.txt
-          cat /tmp/musiclab-lab61-changed.txt
+          git diff --name-only "$BASE" HEAD > /tmp/musiclab-lab62-changed.txt
+          cat /tmp/musiclab-lab62-changed.txt
           while IFS= read -r path; do
             case "$path" in
               app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab55VisibleCandidates.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|cloudflare/music-intelligence/test/turbo-lab62-progressive-cover-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab62-progressive-cover-env.py|.github/workflows/musiclab-turbo-lab62-progressive-cover-apk.yml|.motorlab/LAB62_TURBO_PROGRESSIVE_COVER_CHECKPOINT.txt) ;;
