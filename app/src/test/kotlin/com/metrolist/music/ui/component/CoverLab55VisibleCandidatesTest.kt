@@ -146,6 +146,74 @@ class CoverLab55VisibleCandidatesTest {
         assertEquals(listOf(older), output)
     }
 
+
+    @Test fun documentedCoverAppearsWithoutVideoEvenInFirstRound() {
+        val documented = song(150, "L'addio", "Work-linked Singer").copy(
+            year = 1981,
+            resolvedVideoId = null,
+            workRelationConfirmed = true,
+            sourceNames = listOf("COVER.INFO"),
+        )
+        val visible = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(documented), "L'addio", "Franco Battiato",
+            originalYear = 1981, verifiedVideoIds = emptySet(),
+        ) { false }
+        assertEquals(1, visible.size)
+        assertNull(visible.single().resolvedVideoId)
+    }
+
+    @Test fun secondRoundWidensToIndependentCatalogEvidenceWithoutVideo() {
+        val candidate = song(151, "L'addio", "Documented Singer").copy(
+            year = 1991, resolvedVideoId = null,
+            sourceNames = listOf("Discogs", "MusicBrainz"),
+        )
+        val first = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(candidate), "L'addio", "Franco Battiato",
+            originalYear = 1981,
+        ) { false }
+        val second = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(candidate), "L'addio", "Franco Battiato",
+            originalYear = 1981, coverRound = 2,
+        ) { false }
+        assertTrue(first.isEmpty())
+        assertEquals(1, second.size)
+    }
+
+    @Test fun thirdRoundAdmitsCatalogProvisionalButStillRejectsOlderHomonym() {
+        val eligible = song(152, "L'addio", "Catalog Artist").copy(
+            year = 1990, resolvedVideoId = null, sourceNames = listOf("Discogs"),
+        )
+        val unrelated = song(153, "L'addio", "1924 Unrelated Artist").copy(
+            year = 1924, resolvedVideoId = null, sourceNames = listOf("Discogs"),
+        )
+        val second = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(eligible), "L'addio", "Franco Battiato",
+            originalYear = 1981, coverRound = 2,
+        ) { false }
+        val third = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(eligible, unrelated), "L'addio", "Franco Battiato",
+            originalYear = 1981, coverRound = 3,
+        ) { false }
+        assertTrue(second.isEmpty())
+        assertEquals(listOf(eligible), third)
+    }
+
+    @Test fun laterRoundsPreserveEarlierPosterWithoutVideoButNeverDuplicateIt() {
+        val previous = song(155, "L'addio", "Historical Cover").copy(
+            resolvedVideoId = null, sourceNames = listOf("COVER.INFO"),
+            workRelationConfirmed = true,
+        )
+        val newCandidate = song(156, "L'addio", "New Cover").copy(
+            resolvedVideoId = null, sourceNames = listOf("Discogs"),
+        )
+        val second = CoverLab55VisibleCandidates.publish(
+            emptyList(), listOf(previous, newCandidate),
+            "L'addio", "Franco Battiato",
+            history = listOf(previous), coverRound = 3,
+        ) { false }
+        assertEquals(listOf(newCandidate), second)
+    }
+
     @Test fun sameNamedUnconfirmedRecordingIsClearlyLabeledAsPending() {
         val seed = song(1, "Soli")
         val status = CoverLab55VisibleCandidates.labelFor(
