@@ -38,8 +38,8 @@ internal object CoverLab55VisibleCandidates {
         songTitle: String,
         originalArtist: String,
         verifiedVideoIds: Set<String>? = null,
-        isRejected: (DiscogsVersionSeed) -> Boolean,
         history: List<DiscogsVersionSeed> = emptyList(),
+        isRejected: (DiscogsVersionSeed) -> Boolean,
     ): List<DiscogsVersionSeed> {
         // Only prior rounds in this visit: never a persistent recording ban.
         val priorRecordings = history.mapTo(HashSet<String>()) {
