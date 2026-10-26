@@ -1,0 +1,15 @@
+MOTORLAB OPERATION musiclab-turbo-20261026-lab60-cover-compilation
+BRANCH=lab/musiclab-turbo-lab60-crash-source-switches-20261026
+PARENT_COMMIT=5309fd746fc3fb02d92b1d89b14bcb0ee65d8b53
+CORE_RELEASE=2026.10.22-r38 LOCAL_VERIFIED
+USER_APPROVAL=LAB60 unified Cover e Compilation settings; independent archive/cloud; LAB59 null crash; signed APK ZIP
+STABLE_ANDROID_ID=it.verlezza.musiclab.turbo01
+VERSION_CODE=33062
+SIGNING_EXPECTED_SHA256=9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49
+PROTECTED=LAB58 LAB59 MADRE MAIN PRODUCTION CLOUD AUDIO PLAYER COMPILATION ENGINE
+FIX=Nullable video ID was passed to ConcurrentHashMap keySet contains; guard with orEmpty for all related source scans.
+SETTINGS=one dedicated settings route with existing switches and new independent archive/cloud keys default true.
+ARCHIVE_OFF=skip CloudArchive search and archive screen; no metadata deletion.
+CLOUD_OFF=empty Cloud endpoint and disable Cloud memory, preservation of local cached rounds.
+CI=.github/workflows/musiclab-turbo-lab60-cover-compilation-apk.yml
+READY=AFTER_GITHUB_ACTIONS_VERIFICATION;ANDROID_DEVICE_ACCEPTANCE_PENDING
