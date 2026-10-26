@@ -284,6 +284,9 @@ private data class DirectVersionSession(
     var roundPlanComplete: Boolean = false,
     var roundSourceChecked: Boolean = false,
     var roundQueryRetries: Int = 0,
+    // LAB67: two consecutive search presses with no newly published videos
+    // allow the user to enter the next quality tier, no infinite orange state.
+    var roundEmptyPasses: Int = 0,
     var originalSectionFrozen: Boolean = false,
     var originalGateStartedAtMs: Long = 0L,
     var coverBatchStartedAtMs: Long = 0L,
@@ -3484,6 +3487,7 @@ internal fun DiscogsDirectVersionBrowser(
                 session.youtubeQueryCursor = 0
                 session.roundSourceChecked = false
                 session.roundQueryRetries = 0
+                session.roundEmptyPasses = 0
                 roundPlanComplete = false
                 session.roundPlanComplete = false
                 scope.launch(Dispatchers.IO) { CoverRoundStorage.clear(context, sessionKey) }
@@ -3500,6 +3504,7 @@ internal fun DiscogsDirectVersionBrowser(
                 session.youtubeQueryCursor = 0
                 session.roundSourceChecked = false
                 session.roundQueryRetries = 0
+                session.roundEmptyPasses = 0
                 roundPlanComplete = false
                 session.roundPlanComplete = false
             }
@@ -3509,6 +3514,7 @@ internal fun DiscogsDirectVersionBrowser(
                 lockedArtist.ifBlank { resolvedOriginalArtist },
             )
             val cursor = session.youtubeQueryCursor
+            val visibleBefore = publishedCoverSnapshots.size
             val querySlice = queries.drop(cursor).take(2)
             val includeDocumentary = !session.roundSourceChecked
             activeCriteria = criteria
@@ -3532,10 +3538,13 @@ internal fun DiscogsDirectVersionBrowser(
                     val originalArtist = lockedArtist.ifBlank { resolvedOriginalArtist }
                     val searchedTitle = TitleMeaningResolver.workAnchorTitle(criteria.title)
                     val videoIdPattern = Regex("[A-Za-z0-9_-]{11}")
+                    val earlyVideoIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+                    val documentarySearchKeys = linkedSetOf<String>()
                     suspend fun tryPublish(candidate: CoverSourceCandidate) {
                         val id = candidate.playbackVideoId?.trim().orEmpty()
                         if (!videoIdPattern.matches(id)) return
                         if (!isActive || generation != turboSearchGeneration) return
+                        if (!earlyVideoIds.add(id)) return
                         // An already shown video must not be reverified while
                         // two providers report the same record.
                         if (previousRoundRows.any { it.resolvedVideoId == id } ||
@@ -3573,7 +3582,9 @@ internal fun DiscogsDirectVersionBrowser(
                         if (id in priorVideos || id in currentVideos ||
                             publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) return
                         val priorEntries = previousRoundRows + publishedCoverSnapshots
-                        if (priorEntries.any { DiscogsVersionSource.sameCrossSourceVersion(it, seed) }) return
+                        if (withContext(Dispatchers.Default) {
+                                priorEntries.any { CoverLabTurboTwinGuard.sameRecording(it, seed) }
+                            }) return
                         withContext(Dispatchers.IO) {
                             CoverPlaybackMemory.saveMetadataVerifiedVideo(context, seed.fingerprint, id)
                         }
@@ -3601,7 +3612,7 @@ internal fun DiscogsDirectVersionBrowser(
                     // COVER.INFO is queried in parallel, including foreign adaptations.
                     coroutineScope {
                         val documents = if (includeDocumentary) launch(Dispatchers.IO) {
-                            withTimeoutOrNull(9_000L) {
+                            withTimeoutOrNull(16_000L) {
                                 CoverDiscoverySources.discover(
                                     title = searchedTitle,
                                     originalArtist = originalArtist,
@@ -3711,8 +3722,14 @@ internal fun DiscogsDirectVersionBrowser(
                         cloud?.join()
                     }
                     session.roundSourceChecked = true
+                    if (publishedCoverSnapshots.size == visibleBefore) {
+                        session.roundEmptyPasses++
+                    } else {
+                        session.roundEmptyPasses = 0
+                    }
                     roundPlanComplete = publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA ||
-                        session.youtubeQueryCursor >= queries.size
+                        session.youtubeQueryCursor >= queries.size ||
+                        session.roundEmptyPasses >= 2
                     session.roundPlanComplete = roundPlanComplete
                     val saved = previousRoundRows + publishedCoverSnapshots
                     withContext(Dispatchers.IO) {
