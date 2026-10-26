@@ -362,7 +362,10 @@ internal object CoverDiscoverySources {
                 // documentary work/performance relationship. Neither
                 // name equality nor an unverified video is sufficient.
                 val linkedDocumentaryWork =
-                    admitsAnchoredAlternateTitle(candidate, deepRecovery)
+                    admitsAnchoredAlternateTitle(candidate, deepRecovery) ||
+                        // First round: documented foreign-title COVER.INFO relation.
+                        (candidate.workRelationConfirmed &&
+                            candidate.sources.any { it.equals("COVER.INFO", true) })
 
                 strictTitleMatch ||
                     aiTrusted ||
@@ -421,7 +424,9 @@ internal object CoverDiscoverySources {
             // A missing musical publication date survives, but cannot rank as if
             // that fundamental piece of evidence had been certified.
             if (candidate.year == null) score = score.coerceAtMost(11)
-            if (candidate.year != null && originalYear != null && candidate.year < originalYear) {
+            if (coverRound <= 1 && !deepRecovery &&
+                candidate.year != null && originalYear != null && candidate.year < originalYear
+            ) {
                 // Chronology uncertainty lowers evidence; it never removes a cover.
                 score = score.coerceAtMost(6)
             }

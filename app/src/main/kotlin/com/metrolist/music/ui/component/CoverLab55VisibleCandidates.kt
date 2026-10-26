@@ -39,7 +39,15 @@ internal object CoverLab55VisibleCandidates {
         originalArtist: String,
         verifiedVideoIds: Set<String>? = null,
         isRejected: (DiscogsVersionSeed) -> Boolean,
+        history: List<DiscogsVersionSeed> = emptyList(),
     ): List<DiscogsVersionSeed> {
+        // Only prior rounds in this visit: never a persistent recording ban.
+        val priorRecordings = history.mapTo(HashSet<String>()) {
+            DiscogsVersionSource.recordingIdentityKey(it)
+        }
+        val priorVideos = history.mapNotNullTo(HashSet<String>()) {
+            it.resolvedVideoId?.trim()?.takeIf(String::isNotBlank)
+        }
         val seen = LinkedHashSet<String>()
         val videos = HashSet<String>()
         val output = ArrayList<DiscogsVersionSeed>(QUOTA)
@@ -53,6 +61,7 @@ internal object CoverLab55VisibleCandidates {
             if (!video.matches(Regex("[A-Za-z0-9_-]{11}"))) continue
             if (verifiedVideoIds != null && video !in verifiedVideoIds) continue
             val identity = DiscogsVersionSource.recordingIdentityKey(seed)
+            if (identity in priorRecordings || video in priorVideos) continue
             if (!seen.add(identity) || !videos.add(video)) continue
             output += seed
         }
