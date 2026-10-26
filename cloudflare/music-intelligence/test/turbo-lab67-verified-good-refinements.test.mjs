@@ -22,10 +22,10 @@ test('COVER.INFO artist-specific first hit never suppresses title-wide variants'
  assert.match(browser,/diagnostic\.name == "MusicBrainz"/);
  assert.match(browser,/val linked = lead\.copy\(/);
 });
-test('Orange changes green after two consecutive no-new-video presses',()=>{
+test('Orange stays available until untried queries are truly exhausted',()=>{
  assert.match(browser,/session\.roundEmptyPasses\+\+/);
  assert.match(browser,/session\.roundEmptyPasses = 0/);
- assert.match(browser,/session\.roundEmptyPasses >= 2/);
+ assert.doesNotMatch(browser,/session\.roundEmptyPasses >= 2/);
  assert.match(browser,/session\.youtubeQueryCursor = cursor \+ offset \+ 1/);
  assert.match(browser,/Text\(if \(roundPlanComplete\) "Cerca ancora" else "Completa tornata"\)/);
 });
