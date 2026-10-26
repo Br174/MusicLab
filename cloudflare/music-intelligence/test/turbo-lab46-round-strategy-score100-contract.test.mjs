@@ -36,8 +36,12 @@ test('LAB46: /100 points separate from editorial approval, first50 unchanged',()
  assert.match(browser,/CoverQualityScore100\.score\(seed\)/);
  assert.match(browser,/musiclabScore100 = seed\.musiclabScore100/);
  assert.match(browser,/roundPosition = previousRoundRows\.size \+ index \+ 1/);
- assert.match(browser,/seed\.confidenceScore\}\/20/);
- assert.match(browser,/seed\.musiclabScore100\}\/100/);
+ // LAB66 keeps both fields for backward-compatible Cloud/archive storage,
+ // but the approved USER-FACING confidence now uses percentage only.
+ assert.match(browser,/\$\{seed\.musiclabScore100\}%/);
+ assert.match(browser,/Precisione stimata:/);
+ assert.doesNotMatch(browser,/\$\{seed\.confidenceScore\}\/20/);
+ assert.doesNotMatch(browser,/\$\{seed\.musiclabScore100\}\/100/);
  assert.doesNotMatch(points,/manuallyApproved|APPROVED|REJECTED/);
 });
 test('LAB46: publication and restart retain unique per-video and per-recording positions',()=>{
