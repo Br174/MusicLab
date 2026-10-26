@@ -117,3 +117,10 @@ MOTORLAB_BUILD_MICRO_ACCELERATION=non_compiler_only
 MOTORLAB_KOTLIN_KSP_TUNING=explicit_approval_only
 
 MOTORLAB_KOTLIN_KSP_TUNING=forbidden_without_explicit_approval
+
+
+MUSICLAB_COVER_BEHAVIOR_MEMORY_AUTHORITY=behaviors/musiclab-cover.json
+MUSICLAB_COVER_BEHAVIOR_MEMORY_REF=motorlab/musiclab-cover-behavior-memory-clean-20261026
+MUSICLAB_COVER_BEHAVIOR_MEMORY_REVISION=2026-10-26-video-thumb-progressive-manual-rounds-v2
+MUSICLAB_COVER_BEHAVIOR_MEMORY_POLICY=before any future CoverLab implementation, read canonical contract above, respect active supersession and audit every conflicting legacy enforcement path
+MUSICLAB_COVER_BEHAVIOR_MEMORY_ENFORCEMENT=contract_retirement_verified;app_runtime_main_promotion_pending
