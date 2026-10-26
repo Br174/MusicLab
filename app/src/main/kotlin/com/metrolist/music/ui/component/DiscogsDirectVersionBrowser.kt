@@ -3541,21 +3541,23 @@ internal fun DiscogsDirectVersionBrowser(
             val documentaryFanOut = if (playbackIsNormallyPlaying()) 1 else 2
             fun recordSource(diagnostic: CoverSourceDiagnostic) {
                 // Caller must be Main; source worker callbacks hop explicitly.
-                sourceDiagnostics = sourceDiagnostics.filterNot { it.name == diagnostic.name } +
+                sourceDiagnostics = sourceDiagnostics.filterNot {
+                    it.name.equals(diagnostic.name, ignoreCase = true)
+                } +
                     diagnostic
                 session.sourceDiagnostics = sourceDiagnostics
             }
             if (includeDocumentary) {
                 sourceDiagnostics = listOf(
-                    CoverSourceDiagnostic("YouTube diretto", true, 0, "ricerca avviata"),
-                    CoverSourceDiagnostic("COVER.INFO", true, 0, "ricerca e adattamenti in corso"),
-                    CoverSourceDiagnostic("MusicBrainz", true, 0, "metadati in corso"),
+                    CoverSourceDiagnostic("YouTube diretto", false, 0, "ricerca avviata"),
+                    CoverSourceDiagnostic("COVER.INFO", false, 0, "ricerca e adattamenti in corso"),
+                    CoverSourceDiagnostic("MusicBrainz", false, 0, "metadati in corso"),
                     CoverSourceDiagnostic("Discogs", discogsToken.isNotBlank(), 0,
                         if (discogsToken.isNotBlank()) "consultazione in corso"
                         else "chiave Discogs non configurata"),
-                    CoverSourceDiagnostic("Apple/iTunes", true, 0, "da controllare"),
-                    CoverSourceDiagnostic("Spotify", true, 0, "da controllare"),
-                    CoverSourceDiagnostic("LrcLib", true, 0, "da controllare"),
+                    CoverSourceDiagnostic("Apple/iTunes", false, 0, "da controllare"),
+                    CoverSourceDiagnostic("Spotify", false, 0, "da controllare"),
+                    CoverSourceDiagnostic("LRCLIB", false, 0, "da controllare"),
                 )
                 session.sourceDiagnostics = sourceDiagnostics
             }
@@ -3638,6 +3640,20 @@ internal fun DiscogsDirectVersionBrowser(
                     // YouTube search is the FIRST source, not a catalog lookup.
                     // COVER.INFO is queried in parallel, including foreign adaptations.
                     coroutineScope {
+                        // LAB69: documentation callbacks must never spend the
+                        // source-discovery deadline verifying dozens of videos.
+                        // A bounded pair of independent coroutines publishes
+                        // each verified thumbnail immediately, without batches.
+                        val sourceVideoGate = Semaphore(2)
+                        val sourceQueuedIds = ConcurrentHashMap.newKeySet<String>()
+                        fun submitSourceVideo(candidate: CoverSourceCandidate) {
+                            val id = candidate.playbackVideoId?.trim().orEmpty()
+                            if (!id.matches(videoIdPattern) || sourceQueuedIds.size >= 48 ||
+                                !sourceQueuedIds.add(id)) return
+                            launch(Dispatchers.Main.immediate) {
+                                sourceVideoGate.withPermit { tryPublish(candidate) }
+                            }
+                        }
                         val documents = if (includeDocumentary) launch(Dispatchers.IO) {
                             val fullDiscovery = withTimeoutOrNull(16_000L) {
                                 CoverDiscoverySources.discover(
@@ -3649,11 +3665,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     coverRound = thisRound,
                                     deepRecovery = thisRound > 1,
                                     onEarlyVideoCandidates = { candidates ->
-                                        for (candidate in candidates) {
-                                            withContext(Dispatchers.Main.immediate) {
-                                                tryPublish(candidate)
-                                            }
-                                        }
+                                        candidates.forEach(::submitSourceVideo)
                                     },
                                     onSourceCompleted = { candidates, diagnostic, _ ->
                                         withContext(Dispatchers.Main.immediate) {
@@ -3661,13 +3673,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         }
                                         // A linked COVER.INFO ID takes the short route:
                                         // never make it wait for a new YouTube search.
-                                        for (candidate in candidates.filter {
-                                            !it.playbackVideoId.isNullOrBlank()
-                                        }) {
-                                            withContext(Dispatchers.Main.immediate) {
-                                                tryPublish(candidate)
-                                            }
-                                        }
+                                        candidates.forEach(::submitSourceVideo)
                                         // LAB67 quality recovery: MusicBrainz and
                                         // COVER.INFO professional editions often
                                         // document the recording but have no direct
@@ -3677,7 +3683,9 @@ internal fun DiscogsDirectVersionBrowser(
                                         if (thisRound == 1 &&
                                             (diagnostic.name == "COVER.INFO" ||
                                                 diagnostic.name == "MusicBrainz")
-                                        ) {
+                                        ) launch(Dispatchers.IO) {
+                                            // A separate bounded lane, not a blocking
+                                            // onSourceCompleted callback.
                                             for (lead in candidates) {
                                                 if (!isActive || documentarySearchKeys.size >= 4) break
                                                 val audioBusy = withContext(Dispatchers.Main.immediate) {
@@ -3714,9 +3722,7 @@ internal fun DiscogsDirectVersionBrowser(
                                                         playbackVideoSource = "YouTube documentary",
                                                         coverUrl = "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg",
                                                     )
-                                                    withContext(Dispatchers.Main.immediate) {
-                                                        tryPublish(linked)
-                                                    }
+                                                    submitSourceVideo(linked)
                                                 }
                                             }
                                         }
@@ -3882,6 +3888,19 @@ internal fun DiscogsDirectVersionBrowser(
                         discogs?.join()
                     }
                     session.roundSourceChecked = documentaryCompleted.get()
+                    if (includeDocumentary && !documentaryCompleted.get()) {
+                        // Source timeouts must not remain labelled "in corso"
+                        // forever, or be confused with proven zero covers.
+                        sourceDiagnostics = sourceDiagnostics.map { status ->
+                            if (status.note.contains("in corso", ignoreCase = true) ||
+                                status.note.contains("da controllare", ignoreCase = true)
+                            ) status.copy(
+                                available = false,
+                                note = "non completata: tempo limite o fonte non raggiungibile",
+                            ) else status
+                        }
+                        session.sourceDiagnostics = sourceDiagnostics
+                    }
                     if (publishedCoverSnapshots.size == visibleBefore) {
                         session.roundEmptyPasses++
                     } else {
@@ -7340,7 +7359,13 @@ private fun SourceDiagnosticsDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 diagnostics.forEach { diagnostic ->
-                    val state = if (diagnostic.available) "✅" else "⚪"
+                    val state = when {
+                        diagnostic.note.contains("in corso", ignoreCase = true) ||
+                            diagnostic.note.contains("ricerca avviata", ignoreCase = true) ||
+                            diagnostic.note.contains("da controllare", ignoreCase = true) -> "🟠"
+                        diagnostic.available -> "✅"
+                        else -> "⚪"
+                    }
                     Text(
                         "$state ${diagnostic.name} · ${diagnostic.found}" +
                             diagnostic.note.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty(),
