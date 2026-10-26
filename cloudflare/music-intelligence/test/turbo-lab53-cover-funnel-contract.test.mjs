@@ -27,10 +27,10 @@ test('the first ten and next partial covers actually publish before full quota',
  assert.match(publisher,/if \(next\.isEmpty\(\)\) return/);
  assert.match(b,/if \(publishedCoverSnapshots\.size < TURBO_RESULT_QUOTA\) return false/);
 });
-test('the initial search LAB45 stays intact and no video ID is needed for visual publication',()=>{
+test('the initial LAB45 source discovery stays intact and LAB65 displays only video-verified records',()=>{
  assert.match(read('CoverRoundSearchPlan.kt'),/if \(round <= 1 \|\| title\.isBlank\(\)\) return emptyList\(\)/);
  assert.match(p,/A missing video ID leaves the genuine recording as a visible candidate/);
- assert.match(b,/poster publication NEVER depends on a linked video/i);
+ assert.match(b,/LAB65: ONLY videos with verified metadata reach the/);
  assert.match(b,/val ready = turboRankedPool\(\)/);
 });
 test('source candidates are retained after short burst and reused on recovery',()=>{
