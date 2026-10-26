@@ -28,8 +28,8 @@ test('LAB54 confirms original work credits without title-only or video-only admi
  assert.match(recovery,/CoverRoundStorage\.save\(context, sessionKey, expectedRound, saved\)/);
  assert.match(b,/CoverMultiProofVerifier\.verify\(/);
 });
-test('LAB54 initial category counters and actual cards use same published list',()=>{
- assert.match(b,/results = if \(isTurbo && mode == DiscogsDirectMode\.COVER\) \{\s*visibleResults/);
+test('LAB54/LAB61 category counters use cumulative verified published list',()=>{
+ assert.match(b,/results = if \(isTurbo && mode == DiscogsDirectMode\.COVER\) \{\s*unifiedCoverDisplay/);
  assert.match(b,/val visibleTrueCovers = remember\(/);
  assert.match(b,/publishedCoverSnapshots\s*\.filterNot\(::isHiddenForCurrentCover\)/);
  assert.match(b,/visibleTrueCovers\.size/);
