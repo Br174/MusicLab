@@ -66,7 +66,7 @@ internal object CoverLab66DirectYouTube {
             RegexOption.IGNORE_CASE,
         ).containsMatchIn(videoTitle)
         val signals = listOf(titleMatch, performerMatch, evidence).count { it } +
-            if (documentedWorkRelation) 2 else 0
+            if (documentedWorkRelation) 3 else 0
         return if (round >= 4) {
             if (titleMatch || documentedWorkRelation) maxOf(signals, 1) else 0
         } else signals
