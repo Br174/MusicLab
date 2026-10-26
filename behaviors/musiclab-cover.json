@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "musiclab",
   "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
-  "status": "APPROVED_CANONICAL_BEHAVIOR_CONTRACT_MEMORY_ONLY_RUNTIME_NOT_YET_IMPLEMENTED",
+  "status": "USER_DEVICE_VERIFIED_GOOD_SEARCH_BASELINE_LAB66; REFINEMENTS_PENDING",
   "rules": [
     {
       "id": "musiclab.cover.same-work",
@@ -360,5 +360,45 @@
       "replacementRule": "musiclab.cover.visible-confidence-percent.v2",
       "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
     }
-  ]
+  ],
+  "confirmedGoodBaseline": {
+    "label": "MusicLab Turbo LAB66 video thumbnails, direct YouTube search, orange/green manual rounds",
+    "commit": "26f652fd34cbf6856d76c6efc8baf3fd14bf333f",
+    "ref": "lab/musiclab-turbo-lab66-youtube-streaming-20261026",
+    "workflow": "https://github.com/Br174/MusicLab/actions/runs/40372637689",
+    "build": "SIGNED_APK_ZIP_GREEN_17_OF_17",
+    "evidence": "On 2026-10-26 user installed/tested and explicitly confirmed: finally system works and actual original YouTube thumbnails and results appear.",
+    "protectedBehavior": [
+      "Use existing LAB66 direct YouTube video -> check actual YouTube ID/metadata -> show immediately matching original thumbnail and link.",
+      "Do not replace thumbnail stream with album posters, catalogue metadata-only cards, green/red status dots, embedded video in scrolling list, or wait for batches.",
+      "Append results one by one without moving already displayed positions and keep the single orange 'Completa tornata' and green 'Cerca ancora' semantics.",
+      "Keep manual progressive precision rounds, percentage-estimate labels, original category filters, YouTube playback binding, and Cloud/Archive switches.",
+      "Preserve exact LAB66 known-good source path in isolation; selective small fixes only, never rewrite working pathway for unrelated changes."
+    ],
+    "deviceVerifiedScope": "Visible search outputs and method functioning, NOT certified high-confidence coverage, end-of-round transition, dedup or full audio/scroller smoothness."
+  },
+  "pendingUserAuthorizedRefinements": [
+    {
+      "key": "round1_providers",
+      "symptom": "Il mondo / Jimmy Fontana: only one COVER.INFO item and one original; known many foreign versions at COVER.INFO; YouTube weaker covers appear first",
+      "intent": "Keep direct YouTube result stream, restore broad immediate first-round COVER.INFO and MusicBrainz/Discogs documentary professional studio originals, well-known and foreign adaptations; publish every verified original YouTube thumbnail as received, without poster fallback, more than one known version"
+    },
+    {
+      "key": "orange_to_green",
+      "symptom": "After repeatedly finishing without new finds orange never becomes green",
+      "intent": "Track actual query completion, retry/timeouts and source exhaustion; transition green after planned sources exhausted or a small bounded number of no-new-result attempts, never infinite orange; green moves to next precision round"
+    },
+    {
+      "key": "duplicates",
+      "symptom": "Several repeated identical performances/videos",
+      "intent": "Dedupe video ID, same recording across different videos/uploads and true identical twin recordings without rejecting genuinely different live/studio versions"
+    },
+    {
+      "key": "performance_audio",
+      "symptom": "Mild stutters, music occasionally interrupts, thumbnails scroll less smoothly especially during loading",
+      "intent": "Move I/O and expensive matching off main; pause/reduce background work when audio needs resources; keep list stable and smooth while streaming"
+    }
+  ],
+  "implementationPolicy": "LAB66 is confirmed user-visible LAST_GOOD for thumbnail production. Future LAB67 changes must be strictly selective, non-destructive, with source-diff and regression guard. Save memory before modifying app. Approval for 4 refinements is user-granted; don't alter existing good method.",
+  "memoryUpdatedAt": "2026-10-26"
 }
