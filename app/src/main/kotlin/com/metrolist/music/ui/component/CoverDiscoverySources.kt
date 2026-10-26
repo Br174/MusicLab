@@ -953,6 +953,27 @@ internal object CoverDiscoverySources {
         }
     }
 
+    /**
+     * LAB66: use only COVER.INFO's direct source. The first round does not
+     * wait for iTunes, Discogs, MusicBrainz, AI or unrelated network lanes.
+     * Already linked YouTube IDs are handed off immediately. Translated
+     * foreign renditions have an explicit relation with the same work.
+     */
+    suspend fun coverInfoDirectVideoHints(
+        title: String,
+        originalArtist: String,
+        onEarly: suspend (List<CoverSourceCandidate>) -> Unit,
+    ): List<CoverSourceCandidate> {
+        if (title.isBlank()) return emptyList()
+        return withTimeoutOrNull(12_000L) {
+            discoverCoverInfo(
+                title = title, originalArtist = originalArtist,
+                mode = DiscogsDirectMode.COVER, deepRecovery = false,
+                onEarlyVideoCandidates = onEarly,
+            ).first.filter { !it.playbackVideoId.isNullOrBlank() }
+        }.orEmpty()
+    }
+
     // LAB46: YouTube Music candidate discovery only, never certification.
     // The unchanged same-work and playback hard matcher gate publication.
     private suspend fun discoverYouTubeCoverRound(
