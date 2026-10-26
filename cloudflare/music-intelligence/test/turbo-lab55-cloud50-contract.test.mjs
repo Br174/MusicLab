@@ -25,10 +25,10 @@ test('LAB55 supports 50 real catalog results pending certification, never synthe
  assert.match(engine,/if \(seed\.sourceNames\.isEmpty\(\)\) return false/);
  assert.match(engine,/TitleMeaningResolver\.matchesBaseTitle\(songTitle, seed\.trackTitle\)/);
  assert.match(engine,/DiscogsVersionSource\.recordingIdentityKey\(seed\)/);
- // LAB59 replaces the LAB55 poster-only policy; retain documentary proof and dedup.
- assert.match(engine,/if \(!video\.matches\(Regex\(/);
- assert.match(engine,/verifiedVideoIds != null && video !in verifiedVideoIds/);
- assert.match(engine,/!seen\.add\(identity\) \|\| !videos\.add\(video\)/);
+ // LAB64: documentary records may be visible while playback-video verification remains independent.
+ assert.match(engine,/val videoVerified = rawVideo\.matches\(Regex\(/);
+ assert.match(engine,/verifiedVideoIds == null \|\| rawVideo in verifiedVideoIds/);
+ assert.match(engine,/val videoVerified = rawVideo\.matches\(Regex\(/);
  assert.match(browser,/publishedCoverSnapshots = CoverLab55VisibleCandidates\.publish/);
  assert.match(browser,/val initialCovers = CoverLab55VisibleCandidates\.publish/);
 });
