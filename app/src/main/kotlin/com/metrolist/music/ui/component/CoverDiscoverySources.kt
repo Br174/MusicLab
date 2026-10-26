@@ -1050,17 +1050,15 @@ internal object CoverDiscoverySources {
                 val precise = withContext(Dispatchers.IO) {
                     readSearchTerm(searchTerms.first())
                 }
-                val matchesWork = precise?.second?.let { page ->
-                    parseCoverInfoDocument(page).any { sameBaseTitle(title, it.title) }
-                } == true
-                if (matchesWork && !deepRecovery) {
-                    listOfNotNull(precise)
-                } else {
-                    val fallback = searchTerms.getOrNull(1)?.let { term ->
-                        withContext(Dispatchers.IO) { readSearchTerm(term) }
-                    }
-                    listOfNotNull(precise, fallback)
+                // LAB67: NEVER stop at the original performer's first hit.
+                // Title-only is necessary to find foreign adaptations and
+                // professionally released interpretations omitted by the
+                // artist-specific index (e.g. Jimmy Fontana's Il mondo).
+                // Keep requests sequential to preserve the existing 503 guard.
+                val fallback = searchTerms.getOrNull(1)?.let { term ->
+                    withContext(Dispatchers.IO) { readSearchTerm(term) }
                 }
+                listOfNotNull(precise, fallback)
             } else {
                 coroutineScope {
                     searchTerms.map { term ->
