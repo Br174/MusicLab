@@ -12,7 +12,7 @@ test('LAB61: Cerca ancora still uses LAB46 original rounds and VIDEO FIRST',()=>
  assert.match(ui,/val discogsRoundPage = if \(appendVerifiedRound\) coverRoundNumber \+ 1 else 1/);
  assert.match(ui,/coverRound = if \(appendVerifiedRound\) coverRoundNumber else 1/);
  assert.match(ui,/verifiedVideoIds = session\.playReadyVideoIds/);
- assert.match(publish,/verifiedVideoIds == null \|\| rawVideo in verifiedVideoIds/);
+ assert.match(publish,/verifiedVideoIds != null && video !in verifiedVideoIds/);
  for(const phrase of ['2 -> talent','3 -> amateur','else -> longTail','X Factor','The Voice','guitar cover','piano cover'])
    assert.ok(plan.includes(phrase),phrase);
  assert.ok(discovery.includes('discoverYouTubeCoverRound(cleanTitle, coverRound)'));
