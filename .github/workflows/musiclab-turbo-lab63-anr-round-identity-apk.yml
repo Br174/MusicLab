@@ -1,0 +1,117 @@
+name: MusicLab Turbo LAB63 Progressive Covers Signed APK ZIP
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-lab63-anr-round-identity-20261026
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # LAB63 resume recovery: prior runner remains stuck in_progress without steps.
+  # Keep the repaired build independent of that stale concurrency reservation.
+  group: musiclab-turbo-lab63-anr-round-identity-v1
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: LAB63 ANR watchdog, real next rounds, Work identity, signed APK ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CRASH_REPORT_TOKEN: ''
+      CRASH_REPORT_REPO: ''
+      LASTFM_API_KEY: ''
+      LASTFM_SECRET: ''
+    steps:
+      - name: Checkout isolated LAB63 and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Guard LAB61 baseline, native player, original round strategy, UI and production
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=4453eaee2be45babef9934aa91a654d5f274f3ab
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --name-only "$BASE" HEAD > /tmp/musiclab-lab63-changed.txt
+          cat /tmp/musiclab-lab63-changed.txt
+          while IFS= read -r path; do
+            case "$path" in
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab55VisibleCandidates.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|cloudflare/music-intelligence/test/turbo-lab53-cover-funnel-contract.test.mjs|cloudflare/music-intelligence/test/turbo-lab54-visible50-full-funnel-contract.test.mjs|cloudflare/music-intelligence/test/turbo-lab62-progressive-cover-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab63-anr-round-identity-env.py|.github/workflows/musiclab-turbo-lab63-anr-round-identity-apk.yml|.motorlab/LAB62_TURBO_PROGRESSIVE_COVER_CHECKPOINT.txt|cloudflare/music-intelligence/test/turbo-lab62-progressive-cover-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab62-progressive-cover-env.py|.github/workflows/musiclab-turbo-lab62-progressive-cover-apk.yml|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab55VisibleCandidatesTest.kt) ;;
+              *) echo "OUTSIDE APPROVED LAB63 SCOPE: $path"; exit 1 ;;
+            esac
+          done < /tmp/musiclab-lab63-changed.txt
+          for protected in app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt app/src/main/kotlin/com/metrolist/music/ui/component/CompilationScreen.kt app/src/main/kotlin/com/metrolist/music/ui/screens/settings/CoverCompilationSettings.kt app/src/main/kotlin/com/metrolist/music/constants/MusicIntelligenceKeys.kt app/src/main/AndroidManifest.xml app/build.gradle.kts; do
+            test "$(git hash-object "$protected")" = "$(git rev-parse "$BASE:$protected")"
+          done
+          echo "LAB63 isolated: player, Cloud, LAB61 UI, Android package and signer untouched"
+          test -z "$(git diff --name-only "$BASE" HEAD -- cloudflare/music-intelligence/src/)"
+          echo "LAB63 strictly isolated: no Cloud production, player or Android identity modifications"
+      - name: Contract regression LAB45 through LAB63, including LAB62 contract
+        run: |
+          node --test cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs cloudflare/music-intelligence/test/turbo-lab45-persistent-rounds.test.mjs cloudflare/music-intelligence/test/turbo-lab46-round-strategy-score100-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs cloudflare/music-intelligence/test/turbo-lab40-work-identity-speed-artwork.test.mjs cloudflare/music-intelligence/test/turbo-lab43-song-identity-refresh.test.mjs cloudflare/music-intelligence/test/turbo-lab48-work-first-recovery-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab51-breadth-audio-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab52-multiproof-regression-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab53-cover-funnel-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab54-visible50-full-funnel-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab55-cloud50-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab56-anr-frame-pacing-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab57-anr-root-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab58-anr-stack-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab59-video-first-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab60-crash-source-switches-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab61-append-scroll-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab63-progressive-cover-contract.test.mjs
+
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+      - name: Protobuf
+        uses: ./.github/actions/setup-protobuf
+      - name: Prepare same-family Android versionCode 33065
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-lab63-progressive-cover-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33065"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_CERT_SHA256="9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49"' uab-project.env
+      - name: Android JVM LAB63 stack recorder, Cover reentry and audio regression
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Diagnose and compile the signed LAB63 APK ZIP
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Inspect exact installer identity, signature and archive integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB63.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB63-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33065'"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          printf '%s\n' "$CERT_OUTPUT" | grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = "9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+          printf 'APPLICATION_ID=it.verlezza.musiclab.turbo01\nVERSION_CODE=33065\nSIGNING_SHA256=%s\nBASE_SHA=4453eaee2be45babef9934aa91a654d5f274f3ab\n' "$CERT" > dist/uab/UPDATE_FAMILY.txt
+      - name: Publish installable APK and ZIP
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: MusicLab-Turbo-LAB63-ANR-RoundIdentity-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB63.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-Turbo-LAB63-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/UPDATE_FAMILY.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
