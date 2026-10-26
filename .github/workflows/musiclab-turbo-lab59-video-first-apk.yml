@@ -9,7 +9,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: musiclab-turbo-lab59-video-first
+  # LAB59 resume recovery: prior runner remains stuck in_progress without steps.
+  # Keep the repaired build independent of that stale concurrency reservation.
+  group: musiclab-turbo-lab59-video-first-recovery-v2
   cancel-in-progress: true
 
 jobs:
