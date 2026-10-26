@@ -88,6 +88,28 @@ internal object CoverLab71FoundationGate {
             )
     }
 
+    /** Read-only guard when pre-LAB71 session archives are restored or displayed. */
+    internal fun historicalIsEligible(
+        seed: DiscogsVersionSeed,
+        targetTitle: String,
+        originalArtist: String,
+    ): Boolean {
+        val videoId = seed.resolvedVideoId.orEmpty()
+        if (!videoId.matches(Regex("[A-Za-z0-9_-]{11}"))) return false
+        val source = CoverSourceCandidate(
+            title = seed.trackTitle,
+            artist = seed.artist,
+            sources = seed.sourceNames,
+            album = seed.releaseTitle,
+            workRelationConfirmed = seed.workRelationConfirmed,
+            playbackVideoId = videoId,
+            playbackVideoTitle = seed.resolvedVideoTitle,
+        )
+        return matchesRequestedWork(
+            source, targetTitle, originalArtist, seed.resolvedVideoTitle.orEmpty()
+        )
+    }
+
     private enum class OriginalType { STUDIO, LIVE, REMIX, DUET }
 
     private fun originalType(seed: DiscogsVersionSeed): OriginalType {
