@@ -1,21 +1,25 @@
 package com.metrolist.music.ui.component
 
-/**
- * LAB46: bounded multi-round discovery. The first LAB45 round stays unchanged.
- * Every later round rotates independent query families, without assuming a
- * matching title on YouTube proves a matching musical composition.
- */
+/** LAB66: resumable YouTube discovery; a cursor advances ONLY after each query. */
 internal object CoverRoundSearchPlan {
     internal data class Query(val text: String, val categoryHint: AiCoverCategory)
+
+    private val official = listOf(
+        "official audio", "official music video", "original recording", "studio version",
+        "official cover", "famous cover version", "duet official", "live official",
+        "foreign language cover", "adaptation cover", "cover studio", "official performance",
+    )
     private val talent = listOf(
         "X Factor cover live", "The Voice cover live", "live concert cover",
         "acoustic cover", "talent show performance", "unplugged cover",
-        "festival live cover", "TV audition cover",
+        "festival live cover", "TV audition cover", "live studio session",
+        "semi official cover", "TV show cover", "singer interpretation",
     )
     private val amateur = listOf(
         "guitar cover", "piano cover", "home studio cover", "independent artist cover",
         "instrumental interpretation", "bedroom cover", "street performance cover",
-        "acoustic vocal cover",
+        "acoustic vocal cover", "amateur cover", "local band cover",
+        "karaoke singer cover", "solo voice cover",
     )
     private val longTail = listOf(
         "rare cover version", "foreign language adaptation", "tribute band cover",
@@ -25,24 +29,41 @@ internal object CoverRoundSearchPlan {
         "classical guitar version", "piano solo performance", "unusual cover",
         "regional language version",
     )
-    fun queries(title: String, round: Int): List<Query> {
-        if (round <= 1 || title.isBlank()) return emptyList()
+    /** No percentage quotas, no fixed publication blocks. */
+    fun queries(title: String, round: Int, originalArtist: String = ""): List<Query> {
+        if (title.isBlank()) return emptyList()
+        val clean = title.trim()
+        val artist = originalArtist.trim()
         val family = when (round) {
+            1 -> official
             2 -> talent
             3 -> amateur
             else -> longTail
         }
-        val offset = if (round <= 3) 0 else ((round - 4) * 2) % family.size
-        // Later rounds explore four independent queries, without touching LAB45 round one.
-        val windowStart = if (round <= 3) offset else (offset * 2) % family.size
-        return (0 until 4).map { index ->
-            val query = family[(windowStart + index) % family.size]
+        // Strongest quick discovery is always first, also in later rounds.
+        val first = if (round == 1) {
+            listOf(
+                Query("$clean $artist", AiCoverCategory.COVER),
+                Query("$clean $artist official", AiCoverCategory.COVER),
+            )
+        } else {
+            listOf(Query("$clean cover", AiCoverCategory.COVER))
+        }
+        val offset = if (round <= 3) 0 else ((round - 4) * 3) % family.size
+        val targeted = family.indices.map { idx ->
+            val keyword = family[(offset + idx) % family.size]
             Query(
-                text = "${title.trim()} $query",
-                categoryHint = if (query.contains("live", ignoreCase = true) ||
-                    query.contains("concert", ignoreCase = true)) AiCoverCategory.LIVE
-                    else AiCoverCategory.COVER,
+                text = "$clean $keyword",
+                categoryHint = when {
+                    keyword.contains("remix", true) -> AiCoverCategory.REMIX
+                    keyword.contains("foreign", true) || keyword.contains("language", true) ||
+                        keyword.contains("adaptation", true) -> AiCoverCategory.FOREIGN
+                    keyword.contains("live", true) || keyword.contains("concert", true) ||
+                        keyword.contains("festival", true) -> AiCoverCategory.LIVE
+                    else -> AiCoverCategory.COVER
+                },
             )
         }
+        return (first + targeted).distinctBy { it.text.trim().lowercase() }
     }
 }
