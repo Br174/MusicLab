@@ -5473,12 +5473,12 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB68: ignore unrelated player/animation recompositions when the
     // ranking inputs did not change. No cached mutable UI state is duplicated.
     val orderedPool = remember(results, session.stableOrder, resolvedOriginalArtist, sortMode, mode,
-        isTurbo, loading, previousRoundRows,
+        isTurbo, sourceDiscoveryLoading, previousRoundRows,
     ) {
-        // During append do not repeatedly sort the transient catalogue on
-        // Compose's UI thread. Historical posters own the visible prefix.
+        // While the append worker runs, avoid sorting interim candidates
+        // on Compose MAIN. The frozen historical prefix is still visible.
         if (isTurbo && mode == DiscogsDirectMode.COVER &&
-            loading && previousRoundRows.isNotEmpty()
+            sourceDiscoveryLoading && previousRoundRows.isNotEmpty()
         ) emptyList() else orderedResults(results)
     }
     // LAB56: video ticks and header animation do not change candidate
@@ -5533,11 +5533,12 @@ internal fun DiscogsDirectVersionBrowser(
     ) {
         // The already-verified rows must never run another strict admission
         // proof during append, which formerly hid them and blocked the UI.
-        previousRoundRows.filter {
-            !isRejected(it) &&
-                (if (isTurbo && mode == DiscogsDirectMode.COVER)
-                    hasPublishableVideo(it) else modeAcceptsSeed(it))
-        } + publishedOriginalSnapshots.filterNot(::isHiddenForCurrentCover)
+        (if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            // All prior-round cards were verified at admission. Their frozen
+            // visual prefix needs no repeated disk-backed musical proof.
+            previousRoundRows
+        } else previousRoundRows.filter { !isRejected(it) && modeAcceptsSeed(it) }) +
+            publishedOriginalSnapshots.filterNot(::isHiddenForCurrentCover)
     }
     val publishedEligibleCovers = remember(
         publishedCoverSnapshots, mode, isTurbo, session.originalWorkCredits,
