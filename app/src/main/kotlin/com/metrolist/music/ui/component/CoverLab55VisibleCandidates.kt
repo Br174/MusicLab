@@ -82,32 +82,16 @@ internal object CoverLab55VisibleCandidates {
                 seed.year < referenceYear && !seed.manuallyApproved &&
                 !documentedWork && !sharedWorkCredits
             ) continue
-            // LAB64: a real documented recording is NOT a video. Keep video
-            // first for round one, but never erase genuine Work-linked cards
-            // merely because the video has not yet been found. Later turns
-            // widen admission, without admitting an unsupported different Work.
-            val rawVideo = seed.resolvedVideoId?.trim().orEmpty()
-            val videoVerified = rawVideo.matches(Regex("[A-Za-z0-9_-]{11}")) &&
-                (verifiedVideoIds == null || rawVideo in verifiedVideoIds)
-            val independentSources = seed.sourceNames.map { it.trim().lowercase() }
-                .filter { it.isNotBlank() && it != "archivio cloud" && it != "musiclab interno" }
-                .distinct().size
-            val catalogBacked = seed.sourceNames.any {
-                it.equals("Discogs", true) || it.equals("MusicBrainz", true) ||
-                    it.equals("COVER.INFO", true) || it.equals("Apple/iTunes", true) ||
-                    it.equals("Spotify", true)
-            }
-            val chronological = referenceYear == null || seed.year == null ||
-                seed.year >= referenceYear
-            val evidenceEnoughWithoutVideo = documentedWork || sharedWorkCredits ||
-                (coverRound >= 2 && sameTitle && chronological && independentSources >= 2) ||
-                (coverRound >= 3 && sameTitle && chronological && catalogBacked)
-            if (!videoVerified && !evidenceEnoughWithoutVideo) continue
+            // LAB65 VIDEO FIRST: a catalogue recording is NEVER a visible
+            // poster until its own video metadata has been verified. Keep
+            // broadened discovery and Work proofs in the internal pool only.
+            val video = seed.resolvedVideoId?.trim().orEmpty()
+            if (!video.matches(Regex("[A-Za-z0-9_-]{11}"))) continue
+            if (verifiedVideoIds != null && video !in verifiedVideoIds) continue
             val identity = DiscogsVersionSource.recordingIdentityKey(seed)
-            if (identity in priorRecordings || (videoVerified && rawVideo in priorVideos)) continue
-            if (!seen.add(identity) || (videoVerified && !videos.add(rawVideo))) continue
-            // An unverified URL is never an audio-ready/video-ready promise.
-            output += if (videoVerified) seed else seed.copy(resolvedVideoId = null)
+            if (identity in priorRecordings || video in priorVideos) continue
+            if (!seen.add(identity) || !videos.add(video)) continue
+            output += seed
         }
         return output
     }
