@@ -51,6 +51,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -5866,7 +5867,8 @@ internal fun DiscogsDirectVersionBrowser(
         publishedCoverSnapshots, mode, isTurbo, session.originalWorkCredits,
         resolvedOriginalArtist, lockedArtist, title,
     ) {
-        publishedCoverSnapshots.filterNot(::isHiddenForCurrentCover)
+        if (isTurbo && mode == DiscogsDirectMode.COVER) publishedCoverSnapshots
+        else publishedCoverSnapshots.filterNot(::isHiddenForCurrentCover)
     }
     val unifiedCoverDisplay = remember(
         mode, historicalOrOriginal, publishedEligibleCovers,
@@ -5910,7 +5912,7 @@ internal fun DiscogsDirectVersionBrowser(
         publishedOriginalSnapshots, turboStreamProofVersion, if (isTurbo) null else results,
     ) {
         if (mode == DiscogsDirectMode.COVER &&
-            (!isTurbo || !loading || previousRoundRows.isNotEmpty())) {
+            (!isTurbo || !loading || publishedCoverSnapshots.isNotEmpty() || previousRoundRows.isNotEmpty())) {
             unifiedCoverDisplay
                 .filterNot(::belongsToFirstCoverSection)
                 .filterNot(::isHiddenForCurrentCover)
@@ -6675,9 +6677,9 @@ internal fun DiscogsDirectVersionBrowser(
                         if (isTurbo) {
                             when {
                                 session.turboFinished ->
-                                    "Nessuna locandina ancora disponibile. Controlla le fonti o riprova."
+                                    "Cerco miniature YouTube verificate; appena pronte compaiono qui."
                                 else ->
-                                    "Carico prima 25 locandine (obiettivo 5 secondi), poi altre 25 entro 10 secondi…"
+                                    "Ricerca YouTube in corso: i risultati compaiono uno alla volta…"
                             }
                         } else if (!rankingFrozen) {
                             "Certifico opera, data, crediti e punteggio prima di pubblicare la graduatoria…"
@@ -6720,17 +6722,8 @@ internal fun DiscogsDirectVersionBrowser(
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
-                            showConfidence = category == DirectVersionCategory.ALL &&
-                                !CoverLab55VisibleCandidates.isProvisional(
-                                    seed, lockedArtist.ifBlank { resolvedOriginalArtist },
-                                    session.originalWorkCredits,
-                                ),
-                            provisional = isTurbo &&
-                                !isOriginalPerformerVersion(seed) &&
-                                CoverLab55VisibleCandidates.isProvisional(
-                                    seed, lockedArtist.ifBlank { resolvedOriginalArtist },
-                                    session.originalWorkCredits,
-                                ),
+                            showConfidence = category == DirectVersionCategory.ALL,
+                            provisional = false,
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
                             onPlay = { play(seed) },
@@ -6768,17 +6761,8 @@ internal fun DiscogsDirectVersionBrowser(
                             stableArtworkUrl = remember(seed.fingerprint, seed.coverUrl, seed.resolvedVideoId) {
                                 stableArtworkFor(seed)
                             },
-                            showConfidence = category == DirectVersionCategory.ALL &&
-                                !CoverLab55VisibleCandidates.isProvisional(
-                                    seed, lockedArtist.ifBlank { resolvedOriginalArtist },
-                                    session.originalWorkCredits,
-                                ),
-                            provisional = isTurbo &&
-                                !isOriginalPerformerVersion(seed) &&
-                                CoverLab55VisibleCandidates.isProvisional(
-                                    seed, lockedArtist.ifBlank { resolvedOriginalArtist },
-                                    session.originalWorkCredits,
-                                ),
+                            showConfidence = category == DirectVersionCategory.ALL,
+                            provisional = false,
                             selected = seed.fingerprint == selectedFingerprint,
                             resolving = seed.fingerprint == resolvingFingerprint,
                             onPlay = { play(seed) },
@@ -6837,17 +6821,17 @@ internal fun DiscogsDirectVersionBrowser(
                     ) {
                         Button(
                             onClick = { runSearch(forceRefresh = true, appendRound = true) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (roundPlanComplete) Color(0xFF258E4E)
+                                    else Color(0xFFF39A27),
+                                contentColor = if (roundPlanComplete) Color.White
+                                    else Color(0xFF352000),
+                            ),
                         ) {
-                            Text("Cerca ancora · fino a 50 nuove cover")
+                            Text(if (roundPlanComplete) "Cerca ancora" else "Completa tornata")
                         }
                         Text(
-                            "Tornata ${coverRoundNumber} · ${visibleTrueCovers.size}/50 cover visibili · " +
-                                "${visibleTrueCovers.count {
-                                    CoverLab55VisibleCandidates.isProvisional(
-                                        it, lockedArtist.ifBlank { resolvedOriginalArtist },
-                                        session.originalWorkCredits,
-                                    )
-                                }} da verificare",
+                            "Tornata ${coverRoundNumber} · ${publishedCoverSnapshots.size}/50 nuove miniature YouTube",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -7504,12 +7488,9 @@ private fun DiscogsVersionCard(
                     )
                     if (showConfidence) {
                         Text(
-                            "★  " + (if (seed.coverRound != null && seed.coverRound > 1 &&
-                                seed.musiclabScore100 != null) {
-                                "${seed.musiclabScore100}/100"
-                            } else {
-                                "${seed.confidenceScore}/20"
-                            }),
+                            "Precisione stimata: " + (
+                                seed.musiclabScore100 ?: (seed.confidenceScore * 5).coerceIn(1, 100)
+                            ).toString() + "%",
                             color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
