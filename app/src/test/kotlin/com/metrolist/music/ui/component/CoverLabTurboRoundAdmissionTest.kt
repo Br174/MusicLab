@@ -31,7 +31,7 @@ class CoverLabTurboRoundAdmissionTest {
         val cover = candidate()
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
             cover, "Sapore di sale", "Gino Paoli", 2,
-            "Sapore di sale - piano cover"
+            "Sapore di sale - Gino Paoli piano cover"
         ).admitted)
         assertFalse(CoverLabTurboRoundAdmission.evaluate(
             candidate(title = "An unrelated track"), "Sapore di sale", "Gino Paoli", 2,
@@ -40,12 +40,16 @@ class CoverLabTurboRoundAdmissionTest {
     }
 
     @Test fun thirdAndFourthAllowProgressivelyWeakerMatches() {
-        val titleOnly = candidate()
+        val creditedCover = candidate(title = "Sapore di sale - Gino Paoli piano cover")
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            titleOnly, "Sapore di sale", "Gino Paoli", 3
+            creditedCover, "Sapore di sale", "Gino Paoli", 3
         ).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            titleOnly, "Sapore di sale", "Gino Paoli", 4
+            creditedCover, "Sapore di sale", "Gino Paoli", 4
+        ).admitted)
+        val ambiguous = candidate()
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+            ambiguous, "Sapore di sale", "Gino Paoli", 4
         ).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
             candidate(title = "Yeniden başlasın", sources = listOf("COVER.INFO"), confirmed = true),
@@ -60,7 +64,7 @@ class CoverLabTurboRoundAdmissionTest {
             parishUpload, "Felicità", "Lucio Dalla", 1,
             "Felicità - Lucio Dalla"
         ).admitted)
-        assertTrue(CoverLabTurboRoundAdmission.evaluate(
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(
             parishUpload, "Felicità", "Lucio Dalla", 3,
             "Felicità - Lucio Dalla"
         ).admitted)
@@ -76,7 +80,7 @@ class CoverLabTurboRoundAdmissionTest {
 
     @Test fun estimateIsPercentageNotHardAdmissionThreshold() {
         val v = CoverLabTurboRoundAdmission.evaluate(
-            candidate(), "Sapore di sale", "Gino Paoli", 4
+            candidate(title = "Sapore di sale - Gino Paoli acoustic cover"), "Sapore di sale", "Gino Paoli", 4
         )
         assertTrue(v.admitted)
         assertTrue(v.confidencePercent in 1..100)
