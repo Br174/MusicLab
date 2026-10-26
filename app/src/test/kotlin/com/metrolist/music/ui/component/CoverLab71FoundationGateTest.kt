@@ -146,4 +146,26 @@ class CoverLab71FoundationGateTest {
         val otherSinger = seed("singer00001", artist = "Cantante diverso", duration = 235)
         assertFalse(CoverLab71FoundationGate.isDuplicate(otherSinger, listOf(a)))
     }
+    @Test fun historicSessionRowsCannotBypassPermanentFilters() {
+        val good = seed("MNvH8BzIXGY")
+        assertTrue(CoverLab71FoundationGate.historicalIsEligible(
+            good, "Felicità", "Lucio Dalla"
+        ))
+        val karaoke = good.copy(
+            resolvedVideoTitle = "Felicità Karaoke",
+            resolvedVideoId = "AAAAAAAAAAA",
+        )
+        assertFalse(CoverLab71FoundationGate.historicalIsEligible(
+            karaoke, "Felicità", "Lucio Dalla"
+        ))
+        val wrongTitle = good.copy(
+            trackTitle = "Felicità puttana",
+            resolvedVideoTitle = "Felicità puttana",
+            resolvedVideoId = "BBBBBBBBBBB",
+        )
+        assertFalse(CoverLab71FoundationGate.historicalIsEligible(
+            wrongTitle, "Felicità", "Lucio Dalla"
+        ))
+    }
+
 }
