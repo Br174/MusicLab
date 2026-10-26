@@ -21,9 +21,17 @@ internal object CoverLabTurboRoundAdmission {
             candidate.title.contains(targetTitle.trim(), ignoreCase = true)
         val relation = candidate.workRelationConfirmed &&
             candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) }
+        // LAB68: video title saying "Lucio Dalla" does NOT prove that
+        // an unrelated upload channel represents Lucio Dalla. In the strict
+        // first round require an artist/channel association or documentary work.
+        val artistChannel = candidate.artist.trim()
         val originalPerformer = originalArtist.isNotBlank() &&
-            (TitleMeaningResolver.sameArtist(candidate.artist, originalArtist) ||
-                videoTitle.contains(originalArtist, ignoreCase = true))
+            (TitleMeaningResolver.sameArtist(artistChannel, originalArtist) ||
+                artistChannel.contains(originalArtist, ignoreCase = true))
+        val credibleOfficialChannel =
+            artistChannel.contains("vevo", ignoreCase = true) ||
+            artistChannel.contains("official", ignoreCase = true) ||
+            artistChannel.contains(" - Topic", ignoreCase = true)
         val officialMarker = official.containsMatchIn(videoTitle)
         val renditionMarker = rendition.containsMatchIn(videoTitle) ||
             candidate.sources.size >= 2
@@ -40,7 +48,7 @@ internal object CoverLabTurboRoundAdmission {
             officialMarker
         val strong = relation || (titleSignal && originalPerformer) ||
             (titleSignal && namedOfficialWhenArtistUnknown) ||
-            (titleSignal && renditionMarker && officialMarker)
+            (titleSignal && renditionMarker && officialMarker && credibleOfficialChannel)
         val medium = relation || (titleSignal && (originalPerformer || renditionMarker || officialMarker))
         val weak = relation || titleSignal
         val admissible = when {
