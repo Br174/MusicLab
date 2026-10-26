@@ -6181,9 +6181,16 @@ internal fun DiscogsDirectVersionBrowser(
         // The already-verified rows must never run another strict admission
         // proof during append, which formerly hid them and blocked the UI.
         (if (isTurbo && mode == DiscogsDirectMode.COVER) {
-            // All prior-round cards were verified at admission. Their frozen
-            // visual prefix needs no repeated disk-backed musical proof.
-            previousRoundRows
+            // LAB71: old session archives can predate the new foundation
+            // filters. Check the cached metadata once per history snapshot;
+            // never delete storage or disturb the remaining card order.
+            previousRoundRows.filter { restored ->
+                CoverLab71FoundationGate.historicalIsEligible(
+                    restored,
+                    TitleMeaningResolver.workAnchorTitle(title),
+                    lockedArtist.ifBlank { resolvedOriginalArtist },
+                )
+            }
         } else previousRoundRows.filter { !isRejected(it) && modeAcceptsSeed(it) }) +
             publishedOriginalSnapshots.filterNot(::isHiddenForCurrentCover)
     }
