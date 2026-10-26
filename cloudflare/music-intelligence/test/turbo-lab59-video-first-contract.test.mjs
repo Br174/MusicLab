@@ -33,6 +33,6 @@ test('LAB59: direct YouTube thumbnail only for modern Turbo cards',()=>{
 });
 test('LAB59: final publisher never emits documentary-only poster quota',()=>{
  assert.ok(screen.includes('val finalRanked = turboRankedPool()'));
- assert.ok(screen.includes('seed.resolvedVideoId?.trim() in session.playReadyVideoIds'));
+ assert.ok(screen.includes('seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds'));
  assert.ok(screen.includes('val firstBlock = initialOriginals +'));
 });
