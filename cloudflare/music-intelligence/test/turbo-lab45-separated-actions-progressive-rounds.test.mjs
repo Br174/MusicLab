@@ -44,7 +44,8 @@ test('LAB45: same video never repeats across historical rows',()=>{
 
 test('LAB45: there is one search-more action at the list bottom',()=>{
   assert.match(source,/item\(key = "musiclab_turbo_cover_search_more_round_/);
-  assert.match(source,/Text\("Cerca ancora · fino a 50 nuove cover"\)/);
+  // LAB66 supersedes the historic one-state button without adding a second control.
+  assert.match(source,/Text\(if \(directRoundExhausted\) "Cerca ancora" else "Completa tornata"\)/);
   assert.match(source,/runSearch\(forceRefresh = true, appendRound = true\)/);
   assert.match(source,/activeCriteria != null && !loading && !sourceDiscoveryLoading/);
 });
