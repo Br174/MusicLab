@@ -28,6 +28,19 @@ class CoverLab66DirectYouTubeTest {
         assertTrue(CoverLab66DirectYouTube.estimatedPrecision(signals, 1, false) >= 80)
     }
 
+    @Test fun knownOriginalPerformerNeedsNoOfficialTextInYouTubeTitle() {
+        val signals = CoverLab66DirectYouTube.admissionSignals(
+            "Sapore di sale", "Gino Paoli",
+            "Gino Paoli - Sapore di sale", "Gino Paoli", 1, false,
+        )
+        assertTrue(CoverLab66DirectYouTube.accepted(signals, 1))
+        val officialWithoutAnchor = CoverLab66DirectYouTube.admissionSignals(
+            "Sapore di sale", "",
+            "Sapore di sale Official Video", "Artist Channel", 1, false,
+        )
+        assertTrue(CoverLab66DirectYouTube.accepted(officialWithoutAnchor, 1))
+    }
+
     @Test fun noBlindSameTitleInFirstRoundButAllowedInFourth() {
         val signals = CoverLab66DirectYouTube.admissionSignals(
             "L'addio", "Giuni Russo", "L'addio", "Unrelated singer", 1, false,
