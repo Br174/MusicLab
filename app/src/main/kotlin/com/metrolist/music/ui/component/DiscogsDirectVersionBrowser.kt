@@ -4294,19 +4294,14 @@ internal fun DiscogsDirectVersionBrowser(
                                 sortedPool(mergedFinal).map { it.fingerprint }
                             }
                         }
-                        // LAB09: prefer the user's 20/20 -> 1/20 ranking.
-                        // Poster publication NEVER depends on a linked video.
-                        // A real candidate with no artwork keeps its row as an
-                        // explicit image-unavailable state rather than vanishing.
+                        // LAB65: ONLY videos with verified metadata reach the
+                        // visible cards. Deep catalog candidates stay internal
+                        // for future video resolution on subsequent rounds.
                         val finalRanked = withContext(Dispatchers.Default) {
-                            val playable = turboRankedPool().filter { seed ->
-                                seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds
-                            }
-                            // Documented, source-backed cover recordings remain
-                            // eligible even before any YouTube video is found.
-                            // Subsequent rounds widen progressively in the
-                            // publisher, not in the actual Work identity check.
-                            (playable + results)
+                            turboRankedPool()
+                                .filter { seed ->
+                                    seed.resolvedVideoId?.trim().orEmpty() in session.playReadyVideoIds
+                                }
                                 .distinctBy(DiscogsVersionSource::recordingIdentityKey)
                         }
                         // LAB53: original-performer versions have their own section.
@@ -7307,12 +7302,9 @@ private fun DiscogsVersionCard(
                     verticalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.height(115.dp),
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (videoReadyVerified) Color(0xFF22C871)
-                            else Color(0xFFFA5757),
-                        modifier = Modifier.size(11.dp),
-                    ) { }
+                    // LAB65: on Turbo, admission itself guarantees a verified
+                    // video. The legacy green/red poster-to-video indicator was
+                    // misleading and has no role in a VIDEO FIRST list.
                     Box {
                         Text(
                             "⋮",
