@@ -31,7 +31,8 @@ test('Orange stays available until untried queries are truly exhausted',()=>{
 });
 test('Video IDs, normalized twin recordings and responsive player remain protected',()=>{
  assert.match(browser,/earlyVideoIds\.add\(id\)/);
- assert.match(browser,/CoverLabTurboTwinGuard\.sameRecording\(it, seed\)/);
+ assert.match(browser,/CoverLab71FoundationGate\.isDuplicate\(seed, priorEntries\)/);
+ assert.match(readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGate.kt','utf8'),/CoverLabTurboTwinGuard\.sameRecording\(previous, seed\)/);
  assert.match(browser,/withContext\(Dispatchers\.Default\)/);
  assert.match(browser,/backgroundWorkBlocked\(\)/);
  assert.match(browser,/isCoverAudioAtRisk\(\)/);
