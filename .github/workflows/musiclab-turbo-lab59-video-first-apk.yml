@@ -38,7 +38,7 @@ jobs:
           cat /tmp/musiclab-lab59-changed.txt
           while IFS= read -r path; do
             case "$path" in
-              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab55VisibleCandidates.kt|cloudflare/music-intelligence/test/turbo-lab59-video-first-contract.test.mjs|cloudflare/music-intelligence/test/turbo-lab40-work-identity-speed-artwork.test.mjs|cloudflare/music-intelligence/test/turbo-lab55-cloud50-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab59-video-first-env.py|.github/workflows/musiclab-turbo-lab59-video-first-apk.yml|.motorlab/LAB59_TURBO_VIDEO_FIRST_CHECKPOINT.txt) ;;
+              app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab55VisibleCandidates.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab55VisibleCandidatesTest.kt|cloudflare/music-intelligence/test/turbo-lab59-video-first-contract.test.mjs|cloudflare/music-intelligence/test/turbo-lab40-work-identity-speed-artwork.test.mjs|cloudflare/music-intelligence/test/turbo-lab55-cloud50-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab59-video-first-env.py|.github/workflows/musiclab-turbo-lab59-video-first-apk.yml|.motorlab/LAB59_TURBO_VIDEO_FIRST_CHECKPOINT.txt) ;;
               *) echo "OUT OF LAB59 SCOPE: $path"; exit 1 ;;
             esac
           done < /tmp/musiclab-lab59-changed.txt
