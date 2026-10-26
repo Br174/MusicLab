@@ -30,8 +30,16 @@ internal object CoverLabTurboRoundAdmission {
         val titleSignal = exactTitle || containsTitle
         // The first round prioritizes ORIGINAL official records and truly
         // documented foreign adaptations, not arbitrary title homonyms.
-        val strong = relation || (titleSignal && originalPerformer && officialMarker) ||
-            (titleSignal && originalPerformer && renditionMarker) ||
+        // Title + confirmed original performer + verified YouTube metadata
+        // must admit a genuine original even without the word "official".
+        // If the reference artist is unknown, require a named channel and
+        // an explicit official marker before admitting the first round.
+        val namedOfficialWhenArtistUnknown = originalArtist.isBlank() &&
+            candidate.artist.isNotBlank() &&
+            !candidate.artist.equals("YouTube", ignoreCase = true) &&
+            officialMarker
+        val strong = relation || (titleSignal && originalPerformer) ||
+            (titleSignal && namedOfficialWhenArtistUnknown) ||
             (titleSignal && renditionMarker && officialMarker)
         val medium = relation || (titleSignal && (originalPerformer || renditionMarker || officialMarker))
         val weak = relation || titleSignal
