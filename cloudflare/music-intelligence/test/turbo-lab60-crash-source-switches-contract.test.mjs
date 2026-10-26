@@ -36,7 +36,7 @@ test('LAB60: two independent DataStore switches, default ON, old keys retained',
 test('LAB60: Cloud and archive switches gate actual providers without wiping local state',()=>{
  assert.match(browser,/val effectiveCloudEndpoint = if \(coverCloudEnabled\)/);
  assert.match(browser,/useCloudMemory = cloudMemoryEnabled && coverCloudEnabled/);
- assert.match(browser,/if \(coverArchiveEnabled && coverCloudEnabled\)\s+withTimeoutOrNull/);
+ assert.match(browser,/if \(coverArchiveEnabled && coverCloudEnabled\)\s*\{\s*withTimeoutOrNull/);
  assert.match(browser,/if \(isTurbo && mode == DiscogsDirectMode\.COVER &&\s+coverArchiveEnabled && coverCloudEnabled\)/);
  assert.match(archive,/LaunchedEffect\(query, endpoint, archiveEnabled, cloudEnabled\)/);
  assert.match(archive,/CloudMusicDiscovery\.cancelArchiveRequests\(\)/);
