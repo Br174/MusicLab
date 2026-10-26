@@ -96,6 +96,8 @@ import com.metrolist.music.constants.DEFAULT_MUSIC_AI_CLOUD_ENDPOINT
 import com.metrolist.music.constants.DiscogsTokenKey
 import com.metrolist.music.constants.MusicAiCloudEndpointKey
 import com.metrolist.music.constants.MusicAiCloudMemoryEnabledKey
+import com.metrolist.music.constants.MusicLabCoverArchiveEnabledKey
+import com.metrolist.music.constants.MusicLabCloudEnabledKey
 import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.discogs.CompilationTrackResolver
@@ -352,6 +354,8 @@ internal fun DiscogsDirectVersionBrowser(
     val sharedModel by rememberPreference(OpenRouterModelKey, "")
     val dedicatedGeminiKey by rememberPreference(DirectCoverGeminiApiKey, "")
     val cloudMemoryEnabled by rememberPreference(MusicAiCloudMemoryEnabledKey, true)
+    val coverArchiveEnabled by rememberPreference(MusicLabCoverArchiveEnabledKey, true)
+    val coverCloudEnabled by rememberPreference(MusicLabCloudEnabledKey, true)
     val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
     val effectiveGoogleKey = dedicatedGeminiKey.ifBlank {
         sharedApiKey.takeIf {
@@ -364,14 +368,19 @@ internal fun DiscogsDirectVersionBrowser(
         } else {
             "gemini-3.5-flash-lite"
         }
-    val effectiveCloudEndpoint = cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
+    // LAB60: Cloud and its archive are independent user-owned source gates.
+    // Turning off Cloud removes its endpoint from source jobs, but never erases
+    // local Cover rounds, preferences or archived data.
+    val effectiveCloudEndpoint = if (coverCloudEnabled) {
+        cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
+    } else ""
     val foreignScoutConfig =
         if (effectiveGoogleKey.isNotBlank() || effectiveCloudEndpoint.isNotBlank()) {
             GeminiCoverVerificationConfig(
                 apiKey = effectiveGoogleKey,
                 model = effectiveGeminiModel,
                 cloudEndpoint = effectiveCloudEndpoint,
-                useCloudMemory = cloudMemoryEnabled,
+                useCloudMemory = cloudMemoryEnabled && coverCloudEnabled,
             )
         } else {
             null
@@ -2781,7 +2790,7 @@ internal fun DiscogsDirectVersionBrowser(
             // read-only, then reuse its complete source and credit metadata.
             // Do this BEFORE expensive Discogs release-by-release verification.
             foreignScoutConfig?.let { config ->
-                val recoveredArchive = withTimeoutOrNull(11_000L) {
+                val recoveredArchive = if (coverArchiveEnabled && coverCloudEnabled) withTimeoutOrNull(11_000L) {
                     CloudMusicDiscovery.searchArchive(
                         query = expectedCriteria.title,
                         config = config,
@@ -3572,10 +3581,12 @@ internal fun DiscogsDirectVersionBrowser(
                             // Compose state stays on the owning UI dispatcher;
                             // user sees only the final atomic snapshot.
                             val selectedArchiveItem =
-                                CloudMusicDiscovery.recentArchiveSelection(
+                                if (coverArchiveEnabled && coverCloudEnabled)
+                                    CloudMusicDiscovery.recentArchiveSelection(
                                     criteria.title, foreignScoutConfig?.cloudEndpoint.orEmpty(),
                                     lockedArtist,
                                 )
+                                else null
                             var quotaReached = false
                             val providerJobs = mutableListOf<Job>()
                             // LAB11: the initial block is atomically published
@@ -3853,7 +3864,8 @@ internal fun DiscogsDirectVersionBrowser(
                             if (earlyArchiveSeeds.isNotEmpty()) supplementalSeeds.trySend(earlyArchiveSeeds)
 
                             val archiveDeferred = async(Dispatchers.IO) {
-                                val items = withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
+                                val items = if (coverArchiveEnabled && coverCloudEnabled)
+                                    withTimeoutOrNull(TURBO_SOURCE_WAIT_MS) {
                                     foreignScoutConfig?.let { config ->
                                         CloudMusicDiscovery.searchArchive(
                                             query = criteria.title,
@@ -3862,7 +3874,7 @@ internal fun DiscogsDirectVersionBrowser(
                                             coverRound = if (appendVerifiedRound) coverRoundNumber else 0,
                                         )
                                     }.orEmpty()
-                                }.orEmpty()
+                                }.orEmpty() else emptyList()
                                 cloudArchiveCount.set(items.size)
                                 items.filter {
                                     it.originalArtist.isNotBlank() && (it.sameWorkScore ?: 0) >= 70
@@ -4397,7 +4409,8 @@ internal fun DiscogsDirectVersionBrowser(
             }
             // Turbo reads the shared public archive by WORK TITLE, even when
             // original artist is not yet known. This is a read-only lookup.
-            val turboArchiveDeferred = if (isTurbo && mode == DiscogsDirectMode.COVER) {
+            val turboArchiveDeferred = if (isTurbo && mode == DiscogsDirectMode.COVER &&
+                coverArchiveEnabled && coverCloudEnabled) {
                 async(Dispatchers.IO) {
                     foreignScoutConfig?.let { config ->
                         withTimeoutOrNull(TURBO_ARCHIVE_TIMEOUT_MS) {
