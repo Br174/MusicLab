@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "musiclab",
   "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
-  "status": "LAB75_SOURCE_AND_CI_VERIFIED; DEVICE_PROGRESSIVE_SEARCH_PENDING",
+  "status": "USER_APPROVED_LAB76_IMPLEMENTED_CODE_PENDING_CI_AND_PHONE",
   "rules": [
     {
       "id": "musiclab.cover.same-work",
@@ -493,7 +493,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 7,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "USER-CONFIRMED RECOVERY: LAB73 was NOT functionally identical to LAB71 (additional query keys and altered Discogs candidate counts/attempts changed progressive behavior). LAB74 positive-scoring experiment FAILED static CI and is NOT verified and NOT to be promoted. Latest reproducible exact LAB71 application source is commit 664d176054d35728032dda31e3d05a1ff406ab4b; LAB75 versionCode 33077 commit 38b5dd5daf81409c8ac5e6bb1ae25c297fc5cf7c copied all app/src/main and app/src/test files EXACTLY from that commit. Its CI run 40439385148 succeeded including bit-identical application-source diff gate, static and JVM tests, signed APK, v2 certificate validation, ZIP integrity and artifact publication. USER DEVICE SEARCH BEHAVIOR FOR LAB75 IS STILL PENDING. Treat LAB71 exact CoverLab work search, cursor, round transitions, progressive loosening, immediate poster publication, source availability diagnostics and existing acceptance rules as LAST_GOOD; do not modify or de-prioritize them without a separate side-by-side regression check and user-authorized scope. User wants MORE cover discovery and positive priority for documented original studio discs/recordings, well-known singers and COVER.INFO foreign adaptations, NEVER blocking or narrowing by discographic evidence. This future ranking/discovery enhancement is DEFERRED until the exact LAB71 behavior of LAB75 is validated ON DEVICE. Do not add new gating, batch queues, mandatory release proof, optional-source hard dependency, restrictive category constraints or arbitrary per-round ceilings. Preserve already approved title/same-work identity, global karaoke/MIDI/backing track ban, cross-ID duplicate guard and original-singer 1 studio/2 distinct live/2 distinct remix caps. Main, MADRE, production, player and Android signer/ID stay protected. A LAB75 successful build does NOT independently prove that YouTube results are now numerous or matching on device.",
       "acceptance": [
@@ -511,9 +511,36 @@
       "supersedes": [
         "musiclab.cover.source-and-category-rounds.v5"
       ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v8",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 8,
+      "status": "active",
+      "protected": true,
+      "behavior": "LAB76 USER APPROVED: keep source-identical LAB75/LAB71 first-round immediate-video publisher baseline and augment later rounds without restricting other performer sources. Round 2 favor Italian and international talent TV X Factor, The Voice, Sanremo, Eurovision, Amici, famous other singers and professionally filmed stadium/live/remix; round 3 favor cover bands, guitar/instrumental REAL performances, emerging artists, foreign artists and concerts; round 4+ rotate wide English/Italian search keys and allow exact FULL requested song title as sole positive musical admission evidence, with permitted version descriptor tokens such as live, concert, stadium, guitar, cover band, instrumental, remix, TV and date. No artist name/record album confirmation required in broad round 4+. ONLY documented FOREIGN adaptations of the same musical Work from COVER.INFO or MusicBrainz may have a nonmatching song title, and their linked video must match the documented translated title. All other songs must retain exact/decorated FULL song title, never lexical continuation (Felicità vs Felicità puttana, Soli vs Soli e non soli). Retain user-approved global karaoke, MIDI, backing track exclusion, same-performance cross-upload duplicate veto, original singer 1 studio, at most 2 distinct live and 2 remix limits; no extra source/category hard gates. Button-invoked manual searches (both Completa tornata and Cerca ancora) get +3000 milliseconds in total divided over their up-to-two query requests; initial search budget unchanged. On FIRST completed query step returning ZERO new admitted videos in a round, immediately mark roundPlanComplete and color existing Completa tornata button green, letting next tap advance to wider following round. Preserve published poster identity, order, memory and audio priority across rounds, and keep broad manual rounds without an arbitrary fixed termination horizon. The button can continue new searches indefinitely, but cannot guarantee a new cover exists or fabricate repeats. Preserve signed Android family, main/MADRE/production and player.",
+      "acceptance": [
+        "Round 1 remains LAB75 first-round acceptance and original ordering untouched",
+        "Round 2 has extra specific Sanremo/X Factor/The Voice/Eurovision and famous singer query keys, no category-only rejection",
+        "Round 3 searches band, stadium, guitar/instrumental, international and live independently without veto",
+        "Round 4+ accepts exact full song name decorated with English or Italian performance terms; does not require artist/source proof",
+        "Only documented foreign-language same-Work cover may have a different musical title; ordinary wrong-title video remains banned",
+        "Completa tornata becomes green after first round search step with zero NEW cover thumbnails, regardless of untried keyword count; next press advances",
+        "Both manual search button actions allow +3000ms total across up-to-two query keys; initial automatic search remains unchanged",
+        "No duplicate recordings, karaoke, MIDI, backing tracks or player slowdown; show only actual YouTube images and IDs",
+        "After technical tests, on-device proof is required; no invented guarantee of finding a song when none exists"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab76ProgressiveRoundTest.kt",
+        "cloudflare/music-intelligence/test/turbo-lab76-progressive-buttons.test.mjs"
+      ],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v7"
+      ]
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-27-lab75-exact-lab71-restore-device-pending-v7",
+  "canonicalBehaviorRevision": "2026-10-27-lab76-progressive-manual-3s-title-foreign-only-v8",
   "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
@@ -537,10 +564,10 @@
     },
     {
       "oldRule": "musiclab.cover.category-rounds",
-      "disposition": "RETIRED_FOR_EXACT_LAB71_RESTORATION",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v7",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v8",
       "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v5"
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
     },
     {
       "oldRule": "musiclab.cover.score-separation",
@@ -556,30 +583,37 @@
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v2",
-      "disposition": "RETIRED_FOR_EXACT_LAB71_RESTORATION",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v7",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v8",
       "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v5"
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v3",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v7",
-      "disposition": "RETIRED_FOR_EXACT_LAB71_RESTORATION",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v8",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
       "appEnforcement": "PENDING_BUILD_AND_DEVICE_VERIFICATION",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v5"
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v4",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v7",
-      "disposition": "RETIRED_FOR_EXACT_LAB71_RESTORATION",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v8",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
       "appEnforcement": "RESTORE_LAB71_BASE_IN_LAB73",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v5"
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v5",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v7",
-      "disposition": "USER_CONFIRMED_LAB73_IS_NOT_LAST_GOOD",
-      "appEnforcement": "LAB75_CI_VERIFIED_DEVICE_PENDING"
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v8",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
+      "appEnforcement": "LAB75_CI_VERIFIED_DEVICE_PENDING",
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v7",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v8",
+      "disposition": "USER_APPROVED_FOLLOWUP_LAB76",
+      "appEnforcement": "LAB76_PENDING_CI_DEVICE"
     }
   ],
   "confirmedGoodBaseline": {
@@ -645,13 +679,14 @@
     }
   ],
   "foundationsApprovedAt": "2026-10-27",
-  "foundationsImplementationState": "LAB71_SOURCE_RESTORED_EXACTLY_IN_LAB75; BUILD_GREEN; ON_DEVICE_VALIDATION_PENDING",
+  "foundationsImplementationState": "LAB75_LAST_GOOD_USER_FOUNDATION; LAB76_MANUAL_3S_AND_PROGRESSIVE_ROUNDS_PENDING_TEST",
   "foundationsNextStep": "LAB71 pre-change report + distinct user approval; implement guard once centrally, regression tests and device tests, preserve player/cloud/signature/main",
   "pendingFoundationalImplementation": [
-    "Install LAB75 signed APK 33077 and freshly enter CoverLab; check actual first and later round results versus known-good LAB71",
-    "Do not promote LAB74 positive-priority candidate; static CI failed and user reports LAB73 regression",
-    "After device validation, explore studio/album/COVER.INFO positive scoring and more Discogs queries with explicit no-veto/no-round-slowdown guards",
-    "Preserve all approved song identity, karaoke/MIDI and dedupe foundations",
-    "Protect player, original Android package/certificate, main, MADRE, production and cost-zero operation"
+    "Round2 TV talent and famous other singers priority via extra query keys",
+    "Round3 indie, concerts and instrumentals searches",
+    "Round4+ title-only candidate acceptance; foreign-only documented alternate title",
+    "Green turn advance after zero new cover from first query step",
+    "Manual button source budget +3s total, no audio/UI regressions",
+    "Signed APK versionCode33078 same package and cert; phone test pending"
   ]
 }
