@@ -3683,7 +3683,7 @@ internal fun DiscogsDirectVersionBrowser(
                         val sourceQueuedIds = ConcurrentHashMap.newKeySet<String>()
                         fun submitSourceVideo(candidate: CoverSourceCandidate) {
                             val id = candidate.playbackVideoId?.trim().orEmpty()
-                            if (!id.matches(videoIdPattern) || sourceQueuedIds.size >= 48 ||
+                            if (!id.matches(videoIdPattern) || sourceQueuedIds.size >= 72 ||
                                 !sourceQueuedIds.add(id)) return
                             launch(Dispatchers.Main.immediate) {
                                 sourceVideoGate.withPermit { tryPublish(candidate) }
@@ -3722,7 +3722,7 @@ internal fun DiscogsDirectVersionBrowser(
                                             // A separate bounded lane, not a blocking
                                             // onSourceCompleted callback.
                                             for (lead in candidates) {
-                                                if (!isActive || documentarySearchKeys.size >= 4) break
+                                                if (!isActive || documentarySearchKeys.size >= 8) break
                                                 val audioBusy = withContext(Dispatchers.Main.immediate) {
                                                     backgroundWorkBlocked() ||
                                                         playerConnection?.service?.isCoverAudioAtRisk() == true
@@ -3820,7 +3820,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     criteria = criteria,
                                     originalArtist = originalArtist,
                                     page = 1,
-                                    perPage = 15,
+                                    perPage = 50,
                                 ).getOrNull()
                             }
                             withContext(Dispatchers.Main.immediate) {
@@ -3832,11 +3832,9 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             var checked = 0
                             for (record in page?.items.orEmpty()) {
-                                if (!isActive || checked >= 2) break
+                                if (!isActive || checked >= 8) break
                                 if (!TitleMeaningResolver.matchesBaseTitle(
                                         searchedTitle, record.trackTitle
-                                    ) || !TitleMeaningResolver.sameArtist(
-                                        record.artist, originalArtist
                                     )
                                 ) continue
                                 val audioBusy = withContext(Dispatchers.Main.immediate) {
