@@ -3700,7 +3700,12 @@ internal fun DiscogsDirectVersionBrowser(
                                     coverRound = thisRound,
                                     deepRecovery = thisRound > 1,
                                     onEarlyVideoCandidates = { candidates ->
-                                        candidates.forEach(::submitSourceVideo)
+                                        // LAB74: prefer official releases and COVER.INFO
+                                        // in this batch; publish every candidate as
+                                        // before, without a required catalog proof.
+                                        CoverLab74PositivePriority.order(
+                                            candidates, originalArtist,
+                                        ).forEach(::submitSourceVideo)
                                     },
                                     onSourceCompleted = { candidates, diagnostic, _ ->
                                         withContext(Dispatchers.Main.immediate) {
@@ -3708,7 +3713,9 @@ internal fun DiscogsDirectVersionBrowser(
                                         }
                                         // A linked COVER.INFO ID takes the short route:
                                         // never make it wait for a new YouTube search.
-                                        candidates.forEach(::submitSourceVideo)
+                                        CoverLab74PositivePriority.order(
+                                            candidates, originalArtist,
+                                        ).forEach(::submitSourceVideo)
                                         // LAB67 quality recovery: MusicBrainz and
                                         // COVER.INFO professional editions often
                                         // document the recording but have no direct
@@ -3863,6 +3870,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         artist = record.artist,
                                         sources = listOf("Discogs", "YouTube"),
                                         year = record.year,
+                                        album = record.releaseTitle,
                                         sourceUrl = record.discogsUrl,
                                         playbackVideoId = video.id,
                                         playbackVideoTitle = video.title,
@@ -3931,6 +3939,19 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                                 val providerVideos = (musicSongs + found.orEmpty() + webSongs)
                                     .distinctBy { it.id }
+                                    .let { all ->
+                                        // Pure preference: NO removal, no wait and
+                                        // unchanged order in all subsequent rounds.
+                                        if (thisRound != 1) all else all.withIndex()
+                                            .sortedWith(compareByDescending<IndexedValue<SongItem>> {
+                                                CoverLab74PositivePriority.videoScore(
+                                                    it.value.title,
+                                                    it.value.artists.firstOrNull()?.name.orEmpty(),
+                                                    originalArtist,
+                                                )
+                                            }.thenBy { it.index })
+                                            .map { it.value }
+                                    }
                                 recordSource(CoverSourceDiagnostic(
                                     "YouTube diretto", providerVideos.isNotEmpty(), providerVideos.size,
                                     "video candidati nell'ultima ricerca (non tutti pubblicati)"
