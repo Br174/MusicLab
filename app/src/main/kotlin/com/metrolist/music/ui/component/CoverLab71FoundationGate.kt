@@ -112,12 +112,18 @@ internal object CoverLab71FoundationGate {
             artist = seed.artist,
             sources = seed.sourceNames,
             album = seed.releaseTitle,
+            category = if (seed.workRelationConfirmed &&
+                seed.sourceNames.any {
+                    it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true)
+                } && !TitleMeaningResolver.matchesBaseTitle(targetTitle, seed.trackTitle)
+            ) AiCoverCategory.FOREIGN else AiCoverCategory.COVER,
             workRelationConfirmed = seed.workRelationConfirmed,
             playbackVideoId = videoId,
             playbackVideoTitle = seed.resolvedVideoTitle,
         )
         return matchesRequestedWork(
-            source, targetTitle, originalArtist, seed.resolvedVideoTitle.orEmpty()
+            source, targetTitle, originalArtist, seed.resolvedVideoTitle.orEmpty(),
+            allowExactTitleOnly = (seed.coverRound ?: 1) >= 4,
         )
     }
 
