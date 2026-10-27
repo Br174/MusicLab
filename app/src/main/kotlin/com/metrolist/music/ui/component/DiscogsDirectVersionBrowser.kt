@@ -3572,10 +3572,30 @@ internal fun DiscogsDirectVersionBrowser(
                     val videoIdPattern = Regex("[A-Za-z0-9_-]{11}")
                     val earlyVideoIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
                     val documentarySearchKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-                    suspend fun tryPublish(candidate: CoverSourceCandidate, searchedVideo: SongItem? = null) {
+                    val firstRoundVideos = mutableListOf<Pair<CoverSourceCandidate, SongItem?>>()
+                    val discographyProofs = mutableListOf<CoverSourceCandidate>()
+                    val documentedWorkVersions = mutableListOf<CoverSourceCandidate>()
+                    suspend fun tryPublish(
+                        candidate: CoverSourceCandidate,
+                        searchedVideo: SongItem? = null,
+                        flushFirstRound: Boolean = false,
+                    ) {
                         val id = candidate.playbackVideoId?.trim().orEmpty()
                         if (!videoIdPattern.matches(id)) return
                         if (!isActive || generation != turboSearchGeneration) return
+                        if (thisRound == 1 && !flushFirstRound) {
+                            if (firstRoundVideos.size < 220) firstRoundVideos += candidate to searchedVideo
+                            return
+                        }
+                        val publishedCandidate = if (thisRound == 1) {
+                            CoverLab72PublicationProof.withDocumentedRelease(
+                                candidate, discographyProofs, documentedWorkVersions,
+                            ) ?: return
+                        } else candidate
+                        if (thisRound == 1 &&
+                            !CoverLab72PublicationProof.isReleaseProof(publishedCandidate)) return
+                        if (thisRound == 2 &&
+                            !CoverLab72PublicationProof.professionalUnreleased(publishedCandidate)) return
                         if (!earlyVideoIds.add(id)) return
                         // LAB70: only an IN-FLIGHT lock. Failed metadata checks
                         // cannot permanently blacklist a valid video ID.
@@ -3609,15 +3629,15 @@ internal fun DiscogsDirectVersionBrowser(
                         } ?: return
                         if (metadata.id != id || metadata.title.isBlank()) return
                         val verdict = CoverLabTurboRoundAdmission.evaluate(
-                            candidate, searchedTitle, originalArtist, thisRound, metadata.title,
+                            publishedCandidate, searchedTitle, originalArtist, thisRound, metadata.title,
                         )
                         if (!verdict.admitted) return
                         val seed = withContext(Dispatchers.Default) {
                             DiscogsVersionSource.externalSeed(
                                 // YouTube's real song metadata contributes timing
                                 // for recording twins; no audio stream is opened.
-                                candidate = candidate.copy(
-                                    durationSeconds = candidate.durationSeconds ?: metadata.duration,
+                                candidate = publishedCandidate.copy(
+                                    durationSeconds = publishedCandidate.durationSeconds ?: metadata.duration,
                                 ),
                                 targetTitle = searchedTitle,
                                 originalArtist = originalArtist,
@@ -3683,7 +3703,7 @@ internal fun DiscogsDirectVersionBrowser(
                         val sourceQueuedIds = ConcurrentHashMap.newKeySet<String>()
                         fun submitSourceVideo(candidate: CoverSourceCandidate) {
                             val id = candidate.playbackVideoId?.trim().orEmpty()
-                            if (!id.matches(videoIdPattern) || sourceQueuedIds.size >= 48 ||
+                            if (!id.matches(videoIdPattern) || sourceQueuedIds.size >= 100 ||
                                 !sourceQueuedIds.add(id)) return
                             launch(Dispatchers.Main.immediate) {
                                 sourceVideoGate.withPermit { tryPublish(candidate) }
@@ -3705,6 +3725,17 @@ internal fun DiscogsDirectVersionBrowser(
                                     onSourceCompleted = { candidates, diagnostic, _ ->
                                         withContext(Dispatchers.Main.immediate) {
                                             recordSource(diagnostic)
+                                            if (thisRound == 1) {
+                                                discographyProofs += candidates.filter(
+                                                    CoverLab72PublicationProof::isReleaseProof
+                                                )
+                                                documentedWorkVersions += candidates.filter {
+                                                    it.workRelationConfirmed && it.sources.any { source ->
+                                                        source.equals("COVER.INFO", true) ||
+                                                            source.equals("MusicBrainz", true)
+                                                    }
+                                                }
+                                            }
                                         }
                                         // A linked COVER.INFO ID takes the short route:
                                         // never make it wait for a new YouTube search.
@@ -3722,7 +3753,7 @@ internal fun DiscogsDirectVersionBrowser(
                                             // A separate bounded lane, not a blocking
                                             // onSourceCompleted callback.
                                             for (lead in candidates) {
-                                                if (!isActive || documentarySearchKeys.size >= 4) break
+                                                if (!isActive || documentarySearchKeys.size >= 8) break
                                                 val audioBusy = withContext(Dispatchers.Main.immediate) {
                                                     backgroundWorkBlocked() ||
                                                         playerConnection?.service?.isCoverAudioAtRisk() == true
@@ -3963,6 +3994,20 @@ internal fun DiscogsDirectVersionBrowser(
                         documents?.join()
                         cloud?.join()
                         discogs?.join()
+                        if (thisRound == 1) {
+                            val released = firstRoundVideos.mapNotNull { (candidate, video) ->
+                                CoverLab72PublicationProof.withDocumentedRelease(
+                                    candidate, discographyProofs, documentedWorkVersions,
+                                )?.let { verified -> verified to video }
+                            }.sortedBy { (candidate, _) ->
+                                CoverLab72PublicationProof.firstRoundPriority(candidate, originalArtist)
+                            }.distinctBy { (candidate, _) -> candidate.playbackVideoId }.take(90)
+                            for ((verified, video) in released) {
+                                if (!isActive || generation != turboSearchGeneration ||
+                                    publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA) break
+                                tryPublish(verified, searchedVideo = video, flushFirstRound = true)
+                            }
+                        }
                     }
                     session.roundSourceChecked = documentaryCompleted.get()
                     if (includeDocumentary && !documentaryCompleted.get()) {
