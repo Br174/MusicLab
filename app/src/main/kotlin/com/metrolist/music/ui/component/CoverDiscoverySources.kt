@@ -526,7 +526,7 @@ internal object CoverDiscoverySources {
                     workRelationConfirmed = true,
                     evidenceScore = 9,
                 )
-            }.distinctBy { sourceIdentity(it, mode) }
+            }.distinctBy { sourceIdentity(it, DiscogsDirectMode.COVER) }
         } else emptyList()
         return versions to CoverSourceDiagnostic(
             name = "SecondHandSongs",

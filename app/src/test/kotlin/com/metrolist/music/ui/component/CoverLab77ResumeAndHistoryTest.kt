@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverLab77ResumeAndHistoryTest {
+    @Test fun legacySelectedSingerFlagsCannotCreateAnOriginalCapDuringRestoration() {
+        val legacy = (1..6).map { row("legacy0000$it", artist = "Jeff Buckley").copy(
+            originalWorkReference = true, workRelationConfirmed = true, sourceNames = listOf("MusicBrainz")) }
+        val method = CoverRoundStorage::class.java.getDeclaredMethod("retained", List::class.java, String::class.java)
+            .apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val restored = method.invoke(CoverRoundStorage, legacy, null) as List<DiscogsVersionSeed>
+        assertEquals(6, restored.size)
+        @Suppress("UNCHECKED_CAST")
+        val capped = method.invoke(CoverRoundStorage, legacy, "Jeff Buckley") as List<DiscogsVersionSeed>
+        assertEquals(5, capped.size)
+    }
     @Test fun linkedLeadRetainsContinuationUntilEveryReturnedPageIsProcessed() {
         val pending = CoverPriorityOrder.Pending()
         val lead = CoverSourceCandidate("Il mondo", "Singer", listOf("COVER.INFO"))

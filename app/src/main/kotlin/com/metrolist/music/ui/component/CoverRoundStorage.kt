@@ -134,7 +134,9 @@ internal object CoverRoundStorage {
 
     private fun retained(rows: List<DiscogsVersionSeed>, originalArtist: String? = null): List<DiscogsVersionSeed> {
         if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
-            val original = originalArtist ?: rows.firstOrNull { it.originalWorkReference && it.workRelationConfirmed && it.sourceNames.any { source -> source.equals("COVER.INFO", true) || source.equals("MusicBrainz", true) } }?.artist.orEmpty()
+            // Legacy originalWorkReference flags can mean the selected cover singer.
+            // Only the explicitly persisted R2 documentary reference can impose this cap.
+            val original = originalArtist.orEmpty()
             return CoverPriorityOrder.retainedRows(rows, original)
         }
         val seen = HashSet<String>()

@@ -20,3 +20,5 @@ Review and evidence update:
 - Native ranking runs on Default; source callbacks, shared queue mutations and player checks remain Main.
 - All already discovered MusicBrainz recording rows retained in Turbo; native later-round deep lookup preserved. Individual catalogue URLs retain distinct documentary IDs instead of merging by singer/title.
 - Rulings: partial independent review is supplemented by author review plus full native regression gate; live phone timing/fame coverage cannot be certified by unit tests. No production promotion.
+- Native run40544927481 stopped in compilation on a source adapter scope reference; corrected explicitly, no APK created. Final full native gate rerun required.
+- Restored legacy flags do not identify the original; only explicit R2 original context imposes five cap. Regression observed6->5 wrongful loss, corrected and48/48 local tests pass. Cold restore initializes continuation without clearing published history.

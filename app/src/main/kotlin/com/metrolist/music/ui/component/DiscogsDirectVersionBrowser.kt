@@ -6318,7 +6318,26 @@ internal fun DiscogsDirectVersionBrowser(
     LaunchedEffect(sessionKey, discogsToken, restorationReady) {
         if (!restorationReady) return@LaunchedEffect
         if (!session.initialized && initialTitle.isNotBlank()) {
-            runSearch()
+            if (isTurbo && mode == DiscogsDirectMode.COVER && previousRoundRows.isNotEmpty()) {
+                // Restored cards are already published. Initialize their manual continuation
+                // without invoking the fresh-search branch that clears history and storage.
+                val restoredCriteria = buildCriteria()
+                activeCriteria = restoredCriteria
+                session.activeCriteria = restoredCriteria
+                session.initialized = true
+                session.turboFinished = true
+                session.turboVideoComplete = true
+                rankingFrozen = true
+                session.rankingFrozen = true
+                originalSectionFrozen = true
+                session.originalSectionFrozen = true
+                visibleLimit = previousRoundRows.size
+                session.visibleLimit = visibleLimit
+                publishedReadyLimit = previousRoundRows.size
+                session.publishedReadyLimit = publishedReadyLimit
+                roundPlanComplete = false
+                session.roundPlanComplete = false
+            } else runSearch()
         }
         // LAB58: never synchronously inspect every video binding or relaunch
         // the ENTIRE Cloud/Discogs search when merely reopening 50 posters.
