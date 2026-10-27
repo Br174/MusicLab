@@ -1,0 +1,65 @@
+name: MusicLab Turbo LAB72 Signed APK
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-lab72-discographic-rounds-20261027
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Verify source and Android update identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = "lab/musiclab-turbo-lab72-discographic-rounds-20261027"
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33074"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+      - name: Android JVM regressions
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Build signed Turbo APK and ZIP
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Verify installation package, original signer and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB72.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB72-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -name aapt -type f | sort -V | tail -n 1)"
+          SIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          "$AAPT" dump badging "$APK" | grep -F "versionCode='33074'"
+          "$SIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
+          ACTUAL="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$ACTUAL" = '9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749'
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+      - name: Publish APK and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB72-Signed-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB72.apk
+            dist/uab/MusicLab-Turbo-LAB72-APK.zip
+            dist/uab/BUILD_SHA.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
