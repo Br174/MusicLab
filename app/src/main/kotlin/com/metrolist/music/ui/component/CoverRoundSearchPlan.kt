@@ -5,12 +5,14 @@ internal object CoverRoundSearchPlan {
     internal data class Query(val text: String, val categoryHint: AiCoverCategory)
 
     private val official = listOf(
-        "official audio", "official music video", "original recording", "studio version",
+        "official audio", "official music video", "original recording", "published studio version",
         "official cover", "professional singer cover", "famous cover version",
-        "studio cover by other singers", "cover interpretation", "duet official", "live official",
+        "studio cover by other singers", "cover interpretation", "duet album track",
+        "released live album cover", "published cover single",
         "foreign language cover", "adaptation cover", "cover studio", "official performance",
     )
     private val talent = listOf(
+        "Festival di Sanremo cover live", "Rai TV performance cover",
         "X Factor cover live", "The Voice cover live", "live concert cover",
         "acoustic cover", "talent show performance", "unplugged cover",
         "festival live cover", "TV audition cover", "live studio session",
