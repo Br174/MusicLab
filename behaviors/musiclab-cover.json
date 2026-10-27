@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "musiclab",
   "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
-  "status": "USER_APPROVED_FOUNDATIONS_COMMITTED_IN_MEMORY_BRANCH; APP_IMPLEMENTATION_PENDING_LAB71_APPROVAL",
+  "status": "LAB72_APPROVED_FOUNDATION_CONTRACT_PENDING_CI_BUILD_DEVICE_VERIFICATION",
   "rules": [
     {
       "id": "musiclab.cover.same-work",
@@ -351,7 +351,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 3,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "Keep verified LAB66 YouTube original-video-thumbnail publication and LAB70 source-backed credited lookup. First round actively searches professionally documented high-quality COVER performances BY OTHER SINGERS, popular studio renditions, bona fide original versions and COVER.INFO-backed foreign adaptations; consult relevant MusicBrainz, Discogs, Apple/iTunes, Spotify and YouTube when useful. Do not rely mainly on SecondHandSongs. Subsequent manual rounds widen to talent, artistic live/acoustic, amateur and rare interpreted covers, WITHOUT permitting wrong-title/different-Work results, karaoke/MIDI/backing tracks or duplicates in ANY tier. Artistic credited instrumental reinterpretation is different from karaoke/accompaniment and may qualify only with real performance evidence. No source timeout becomes permanent absence or blacklist. At most 50 genuine unique YouTube video-linked results PER round if available; never invent results; prefer other interpreters once canonical original-artist recordings are represented.",
       "acceptance": [
@@ -434,9 +434,36 @@
       ],
       "testPaths": [],
       "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v4",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 4,
+      "status": "active",
+      "protected": true,
+      "behavior": "FOUNDATIONAL user-approved DISCOSGRAPHIC-FIRST round ordering. Round ONE only includes recordings actually published as a track on a named official album, single, EP, compilation or officially released live album; no exception merely for X Factor, The Voice, Sanremo or YouTube 'official' labels. Published TV-talent recordings qualify when THEIR particular performance has independent discographic release proof. First round includes original singer (respecting 1 studio/2 distinct live/2 distinct remix caps), documented covers by known and other artists, and COVER.INFO foreign-language Work adaptations EARLY IN THE VISIBLE ORDER when corroborated by actual release records. A COVER.INFO same-work relationship proves composition only, NEVER automatically a discographic recording. Apple/iTunes catalog track+collection identifiers and track URL; Spotify authentic track ID and album; Discogs actual release tracklist with recording artist provide eligible evidence. A generic title, search summary, year, YouTube Topic/VEVO/official badge and publication claim alone DO NOT constitute release proof. Corroborate performer, musical title/translated Work, performance category (studio/live/remix) and source video ID; never claim famousness without independent evidence or use unverifiable celebrity rankings. Search Discogs verified release details and other singers, not only first 15 results nor only the original. Round TWO contains non-discographically verified professionally filmed TV, Sanremo, X Factor, The Voice, radio sessions and officially produced concert live performances. Round THREE and later progressively include independent and amateur cover performances. Never discard a rejected first-round candidate permanently; keep subsequent rounds available, no duplicates across session. Every round retains immutable title/same-work identity, global karaoke/MIDI/backing track veto, verified YouTube thumbnail video, audio priority, speed, 50 true new rendition ceiling, no invented fillers. Changing first-round source priority cannot demote verified COVER.INFO foreign performances to later rounds.",
+      "acceptance": [
+        "Round 1: reject any unknown/unverified discographic recording even if titled official, live, TOPIC or X Factor",
+        "Round 1: accept original plus credited other singers only after actual independent released track matches artist/title and video",
+        "Round 1: officially published live-album recording accepted, unreleased audience-recorded live rejected",
+        "Round 1: published talent competition compilation recording accepted; unreleased talent TV clip deferred to round 2",
+        "Round 1: COVER.INFO authenticated foreign Work adaptations appear ahead of later general results only when a release of their specific recording is evidenced",
+        "Round 2: Sanremo and professionally filmed TV/radio/live without documented album can appear",
+        "Round 3+: amateur videos remain discoverable, never bypass title/karaoke/MIDI/dedupe veto",
+        "Discogs: verified tracklist from other singers, not summaries or original-only first page",
+        "No audio/UI/signature/main/MADRE/production changes, phone test remains required"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab72PublicationProofTest.kt",
+        "cloudflare/music-intelligence/test/turbo-lab72-discographic-first-round.test.mjs"
+      ],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v3"
+      ]
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-27-coverlab-foundational-immutable-title-global-exclusions-and-diversity-v3",
+  "canonicalBehaviorRevision": "2026-10-27-lab72-discographic-first-cover-info-priority-v4",
   "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
@@ -460,10 +487,10 @@
     },
     {
       "oldRule": "musiclab.cover.category-rounds",
-      "disposition": "SUPERSEDED_BY_NEWER_USER_FOUNDATION",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v3",
+      "disposition": "SUPERSEDED_BY_APPROVED_LAB72_FOUNDATION",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v4",
       "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v2"
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v3"
     },
     {
       "oldRule": "musiclab.cover.score-separation",
@@ -479,9 +506,16 @@
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v2",
-      "disposition": "RETIRED_IN_FOUNDATIONAL_MEMORY_CONTRACT",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v3",
-      "appEnforcement": "PENDING_USER_APPROVAL_LAB71"
+      "disposition": "SUPERSEDED_BY_APPROVED_LAB72_FOUNDATION",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v4",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v3"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v3",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v4",
+      "disposition": "APPROVED_USER_SUPERSESSION_LAB72",
+      "appEnforcement": "PENDING_BUILD_AND_DEVICE_VERIFICATION"
     }
   ],
   "confirmedGoodBaseline": {
@@ -547,14 +581,14 @@
     }
   ],
   "foundationsApprovedAt": "2026-10-27",
-  "foundationsImplementationState": "DOCUMENTED_NOT_IMPLEMENTED; LAB71_NOT_AUTHORIZED",
+  "foundationsImplementationState": "LAB71_CI_VERIFIED; LAB72_IMPLEMENTATION_IN_PROGRESS",
   "foundationsNextStep": "LAB71 pre-change report + distinct user approval; implement guard once centrally, regression tests and device tests, preserve player/cloud/signature/main",
   "pendingFoundationalImplementation": [
-    "Title exact and same composition everywhere including round 4+, foreign translations only documentary-proven",
-    "Karaoke/MIDI/backing tracks forbidden globally, artistic real instrumental covers disambiguated",
-    "Original performer: one studio, at most two distinct live and two distinct remixes, few authentic duets",
-    "Deduplicate recordings across different IDs/providers/rounds without harming real other singers",
-    "Broad first-round high-quality actual covers by other interpreters, up to 50 real verified renditions if found",
-    "Preserve LAB66 YouTube thumbnail and LAB70 fixes, player, graphics, signing, main/MADRE and production"
+    "LAB72 First round only real published recordings on singles/EP/albums/compilations/live albums, no program-name exception",
+    "LAB72 COVER.INFO first-result prominence conditioned on independent release proof; preserve original and professional known singers",
+    "LAB72 Second round professionally recorded Sanremo/X Factor/The Voice/TV/radio/concert not verified on discs",
+    "LAB72 Third+ independent/amateur interpretation expansion; all-round hard karaoke MIDI wrong-title bans",
+    "LAB72 Discogs verified release tracklists for alternate singers and more linked videos",
+    "LAB72 verified APK and ZIP same signer, no player UI main/MADRE/production changes"
   ]
 }
