@@ -121,6 +121,6 @@ MOTORLAB_KOTLIN_KSP_TUNING=forbidden_without_explicit_approval
 
 MUSICLAB_COVER_BEHAVIOR_MEMORY_AUTHORITY=behaviors/musiclab-cover.json
 MUSICLAB_COVER_BEHAVIOR_MEMORY_REF=motorlab/musiclab-cover-behavior-memory-clean-20261026
-MUSICLAB_COVER_BEHAVIOR_MEMORY_REVISION=2026-10-27-lab75-exact-lab71-restore-device-pending-v7
+MUSICLAB_COVER_BEHAVIOR_MEMORY_REVISION=2026-10-27-lab76-progressive-manual-3s-title-foreign-only-v8
 MUSICLAB_COVER_BEHAVIOR_MEMORY_POLICY=before any future CoverLab implementation, read canonical contract above, respect active supersession and audit every conflicting legacy enforcement path
 MUSICLAB_COVER_BEHAVIOR_MEMORY_ENFORCEMENT=contract_retirement_verified;app_runtime_main_promotion_pending
