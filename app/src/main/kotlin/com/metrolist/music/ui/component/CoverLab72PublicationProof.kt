@@ -72,8 +72,10 @@ internal object CoverLab72PublicationProof {
         proofs: List<CoverSourceCandidate>,
         documentedWorkVersions: List<CoverSourceCandidate> = emptyList(),
     ): CoverSourceCandidate? {
-        if (isReleaseProof(candidate)) return candidate
-        val proof = proofs.firstOrNull { corroboratesRecording(candidate, it) } ?: return null
+        val corroboration = if (isReleaseProof(candidate)) {
+            listOf(candidate) + proofs.filter { corroboratesRecording(candidate, it) }
+        } else proofs.filter { corroboratesRecording(candidate, it) }
+        val proof = corroboration.firstOrNull() ?: return null
         // An established MusicBrainz/COVER.INFO same-Work relation carries
         // across matching artist/recording identity. NEVER synthesize this
         // relationship from a release's existence or a coincidental song title.
@@ -88,7 +90,8 @@ internal object CoverLab72PublicationProof {
                 )
         }
         return candidate.copy(
-            sources = (candidate.sources + proof.sources +
+            sources = (candidate.sources +
+                corroboration.flatMap { it.sources } +
                 matchedWork?.sources.orEmpty()).distinct(),
             album = proof.album,
             year = candidate.year ?: proof.year,
