@@ -22,8 +22,8 @@ test('ExoPlayer risk state not accessed from dispatcher IO provider callbacks',(
   assert.match(cb,/isCoverAudioAtRisk\(\)/);
   const discogs=b.slice(b.indexOf('val discogs = if (includeDocumentary'), b.indexOf('val youtube = launch {', b.indexOf('val discogs = if (includeDocumentary')));
   assert.match(discogs,/val audioBusy = withContext\(Dispatchers\.Main\.immediate\)/);
-  assert.match(discogs,/DiscogsVersionSource\.loadVersionPage\(/);
-  assert.match(discogs,/withContext\(Dispatchers\.Main\.immediate\) \{\s*tryPublish\(documented\)/);
+  assert.match(discogs,/DiscogsVersionSource\.discoverCoverVersions\(/);
+  assert.match(discogs,/withContext\(Dispatchers\.Main\.immediate\) \{\s*tryPublish\(release\.copy\(/);
 });
 
 test('The live source dialog never substitutes provisional LAB56 scores for Turbo results',()=>{
