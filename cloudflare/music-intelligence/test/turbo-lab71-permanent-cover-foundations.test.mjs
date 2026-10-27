@@ -10,7 +10,7 @@ const memory = JSON.parse(readFileSync('behaviors/musiclab-cover.json','utf8'));
 const active=b.slice(b.indexOf('// LAB66 canonical Behavior Memory'),b.indexOf('// A further Cover round never clears'));
 const required=[
 'musiclab.cover.work-identity-progressive.v3',
-'musiclab.cover.source-and-category-rounds.v3',
+'musiclab.cover.source-and-category-rounds.v8',
 'musiclab.cover.global-karaoke-midi-exclusion.v1',
 'musiclab.cover.original-performer-version-caps.v1',
 'musiclab.cover.cross-upload-recording-dedupe.v1',
@@ -18,7 +18,7 @@ const required=[
 ];
 
 test('LAB71 pins exact permanent user-approved behavior contract, no old active conflict',()=>{
- assert.equal(memory.canonicalBehaviorRevision,'2026-10-27-coverlab-foundational-immutable-title-global-exclusions-and-diversity-v3');
+ assert.equal(memory.canonicalBehaviorRevision,'2026-10-27-lab76-progressive-manual-3s-title-foreign-only-v8');
  assert.equal(memory.confirmedGoodBaseline.commit,'26f652fd34cbf6856d76c6efc8baf3fd14bf333f');
  for(const id of required) {
   const row=memory.rules.find(x=>x.id===id);
@@ -26,9 +26,9 @@ test('LAB71 pins exact permanent user-approved behavior contract, no old active 
   assert.equal(row.status,'active',id);
   assert.equal(row.protected,true,id);
  }
- for(const id of ['musiclab.cover.work-identity-progressive.v2','musiclab.cover.source-and-category-rounds.v2'])
+ for(const id of ['musiclab.cover.work-identity-progressive.v2','musiclab.cover.source-and-category-rounds.v2','musiclab.cover.source-and-category-rounds.v3','musiclab.cover.source-and-category-rounds.v7'])
   assert.equal(memory.rules.find(x=>x.id===id).status,'retired');
- assert.equal(memory.foundationsImplementationState.startsWith('DOCUMENTED_NOT_IMPLEMENTED'),true);
+ assert.match(memory.foundationsImplementationState,/LAB76_MANUAL_3S_AND_PROGRESSIVE_ROUNDS_PENDING_TEST/);
 });
 
 test('One permanent identity gate before ANY round-specific confidence branch',()=>{
