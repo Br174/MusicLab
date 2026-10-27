@@ -65,10 +65,15 @@ internal object CoverLab71FoundationGate {
         val requestedVideoTitle = isExactOrDecorated(targetTitle, video)
         val requestedCatalogTitle = isExactOrDecorated(targetTitle, candidate.title)
         if (documentaryWork) {
-            // Reliable source links a translated title to the SAME Work.
-            // The returned video must still name that documented recording.
+            // A non-identical musical title is allowed ONLY for a documented
+            // FOREIGN-language interpretation of the same Work. No other
+            // different-title recording enters, even in broad late rounds.
+            if (!requestedCatalogTitle && candidate.category != AiCoverCategory.FOREIGN) {
+                return false
+            }
             return (requestedVideoTitle && requestedCatalogTitle) ||
-                isExactOrDecorated(candidate.title, video)
+                (candidate.category == AiCoverCategory.FOREIGN &&
+                    isExactOrDecorated(candidate.title, video))
         }
         if (!requestedVideoTitle || !requestedCatalogTitle) return false
         // By user request, later rounds can admit a genuine exact-title
