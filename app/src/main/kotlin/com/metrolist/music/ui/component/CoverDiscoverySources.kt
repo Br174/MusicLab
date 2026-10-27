@@ -52,6 +52,10 @@ internal data class CoverSourceCandidate(
     val originalWorkReference: Boolean = false,
     val credits: List<DiscogsCredit> = emptyList(),
     val evidenceScore: Int = 1,
+    // LAB72: verified catalog release for this recording, NOT merely a
+    // YouTube title/official badge or publication year.
+    val releaseVerified: Boolean = false,
+    val releaseEvidence: String? = null,
 )
 
 internal data class CoverSourceDiagnostic(
@@ -301,6 +305,8 @@ internal object CoverDiscoverySources {
                         evidenceScore =
                             (maxOf(previous.evidenceScore, candidate.evidenceScore) + extraSourceBonus)
                                 .coerceIn(1, 20),
+                        releaseVerified = previous.releaseVerified || candidate.releaseVerified,
+                        releaseEvidence = previous.releaseEvidence ?: candidate.releaseEvidence,
                     )
             }
         }
@@ -655,6 +661,14 @@ internal object CoverDiscoverySources {
                             else AiCoverCategory.FOREIGN,
                         sourceUrl = item.optString("trackViewUrl").takeIf(String::isNotBlank),
                         evidenceScore = if (titleMatches) 6 else 1,
+                        // Require Apple catalog's genuine track/release identifiers.
+                        // A display label/album name alone is not release proof.
+                        releaseVerified = item.optLong("trackId") > 0L &&
+                            item.optLong("collectionId") > 0L &&
+                            item.optString("collectionName").isNotBlank() &&
+                            item.optString("trackViewUrl").startsWith("https://"),
+                        releaseEvidence = item.optString("trackViewUrl")
+                            .takeIf { it.startsWith("https://") },
                     ),
                 )
             }
@@ -917,6 +931,11 @@ internal object CoverDiscoverySources {
                             category = candidate.category,
                             sourceUrl = candidate.spotifyTrackId?.let { "https://open.spotify.com/track/$it" },
                             evidenceScore = 6,
+                            releaseVerified = !candidate.spotifyTrackId.isNullOrBlank() &&
+                                !candidate.album.isNullOrBlank(),
+                            releaseEvidence = candidate.spotifyTrackId
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { "https://open.spotify.com/track/$it" },
                         )
                     }
                 candidates to CoverSourceDiagnostic(
