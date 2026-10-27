@@ -48,11 +48,14 @@ class CoverLabTurboRoundAdmissionTest {
             creditedCover, "Sapore di sale", "Gino Paoli", 4
         ).admitted)
         val ambiguous = candidate()
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+        // LAB76 user rule: from the fourth round the full exact song
+        // title ALONE is sufficient, no uploader/artist attribution needed.
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
             ambiguous, "Sapore di sale", "Gino Paoli", 4
         ).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            candidate(title = "Yeniden başlasın", sources = listOf("COVER.INFO"), confirmed = true),
+            candidate(title = "Yeniden başlasın", sources = listOf("COVER.INFO"), confirmed = true)
+                .copy(category = AiCoverCategory.FOREIGN),
             "Se mi lasci non vale", "Julio Iglesias", 1,
             "Yeniden başlasın"
         ).admitted)
