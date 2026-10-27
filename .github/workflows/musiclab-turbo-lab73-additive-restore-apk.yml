@@ -1,0 +1,91 @@
+name: MusicLab Turbo LAB73 Additive Restore APK ZIP
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-lab73-additive-discovery-20261027
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: musiclab-lab73-additive-restoration-v1
+  cancel-in-progress: true
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Protect LAB71 source, player, app ID and production
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=664d176054d35728032dda31e3d05a1ff406ab4b
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --check "$BASE" HEAD
+          git diff --name-only "$BASE" HEAD > /tmp/changed.txt
+          while IFS= read -r file; do
+            case "$file" in
+              app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|cloudflare/music-intelligence/test/turbo-lab71-permanent-cover-foundations.test.mjs|cloudflare/music-intelligence/test/turbo-lab73-additive-restore.test.mjs|behaviors/musiclab-cover.json|tools/universal-apk-builder/prepare-turbo-lab73-additive-env.py|.github/workflows/musiclab-turbo-lab73-additive-restore-apk.yml) ;;
+              *) echo "Unexpected LAB73 modification: $file"; exit 1 ;;
+            esac
+          done </tmp/changed.txt
+          for immutable in app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverLabTurboRoundAdmission.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGate.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt app/src/main/AndroidManifest.xml app/build.gradle.kts; do
+            test "$(git hash-object "$immutable")" = "$(git rev-parse "$BASE:$immutable")"
+          done
+          test -z "$(git diff --name-only "$BASE" HEAD -- cloudflare/music-intelligence/src/)"
+      - name: Static regressions LAB71 and additive LAB73
+        run: |
+          node --test cloudflare/music-intelligence/test/turbo-lab66-behavior-memory-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab67-verified-good-refinements.test.mjs cloudflare/music-intelligence/test/turbo-lab68-player-thread-source-diagnostics.test.mjs cloudflare/music-intelligence/test/turbo-lab69-nonblocking-provider-diagnostics.test.mjs cloudflare/music-intelligence/test/turbo-lab70-first-round-recovery-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab71-permanent-cover-foundations.test.mjs cloudflare/music-intelligence/test/turbo-lab73-additive-restore.test.mjs cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Prepare same-family Android 33075
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-lab73-additive-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33075"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+      - name: Android JVM regressions full
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Build signed LAB73 APK ZIP
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Verify Android package, signing certificate and ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB73.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB73-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33075'"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
+          CERT="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = '9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749'
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+      - name: Publish installable APK and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB73-AdditiveRestore-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB73.apk
+            dist/uab/MusicLab-Turbo-LAB73-APK.zip
+            dist/uab/BUILD_SHA.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
