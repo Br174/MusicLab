@@ -546,7 +546,7 @@
       "version": 2,
       "status": "active",
       "protected": true,
-      "behavior": "R2 latest user authority: preserve every admissible candidate. Exclude MIDI, karaoke, KAR, confirmed identical recordings and original performer version six onward. Original max five distinct TOTAL across sources/rounds, including studio and genuine duet/group participation. Identity evidence orders work, never vetoes weaker candidates. First round prefers releases, originals, credited/famous performers/versions and foreign adaptations; second continues important performers, TV, talent, concerts, clips, remix, mashup, AI; third rarities/instrumentals/guitar/cover bands; later broad. Every reachable COVER.INFO contribution is first-round work through resumable pages. Uncertain second recording twin waits behind all ordinary executable searches/verifications, then remains visible if unproven. Fifty is publication block size, not result collection/round cap. Original reference requires explicit documentary attribution; selected cover singer is not automatically original. Available chart/collector facts rank notoriety without invented fame; evidence percentage is an index, not calibrated probability or audio quality. One orange/green button, native actual video thumbnails, stable published order and playback priority remain.",
+      "behavior": "R2 latest user authority: preserve every admissible candidate. Exclude MIDI, karaoke, KAR, confirmed identical recordings and original performer version six onward. Original max five distinct TOTAL across sources/rounds, including studio and genuine duet/group participation. Identity evidence orders work, never vetoes weaker candidates. First round prefers releases, originals, credited/famous performers/versions and foreign adaptations; second continues important performers, TV, talent, concerts, clips, remix, mashup, AI; third rarities/instrumentals/guitar/cover bands; later broad. Every reachable COVER.INFO contribution is first-round work through resumable pages. Uncertain second recording twin waits behind all ordinary executable searches/verifications, then remains visible if unproven. Presentation scheduling is superseded by musiclab.cover.staged25.presentation.r3:50 shown per logical round,25 per block; never a destructive discovery cutoff. Original reference requires explicit documentary attribution; selected cover singer is not automatically original. Available chart/collector facts rank notoriety without invented fame; evidence percentage is an index, not calibrated probability or audio quality. One orange/green button, native actual video thumbnails, stable published order and playback priority remain.",
       "acceptance": [
         "All R2 admission, cap, history, priority, candidate-retention, documentary/video cursor and original-reference tests pass",
         "No fuzzy recording merge in Turbo publication/storage",
@@ -568,7 +568,32 @@
         "musiclab.cover.cross-upload-recording-dedupe.v1",
         "musiclab.cover.best-covers-other-artists-breadth.v1",
         "musiclab.cover.source-and-category-rounds.v8"
+      ],
+      "supersededAspects": [
+        "presentation block size and logical-round display boundary only; admission, ranking and source coverage remain R2"
       ]
+    },
+    {
+      "id": "musiclab.cover.staged25.presentation.r3",
+      "owner": "musiclab",
+      "scope": "cover-presentation",
+      "version": 3,
+      "status": "active",
+      "protected": true,
+      "behavior": "Bruno-approved LAB78: retain delivered LAB77 source, identity, admission and ranking algorithms. Native queue automatically prepares verified rows. First five stream without waiting for a full block, initial visible group grows to25; next group max25 is hidden until orange reveal with exact ready count. Same criteria for both blocks,50 shown per logical round. Exhausted smaller groups reveal exact available count; zero ready or timed-out/failed work is not exhaustion. Green after50 shown or completed search with no hidden rows; begin next-round first25 preparation while current round stays visible. Preserve every overflow candidate/cursor and existing published order. Audio/startup/buffering and scroll take precedence; no unselected audio stream prewarm. Changes only preparation/publication/button states; no new providers, quality filters or fame/score changes.",
+      "acceptance": [
+        "25+25 retains round1 and yields green only after display",
+        "First5 progressive, no ten/25 gate",
+        "Partially prepared buffer/network failures never imply exhausted",
+        "One reveal appends exactly promised count",
+        "Next round hidden until green, buffers and cursors retained in session",
+        "Source/admission/ranking byte-invariance guards and full native JVM suite pass"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PresentationTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78SourceProgressTest.kt"
+      ],
+      "supersedes": []
     }
   ],
   "canonicalBehaviorRevision": "2026-10-27-lab76-progressive-manual-3s-title-foreign-only-v8",
@@ -760,5 +785,12 @@
   "pendingFoundationalImplementation": [
     "LAB77 full native JVM regressions and signed APK/ZIP",
     "Physical phone quality, timing and audio verification pending"
-  ]
+  ],
+  "staged25Implementation": {
+    "state": "IN_PROGRESS_NATIVE_VERIFICATION_REQUIRED",
+    "base": "cf8ed8fd9dab4a59ab1c7f22795f3962369b7fda",
+    "branch": "lab/musiclab-turbo-lab78-staged25-20261027",
+    "userAuthorized": true,
+    "scope": "presentation/background scheduling only; results unchanged"
+  }
 }

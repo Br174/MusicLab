@@ -230,6 +230,7 @@ internal object CoverPriorityOrder {
         private val attempted = hashSetOf<String>()
         private fun key(page: Page) = "${page.text}|${page.songs}|${page.continuation.orEmpty()}|${page.lead?.let(CoverPriorityOrder::key).orEmpty()}"
         val size: Int get() = pages.size
+        val remainingOrdinary: Int get() = pages.values.count { it.lead == null }
         val hasRunnable: Boolean get() = pages.keys.any { it !in attempted }
         val hasRunnableOrdinary: Boolean get() = pages.any { it.key !in attempted && it.value.lead == null }
         fun offer(text: String, category: AiCoverCategory, songs: Boolean = false, lead: CoverSourceCandidate? = null) {

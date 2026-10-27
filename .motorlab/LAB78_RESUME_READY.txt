@@ -1,0 +1,9 @@
+MusicLab Turbo LAB78 staged25 — native verification pending
+Operation musiclab-staged25-lab78-20261027. Explicit Bruno approval to modify after written25+25 design.
+Delivered immutable LAB77 baseline remote cf8ed8fd9dab4a59ab1c7f22795f3962369b7fda / tree f91b93f4a650c20399d4f4d6255a5ae022990cab; local equivalent75b2c1c. User says LAB77 results are perfect: never modify source/admission/rank/identity algorithms for this work.
+Logical50 result rounds, two25 presentation groups, first5 progressive. One existing queue plus hidden typed presentation buffer; automatically resume bounded native passes while audio and scroll have precedence. Orange reveal exact25 or exhausted partial, no empty-orange action; green after50 or proven exhaustion; next-round first25 prepared but hidden until green.
+Network failure/retry is not exhaustion. Successful targeted artist/title lookup with no video keeps original documentary lead/query for later logical round rather than deleting it or repeating indefinitely now.
+Cold restore preserves prior visible snapshots and resumes preparation; warm screen navigation retains queues/buffers. Native source coverage cannot guarantee the entire web; no phone timing/audio certification before Bruno tests.
+Protected byte identity: player, manifest/build.gradle, cloud source, catalogue adapters, admission/recording identity, work resolution, query plan, storage. CoverPriorityOrder adds only read-only remainingOrdinary accessor; no rank changes.
+New same-family UAB adapter only version33080; same package/certificate; no schema/dependency/compiler tuning; no main/MADRE/production/LAST_GOOD changes. Safety rollback source recipe is immutable LAB77, no backup APK build.
+CI tests every push; signed APK/ZIP only commit marker[build-apk], after review. Final checkpoint/artifacts are authoritative after successful verification; this source checkpoint never claims device verified.
