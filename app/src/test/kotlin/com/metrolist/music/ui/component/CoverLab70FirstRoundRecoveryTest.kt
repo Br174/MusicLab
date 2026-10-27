@@ -53,7 +53,7 @@ class CoverLab70FirstRoundRecoveryTest {
     @Test fun documentedCoverInfoAndOriginalsSurviveStrictRound() {
         val documented = video(
             "El mundo", "Documented interpreter", "COVER.INFO", documentaryWork = true
-        )
+        ).copy(category = AiCoverCategory.FOREIGN)
         assertTrue(
             CoverLabTurboRoundAdmission.evaluate(
                 documented, "Il mondo", "Jimmy Fontana", 1, "El mundo"
