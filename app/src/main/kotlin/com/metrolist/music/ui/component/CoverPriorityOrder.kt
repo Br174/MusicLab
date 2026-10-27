@@ -42,15 +42,6 @@ internal object CoverPriorityOrder {
                 candidate.durationSeconds?.toString().orEmpty(),
             ).joinToString("|")
 
-    private fun titleAllowed(candidate: CoverSourceCandidate, targetTitle: String): Boolean {
-        val aliases = setOf(candidate.artist).filter(String::isNotBlank).toSet()
-        val exactWork = TitleMeaningResolver.matchesBaseTitle(targetTitle, candidate.title, aliases) &&
-            TitleMeaningResolver.matchesBaseTitle(targetTitle, candidate.playbackVideoTitle.orEmpty().ifBlank { candidate.title }, aliases)
-        if (exactWork) return true
-        return candidate.category == AiCoverCategory.FOREIGN && candidate.workRelationConfirmed &&
-            candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) }
-    }
-
     private fun group(candidate: CoverSourceCandidate, originalArtist: String, round: Int): Int {
         val sources = candidate.sources.map { it.lowercase(java.util.Locale.ROOT) }.toSet()
         val details = candidate.title + " " + candidate.playbackVideoTitle.orEmpty() +
@@ -73,7 +64,7 @@ internal object CoverPriorityOrder {
     ): List<CoverSourceCandidate> {
         data class Ranked(
             val row: CoverSourceCandidate, val index: Int,
-            val late: Boolean, val titleRelevance: Int, val evidence: Int, val preference: Int,
+            val late: Boolean, val evidence: Int, val preference: Int,
         )
         return candidates.mapIndexed { index, candidate ->
             val score = CoverLabTurboRoundAdmission.evaluate(
@@ -82,21 +73,11 @@ internal object CoverPriorityOrder {
             ).confidencePercent
             Ranked(
                 candidate, index, key(candidate) in delayedKeys,
-                when (TitleMeaningResolver.classify(
-                    targetTitle,
-                    candidate.playbackVideoTitle.orEmpty().ifBlank { candidate.title },
-                    setOf(candidate.artist, originalArtist).filter(String::isNotBlank).toSet(),
-                )) {
-                    TitleMeaningMatch.EXACT -> 2
-                    TitleMeaningMatch.DECORATED -> 1
-                    TitleMeaningMatch.DIFFERENT -> if (candidate.category == AiCoverCategory.FOREIGN && candidate.workRelationConfirmed) 2 else 0
-                },
                 when { score >= 90 -> 3; score >= 80 -> 2; score >= 40 -> 1; else -> 0 },
                 group(candidate, originalArtist, round),
             )
         }.sortedWith(
-            compareBy<Ranked> { it.late }.thenByDescending { it.titleRelevance }
-                .thenByDescending { it.evidence }
+            compareBy<Ranked> { it.late }.thenByDescending { it.evidence }
                 .thenBy { it.preference }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.collectorHave ?: 0 }.thenBy { it.index }
@@ -352,12 +333,7 @@ internal object CoverPriorityOrder {
                 orderContext = context
                 dirty = false
             }
-            val disallowed = orderedKeys.filter { it in rows && !titleAllowed(rows.getValue(it), title) }
-            completed += disallowed
-            val key = orderedKeys.firstOrNull {
-                it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass &&
-                    (includeTwins || it !in twins) && titleAllowed(rows.getValue(it), title)
-            } ?: return null
+            val key = orderedKeys.firstOrNull { it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass && (includeTwins || it !in twins) } ?: return null
             attempted += key
             return rows[key]
         }

@@ -3601,10 +3601,18 @@ internal fun DiscogsDirectVersionBrowser(
                 sourceDiagnostics = sourceDiagnostics.filterNot { it.name.equals(diagnostic.name, true) } + diagnostic
                 session.sourceDiagnostics = sourceDiagnostics
             }
+            fun titleAllowed(candidate: CoverSourceCandidate): Boolean {
+                val aliases = setOf(candidate.artist).filter(String::isNotBlank).toSet()
+                val sameTitle = TitleMeaningResolver.matchesBaseTitle(workTitle(), candidate.title, aliases) &&
+                    TitleMeaningResolver.matchesBaseTitle(workTitle(), candidate.playbackVideoTitle.orEmpty().ifBlank { candidate.title }, aliases)
+                if (sameTitle) return true
+                return candidate.category == AiCoverCategory.FOREIGN && candidate.workRelationConfirmed &&
+                    candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) }
+            }
             fun offerCandidates(candidates: List<CoverSourceCandidate>, atPublicationBoundary: Boolean = false) {
                 if (generation != turboSearchGeneration) return
                 if (!atPublicationBoundary && !CoverPreparationPolicy.mayRefreshVisible(thisRound, coverRoundNumber)) {
-                    candidates.forEach { candidate ->
+                    candidates.filter(::titleAllowed).forEach { candidate ->
                         val key = CoverPriorityOrder.key(candidate)
                         pending.offer(candidate)
                         session.deferredPresentationEvidence[key] = session.deferredPresentationEvidence[key]?.let {
@@ -3640,7 +3648,7 @@ internal fun DiscogsDirectVersionBrowser(
                         session.results = results
                     }
                 }
-                candidates.forEach { candidate ->
+                candidates.filter(::titleAllowed).forEach { candidate ->
                     pending.offer(candidate)
                     if (candidate.originalWorkReference) session.originalReferences[CoverPriorityOrder.key(candidate)] = candidate
                 }
@@ -3936,7 +3944,8 @@ internal fun DiscogsDirectVersionBrowser(
                                     val fallback = withTimeoutOrNull(2_500L) { withContext(Dispatchers.IO) { YouTubeWebSearch.search(page.text)?.items } }.orEmpty()
                                     fallback.forEach { video ->
                                         session.preparedVideoSongs[video.id] = video
-                                        pending.offer(CoverPriorityOrder.bindVideo(fromVideo(video, page.category), page.lead))
+                                        val linked = CoverPriorityOrder.bindVideo(fromVideo(video, page.category), page.lead)
+                                        if (titleAllowed(linked)) pending.offer(linked)
                                     }
                                     queryWork.defer(page)
                                     recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0, "richiesta non completata; cursore conservato"))
@@ -3949,7 +3958,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     val raw = fromVideo(video, page.category, page.songs)
                                     val linked = CoverPriorityOrder.bindVideo(raw, page.lead)
                                     if (linked !== raw && !CoverLab71FoundationGate.isForbidden(linked.title, video.title)) bound = true
-                                    pending.offer(linked)
+                                    if (titleAllowed(linked)) pending.offer(linked)
                                 }
                                 queryWork.finish(page, found.continuation)
                                 page.lead?.let { lead ->
@@ -4013,7 +4022,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         val raw = fromVideo(video, next.category)
                                         val linked = CoverPriorityOrder.bindVideo(raw, next)
                                         if (linked !== raw && !CoverLab71FoundationGate.isForbidden(linked.title, video.title)) bound = true
-                                        pending.offer(linked)
+                                        if (titleAllowed(linked)) pending.offer(linked)
                                     }
                                     queryWork.finish(sourcePage, found.continuation)
                                     if (!bound && !pending.hasLinked(next) && found.continuation.isNullOrBlank()) {
