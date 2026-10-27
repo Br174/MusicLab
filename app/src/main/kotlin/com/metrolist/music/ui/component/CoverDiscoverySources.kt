@@ -52,6 +52,12 @@ internal data class CoverSourceCandidate(
     val originalWorkReference: Boolean = false,
     val credits: List<DiscogsCredit> = emptyList(),
     val evidenceScore: Int = 1,
+    val recordingReleaseId: Int? = null,
+    val recordingMasterId: Int? = null,
+    val recordingTrackPosition: String? = null,
+    val collectorHave: Int? = null,
+    val chartPosition: Int? = null,
+    val releaseVerified: Boolean = false,
 )
 
 internal data class CoverSourceDiagnostic(
@@ -128,10 +134,12 @@ internal object CoverDiscoverySources {
         // Only recovery searches traverse additional documentary pages/roots.
         // The approved first LAB45 search remains exactly as before.
         deepRecovery: Boolean = false,
+        documentaryProgress: CoverPriorityOrder.DocumentaryProgress? = null,
         // LAB03: source-complete callback remains useful when another provider
         // reaches its deadline. No individual lane gates all other evidence.
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
     ): CoverSourceOutcome = coroutineScope {
+        val turbo = BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER
         val cleanTitle = title.trim()
         val cleanArtist = originalArtist.trim()
         if (cleanTitle.isBlank()) return@coroutineScope CoverSourceOutcome(emptyList(), emptyList())
@@ -141,7 +149,7 @@ internal object CoverDiscoverySources {
                 mode.name,
                 canonical(cleanTitle),
                 canonical(cleanArtist),
-                "lab60-lastfm-wikidata-disabled",
+                "lab77-r2-priority-source-progress",
                 if (deepRecovery) "work-first-recovery" else "initial",
                 // A new manual round must not replay a cached deep crawl.
                 // LAB45's first round remains unchanged.
@@ -149,9 +157,12 @@ internal object CoverDiscoverySources {
                 if (aiConfig == null) "no-ai" else "ai",
             ).joinToString("|")
         val now = System.currentTimeMillis()
-        if (!forceRefresh) cache[key]?.takeIf { it.expiresAtMs > now }?.let { hit ->
+        if (!forceRefresh && documentaryProgress == null) cache[key]?.takeIf { it.expiresAtMs > now }?.let { hit ->
             // LAB59: even cache hits must yield video previews immediately.
             onEarlyVideoCandidates(hit.outcome.candidates.filter { !it.playbackVideoId.isNullOrBlank() })
+            hit.outcome.diagnostics.forEach { diagnostic ->
+                onSourceCompleted(hit.outcome.candidates.filter { diagnostic.name in it.sources }, diagnostic, hit.outcome.originalYear)
+            }
             return@coroutineScope hit.outcome
         }
 
@@ -162,17 +173,23 @@ internal object CoverDiscoverySources {
             lane: Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic>,
             year: Int? = null,
         ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+            if (lane.second.available && lane.second.name !in setOf("COVER.INFO", "MusicBrainz")) {
+                documentaryProgress?.lanes?.put(lane.second.name, lane)
+            }
             onSourceCompleted(lane.first, lane.second, year)
             return lane
         }
         suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
+
+        suspend fun cachedLane(name: String, block: suspend () -> Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic>) =
+            reportResult(documentaryProgress?.lanes?.get(name) ?: sourceLane(block))
 
         // LAB59: prioritize cover.info direct videos over auxiliary metadata.
         // Each lane still runs; slow services never gate early thumbnail emission.
         val coverInfo = async(Dispatchers.IO) {
             // COVER.INFO is our lead source. It starts immediately and owns
             // its own lane, independent from auxiliary provider semaphore.
-            val lane = reportResult(discoverCoverInfo(cleanTitle, cleanArtist, mode, deepRecovery) { quick ->
+            val lane = reportResult(discoverCoverInfo(cleanTitle, cleanArtist, mode, deepRecovery, documentaryProgress) { quick ->
                 onEarlyVideoCandidates(quick)
             })
             onEarlyVideoCandidates(
@@ -202,6 +219,21 @@ internal object CoverDiscoverySources {
                 reportResult(discoverMusicBrainz(cleanTitle, mode, lookup), lookup.work?.originalYear)
                 lookup
             }
+        val iTunes = async(Dispatchers.IO) {
+            cachedLane("Apple/iTunes") { discoverITunes(cleanTitle, cleanArtist, mode) }
+        }
+        val spotify = async(Dispatchers.IO) {
+            cachedLane("Spotify") { discoverSpotify(cleanTitle, cleanArtist, mode) }
+        }
+        // LAB60 Pollicino: Last.fm is disabled for Cover/Originali discovery.
+        val lrcLib = async(Dispatchers.IO) {
+            cachedLane("LRCLIB") { discoverLrcLib(cleanTitle, cleanArtist, mode) }
+        }
+        // LAB60 Pollicino: Wikidata (not Wikipedia pages) is disabled in discovery.
+        val ai = async(Dispatchers.IO) {
+            // AI Scout stays read-only disabled on Turbo: no remote editorial writes.
+            reportResult(sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) })
+        }
         // LAB41: a structured musical-work source, not a broad title match.
         // Already available in MusicLab, now used in the Turbo discovery fan-out.
         // A missing artist cannot safely anchor ambiguous song titles.
@@ -219,21 +251,6 @@ internal object CoverDiscoverySources {
             } else {
                 reportResult(sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh, deepRecovery) })
             }
-        }
-        val iTunes = async(Dispatchers.IO) {
-            reportResult(sourceLane { discoverITunes(cleanTitle, cleanArtist, mode) })
-        }
-        val spotify = async(Dispatchers.IO) {
-            reportResult(sourceLane { discoverSpotify(cleanTitle, cleanArtist, mode) })
-        }
-        // LAB60 Pollicino: Last.fm is disabled for Cover/Originali discovery.
-        val lrcLib = async(Dispatchers.IO) {
-            reportResult(sourceLane { discoverLrcLib(cleanTitle, cleanArtist, mode) })
-        }
-        // LAB60 Pollicino: Wikidata (not Wikipedia pages) is disabled in discovery.
-        val ai = async(Dispatchers.IO) {
-            // AI Scout stays read-only disabled on Turbo: no remote editorial writes.
-            reportResult(sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) })
         }
         val deepRound = if (mode == DiscogsDirectMode.COVER && coverRound >= 2 &&
             BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
@@ -269,7 +286,7 @@ internal object CoverDiscoverySources {
 
         val merged = linkedMapOf<String, CoverSourceCandidate>()
         lanes.flatMap { it.first }.forEach { candidate ->
-            val identity = identity(candidate.title, candidate.artist, candidate.category)
+            val identity = if (turbo) CoverPriorityOrder.key(candidate) else identity(candidate.title, candidate.artist, candidate.category)
             val previous = merged[identity]
             if (previous == null) {
                 merged[identity] = candidate
@@ -377,7 +394,7 @@ internal object CoverDiscoverySources {
 
         // LAB59: the inferred original publication year can be wrong (for
         // instance, an album reissue). Keep every identity-confirmed cover.
-        val chronologicallyPossible = identityAccepted
+        val chronologicallyPossible = if (turbo) publicationEnriched else identityAccepted
 
         fun certifiedScore(candidate: CoverSourceCandidate): Int {
             val titleMatch =
@@ -454,8 +471,8 @@ internal object CoverDiscoverySources {
                 available = true,
                 found = ordered.size,
                 note =
-                    "ammessi ${ordered.size}/${publicationEnriched.size} · " +
-                        "titolo rigoroso; AI straniera fidata; servizi con doppia prova",
+                    if (turbo) "candidati conservati ${ordered.size}/${publicationEnriched.size} · prove per ordinare"
+                    else "ammessi ${ordered.size}/${publicationEnriched.size} · titolo rigoroso; servizi con doppia prova",
             )
 
         val outcome = CoverSourceOutcome(
@@ -468,7 +485,7 @@ internal object CoverDiscoverySources {
             workId = resolvedMusicBrainz.work?.id,
             workCredits = workCredits,
         )
-        rememberDiscovery(key, now, outcome)
+        if (documentaryProgress == null) rememberDiscovery(key, now, outcome)
         outcome
     }
 
@@ -998,13 +1015,79 @@ internal object CoverDiscoverySources {
         )
     }
 
+    /** Visit-scoped documentary cursor. A request deadline defers work; it never deletes rows. */
+    private suspend fun discoverCoverInfoProgressively(
+        title: String,
+        originalArtist: String,
+        progress: CoverPriorityOrder.DocumentaryProgress,
+        onEarly: suspend (List<CoverSourceCandidate>) -> Unit,
+    ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+        if (!progress.initialized) {
+            val cleanTitle = title.replace('"', ' ').trim()
+            val cleanArtist = originalArtist.replace('"', ' ').trim()
+            val terms = listOfNotNull(
+                if (cleanArtist.isNotBlank()) "song:\"$cleanTitle\" artist:\"$cleanArtist\"" else null,
+                "song:\"$cleanTitle\"",
+            ).distinct()
+            terms.forEach { term ->
+                progress.enqueue("https://cover.info/en/search".toHttpUrl().newBuilder()
+                    .addQueryParameter("find", term).addQueryParameter("per-page-songs", "200")
+                    .build().toString(), false)
+            }
+            progress.initialized = true
+        }
+        progress.beginPass()
+        val started = System.currentTimeMillis()
+        while (System.currentTimeMillis() - started < 10_000L) {
+            val task = progress.nextPage() ?: break
+            val html = fetchHtml(task.url) ?: continue
+            val document = runCatching { Jsoup.parse(html, task.url) }.getOrNull() ?: continue
+            progress.reachable = true
+            val songPage = COVER_INFO_SONG_URL.containsMatchIn(task.url)
+            val parsed = parseCoverInfoDocument(document).map {
+                when {
+                    task.related -> it.copy(directRelation = true)
+                    songPage -> it.copy(directRelation = false, relationRole = CoverInfoRelationRole.NONE)
+                    else -> it
+                }
+            }
+            val candidates = parsed.map { toCoverInfoCandidate(it, title) }
+            candidates.forEach(progress::add)
+            if (candidates.isNotEmpty()) onEarly(candidates)
+            if (!task.related) {
+                val matching = parsed.filter { sameBaseTitle(title, it.title) }
+                val unique = matching.map { canonicalArtist(it.artist) }.distinct().size == 1
+                matching.sortedByDescending { sameArtist(originalArtist, it.artist) }.forEach {
+                    // Other title-homonym roots remain searchable, but their unrelated
+                    // original attribution must not overwrite the selected work's reference.
+                    progress.enqueue(it.url, sameArtist(originalArtist, it.artist) || (originalArtist.isBlank() && unique))
+                }
+            }
+            document.select(".pagination a[rel=next], .pagination li.next a, .pagination a[aria-label=Next], a[rel=next][href*=page]")
+                .forEach { link ->
+                    val next = link.absUrl("href")
+                    val host = runCatching { next.toHttpUrl().host }.getOrNull()
+                    if (host == "cover.info" || host == "www.cover.info") progress.enqueue(next, task.related)
+                }
+            progress.completePage(task)
+        }
+        val candidates = progress.candidates()
+        return candidates to CoverSourceDiagnostic(
+            "COVER.INFO", progress.reachable, candidates.size,
+            if (progress.complete) "contributi documentari esplorati · video diretti ${candidates.count { !it.playbackVideoId.isNullOrBlank() }}"
+            else "contributi conservati · pagine da riprendere ${progress.remainingPages}",
+        )
+    }
+
     private suspend fun discoverCoverInfo(
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
         deepRecovery: Boolean = false,
+        progress: CoverPriorityOrder.DocumentaryProgress? = null,
         onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+        if (progress != null) return discoverCoverInfoProgressively(title, originalArtist, progress, onEarlyVideoCandidates)
         val cleanTitle = title.replace('"', ' ').trim()
         val cleanArtist = originalArtist.replace('"', ' ').trim()
         val searchTerms =

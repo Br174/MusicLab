@@ -15,9 +15,9 @@ class CoverLabTurboRoundAdmissionTest {
         playbackVideoId = "VID12345678",
     )
 
-    @Test fun firstRoundNeedsStrongSignals() {
+    @Test fun firstRoundOrdersStrongSignalsWithoutRejectingWeakEvidence() {
         val loose = candidate()
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
             loose, "Sapore di sale", "Gino Paoli", 1
         ).admitted)
         val originalOfficial = candidate(artist = "Gino Paoli")
@@ -33,7 +33,7 @@ class CoverLabTurboRoundAdmissionTest {
             cover, "Sapore di sale", "Gino Paoli", 2,
             "Sapore di sale - Gino Paoli piano cover"
         ).admitted)
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
             candidate(title = "An unrelated track"), "Sapore di sale", "Gino Paoli", 2,
             "An unrelated track"
         ).admitted)
@@ -63,11 +63,11 @@ class CoverLabTurboRoundAdmissionTest {
 
     @Test fun unrelatedUploaderDoesNotBecomeOriginalFromVideoTitleAlone() {
         val parishUpload = candidate(artist = "Parrocchia Immacolata")
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
             parishUpload, "Felicità", "Lucio Dalla", 1,
             "Felicità - Lucio Dalla"
         ).admitted)
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
             parishUpload, "Felicità", "Lucio Dalla", 3,
             "Felicità - Lucio Dalla"
         ).admitted)

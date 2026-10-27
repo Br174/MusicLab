@@ -128,6 +128,7 @@ internal object DiscogsVersionSource {
         perPage: Int = DIRECT_PAGE_SIZE,
         sort: String? = "year",
         sortOrder: String? = "asc",
+        preserveCandidates: Boolean = false,
     ): Result<DiscogsVersionPage> = coroutineScope {
         runCatching {
             require(criteria.title.isNotBlank()) { "Titolo mancante" }
@@ -166,7 +167,7 @@ internal object DiscogsVersionSource {
                 }
 
             DiscogsVersionPage(
-                items = dedupeVersions(candidates),
+                items = if (preserveCandidates) candidates else dedupeVersions(candidates),
                 page = releasePage.page,
                 pages = releasePage.pages,
                 perPage = releasePage.perPage,
@@ -1222,13 +1223,14 @@ internal object DiscogsVersionSource {
                 AiCoverCategory.FOREIGN,
                 -> DiscogsVersionKind.STUDIO
             }
+        val turbo = com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01"
         val fingerprint =
             listOf(
                 "external",
                 canonicalBaseTitle(candidate.title),
                 canonicalArtist(candidate.artist),
                 kind.name.lowercase(),
-            ).joinToString("|")
+            ).joinToString("|") + if (turbo) "|" + CoverPriorityOrder.key(candidate) else ""
         val titleMatch =
             TitleMeaningResolver.classify(
                 targetTitle = targetTitle,
@@ -1245,8 +1247,8 @@ internal object DiscogsVersionSource {
             trackTitle = candidate.title,
             artist = candidate.artist,
             releaseTitle = candidate.album ?: candidate.sources.joinToString(" + "),
-            releaseId = 0,
-            masterId = null,
+            releaseId = candidate.recordingReleaseId ?: 0,
+            masterId = candidate.recordingMasterId,
             year = candidate.year,
             releaseDate = candidate.year?.toString(),
             kind = kind,
@@ -1259,7 +1261,9 @@ internal object DiscogsVersionSource {
                     ?: candidate.playbackVideoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
             durationSeconds = candidate.durationSeconds,
             fingerprint = fingerprint,
-            track = null,
+            track = candidate.recordingTrackPosition?.let { position ->
+                DiscogsTrack(position, candidate.title, listOf(candidate.artist), null, candidate.durationSeconds, candidate.credits)
+            },
             videos = emptyList(),
             credits = candidate.credits,
             language = candidate.language,
@@ -1291,7 +1295,8 @@ internal object DiscogsVersionSource {
             videoResolutionChecked = !candidate.playbackVideoId.isNullOrBlank(),
             sourceNames = candidate.sources.distinct(),
             sourceUrl = candidate.sourceUrl,
-            discogsVerificationChecked = true,
+            discogsVerificationChecked = candidate.releaseVerified,
+            collectorHave = candidate.collectorHave,
             originalWorkReference = artistIsOriginal,
             workRelationConfirmed = candidate.workRelationConfirmed,
         )

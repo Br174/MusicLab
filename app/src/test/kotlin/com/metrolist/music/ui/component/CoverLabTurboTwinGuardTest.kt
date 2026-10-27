@@ -30,8 +30,8 @@ class CoverLabTurboTwinGuardTest {
         ))
     }
 
-    @Test fun studioUploadAndIdenticalLyricsUploadAreTwins() {
-        assertTrue(CoverLabTurboTwinGuard.sameRecording(
+    @Test fun studioAndLyricsUploadsNeedConcreteRecordingEvidence() {
+        assertFalse(CoverLabTurboTwinGuard.sameRecording(
             seed("abcdefghijk", videoTitle = "Jimmy Fontana - Il mondo (Official Audio)"),
             seed("lmnopqrstuv", videoTitle = "Jimmy Fontana - Il mondo (Lyrics HD)")
         ))

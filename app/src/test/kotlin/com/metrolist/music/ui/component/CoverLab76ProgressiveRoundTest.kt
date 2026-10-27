@@ -60,10 +60,10 @@ class CoverLab76ProgressiveRoundTest {
         ))
     }
 
-    @Test fun firstThreeRoundsRetainExistingIdentityGate() {
+    @Test fun firstThreeRoundsRankWeakEvidenceWithoutDiscardingIt() {
         val lowMetadata=row("Soli", artist="Uncredited uploader")
         for(round in 1..3) {
-            assertFalse(CoverLabTurboRoundAdmission.evaluate(
+            assertTrue(CoverLabTurboRoundAdmission.evaluate(
                 lowMetadata,"Soli","Adriano Celentano",round,"Soli",
             ).admitted)
         }
@@ -74,12 +74,12 @@ class CoverLab76ProgressiveRoundTest {
 
     @Test fun forbiddenKaraokeAndMidiRemainBannedInFinalRound() {
         for (name in listOf("Soli karaoke", "Soli MIDI",
-            "Soli backing track","Soli - base musicale")) {
+            "Soli KAR","Soli.mid")) {
             assertFalse(CoverLabTurboRoundAdmission.evaluate(
                 row(name),"Soli","Adriano Celentano",9,name,
             ).admitted)
         }
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
             row("Soli e non soli"),"Soli","Adriano Celentano",10,"Soli e non soli",
         ).admitted)
     }

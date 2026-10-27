@@ -37,13 +37,16 @@ class CoverLab70FirstRoundRecoveryTest {
 
     @Test fun sameNamedOtherWorkIsNotMisattributedToLucioDalla() {
         val homonym = video("Felicità", "Al Bano e Romina Power", "YouTube")
-        assertFalse(
+        assertTrue(
             CoverLabTurboRoundAdmission.evaluate(
                 homonym, "Felicità", "Lucio Dalla", 1, "Felicità"
             ).admitted
         )
+        assertFalse(homonym.originalWorkReference)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(homonym,"Felicità","Lucio Dalla",1,"Felicità").confidencePercent <
+            CoverLabTurboRoundAdmission.evaluate(video("Felicità","Lucio Dalla"),"Felicità","Lucio Dalla",1,"Felicità").confidencePercent)
         val anonymous = video("Felicità", "Unrelated channel", "YouTube")
-        assertFalse(
+        assertTrue(
             CoverLabTurboRoundAdmission.evaluate(
                 anonymous, "Felicità", "Lucio Dalla", 1, "Felicità - Lucio Dalla"
             ).admitted

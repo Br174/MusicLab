@@ -21,6 +21,7 @@ internal object CoverRoundSearchPlan {
         "Amici cover", "famous singer covers", "cover by famous singer",
         "TV music performance", "stadio concerto cover",
         "stadium concert cover", "remix cover", "BBC Live Lounge cover",
+        "mashup cover", "AI cover", "intelligenza artificiale cover", "videoclip cover",
     )
     private val amateur = listOf(
         "guitar cover", "piano cover", "home studio cover", "independent artist cover",

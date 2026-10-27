@@ -27,41 +27,26 @@ class CoverLab71FoundationGateTest {
         resolvedVideoTitle = title, durationSeconds = duration,
     )
 
-    @Test fun titleMustNeverChangeEvenInPermissiveRounds() {
-        val wrong = candidate("Felicità puttana")
-        val trueTitle = candidate()
+    @Test fun uncertainTitleUsesWeakerEvidenceWithoutAdmissionVeto() {
         for (round in 1..8) {
-            assertFalse(CoverLabTurboRoundAdmission.evaluate(
-                wrong, "Felicità", "Lucio Dalla", round, "Felicità puttana"
-            ).admitted)
-            assertTrue(CoverLabTurboRoundAdmission.evaluate(
-                trueTitle, "Felicità", "Lucio Dalla", round, "Felicità"
-            ).admitted)
+            val wrong = CoverLabTurboRoundAdmission.evaluate(candidate("Felicità puttana"), "Felicità", "Lucio Dalla", round, "Felicità puttana")
+            val original = CoverLabTurboRoundAdmission.evaluate(candidate(), "Felicità", "Lucio Dalla", round, "Felicità")
+            assertTrue(wrong.admitted)
+            assertTrue(original.admitted)
+            assertTrue(wrong.confidencePercent < original.confidencePercent)
         }
-        assertFalse(CoverLab71FoundationGate.matchesRequestedWork(
-            candidate("Felicità - lead journalist"), "Felicità", "Lucio Dalla",
-            "Felicità - lead journalist"
-        ))
+        assertFalse(CoverLab71FoundationGate.matchesRequestedWork(candidate("Felicità - lead journalist"), "Felicità", "Lucio Dalla", "Felicità - lead journalist"))
     }
 
-    @Test fun karaokeMidiBackingAndTutorialsAreForbiddenInEveryTier() {
-        val banned = listOf(
-            "Felicità Karaoke", "Felicità MIDI", "Felicità - backing track",
-            "Felicità - instrumental karaoke", "Felicità - base musicale",
-            "Felicità - sing along", "Felicità - piano tutorial",
-            "Felicità minus-one", "Felicità - vocal removed",
-        )
-        for (title in banned) {
-            assertTrue("Must ban $title", CoverLab71FoundationGate.isForbidden(title))
-            for (round in 1..5) {
-                assertFalse(CoverLabTurboRoundAdmission.evaluate(
-                    candidate(title = title), "Felicità", "Lucio Dalla", round, title
-                ).admitted)
-            }
+    @Test fun onlyExplicitKaraokeMidiAndKarExceptionsApplyInEveryTier() {
+        for (title in listOf("Felicità Karaoke", "Felicità MIDI", "Felicità KAR", "Felicità - instrumental karaoke")) {
+            assertTrue(CoverLab71FoundationGate.isForbidden(title))
+            for (round in 1..5) assertFalse(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", round, title).admitted)
         }
-        assertFalse(CoverLab71FoundationGate.isForbidden(
-            "Felicità - performed instrumental cover"
-        ))
+        for (title in listOf("Felicità - performed instrumental cover", "Felicità backing track", "Felicità piano tutorial", "Felicità base musicale")) {
+            assertFalse(CoverLab71FoundationGate.isForbidden(title))
+            assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 1, title).admitted)
+        }
     }
 
     @Test fun unrelatedHomonymsAreNotConfusedWithTheOriginalWork() {
@@ -96,34 +81,18 @@ class CoverLab71FoundationGateTest {
         ))
     }
 
-    @Test fun originalStudioLiveRemixCapsAccumulateAcrossRounds() {
-        val studio = seed("origStudio1", duration = 225)
-        val secondStudio = seed("origStudio2", duration = 227)
-        assertTrue(CoverLab71FoundationGate.withinOriginalCaps(studio, "Lucio Dalla", emptyList()))
-        assertFalse(CoverLab71FoundationGate.withinOriginalCaps(
-            secondStudio, "Lucio Dalla", listOf(studio)
-        ))
-        val live1 = seed("origLive01A", title = "Felicità (Live 1988)",
-            kind = DiscogsVersionKind.LIVE)
-        val live2 = seed("origLive02B", title = "Felicità (Live 1991)",
-            kind = DiscogsVersionKind.LIVE)
-        val live3 = seed("origLive03C", title = "Felicità (Live 1999)",
-            kind = DiscogsVersionKind.LIVE)
-        assertTrue(CoverLab71FoundationGate.withinOriginalCaps(
-            live2, "Lucio Dalla", listOf(studio, live1)
-        ))
-        assertFalse(CoverLab71FoundationGate.withinOriginalCaps(
-            live3, "Lucio Dalla", listOf(studio, live1, live2)
-        ))
-        val remix1 = seed("origRemix1", kind = DiscogsVersionKind.REMIX)
-        val remix2 = seed("origRemix2", kind = DiscogsVersionKind.REMIX)
-        val remix3 = seed("origRemix3", kind = DiscogsVersionKind.REMIX)
-        assertTrue(CoverLab71FoundationGate.withinOriginalCaps(
-            remix2, "Lucio Dalla", listOf(remix1)
-        ))
-        assertFalse(CoverLab71FoundationGate.withinOriginalCaps(
-            remix3, "Lucio Dalla", listOf(remix1, remix2)
-        ))
+    @Test fun originalTotalFiveAccumulatesAcrossAllKindsAndRounds() {
+        val rows = listOf(
+            seed("original001"),
+            seed("liveRoma001", title="Felicità live Roma", kind=DiscogsVersionKind.LIVE),
+            seed("duetto00001", artist="Lucio Dalla & Altro", title="Felicità duetto"),
+            seed("remix000001", title="Felicità remix", kind=DiscogsVersionKind.REMIX),
+            seed("acoustic001", title="Felicità acoustic", kind=DiscogsVersionKind.ACOUSTIC),
+        )
+        rows.forEachIndexed { index, row ->
+            assertTrue(CoverLab71FoundationGate.withinOriginalCaps(row,"Lucio Dalla",rows.take(index)))
+        }
+        assertFalse(CoverLab71FoundationGate.withinOriginalCaps(seed("sixth000001", title="Felicità live 2000"),"Lucio Dalla",rows))
     }
 
     @Test fun authenticOtherSingerCoversAreNotCappedWithTheOriginal() {
@@ -141,7 +110,9 @@ class CoverLab71FoundationGateTest {
     @Test fun differentUploadsOfSameRecordingDoNotGetDuplicatePosters() {
         val a = seed("version0001", duration = 235)
         val duplicate = seed("version0002", duration = 235)
-        assertTrue(CoverLab71FoundationGate.isDuplicate(duplicate, listOf(a)))
+        assertFalse(CoverLab71FoundationGate.isDuplicate(duplicate, listOf(a)))
+        assertEquals(CoverLabTurboTwinGuard.Relation.UNCERTAIN, CoverLabTurboTwinGuard.relation(a, duplicate))
+        assertTrue(CoverLab71FoundationGate.isDuplicate(a, listOf(a)))
         val distinctLive = seed("live1999001", title = "Felicità live 1999",
             kind = DiscogsVersionKind.LIVE)
         assertFalse(CoverLab71FoundationGate.isDuplicate(distinctLive, listOf(a)))
@@ -165,7 +136,7 @@ class CoverLab71FoundationGateTest {
             resolvedVideoTitle = "Felicità puttana",
             resolvedVideoId = "BBBBBBBBBBB",
         )
-        assertFalse(CoverLab71FoundationGate.historicalIsEligible(
+        assertTrue(CoverLab71FoundationGate.historicalIsEligible(
             wrongTitle, "Felicità", "Lucio Dalla"
         ))
     }

@@ -7,13 +7,7 @@ package com.metrolist.music.ui.component
  */
 internal object CoverLab71FoundationGate {
     private val forbidden = Regex(
-        """\b(karaoke|kar[aà]oke|midi|midifile|midifiles|minus[\s-]*one|""" +
-            """backing[\s-]*track|accompaniment[\s-]*track|sing[\s-]*along|""" +
-            """base[\s-]*musicale|basi[\s-]*musicali|vocal[\s-]*removed|""" +
-            """instrumental[\s-]*karaoke|karaoke[\s-]*instrumental|""" +
-            """learn[\s-]*to[\s-]*play|music[\s-]*tutorial|piano[\s-]*tutorial|""" +
-            """guitar[\s-]*tutorial|lezione[\s-]*di[\s-]*pianoforte)\b""",
-        RegexOption.IGNORE_CASE,
+        """(?i)\b(karaoke|kar[aà]oke|midi(?:[\s-]*files?)?|kar)\b|\.(?:mid|midi|kar)(?:$|[?#\s])""",
     )
     private val explicitCover = Regex(
         """\b(cover|reinterpretation|interpretazione|tribute|tributo|omaggio|""" +
@@ -99,54 +93,19 @@ internal object CoverLab71FoundationGate {
             )
     }
 
-    /** Read-only guard when pre-LAB71 session archives are restored or displayed. */
+    /** Historical metadata must follow the same R2 exclusions as new rows. */
     internal fun historicalIsEligible(
         seed: DiscogsVersionSeed,
         targetTitle: String,
         originalArtist: String,
-    ): Boolean {
-        val videoId = seed.resolvedVideoId.orEmpty()
-        if (!videoId.matches(Regex("[A-Za-z0-9_-]{11}"))) return false
-        val source = CoverSourceCandidate(
-            title = seed.trackTitle,
-            artist = seed.artist,
-            sources = seed.sourceNames,
-            album = seed.releaseTitle,
-            category = if (seed.workRelationConfirmed &&
-                seed.sourceNames.any {
-                    it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true)
-                } && !TitleMeaningResolver.matchesBaseTitle(targetTitle, seed.trackTitle)
-            ) AiCoverCategory.FOREIGN else AiCoverCategory.COVER,
-            workRelationConfirmed = seed.workRelationConfirmed,
-            playbackVideoId = videoId,
-            playbackVideoTitle = seed.resolvedVideoTitle,
-        )
-        return matchesRequestedWork(
-            source, targetTitle, originalArtist, seed.resolvedVideoTitle.orEmpty(),
-            allowExactTitleOnly = (seed.coverRound ?: 1) >= 4,
-        )
-    }
+    ): Boolean =
+        seed.resolvedVideoId.orEmpty().matches(Regex("[A-Za-z0-9_-]{11}")) &&
+            !isForbidden(
+                seed.trackTitle, seed.resolvedVideoTitle.orEmpty(),
+                seed.releaseTitle, seed.formats.joinToString(" "),
+                seed.formatDescriptions.joinToString(" "), seed.sourceUrl.orEmpty(),
+            )
 
-    private enum class OriginalType { STUDIO, LIVE, REMIX, DUET }
-
-    private fun originalType(seed: DiscogsVersionSeed): OriginalType {
-        val details = listOf(seed.resolvedVideoTitle.orEmpty(), seed.trackTitle,
-            seed.releaseTitle).joinToString(" ")
-        return when {
-            duetMarker.containsMatchIn(details) -> OriginalType.DUET
-            remixMarker.containsMatchIn(details) ||
-                seed.kind == DiscogsVersionKind.REMIX -> OriginalType.REMIX
-            liveMarker.containsMatchIn(details) ||
-                seed.kind == DiscogsVersionKind.LIVE -> OriginalType.LIVE
-            else -> OriginalType.STUDIO
-        }
-    }
-
-    /**
-     * Caps apply ONLY to the reference interpreter, across all manual rounds.
-     * Distinct credited duet/collaboration takes are handled by deduplication
-     * rather than an invented universal numeric duet quota.
-     */
     internal fun withinOriginalCaps(
         seed: DiscogsVersionSeed,
         originalArtist: String,
@@ -154,38 +113,14 @@ internal object CoverLab71FoundationGate {
     ): Boolean {
         if (originalArtist.isBlank() ||
             !TitleMeaningResolver.sameArtist(seed.artist, originalArtist)) return true
-        val type = originalType(seed)
-        if (type == OriginalType.DUET) return true
-        val ceiling = when (type) {
-            OriginalType.STUDIO -> 1
-            OriginalType.LIVE -> 2
-            OriginalType.REMIX -> 2
-            OriginalType.DUET -> Int.MAX_VALUE
-        }
         return history.count {
-            TitleMeaningResolver.sameArtist(it.artist, originalArtist) &&
-                originalType(it) == type
-        } < ceiling
+            TitleMeaningResolver.sameArtist(it.artist, originalArtist)
+        } < 5
     }
 
-    /**
-     * Conservative cross-video recording twins: preserve real live/duet takes.
-     * Never replace the existing TwinGuard, only supplement its same-ID/
-     * cross-provider evidence with available recorded durations.
-     */
+    /** Equal duration/title is a possible twin, never proof of identity. */
     internal fun isDuplicate(
         seed: DiscogsVersionSeed,
         history: List<DiscogsVersionSeed>,
-    ): Boolean = history.any { previous ->
-        if (previous.resolvedVideoId != null &&
-            previous.resolvedVideoId == seed.resolvedVideoId) return@any true
-        if (CoverLabTurboTwinGuard.sameRecording(previous, seed)) return@any true
-        if (!TitleMeaningResolver.sameArtist(previous.artist, seed.artist)) return@any false
-        if (originalType(previous) != originalType(seed)) return@any false
-        val first = previous.durationSeconds
-        val second = seed.durationSeconds
-        first != null && second != null &&
-            kotlin.math.abs(first - second) <= 3 &&
-            TitleMeaningResolver.matchesBaseTitle(previous.trackTitle, seed.trackTitle)
-    }
+    ): Boolean = history.any { CoverLabTurboTwinGuard.sameRecording(it, seed) }
 }
