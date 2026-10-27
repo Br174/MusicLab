@@ -290,6 +290,7 @@ private data class DirectVersionSession(
     var preparedWorkRound: Int = 1,
     val searchedLeadRounds: MutableMap<String, Int> = linkedMapOf(),
     val completedDocumentaryContexts: MutableSet<String> = linkedSetOf(),
+    val documentaryContextQueries: MutableMap<String, Pair<String, String>> = linkedMapOf(),
     val deferredPresentationEvidence: MutableMap<String, CoverSourceCandidate> = linkedMapOf(),
     val documentaryProgress: MutableMap<String, CoverPriorityOrder.DocumentaryProgress> = linkedMapOf(),
     val originalReferences: MutableMap<String, CoverSourceCandidate> = linkedMapOf(),
@@ -3522,6 +3523,7 @@ internal fun DiscogsDirectVersionBrowser(
                 session.preparedWorkRound = 1
                 session.searchedLeadRounds.clear()
                 session.completedDocumentaryContexts.clear()
+                session.documentaryContextQueries.clear()
                 session.deferredPresentationEvidence.clear()
                 session.documentaryProgress.clear()
                 session.originalReferences.clear()
@@ -3838,11 +3840,19 @@ internal fun DiscogsDirectVersionBrowser(
                                     // canonical work in the same logical round, with its own page cursor.
                                     val visited = hashSetOf<String>()
                                     while (isActive) {
-                                        val sourceContext = withContext(Dispatchers.Main.immediate) { workTitle() to originalArtist().ifBlank { lockedArtist } }
+                                        val sourceContext = withContext(Dispatchers.Main.immediate) {
+                                            val current = workTitle() to originalArtist().ifBlank { lockedArtist }
+                                            val known = session.documentaryContextQueries.values.toList()
+                                            val completed = session.completedDocumentaryContexts
+                                                .filter { it.startsWith("$thisRound|") }
+                                                .map { it.removePrefix("$thisRound|") }
+                                                .toSet()
+                                            CoverPreparationPolicy.nextDocumentaryContext(current, known, visited + completed)
+                                        } ?: break
                                         val key = "${sourceContext.first}|${sourceContext.second}"
                                         if (!visited.add(key)) break
+                                        withContext(Dispatchers.Main.immediate) { session.documentaryContextQueries[key] = sourceContext }
                                         val completionKey = "$thisRound|$key"
-                                        if (withContext(Dispatchers.Main.immediate) { completionKey in session.completedDocumentaryContexts }) break
                                         val progress = withContext(Dispatchers.Main.immediate) {
                                             session.documentaryProgress.getOrPut(key) { CoverPriorityOrder.DocumentaryProgress() }
                                         }
@@ -4025,7 +4035,9 @@ internal fun DiscogsDirectVersionBrowser(
                     flushInitial(force = true)
                     val sourceContextKey = "$thisRound|${workTitle()}|${originalArtist().ifBlank { lockedArtist }}"
                     val unresolved = pending.snapshot().any { session.searchedLeadRounds[CoverPriorityOrder.key(it)] != thisRound }
+                    val trackedContextKeys = session.documentaryContextQueries.keys
                     val sourcesComplete = sourceContextKey in session.completedDocumentaryContexts &&
+                        trackedContextKeys.all { "$thisRound|$it" in session.completedDocumentaryContexts } &&
                         session.documentaryProgress.values.none { it.remainingPages > 0 } &&
                         (discogsToken.isBlank() || session.discogsComplete)
                     if (!unresolved && queryWork.remainingOrdinary == 0 && sourcesComplete) presentation.exhaust(thisRound)

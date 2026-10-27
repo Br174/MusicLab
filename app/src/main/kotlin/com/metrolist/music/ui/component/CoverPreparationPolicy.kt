@@ -7,6 +7,14 @@ internal object CoverPreparationPolicy {
         else (listOf(first) + ordered).distinct().filter { it !in cached }.take(CoverRoundPresentation.FAST_PREFIX)
     fun mayRefreshVisible(workerRound: Int, visibleRound: Int): Boolean = workerRound == visibleRound
 
+    fun nextDocumentaryContext(
+        current: Pair<String, String>,
+        pending: List<Pair<String, String>>,
+        excludedKeys: Set<String>,
+    ): Pair<String, String>? = (listOf(current) + pending)
+        .distinct()
+        .firstOrNull { "${it.first}|${it.second}" !in excludedKeys }
+
     fun documentaryComplete(coverInfoComplete: Boolean, diagnostics: List<CoverSourceDiagnostic>): Boolean {
         val active = setOf("COVER.INFO", "MusicBrainz", "Apple/iTunes", "LRCLIB", "Spotify", "SecondHandSongs")
         return coverInfoComplete && diagnostics.none { diagnostic ->
