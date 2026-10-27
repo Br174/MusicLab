@@ -15,12 +15,23 @@ internal object CoverRoundSearchPlan {
         "acoustic cover", "talent show performance", "unplugged cover",
         "festival live cover", "TV audition cover", "live studio session",
         "semi official cover", "TV show cover", "singer interpretation",
+        // LAB76 additive Italian + international TV/talent and famous performers.
+        "Festival di Sanremo cover", "Sanremo live cover", "Eurovision cover",
+        "X Factor Italia cover", "The Voice Italy cover", "The Voice Global cover",
+        "Amici cover", "famous singer covers", "cover by famous singer",
+        "TV music performance", "stadio concerto cover",
+        "stadium concert cover", "remix cover", "BBC Live Lounge cover",
     )
     private val amateur = listOf(
         "guitar cover", "piano cover", "home studio cover", "independent artist cover",
         "instrumental interpretation", "bedroom cover", "street performance cover",
         "acoustic vocal cover", "amateur cover", "local band cover",
         "independent vocalist cover", "solo voice cover",
+        "cover band live", "tribute band concert", "guitar instrumental cover",
+        "chitarra cover", "instrumental guitar version", "famous artists live",
+        "X Factor performance", "The Voice performance", "Sanremo esibizione",
+        "Eurovision live version", "stadio live", "stadium live",
+        "remix live cover", "acoustic performance",
     )
     private val longTail = listOf(
         "rare cover version", "foreign language adaptation", "tribute band cover",
@@ -29,6 +40,13 @@ internal object CoverRoundSearchPlan {
         "indie acoustic cover", "choir cover", "alternative rock cover",
         "classical guitar version", "piano solo performance", "unusual cover",
         "regional language version",
+        "X Factor live cover", "The Voice singer cover", "Festival di Sanremo",
+        "Eurovision Song Contest cover", "Amici talent cover",
+        "stadio concerto", "stadium concert", "famous singer live cover",
+        "cover band", "guitar cover", "chitarra instrumental",
+        "instrumental version", "strumentale cover", "remix cover",
+        "acoustic cover live", "foreign version singer", "cover internazionale",
+        "studio live recording", "TV talent performance", "radio live cover",
     )
     /** No percentage quotas, no fixed publication blocks. */
     fun queries(title: String, round: Int, originalArtist: String = ""): List<Query> {
@@ -41,6 +59,8 @@ internal object CoverRoundSearchPlan {
             3 -> amateur
             else -> {
                 // In broad rounds rotate to four completely new topic queries.
+                // Each next round starts on NEW subjects. The base exact-title
+                // query remains available even when all documentary work ends.
                 val start = ((round - 4) * 4) % longTail.size
                 (0 until 4).map { longTail[(start + it) % longTail.size] }
             }
@@ -53,8 +73,13 @@ internal object CoverRoundSearchPlan {
                 Query("$clean $artist official", AiCoverCategory.COVER),
                 Query("$clean $artist cover studio", AiCoverCategory.COVER),
             )
+        } else if (round >= 4) {
+            listOf(
+                Query(clean, AiCoverCategory.COVER),
+                Query("$clean ${family.first()}", AiCoverCategory.COVER),
+            )
         } else {
-            listOf(Query(if (round >= 4) clean else "$clean cover", AiCoverCategory.COVER))
+            listOf(Query("$clean cover", AiCoverCategory.COVER))
         }
         val offset = 0 // later-round families already rotated above without overlaps
         val targeted = family.indices.map { idx ->
@@ -66,7 +91,9 @@ internal object CoverRoundSearchPlan {
                     keyword.contains("foreign", true) || keyword.contains("language", true) ||
                         keyword.contains("adaptation", true) -> AiCoverCategory.FOREIGN
                     keyword.contains("live", true) || keyword.contains("concert", true) ||
-                        keyword.contains("festival", true) -> AiCoverCategory.LIVE
+                        keyword.contains("festival", true) || keyword.contains("stadio", true) ||
+                        keyword.contains("stadium", true) || keyword.contains("sanremo", true) ||
+                        keyword.contains("eurovision", true) -> AiCoverCategory.LIVE
                     else -> AiCoverCategory.COVER
                 },
             )
