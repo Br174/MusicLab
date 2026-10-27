@@ -526,7 +526,7 @@ internal object CoverDiscoverySources {
                     workRelationConfirmed = true,
                     evidenceScore = 9,
                 )
-            }.distinctBy { identity(it.title, it.artist, it.category) }
+            }.distinctBy { sourceIdentity(it, mode) }
         } else emptyList()
         return versions to CoverSourceDiagnostic(
             name = "SecondHandSongs",
@@ -559,9 +559,12 @@ internal object CoverDiscoverySources {
                     sources = listOf("MusicBrainz"),
                     year = version.year,
                     category = categoryFromTitle(candidateTitle),
-                    sourceUrl = lookup.sourceUrl,
+                    sourceUrl = if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER) "https://musicbrainz.org/recording/${version.recordingId}" else lookup.sourceUrl,
                     workRelationConfirmed = true,
-                    originalWorkReference = true,
+                    // lookup.originalVersions means selected-performer recordings,
+                    // not a documentary first-interpreter attribution.
+                    originalWorkReference = mode == DiscogsDirectMode.ORIGINAL ||
+                        BuildConfig.APPLICATION_ID != "it.verlezza.musiclab.turbo01",
                     credits = musicBrainzWorkCredits,
                     evidenceScore = 8,
                 )
@@ -589,7 +592,7 @@ internal object CoverDiscoverySources {
                         language =
                             if (sameBaseTitle(title, candidateTitle)) null
                             else "titolo/adattamento alternativo",
-                        sourceUrl = lookup.sourceUrl,
+                        sourceUrl = if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER) "https://musicbrainz.org/recording/${cover.recordingId}" else lookup.sourceUrl,
                         workRelationConfirmed = true,
                         credits = musicBrainzWorkCredits,
                         evidenceScore = 8,
@@ -599,7 +602,7 @@ internal object CoverDiscoverySources {
 
         val candidates =
             (originalVersions + covers)
-                .distinctBy { identity(it.title, it.artist, it.category) }
+                .distinctBy { sourceIdentity(it, mode) }
 
         return candidates to CoverSourceDiagnostic(
             name = "MusicBrainz",
@@ -675,7 +678,7 @@ internal object CoverDiscoverySources {
                     ),
                 )
             }
-        }.distinctBy { identity(it.title, it.artist, it.category) }
+        }.distinctBy { sourceIdentity(it, mode) }
         return candidates to CoverSourceDiagnostic("Apple/iTunes", true, candidates.size, "catalogo senza chiave")
     }
 
@@ -768,7 +771,7 @@ internal object CoverDiscoverySources {
                     ),
                 )
             }
-        }.distinctBy { identity(it.title, it.artist, it.category) }
+        }.distinctBy { sourceIdentity(it, mode) }
 
         if (candidates.isNotEmpty()) {
             return candidates to CoverSourceDiagnostic("Last.fm", true, candidates.size, "API track.search")
@@ -833,7 +836,7 @@ internal object CoverDiscoverySources {
                         evidenceScore = if (titleMatches) 6 else 1,
                     )
                 }
-                .distinctBy { identity(it.title, it.artist, it.category) }
+                .distinctBy { sourceIdentity(it, mode) }
 
         val note =
             if (candidates.isEmpty()) {
@@ -890,7 +893,7 @@ internal object CoverDiscoverySources {
                     ),
                 )
             }
-        }.distinctBy { identity(it.title, it.artist, it.category) }
+        }.distinctBy { sourceIdentity(it, mode) }
         return candidates to CoverSourceDiagnostic(
             "LRCLIB",
             true,
@@ -1054,6 +1057,7 @@ internal object CoverDiscoverySources {
             val candidates = parsed.map { toCoverInfoCandidate(it, title) }
             candidates.forEach(progress::add)
             if (candidates.isNotEmpty()) onEarly(candidates)
+            progress.followRelations(task, parsed.map { it.url })
             if (!task.related) {
                 val matching = parsed.filter { sameBaseTitle(title, it.title) }
                 val unique = matching.map { canonicalArtist(it.artist) }.distinct().size == 1
@@ -1230,7 +1234,7 @@ internal object CoverDiscoverySources {
                 }
 
         val candidates = mergedSeeds.map { seed -> toCoverInfoCandidate(seed, title) }
-            .distinctBy { identity(it.title, it.artist, it.category) }
+            .distinctBy { sourceIdentity(it, mode) }
 
         return candidates to CoverSourceDiagnostic(
             name = "COVER.INFO",
@@ -1476,7 +1480,7 @@ internal object CoverDiscoverySources {
 
         val candidates =
             (directCandidates + cloudCandidates)
-                .distinctBy { identity(it.title, it.artist, it.category) }
+                .distinctBy { sourceIdentity(it, mode) }
 
         return candidates to CoverSourceDiagnostic(
             "AI Scout",
@@ -1583,6 +1587,11 @@ internal object CoverDiscoverySources {
             else -> AiCoverCategory.COVER
         }
     }
+
+    private fun sourceIdentity(candidate: CoverSourceCandidate, mode: DiscogsDirectMode): String =
+        if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER)
+            CoverPriorityOrder.key(candidate)
+        else identity(candidate.title, candidate.artist, candidate.category)
 
     private fun identity(
         title: String,

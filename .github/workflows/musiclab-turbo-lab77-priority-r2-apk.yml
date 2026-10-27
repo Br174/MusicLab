@@ -28,7 +28,7 @@ jobs:
           git diff --name-only "$BASE" HEAD > /tmp/changed.txt
           while IFS= read -r file; do
             case "$file" in
-              .github/workflows/musiclab-turbo-lab77-priority-r2-apk.yml|behaviors/musiclab-cover.json|tools/universal-apk-builder/prepare-turbo-lab77-priority-r2-env.py|.motorlab/LAB77_RESUME_READY.txt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverPriorityOrder.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGate.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLabTurboRoundAdmission.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLabTurboTwinGuard.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundStorage.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab70FirstRoundRecoveryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGateTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab76ProgressiveRoundTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77AdmissionR2Test.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77PriorityQueueTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77ResumeAndHistoryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77DocumentarySourcesTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLabTurboRoundAdmissionTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLabTurboTwinGuardTest.kt ) ;;
+              .github/workflows/musiclab-turbo-lab77-priority-r2-apk.yml|behaviors/musiclab-cover.json|tools/universal-apk-builder/prepare-turbo-lab77-priority-r2-env.py|.motorlab/LAB77_RESUME_READY.txt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|app/src/main/kotlin/com/metrolist/music/ui/component/MusicBrainzCoverSource.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverPriorityOrder.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGate.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLabTurboRoundAdmission.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLabTurboTwinGuard.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundStorage.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab70FirstRoundRecoveryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGateTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab76ProgressiveRoundTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77AdmissionR2Test.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77PriorityQueueTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77ResumeAndHistoryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77DocumentarySourcesTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLabTurboRoundAdmissionTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLabTurboTwinGuardTest.kt ) ;;
               *) echo "LAB77 OUT OF SCOPE: $file"; exit 1 ;;
             esac
           done </tmp/changed.txt
@@ -88,6 +88,18 @@ jobs:
           test -s "$APK"
           test -s "$ZIP"
           unzip -tq "$ZIP"
+          python3 - <<'PY'
+          import hashlib, zipfile
+          from pathlib import Path
+          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB77.apk')
+          archive=Path('dist/uab/MusicLab-Turbo-LAB77-APK.zip')
+          digest=lambda data: hashlib.sha256(data).hexdigest()
+          with zipfile.ZipFile(archive) as z:
+              names=[n for n in z.namelist() if n.lower().endswith('.apk')]
+              assert len(names)==1, names
+              assert digest(z.read(names[0]))==digest(apk.read_bytes()), 'ZIP APK differs from signed standalone APK'
+          Path('dist/uab/SHA256SUMS.txt').write_text(''.join(digest(p.read_bytes())+'  '+p.name+'\n' for p in (apk,archive)))
+          PY
           AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
           BADGING="$("$AAPT" dump badging "$APK")"
@@ -106,6 +118,7 @@ jobs:
             dist/uab/apk/MusicLab-Turbo-LAB77.apk
             dist/uab/MusicLab-Turbo-LAB77-APK.zip
             dist/uab/BUILD_SHA.txt
+            dist/uab/SHA256SUMS.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

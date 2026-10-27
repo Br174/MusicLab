@@ -2,6 +2,29 @@ package com.metrolist.music.ui.component
 
 /** The native Turbo queue orders work without turning evidence into admission gates. */
 internal object CoverPriorityOrder {
+    fun refreshEvidence(row: DiscogsVersionSeed, candidate: CoverSourceCandidate, title: String, original: String, round: Int): DiscogsVersionSeed {
+        if (row.resolvedVideoId.isNullOrBlank() || row.resolvedVideoId != candidate.playbackVideoId) return row
+        val score = CoverLabTurboRoundAdmission.evaluate(candidate, title, original, round, row.resolvedVideoTitle.orEmpty()).confidencePercent
+        if (score < (row.musiclabScore100 ?: 0)) return row
+        return row.copy(
+            artist = candidate.artist.ifBlank { row.artist },
+            trackTitle = candidate.title.ifBlank { row.trackTitle },
+            sourceNames = (row.sourceNames + candidate.sources).distinct(),
+            workRelationConfirmed = row.workRelationConfirmed || candidate.workRelationConfirmed,
+            originalWorkReference = candidate.originalWorkReference || CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, original),
+            musiclabScore100 = score,
+            confidenceReasons = (row.confidenceReasons + "Prove documentarie aggiornate: ${candidate.sources.joinToString()}").distinct(),
+        )
+    }
+
+    class PreparationWindow(private val clock: () -> Long) {
+        private var started: Long? = null
+        fun claim(timeoutMs: Long): Long {
+            val now = clock()
+            val start = started ?: now.also { started = it }
+            return minOf(timeoutMs, (4_400L - (now - start)).coerceAtLeast(0L))
+        }
+    }
     private val catalogue = setOf("discogs", "apple/itunes", "spotify", "youtube music")
     private val credited = catalogue + "musicbrainz"
     private val television = Regex(
@@ -26,7 +49,7 @@ internal object CoverPriorityOrder {
         return when {
             !candidate.album.isNullOrBlank() && sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) } -> 0
             candidate.originalWorkReference || (originalArtist.isNotBlank() &&
-                TitleMeaningResolver.sameArtist(candidate.artist, originalArtist)) -> 1
+                CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 1
             candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 2
             round == 2 && television.containsMatchIn(details) -> 3
             round >= 3 && rare.containsMatchIn(details) -> 3
@@ -64,6 +87,7 @@ internal object CoverPriorityOrder {
     fun originalReference(candidates: List<CoverSourceCandidate>): CoverSourceCandidate? {
         val documented = candidates.filter { candidate ->
             candidate.originalWorkReference && candidate.artist.isNotBlank() &&
+                candidate.playbackVideoSource != "YouTube documentario" &&
                 candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) }
         }.groupBy { TitleMeaningResolver.canonical(it.artist) }
             .values.sortedByDescending { it.size }
@@ -77,13 +101,15 @@ internal object CoverPriorityOrder {
         val title = raw.playbackVideoTitle ?: raw.title
         val artist = TitleMeaningResolver.canonical(lead.artist)
         val bound = TitleMeaningResolver.matchesBaseTitle(lead.title, title, setOf(lead.artist)) &&
-            (TitleMeaningResolver.sameArtist(lead.artist, raw.artist) ||
-                (artist.isNotBlank() && TitleMeaningResolver.canonical(title).contains(artist)))
+            (CoverLab71FoundationGate.isOriginalPerformer(raw.artist, lead.artist) ||
+                (artist.isNotBlank() && TitleMeaningResolver.canonical(title).startsWith("$artist ")))
         if (!bound) return raw
         // A title/performer match links the WORK. It does not identify a particular
         // catalogue recording, so never copy its release/track coordinates onto a search hit.
         return lead.copy(
             sources = (lead.sources + raw.sources).distinct(),
+            artist = if (CoverLab71FoundationGate.isOriginalPerformer(raw.artist, lead.artist)) raw.artist else lead.artist,
+            category = if (lead.category == AiCoverCategory.FOREIGN) lead.category else raw.category,
             playbackVideoId = raw.playbackVideoId, playbackVideoTitle = title,
             playbackVideoSource = "YouTube documentario", durationSeconds = raw.durationSeconds,
             album = raw.album, releaseVerified = raw.releaseVerified,
@@ -138,7 +164,7 @@ internal object CoverPriorityOrder {
             }
             if (bucket.any { CoverLabTurboTwinGuard.sameRecording(it, row) }) continue
             val isOriginal = originalArtist.isNotBlank() &&
-                TitleMeaningResolver.sameArtist(row.artist, originalArtist)
+                CoverLab71FoundationGate.isOriginalPerformer(row.artist, originalArtist)
             if (isOriginal && originals >= 5) continue
             videos += video
             bucket += row
@@ -168,6 +194,9 @@ internal object CoverPriorityOrder {
         }
 
         fun beginPass() { attempted.clear() }
+        fun followRelations(parent: Page, urls: List<String>) {
+            if (parent.related) urls.forEach { enqueue(it, true) }
+        }
 
         fun nextPage(): Page? {
             val next = pages.values.firstOrNull { it.url !in attempted } ?: return null
@@ -202,6 +231,7 @@ internal object CoverPriorityOrder {
         private fun key(page: Page) = "${page.text}|${page.songs}|${page.continuation.orEmpty()}|${page.lead?.let(CoverPriorityOrder::key).orEmpty()}"
         val size: Int get() = pages.size
         val hasRunnable: Boolean get() = pages.keys.any { it !in attempted }
+        val hasRunnableOrdinary: Boolean get() = pages.any { it.key !in attempted && it.value.lead == null }
         fun offer(text: String, category: AiCoverCategory, songs: Boolean = false, lead: CoverSourceCandidate? = null) {
             val page = Page(text, category, songs, lead = lead)
             val key = key(page)
@@ -212,9 +242,22 @@ internal object CoverPriorityOrder {
             val key = key(page)
             pages.remove(key)?.let { pages[key] = it }
         }
-        fun next(): Page? = pages.entries.firstOrNull { it.key !in attempted }?.let {
+        fun next(includeLeads: Boolean = true): Page? = pages.entries.firstOrNull { it.key !in attempted && (includeLeads || it.value.lead == null) }?.let {
             attempted += it.key
             it.value
+        }
+        fun forLead(lead: CoverSourceCandidate): Page? {
+            val rowKey = CoverPriorityOrder.key(lead)
+            return pages.entries.firstOrNull { it.key !in attempted && it.value.lead?.let(CoverPriorityOrder::key) == rowKey }?.let {
+                attempted += it.key
+                it.value
+            }
+        }
+        fun retryUnresolved(page: Page) {
+            val key = key(page)
+            done.remove(key)
+            pages[key] = page
+            attempted += key
         }
         fun finish(page: Page, continuation: String?) {
             val key = key(page)
@@ -231,6 +274,25 @@ internal object CoverPriorityOrder {
 
     /** One visit-scoped queue; failed work is retained and retried only on a later pass. */
     class Pending {
+        data class OrderingInput(val rows: List<CoverSourceCandidate>, val twins: Set<String>,
+            val title: String, val original: String, val round: Int, val revision: Int)
+        private var revision = 0
+        fun orderingInput(title: String, original: String, round: Int): OrderingInput? =
+            if (dirty || orderContext != "$title|$original|$round")
+                OrderingInput(snapshot(), twins.toSet(), title, original, round, revision) else null
+        fun applyOrdering(input: OrderingInput, ordered: List<CoverSourceCandidate>): Boolean {
+            if (input.revision != revision) return false
+            orderedKeys = ordered.map(CoverPriorityOrder::key)
+            orderContext = "${input.title}|${input.original}|${input.round}"
+            dirty = false
+            return true
+        }
+        private val linkedLeads = hashSetOf<String>()
+        fun hasLinked(candidate: CoverSourceCandidate): Boolean = key(candidate) in linkedLeads
+        fun lookupComplete(candidate: CoverSourceCandidate, linked: Boolean, morePages: Boolean = false) {
+            if (linked) linkedLeads += key(candidate)
+            if (hasLinked(candidate) && !morePages) complete(candidate) else defer(candidate)
+        }
         private val rows = linkedMapOf<String, CoverSourceCandidate>()
         private val attempted = hashSetOf<String>()
         private val completed = hashSetOf<String>()
@@ -250,11 +312,13 @@ internal object CoverPriorityOrder {
             val key = key(candidate)
             if (key in completed) return
             rows[key] = rows[key]?.let { merge(it, candidate) } ?: candidate
+            revision++
             dirty = true
         }
 
         fun beginPass() {
             pass++
+            revision++
             attempted.clear()
             dirty = true
         }
@@ -274,14 +338,17 @@ internal object CoverPriorityOrder {
         fun complete(candidate: CoverSourceCandidate) {
             val key = key(candidate)
             rows.remove(key)
+            revision++
             completed += key
             twins.remove(key)
             retryAfter.remove(key)
+            linkedLeads.remove(key)
         }
 
         fun markTwin(candidate: CoverSourceCandidate) {
             val key = key(candidate)
             if (twins.add(key)) attempted.remove(key)
+            revision++
             dirty = true
         }
 
@@ -294,7 +361,9 @@ internal object CoverPriorityOrder {
 
         fun clear() {
             rows.clear()
+            revision++
             retryAfter.clear()
+            linkedLeads.clear()
             pass = 0
             attempted.clear()
             completed.clear()

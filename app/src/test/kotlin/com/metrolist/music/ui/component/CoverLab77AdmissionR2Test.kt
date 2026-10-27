@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverLab77AdmissionR2Test {
+    @Test fun originalParticipationInMiddleOfGroupCountsButTributeNameDoesNot() {
+        val history = (1..5).map { seed("prior00000$it") }
+        assertFalse(CoverLab71FoundationGate.withinOriginalCaps(
+            seed("sixth000001", artist = "Primo & Jimmy Fontana & Terzo"), "Jimmy Fontana", history))
+        assertTrue(CoverLab71FoundationGate.withinOriginalCaps(
+            seed("tribute0001", artist = "Jimmy Fontana Tribute Band"), "Jimmy Fontana", history))
+    }
     private fun candidate(
         title: String = "Il mondo",
         artist: String = "Altra cantante",

@@ -22,7 +22,7 @@ internal object CoverLabTurboTwinGuard {
     internal fun relation(left: DiscogsVersionSeed, right: DiscogsVersionSeed): Relation {
         if (!left.resolvedVideoId.isNullOrBlank() &&
             left.resolvedVideoId == right.resolvedVideoId) return Relation.CONFIRMED
-        if (!TitleMeaningResolver.sameArtist(left.artist, right.artist)) return Relation.DISTINCT
+        if (!CoverLab71FoundationGate.sameCreditedPerformer(left.artist, right.artist)) return Relation.DISTINCT
         if (versionClass(left) != versionClass(right)) return Relation.DISTINCT
         val aliases = setOf(left.artist, right.artist)
         if (!TitleMeaningResolver.matchesBaseTitle(left.trackTitle, right.trackTitle, aliases) &&

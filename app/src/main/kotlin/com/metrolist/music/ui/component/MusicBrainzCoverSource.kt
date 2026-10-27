@@ -358,8 +358,12 @@ internal object MusicBrainzCoverSource {
             distinctRecordings
                 .filterNot { it.recordingId in excludedRecordingIds }
                 .filterNot { isOriginalRecordingLike(it, wantedTitle, wantedArtist) }
-                .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
-                .let { selectCoverWindow(it, deepRecovery, deepRound) }
+                .distinctBy {
+                    if (com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") it.recordingId
+                    else "${canonical(it.title)}|${canonical(it.artist)}"
+                }
+                .let { selectCoverWindow(it, deepRecovery, deepRound,
+                    preserveAll = com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") }
 
         return MusicBrainzLookup(
             covers = covers,
@@ -382,7 +386,9 @@ internal object MusicBrainzCoverSource {
         recordings: List<MusicBrainzCover>,
         deepRecovery: Boolean,
         deepRound: Int,
+        preserveAll: Boolean = false,
     ): List<MusicBrainzCover> {
+        if (preserveAll) return recordings
         if (!deepRecovery) return recordings.take(MAX_DISCOVERED_COVERS)
         val offset = (deepRound - 1).coerceIn(0, 12) * 35
         return recordings.drop(offset).take(250)

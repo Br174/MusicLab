@@ -4,6 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverLab77PriorityQueueTest {
+    @Test fun everyAlreadyDiscoveredMusicBrainzRecordingRemainsAvailableToTurbo() {
+        val records = (1..300).map { MusicBrainzCover("Il mondo", "Singer $it", "recording-$it", "work") }
+        assertEquals(records, MusicBrainzCoverSource.selectCoverWindow(records, false, 1, preserveAll = true))
+    }
+    @Test fun candidateArrivingDuringBackgroundRankingCannotBeLostByStaleOrder() {
+        val pending = CoverPriorityOrder.Pending()
+        pending.offer(row("First", "first000001"))
+        val input = pending.orderingInput("Il mondo", "Jimmy Fontana", 1)!!
+        val order = CoverPriorityOrder.order(input.rows, input.title, input.original, input.round, input.twins)
+        pending.offer(row("Later", "later000001", "COVER.INFO", documented = true))
+        assertFalse(pending.applyOrdering(input, order))
+        assertEquals(2, pending.size)
+        assertEquals("Later", pending.next("Il mondo", "Jimmy Fontana", 1)!!.artist)
+    }
+    @Test fun originalNameInsideAnotherSingersCoverTitleDoesNotRelabelPerformer() {
+        val lead = row("Jimmy Fontana", "", "COVER.INFO", documented = true, original = true)
+            .copy(playbackVideoId = null)
+        val raw = row("Other Singer", "cover000001", title = "Il mondo - Jimmy Fontana cover")
+        assertEquals("Other Singer", CoverPriorityOrder.bindVideo(raw, lead).artist)
+    }
     @Test fun searchBindingDoesNotInventDiscographicRecordingProof() {
         val lead = row("Jimmy Fontana", "").copy(playbackVideoId = null,
             recordingReleaseId = 123, recordingTrackPosition = "A1", album = "Album", releaseVerified = true,

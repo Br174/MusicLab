@@ -106,15 +106,29 @@ internal object CoverLab71FoundationGate {
                 seed.formatDescriptions.joinToString(" "), seed.sourceUrl.orEmpty(),
             )
 
+    private fun creditedName(value: String): String = TitleMeaningResolver.canonical(value)
+        .removeSuffix(" topic").trim()
+
+    internal fun sameCreditedPerformer(left: String, right: String): Boolean =
+        creditedName(left).isNotBlank() && creditedName(left) == creditedName(right)
+
+    internal fun isOriginalPerformer(artist: String, originalArtist: String): Boolean {
+        val original = creditedName(originalArtist)
+        if (original.isBlank()) return false
+        if (creditedName(artist) == original) return true
+        return artist.split(Regex("""(?i)\s*(?:[&+,/]|\b(?:feat\.?|ft\.?|featuring|with|and|con|e)\b)\s*"""))
+            .any { creditedName(it) == original }
+    }
+
     internal fun withinOriginalCaps(
         seed: DiscogsVersionSeed,
         originalArtist: String,
         history: List<DiscogsVersionSeed>,
     ): Boolean {
         if (originalArtist.isBlank() ||
-            !TitleMeaningResolver.sameArtist(seed.artist, originalArtist)) return true
+            !isOriginalPerformer(seed.artist, originalArtist)) return true
         return history.count {
-            TitleMeaningResolver.sameArtist(it.artist, originalArtist)
+            isOriginalPerformer(it.artist, originalArtist)
         } < 5
     }
 

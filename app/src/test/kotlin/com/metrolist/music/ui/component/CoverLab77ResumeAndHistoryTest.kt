@@ -4,6 +4,59 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverLab77ResumeAndHistoryTest {
+    @Test fun linkedLeadRetainsContinuationUntilEveryReturnedPageIsProcessed() {
+        val pending = CoverPriorityOrder.Pending()
+        val lead = CoverSourceCandidate("Il mondo", "Singer", listOf("COVER.INFO"))
+        pending.offer(lead); pending.beginPass()
+        pending.lookupComplete(lead, linked = true, morePages = true)
+        assertEquals(1, pending.size)
+        pending.lookupComplete(lead, linked = false, morePages = false)
+        assertEquals(0, pending.size)
+    }
+    @Test fun ordinaryProducerCannotTakeDocumentaryPreparationLane() {
+        val searches = CoverPriorityOrder.VideoQueries()
+        val lead = CoverSourceCandidate("Il mondo", "Singer", listOf("COVER.INFO"))
+        searches.offer("Singer Il mondo", AiCoverCategory.COVER, lead = lead)
+        assertNull(searches.next(includeLeads = false))
+        assertNotNull(searches.forLead(lead))
+    }
+    @Test fun laterDocumentaryEvidenceUpdatesOriginalScoreWithoutMovingCard() {
+        val prior = row("original001", artist = "Jimmy Fontana").copy(musiclabScore100 = 45, roundPosition = 7)
+        val evidence = CoverSourceCandidate("Il mondo", "Jimmy Fontana", listOf("COVER.INFO"),
+            playbackVideoId = "original001", playbackVideoTitle = "Il mondo",
+            workRelationConfirmed = true, originalWorkReference = true)
+        val updated = CoverPriorityOrder.refreshEvidence(prior, evidence, "Il mondo", "Jimmy Fontana", 1)
+        assertEquals(prior.fingerprint, updated.fingerprint)
+        assertEquals(7, updated.roundPosition)
+        assertTrue(updated.musiclabScore100!! >= 90)
+        assertTrue(updated.sourceNames.contains("COVER.INFO"))
+    }
+    @Test fun priorityPreparationSharesOne4400MillisecondWindowPerPress() {
+        var now = 0L
+        val window = CoverPriorityOrder.PreparationWindow { now }
+        assertEquals(1_900L, window.claim(1_900L))
+        now = 1_900L
+        assertEquals(2_500L, window.claim(3_800L))
+        now = 4_400L
+        assertEquals(0L, window.claim(3_800L))
+    }
+
+    @Test fun emptyLookupRetainsDocumentaryLeadForLaterManualRecovery() {
+        val pending = CoverPriorityOrder.Pending()
+        val lead = CoverSourceCandidate("Il mondo", "Singer", listOf("COVER.INFO"), workRelationConfirmed = true)
+        pending.offer(lead); pending.beginPass()
+        pending.lookupComplete(lead, linked = false)
+        assertEquals(1, pending.size)
+        pending.lookupComplete(lead, linked = true)
+        assertEquals(0, pending.size)
+    }
+
+    @Test fun relatedDocumentaryPageCanEnqueueItsOwnRelatedContributions() {
+        val progress = CoverPriorityOrder.DocumentaryProgress()
+        progress.followRelations(CoverPriorityOrder.DocumentaryProgress.Page("https://cover.info/en/song/root", true),
+            listOf("https://cover.info/en/song/child"))
+        assertEquals("https://cover.info/en/song/child", progress.nextPage()!!.url)
+    }
     @Test fun failedProviderPageCannotStarveUntouchedQueriesOnNextPress() {
         val searches = CoverPriorityOrder.VideoQueries()
         searches.offer("first", AiCoverCategory.COVER)

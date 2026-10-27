@@ -25,7 +25,7 @@ internal object CoverLabTurboRoundAdmission {
         }
         val original = candidate.originalWorkReference ||
             (originalArtist.isNotBlank() &&
-                TitleMeaningResolver.sameArtist(candidate.artist, originalArtist))
+                CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist))
         val catalogue = candidate.sources.any {
             (it.equals("Discogs", true) && candidate.releaseVerified) || it.equals("Apple/iTunes", true) ||
                 it.equals("Spotify", true) || (it.equals("YouTube Music", true) && candidate.releaseVerified)
