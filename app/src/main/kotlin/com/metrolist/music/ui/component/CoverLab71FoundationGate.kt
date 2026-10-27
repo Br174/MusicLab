@@ -44,6 +44,7 @@ internal object CoverLab71FoundationGate {
         targetTitle: String,
         originalArtist: String,
         metadataTitle: String,
+        allowExactTitleOnly: Boolean = false,
     ): Boolean {
         val video = metadataTitle.ifBlank { candidate.playbackVideoTitle.orEmpty() }
         if (video.isBlank() || isForbidden(video, candidate.title, candidate.artist,
@@ -51,7 +52,8 @@ internal object CoverLab71FoundationGate {
         val aliases = setOf(candidate.artist, originalArtist)
             .filter(String::isNotBlank).toSet()
         fun isExactOrDecorated(title: String, text: String): Boolean =
-            TitleMeaningResolver.matchesBaseTitle(title, text, aliases)
+            TitleMeaningResolver.matchesBaseTitle(title, text, aliases) ||
+                (allowExactTitleOnly && CoverLab76BroadTitle.matches(title, text, aliases))
 
         // The ACTUAL YouTube video must agree with the source's song title.
         // Never trust "Felicità" from a catalog row if the linked video says
@@ -69,6 +71,10 @@ internal object CoverLab71FoundationGate {
                 isExactOrDecorated(candidate.title, video)
         }
         if (!requestedVideoTitle || !requestedCatalogTitle) return false
+        // By user request, later rounds can admit a genuine exact-title
+        // result even when uploader metadata lacks the original artist.
+        // This does not relax the forbidden-content veto above.
+        if (allowExactTitleOnly) return true
 
         // Same name does NOT mean same song ("Felicità" is a homonym).
         // For direct third-party uploads require a named source artist and
