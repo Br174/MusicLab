@@ -81,7 +81,9 @@ class CoverLab71FoundationGateTest {
 
     @Test fun documentaryProofAllowsForeignTitleButNeverADifferentVideoTitle() {
         val confirmed = candidate("El mundo", "Interprete straniero",
-            source = "COVER.INFO", documented = true)
+            source = "COVER.INFO", documented = true).copy(
+            category = AiCoverCategory.FOREIGN
+        )
         assertTrue(CoverLab71FoundationGate.matchesRequestedWork(
             confirmed, "Il mondo", "Jimmy Fontana", "El mundo"
         ))
