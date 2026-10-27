@@ -9,18 +9,25 @@ internal object CoverRoundSearchPlan {
         "official cover", "professional singer cover", "famous cover version",
         "studio cover by other singers", "cover interpretation", "duet official", "live official",
         "foreign language cover", "adaptation cover", "cover studio", "official performance",
+        "cover album", "disco cover", "discografia cover", "singolo cover",
+        "compilation cover", "published cover recording", "recorded cover version",
+        "cover studio singer", "cover classic artists", "original song recording",
+        "foreign version album", "versione straniera cover",
     )
     private val talent = listOf(
         "X Factor cover live", "The Voice cover live", "live concert cover",
         "acoustic cover", "talent show performance", "unplugged cover",
         "festival live cover", "TV audition cover", "live studio session",
         "semi official cover", "TV show cover", "singer interpretation",
+        "Festival di Sanremo cover", "Rai esibizione cover", "radio live cover",
+        "festival performance singer", "professional recording cover",
     )
     private val amateur = listOf(
         "guitar cover", "piano cover", "home studio cover", "independent artist cover",
         "instrumental interpretation", "bedroom cover", "street performance cover",
         "acoustic vocal cover", "amateur cover", "local band cover",
         "independent vocalist cover", "solo voice cover",
+        "indie singer cover", "small label cover version", "artist interpretation cover",
     )
     private val longTail = listOf(
         "rare cover version", "foreign language adaptation", "tribute band cover",
@@ -52,6 +59,9 @@ internal object CoverRoundSearchPlan {
                 Query("$clean $artist cover", AiCoverCategory.COVER),
                 Query("$clean $artist official", AiCoverCategory.COVER),
                 Query("$clean $artist cover studio", AiCoverCategory.COVER),
+                Query("$clean $artist discografia", AiCoverCategory.COVER),
+                Query("$clean $artist cover album", AiCoverCategory.COVER),
+                Query("$clean $artist versioni straniere", AiCoverCategory.FOREIGN),
             )
         } else {
             listOf(Query(if (round >= 4) clean else "$clean cover", AiCoverCategory.COVER))
