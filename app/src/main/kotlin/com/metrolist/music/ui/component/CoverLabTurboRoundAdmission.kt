@@ -18,12 +18,16 @@ internal object CoverLabTurboRoundAdmission {
         // LAB71: foundational musical identity and forbidden-recording gate
         // applies BEFORE any of the progressive confidence thresholds.
         if (!CoverLab71FoundationGate.matchesRequestedWork(
-                candidate, targetTitle, originalArtist, videoTitle
+                candidate, targetTitle, originalArtist, videoTitle,
+                allowExactTitleOnly = round >= 4,
             )) return Verdict(false, 1)
-        val exactTitle = TitleMeaningResolver.matchesBaseTitle(
-            targetTitle, videoTitle, setOf(candidate.artist, originalArtist)
-        ) && TitleMeaningResolver.matchesBaseTitle(
-            targetTitle, candidate.title, setOf(candidate.artist, originalArtist)
+        val aliases = setOf(candidate.artist, originalArtist)
+        val exactTitle = (
+            TitleMeaningResolver.matchesBaseTitle(targetTitle, videoTitle, aliases) ||
+                (round >= 4 && CoverLab76BroadTitle.matches(targetTitle, videoTitle, aliases))
+        ) && (
+            TitleMeaningResolver.matchesBaseTitle(targetTitle, candidate.title, aliases) ||
+                (round >= 4 && CoverLab76BroadTitle.matches(targetTitle, candidate.title, aliases))
         )
         // No substring/prefix escape hatch: "Felicità puttana" is not
         // "Felicità", regardless of loose round or YouTube ID validity.
