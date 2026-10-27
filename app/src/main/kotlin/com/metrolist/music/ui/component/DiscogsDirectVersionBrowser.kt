@@ -3836,73 +3836,78 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
                         } else null
-                        // LAB68: Discogs was bypassed entirely by the LAB66
-                        // Turbo early return. It is now an optional documentary
-                        // lane (only when configured), never a poster publisher.
-                        // A few original-artist studio records are linked to
-                        // real YouTube IDs and verified through tryPublish().
+                        // LAB72: Discogs is a verified RELEASE catalogue, not
+                        // a first-page title-hint filter for only the original
+                        // singer. Resolve a bounded selection of real release
+                        // tracklists, including the many alternate interpreters.
                         val discogs = if (includeDocumentary && thisRound == 1 &&
                             discogsToken.isNotBlank()
                         ) launch(Dispatchers.IO) {
-                            val page = withTimeoutOrNull(7_000L) {
-                                DiscogsVersionSource.loadVersionPage(
+                            val verified = withTimeoutOrNull(14_000L) {
+                                DiscogsVersionSource.discoverCoverVersions(
                                     token = discogsToken,
-                                    mode = DiscogsDirectMode.COVER,
-                                    criteria = criteria,
+                                    title = searchedTitle,
                                     originalArtist = originalArtist,
-                                    page = 1,
-                                    perPage = 15,
-                                ).getOrNull()
+                                    maxDetails = 16,
+                                )
+                            }
+                            val proofRows = verified.orEmpty().filter {
+                                it.releaseId > 0 && it.track != null
+                            }.map { record ->
+                                CoverSourceCandidate(
+                                    title = record.trackTitle,
+                                    artist = record.artist,
+                                    sources = listOf("Discogs"),
+                                    album = record.releaseTitle,
+                                    year = record.year,
+                                    category = when (record.kind) {
+                                        DiscogsVersionKind.LIVE -> AiCoverCategory.LIVE
+                                        DiscogsVersionKind.REMIX -> AiCoverCategory.REMIX
+                                        else -> AiCoverCategory.COVER
+                                    },
+                                    sourceUrl = record.discogsUrl,
+                                    releaseVerified = true,
+                                    releaseEvidence = record.discogsUrl,
+                                )
                             }
                             withContext(Dispatchers.Main.immediate) {
+                                discographyProofs += proofRows
                                 recordSource(CoverSourceDiagnostic(
-                                    "Discogs", page != null, page?.items?.size ?: 0,
-                                    if (page == null) "richiesta fallita o scaduta"
-                                    else "registrazioni discografiche rilevate; collegamenti YouTube da verificare",
+                                    "Discogs", verified != null, proofRows.size,
+                                    if (verified == null) "tempo limite: riprova, nessuna assenza dimostrata"
+                                    else "tracklist pubblicate verificate, inclusi altri interpreti",
                                 ))
                             }
-                            var checked = 0
-                            for (record in page?.items.orEmpty()) {
-                                if (!isActive || checked >= 2) break
-                                if (!TitleMeaningResolver.matchesBaseTitle(
-                                        searchedTitle, record.trackTitle
-                                    ) || !TitleMeaningResolver.sameArtist(
-                                        record.artist, originalArtist
-                                    )
-                                ) continue
+                            // Video discovery is separate from the Discogs
+                            // publication proof; test individual video identity.
+                            for (release in proofRows.take(8)) {
+                                if (!isActive) break
                                 val audioBusy = withContext(Dispatchers.Main.immediate) {
                                     backgroundWorkBlocked() ||
                                         playerConnection?.service?.isCoverAudioAtRisk() == true
                                 }
                                 if (audioBusy) break
-                                checked++
-                                val videos = withTimeoutOrNull(3_000L) {
+                                val matches = withTimeoutOrNull(2_500L) {
                                     YouTube.search(
-                                        "${record.artist} ${record.trackTitle} official audio",
+                                        "${release.artist} ${release.title} official audio",
                                         YouTube.SearchFilter.FILTER_VIDEO,
-                                    ).getOrNull()?.items
-                                        ?.filterIsInstance<SongItem>()?.take(2)
+                                    ).getOrNull()?.items?.filterIsInstance<SongItem>()?.take(2)
                                 }.orEmpty()
-                                for (video in videos) {
+                                for (video in matches) {
                                     if (CoverLab71FoundationGate.isForbidden(
-                                            video.title, record.trackTitle, record.artist
+                                            video.title, release.title, release.artist
                                         ) || !TitleMeaningResolver.matchesBaseTitle(
-                                            record.trackTitle, video.title,
-                                            setOf(record.artist, originalArtist)
+                                            release.title, video.title,
+                                            setOf(release.artist, originalArtist),
                                         )
                                     ) continue
-                                    val documented = CoverSourceCandidate(
-                                        title = record.trackTitle,
-                                        artist = record.artist,
-                                        sources = listOf("Discogs", "YouTube"),
-                                        year = record.year,
-                                        sourceUrl = record.discogsUrl,
-                                        playbackVideoId = video.id,
-                                        playbackVideoTitle = video.title,
-                                        playbackVideoSource = "Discogs/YouTube",
-                                    )
                                     withContext(Dispatchers.Main.immediate) {
-                                        tryPublish(documented)
+                                        tryPublish(release.copy(
+                                            playbackVideoId = video.id,
+                                            playbackVideoTitle = video.title,
+                                            playbackVideoSource = "Discogs/YouTube",
+                                            coverUrl = "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg",
+                                        ), searchedVideo = video)
                                     }
                                 }
                             }
