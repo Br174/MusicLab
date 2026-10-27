@@ -3517,6 +3517,11 @@ internal fun DiscogsDirectVersionBrowser(
             val cursor = session.youtubeQueryCursor
             val visibleBefore = publishedCoverSnapshots.size
             val querySlice = queries.drop(cursor).take(2)
+            // +3 seconds total per press on Completa tornata / Cerca ancora,
+            // shared across 1 or 2 query keys; no delay on initial search.
+            val manualExtraPerQueryMs = if (appendRound && querySlice.isNotEmpty()) {
+                3_000L / querySlice.size
+            } else 0L
             val includeDocumentary = !session.roundSourceChecked
             activeCriteria = criteria
             session.activeCriteria = criteria
@@ -3882,7 +3887,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 while (isActive && (backgroundWorkBlocked() ||
                                     playerConnection?.service?.isCoverAudioAtRisk() == true)
                                 ) delay(300L)
-                                val found = withTimeoutOrNull(5_500L) {
+                                val found = withTimeoutOrNull(5_500L + manualExtraPerQueryMs) {
                                     withContext(Dispatchers.IO) {
                                         YouTube.search(query.text, YouTube.SearchFilter.FILTER_VIDEO)
                                             .getOrNull()?.items
@@ -3986,8 +3991,14 @@ internal fun DiscogsDirectVersionBrowser(
                     // LAB70: zero results do NOT exhaust untried official, live
                     // and foreign queries. Complete the round only when its
                     // real query cursor reaches the end (or 50 unique videos).
+                    // First ZERO-new-cover button step concludes this tier:
+                    // the next press advances to a looser round instead of
+                    // exhausting dozens of equivalent empty keyword attempts.
+                    // Never mistake zero new recordings for a promise that
+                    // unseen videos or providers do not exist.
                     roundPlanComplete = publishedCoverSnapshots.size >= TURBO_RESULT_QUOTA ||
-                        session.youtubeQueryCursor >= queries.size
+                        session.youtubeQueryCursor >= queries.size ||
+                        (querySlice.isNotEmpty() && publishedCoverSnapshots.size == visibleBefore)
                     session.roundPlanComplete = roundPlanComplete
                     val saved = previousRoundRows + publishedCoverSnapshots
                     withContext(Dispatchers.IO) {
