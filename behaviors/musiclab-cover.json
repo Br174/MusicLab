@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "musiclab",
   "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
-  "status": "LAB72_APPROVED_FOUNDATION_CONTRACT_PENDING_CI_BUILD_DEVICE_VERIFICATION",
+  "status": "USER_CORRECTED_ADD_ONLY_BEHAVIOR_LAB73_PENDING_RELEASE_TESTS",
   "rules": [
     {
       "id": "musiclab.cover.same-work",
@@ -440,7 +440,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 4,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "FOUNDATIONAL user-approved DISCOSGRAPHIC-FIRST round ordering. Round ONE only includes recordings actually published as a track on a named official album, single, EP, compilation or officially released live album; no exception merely for X Factor, The Voice, Sanremo or YouTube 'official' labels. Published TV-talent recordings qualify when THEIR particular performance has independent discographic release proof. First round includes original singer (respecting 1 studio/2 distinct live/2 distinct remix caps), documented covers by known and other artists, and COVER.INFO foreign-language Work adaptations EARLY IN THE VISIBLE ORDER when corroborated by actual release records. A COVER.INFO same-work relationship proves composition only, NEVER automatically a discographic recording. Apple/iTunes catalog track+collection identifiers and track URL; Spotify authentic track ID and album; Discogs actual release tracklist with recording artist provide eligible evidence. A generic title, search summary, year, YouTube Topic/VEVO/official badge and publication claim alone DO NOT constitute release proof. Corroborate performer, musical title/translated Work, performance category (studio/live/remix) and source video ID; never claim famousness without independent evidence or use unverifiable celebrity rankings. Search Discogs verified release details and other singers, not only first 15 results nor only the original. Round TWO contains non-discographically verified professionally filmed TV, Sanremo, X Factor, The Voice, radio sessions and officially produced concert live performances. Round THREE and later progressively include independent and amateur cover performances. Never discard a rejected first-round candidate permanently; keep subsequent rounds available, no duplicates across session. Every round retains immutable title/same-work identity, global karaoke/MIDI/backing track veto, verified YouTube thumbnail video, audio priority, speed, 50 true new rendition ceiling, no invented fillers. Changing first-round source priority cannot demote verified COVER.INFO foreign performances to later rounds.",
       "acceptance": [
@@ -461,9 +461,35 @@
       "supersedes": [
         "musiclab.cover.source-and-category-rounds.v3"
       ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v5",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 5,
+      "status": "active",
+      "protected": true,
+      "behavior": "USER-APPROVED ROOT-CAUSE CORRECTION. MusicLab Turbo LAB73 must restore LAB71's verified VIDEO-FIRST, ASYNCHRONOUS, APPEND-ONLY publication in ALL cover rounds, exactly preserving the base first/second/third/fourth+ admission thresholds (including legal covers, no new required release proof, no additional professional-only veto, no batch staging or suppression). DISCOVERY IS ADDITIVE: expand YouTube/YouTube Music queries for famous singers, cover albums, discs, released studio recordings, talent TV and foreign adaptations in all tiers; expand Discogs optional release tracklist query depth, allow other artists, increase verified video attempts; COVER.INFO early foreign leads remain first-class. Catalog albums or official discs provide POSITIVE evidence/ranking, never a necessary condition for a result already satisfying LAB71 gates. Keep immutable title/Work, no karaoke/MIDI/backing tracks, original-performer 1 studio 2 distinct live 2 remix, no same performance duplicates and independent video IDs and audio priority. A missing/disconnected Discogs token must not block other providers and must be shown as a source diagnostic rather than no-cover proof. After an empty source search, continue additional query keys and rounds without discarding them or imposing new category veto. Do not implement LAB72's mandatory isReleaseProof, professionalUnreleased, firstRoundVideos queue, flushFirstRound or withDocumentedRelease as gates. LAB72 APK is known BAD for coverage; preserve LAB71 as LAST_GOOD functional publication baseline. LAB73 is isolated LAB and needs Android tests, original-signer APK+ZIP verification and user device testing.",
+      "acceptance": [
+        "LAB73 starts from LAB71 exact publication logic; LAB72 mandatory discography gate and professional-only second-round gate absent",
+        "Round 1 remains rich in real cover videos, original singer, famous artists and COVER.INFO foreign versions using existing LAB71 identity policy",
+        "Rounds 2 and 3 and subsequent rounds retain unchanged LAB71 admission; no new automatic suppression",
+        "Discogs optional discovery looks beyond 15 first-page candidates/2 original artist videos, includes other credited singers where documented",
+        "More first, second and third round search queries without slowing player or requiring paid source credentials",
+        "Without Discogs credential, other sources still publish and Discogs is reported unavailable",
+        "Never admit karaoke, MIDI, wrong musical work, or repeated recordings",
+        "APK must update LAB72 with versionCode >33074 and same package/signing hash"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab73-additive-restore.test.mjs"
+      ],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v4",
+        "musiclab.cover.source-and-category-rounds.v3"
+      ]
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-27-lab72-discographic-first-cover-info-priority-v4",
+  "canonicalBehaviorRevision": "2026-10-27-lab73-additive-discovery-restore-lab71-v5",
   "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
@@ -487,10 +513,10 @@
     },
     {
       "oldRule": "musiclab.cover.category-rounds",
-      "disposition": "SUPERSEDED_BY_APPROVED_LAB72_FOUNDATION",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v4",
+      "disposition": "SUPERSEDED_BY_USER_CORRECTIVE_LAB73",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v5",
       "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v3"
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v4"
     },
     {
       "oldRule": "musiclab.cover.score-separation",
@@ -506,16 +532,23 @@
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v2",
-      "disposition": "SUPERSEDED_BY_APPROVED_LAB72_FOUNDATION",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v4",
+      "disposition": "SUPERSEDED_BY_USER_CORRECTIVE_LAB73",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v5",
       "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v3"
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v4"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v3",
-      "replacementRule": "musiclab.cover.source-and-category-rounds.v4",
-      "disposition": "APPROVED_USER_SUPERSESSION_LAB72",
-      "appEnforcement": "PENDING_BUILD_AND_DEVICE_VERIFICATION"
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v5",
+      "disposition": "SUPERSEDED_BY_USER_CORRECTIVE_LAB73",
+      "appEnforcement": "PENDING_BUILD_AND_DEVICE_VERIFICATION",
+      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v4"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v4",
+      "replacementRule": "musiclab.cover.source-and-category-rounds.v5",
+      "disposition": "RETIRED_BAD_RUNTIME_COVERAGE_REGRESSION",
+      "appEnforcement": "RESTORE_LAB71_BASE_IN_LAB73"
     }
   ],
   "confirmedGoodBaseline": {
@@ -581,14 +614,13 @@
     }
   ],
   "foundationsApprovedAt": "2026-10-27",
-  "foundationsImplementationState": "LAB71_CI_VERIFIED; LAB72_IMPLEMENTATION_IN_PROGRESS",
+  "foundationsImplementationState": "LAB72_REGRESSION_CONFIRMED_BY_USER; LAB73_RESTORES_LAB71_BASE_WITH_ADDITIVE_DISCOVERY_PENDING_APK_DEVICE",
   "foundationsNextStep": "LAB71 pre-change report + distinct user approval; implement guard once centrally, regression tests and device tests, preserve player/cloud/signature/main",
   "pendingFoundationalImplementation": [
-    "LAB72 First round only real published recordings on singles/EP/albums/compilations/live albums, no program-name exception",
-    "LAB72 COVER.INFO first-result prominence conditioned on independent release proof; preserve original and professional known singers",
-    "LAB72 Second round professionally recorded Sanremo/X Factor/The Voice/TV/radio/concert not verified on discs",
-    "LAB72 Third+ independent/amateur interpretation expansion; all-round hard karaoke MIDI wrong-title bans",
-    "LAB72 Discogs verified release tracklists for alternate singers and more linked videos",
-    "LAB72 verified APK and ZIP same signer, no player UI main/MADRE/production changes"
+    "Retire LAB72 blocking publication gates and restore complete LAB71 all-round publisher",
+    "Expand search keys for album, singer, foreign adaptation, live and additional cover sources",
+    "Expand optional Discogs results and other singers while respecting existing LAB71 titles/dedupe",
+    "Preserve player, graphics, family package, signature, main, MADRE and production",
+    "Compile and sign versionCode33075 same family, user device tests before proclaiming search verified"
   ]
 }
