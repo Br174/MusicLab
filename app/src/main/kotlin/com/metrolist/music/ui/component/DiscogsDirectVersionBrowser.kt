@@ -283,6 +283,10 @@ private data class DirectVersionSession(
     var youtubeQueryCursor: Int = 0,
     var roundPlanComplete: Boolean = false,
     var roundSourceChecked: Boolean = false,
+    // LAB72: catalog and Work evidence survive manual orange presses in the
+    // SAME CoverLab entry; never a global user/app blacklist.
+    var lab72DiscographyProofs: List<CoverSourceCandidate> = emptyList(),
+    var lab72DocumentedWorks: List<CoverSourceCandidate> = emptyList(),
     var roundQueryRetries: Int = 0,
     // LAB67: two consecutive search presses with no newly published videos
     // allow the user to enter the next quality tier, no infinite orange state.
@@ -3487,6 +3491,8 @@ internal fun DiscogsDirectVersionBrowser(
                 session.coverRoundNumber = 1
                 session.youtubeQueryCursor = 0
                 session.roundSourceChecked = false
+                session.lab72DiscographyProofs = emptyList()
+                session.lab72DocumentedWorks = emptyList()
                 session.roundQueryRetries = 0
                 session.roundEmptyPasses = 0
                 roundPlanComplete = false
@@ -3573,8 +3579,8 @@ internal fun DiscogsDirectVersionBrowser(
                     val earlyVideoIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
                     val documentarySearchKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
                     val firstRoundVideos = mutableListOf<Pair<CoverSourceCandidate, SongItem?>>()
-                    val discographyProofs = mutableListOf<CoverSourceCandidate>()
-                    val documentedWorkVersions = mutableListOf<CoverSourceCandidate>()
+                    val discographyProofs = session.lab72DiscographyProofs.toMutableList()
+                    val documentedWorkVersions = session.lab72DocumentedWorks.toMutableList()
                     suspend fun tryPublish(
                         candidate: CoverSourceCandidate,
                         searchedVideo: SongItem? = null,
@@ -3735,6 +3741,10 @@ internal fun DiscogsDirectVersionBrowser(
                                                             source.equals("MusicBrainz", true)
                                                     }
                                                 }
+                                                session.lab72DiscographyProofs =
+                                                    discographyProofs.distinctBy { it.artist + "|" + it.title + "|" + it.releaseEvidence }.take(250)
+                                                session.lab72DocumentedWorks =
+                                                    documentedWorkVersions.distinctBy { it.artist + "|" + it.title }.take(250)
                                             }
                                         }
                                         // A linked COVER.INFO ID takes the short route:
@@ -3872,6 +3882,8 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             withContext(Dispatchers.Main.immediate) {
                                 discographyProofs += proofRows
+                                session.lab72DiscographyProofs =
+                                    discographyProofs.distinctBy { it.artist + "|" + it.title + "|" + it.releaseEvidence }.take(250)
                                 recordSource(CoverSourceDiagnostic(
                                     "Discogs", verified != null, proofRows.size,
                                     if (verified == null) "tempo limite: riprova, nessuna assenza dimostrata"
