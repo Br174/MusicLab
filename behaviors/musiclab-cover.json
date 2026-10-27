@@ -591,7 +591,8 @@
       ],
       "testPaths": [
         "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PresentationTest.kt",
-        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78SourceProgressTest.kt"
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78SourceProgressTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PreparationPolicyTest.kt"
       ],
       "supersedes": []
     }
@@ -787,7 +788,7 @@
     "Physical phone quality, timing and audio verification pending"
   ],
   "staged25Implementation": {
-    "state": "IN_PROGRESS_NATIVE_VERIFICATION_REQUIRED",
+    "state": "REVIEW_FIXES_VERIFIED_LOCAL_FINAL_NATIVE_GATE_PENDING",
     "base": "cf8ed8fd9dab4a59ab1c7f22795f3962369b7fda",
     "branch": "lab/musiclab-turbo-lab78-staged25-20261027",
     "userAuthorized": true,

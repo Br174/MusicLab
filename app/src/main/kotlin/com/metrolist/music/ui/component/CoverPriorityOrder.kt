@@ -118,6 +118,8 @@ internal object CoverPriorityOrder {
         )
     }
 
+    fun mergeEvidence(first: CoverSourceCandidate, second: CoverSourceCandidate): CoverSourceCandidate = merge(first, second)
+
     private fun merge(first: CoverSourceCandidate, second: CoverSourceCandidate): CoverSourceCandidate {
         fun weight(row: CoverSourceCandidate): Int =
             (if (row.workRelationConfirmed) 20 else 0) +
