@@ -13,7 +13,8 @@ const active=browse.slice(browse.indexOf('// LAB66 canonical Behavior Memory'),
 test('LAB73 is explicitly additive, LAW: never reintroduce LAB72 empty-results gates',()=>{
  assert.equal(memory.canonicalBehaviorRevision,'2026-10-27-lab73-additive-discovery-restore-lab71-v5');
  assert.equal(memory.rules.find(x=>x.id==='musiclab.cover.source-and-category-rounds.v4').status,'retired');
- assert.equal(memory.rules.find(x=>x.id==='musiclab.cover.source-and-category-rounds.v5').status,'active');
+ assert.equal(memory.rules.find(x=>x.id==='musiclab.cover.source-and-category-rounds.v5').status,'retired');
+ assert.equal(memory.rules.find(x=>x.id==='musiclab.cover.source-and-category-rounds.v6').status,'active');
  for(const forbidden of ['CoverLab72PublicationProof','flushFirstRound','firstRoundVideos',
      'professionalUnreleased','isReleaseProof','discographyProofs','withDocumentedRelease'])
    assert.ok(!active.includes(forbidden),'Forbidden LAB72 veto: '+forbidden);
