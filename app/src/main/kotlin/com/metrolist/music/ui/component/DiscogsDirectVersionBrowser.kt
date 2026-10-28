@@ -3724,7 +3724,10 @@ internal fun DiscogsDirectVersionBrowser(
                 val statusUpdates = launch {
                     while (isActive) {
                         preparationAudioPaused = audioBusy()
-                        if (thisRound >= CoverRoundSearchPlan.finalRound && sourceCooling("Metadati YouTube")) presentation.verificationPending(thisRound)
+                        if (thisRound >= CoverRoundSearchPlan.finalRound &&
+                            (sourceCooling("Metadati YouTube") || pending.snapshot().any {
+                                !it.playbackVideoId.isNullOrBlank() && !session.preparedVideoSongs.containsKey(it.playbackVideoId)
+                            })) presentation.verificationPending(thisRound)
                         if (audioBusy() || listState.isScrollInProgress) presentation.pauseIdleClock(thisRound)
                         else presentation.closeIfIdle(thisRound)
                         if (thisRound == coverRoundNumber && presentation.exhausted(thisRound)) {
