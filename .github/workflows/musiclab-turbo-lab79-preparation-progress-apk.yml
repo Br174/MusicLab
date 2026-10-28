@@ -19,7 +19,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
       - name: Guard delivered LAB78 results, poster layout and player
-        run: python3 tools/universal-apk-builder/verify-r7-cover-scope.py
+        run: python3 tools/universal-apk-builder/verify-r8-cover-scope.py
       - name: Native audio and recording identity contracts
         run: node --test cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs
       - name: Canonical behavior consistency
@@ -68,16 +68,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-7.apk
-          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-7-APK.zip
+          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-8.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-8-APK.zip
           test -s "$APK"
           test -s "$ZIP"
           unzip -tq "$ZIP"
           python3 - <<'PY'
           import hashlib, zipfile
           from pathlib import Path
-          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-7.apk')
-          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-7-APK.zip')
+          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-8.apk')
+          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-8-APK.zip')
           digest=lambda data: hashlib.sha256(data).hexdigest()
           with zipfile.ZipFile(archive) as z:
               names=[n for n in z.namelist() if n.lower().endswith('.apk')]
@@ -99,10 +99,10 @@ jobs:
         if: contains(github.event.head_commit.message, '[build-apk]')
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-Turbo-LAB79-Revisione-7-Preparation-Progress-APK-ZIP
+          name: MusicLab-Turbo-LAB79-Revisione-8-Preparation-Progress-APK-ZIP
           path: |
-            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-7.apk
-            dist/uab/MusicLab-Turbo-LAB79-Revisione-7-APK.zip
+            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-8.apk
+            dist/uab/MusicLab-Turbo-LAB79-Revisione-8-APK.zip
             dist/uab/BUILD_SHA.txt
             dist/uab/SHA256SUMS.txt
           if-no-files-found: error
