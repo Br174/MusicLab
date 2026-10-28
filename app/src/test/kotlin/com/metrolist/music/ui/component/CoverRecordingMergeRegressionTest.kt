@@ -73,7 +73,7 @@ class CoverRecordingMergeRegressionTest {
         assertFalse(DiscogsVersionSource.sameCrossSourceVersion(original, remaster))
     }
 
-    @Test fun firstRoundFindsOfficialVideosAndLaterRoundsRotateWithoutRepeats() {
+    @Test fun firstRoundStaysOfficialAndMixedRecoveryIncludesTheGroupedGenres() {
         val first = CoverRoundSearchPlan.queries("Che cosa c'è", 1)
         assertTrue(first.isNotEmpty())
         assertTrue(first.any { it.text.contains("official") })
@@ -83,10 +83,12 @@ class CoverRecordingMergeRegressionTest {
         val fourth = CoverRoundSearchPlan.queries("Che cosa c'è", 4)
         val fifth = CoverRoundSearchPlan.queries("Che cosa c'è", 5)
         assertEquals("Che cosa c'è", fourth.first().text)
-        assertEquals(5, fourth.size)
-        assertEquals(5, fifth.size)
-        assertTrue(fourth.drop(1).map { it.text }.intersect(
-            fifth.drop(1).map { it.text }.toSet()
-        ).isEmpty())
+        assertTrue(fourth.any { it.text.contains("guitar") })
+        assertTrue(fourth.any { it.text.contains("orchestra") })
+        assertTrue(fifth.map { it.text }.containsAll(fourth.map { it.text }))
+        assertTrue(fifth.any { it.text.contains("radio") })
+        val final = CoverRoundSearchPlan.queries("Che cosa c'è", 6)
+        assertEquals("Che cosa c'è", final.first().text)
+        assertTrue(final.any { it.text == "Che cosa c'è cover" })
     }
 }

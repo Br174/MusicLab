@@ -11,7 +11,8 @@ allowed = {root+n for n in ('CoverRoundSearchPlan.kt','CoverPriorityOrder.kt',
     'CoverRoundPresentation.kt','DiscogsDirectVersionBrowser.kt')} | {
     'app/src/test/kotlin/com/metrolist/music/ui/component/'+n for n in (
         'CoverLab76ProgressiveRoundTest.kt','CoverLab80RoundClosureTest.kt',
-        'CoverLab81SixRoundTest.kt','CoverLab81FinalContinuationTest.kt')
+        'CoverLab81SixRoundTest.kt','CoverLab81FinalContinuationTest.kt',
+        'CoverRecordingMergeRegressionTest.kt')
 } | {
     'behaviors/musiclab-cover.json',
     '.motorlab/SIX_ROUNDS_IMPLEMENTATION_PLAN_20261028.txt',
