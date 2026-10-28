@@ -9,7 +9,8 @@ internal object CoverLabTurboRoundAdmission {
     )
 
     fun facts(candidate: CoverSourceCandidate, targetTitle: String, referenceArtist: String,
-        metadataTitle: String = candidate.playbackVideoTitle.orEmpty()): Set<String> {
+        metadataTitle: String = candidate.playbackVideoTitle.orEmpty(),
+        referenceCredits: List<com.metrolist.music.discogs.DiscogsCredit> = emptyList()): Set<String> {
         val video = metadataTitle.ifBlank { candidate.title }
         val aliases = setOf(candidate.artist, referenceArtist).filter(String::isNotBlank).toSet()
         val recorded = TitleMeaningResolver.matchesBaseTitle(candidate.title, video, aliases)
@@ -27,6 +28,12 @@ internal object CoverLabTurboRoundAdmission {
                 add("documented-work")
                 if (candidate.artist.isNotBlank() && !candidate.artist.equals("YouTube", true)) add("credited-rendition")
             }
+            fun writers(credits: List<com.metrolist.music.discogs.DiscogsCredit>) = credits.filter {
+                val role = it.role.lowercase(java.util.Locale.ROOT)
+                listOf("writ", "compos", "lyric", "music by", "words by").any(role::contains)
+            }.map { TitleMeaningResolver.canonical(it.name) }.filter(String::isNotBlank).toSet()
+            val sharedWriters = writers(candidate.credits).intersect(writers(referenceCredits))
+            sharedWriters.forEach { add("writer:$it") }
             val reference = TitleMeaningResolver.canonical(referenceArtist)
             val text = " " + TitleMeaningResolver.canonical(video) + " "
             if (reference.isNotBlank() &&
@@ -57,6 +64,7 @@ internal object CoverLabTurboRoundAdmission {
         originalArtist: String,
         round: Int,
         metadataTitle: String = candidate.playbackVideoTitle.orEmpty(),
+        referenceCredits: List<com.metrolist.music.discogs.DiscogsCredit> = emptyList(),
     ): Verdict {
         val videoTitle = metadataTitle.ifBlank { candidate.title }
         if (CoverLab71FoundationGate.isForbidden(
@@ -89,7 +97,7 @@ internal object CoverLabTurboRoundAdmission {
             TitleMeaningResolver.qualityScore(targetTitle, videoTitle, aliases) > 0 -> 25
             else -> 5
         }
-        val evidence = facts(candidate, targetTitle, originalArtist, metadataTitle)
+        val evidence = facts(candidate, targetTitle, originalArtist, metadataTitle, referenceCredits)
         val minimum = minimumRound(evidence)
         return Verdict(evidence.isNotEmpty() && round >= minimum, estimate, evidence, minimum,
             rejected = evidence.isEmpty())

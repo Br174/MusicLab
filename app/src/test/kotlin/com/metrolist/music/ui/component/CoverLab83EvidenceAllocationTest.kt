@@ -46,4 +46,24 @@ class CoverLab83EvidenceAllocationTest {
         p.exhaust(1)
         assertEquals("first",p.takeAutomatic().first().fingerprint)
     }
+    @Test fun authorAndComposerLabelsForTheSamePersonCountOnlyOnce() {
+        val author = com.metrolist.music.discogs.DiscogsCredit(name="Autore",role="Written By")
+        val composer = com.metrolist.music.discogs.DiscogsCredit(name="Autore",role="Composed By")
+        val candidate = row().copy(credits=listOf(author,composer))
+        val v=CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",1,
+            referenceCredits=listOf(author,composer))
+        assertEquals(2,v.evidence.size)
+        assertFalse(v.admitted)
+        assertEquals(2,v.minimumRound)
+    }
+    @Test fun ornamentalScoreCannotStopActualMetadataEnrichment() {
+        val row=row().copy(sources=listOf("COVER.INFO"),workRelationConfirmed=true)
+        val initial=DiscogsVersionSource.externalSeed(row,"Aspettando il sole","Neffa")
+            .copy(musiclabScore100=99)
+        val changed=CoverPriorityOrder.refreshEvidence(initial,row.copy(artist="Interprete documentato"),
+            "Aspettando il sole","Neffa",1)
+        assertEquals("Interprete documentato",changed.artist)
+        assertEquals(99,changed.musiclabScore100)
+    }
+
 }

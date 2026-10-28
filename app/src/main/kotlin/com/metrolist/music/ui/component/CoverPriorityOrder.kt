@@ -13,11 +13,11 @@ internal object CoverPriorityOrder {
             discogsVerificationChecked = row.discogsVerificationChecked || candidate.releaseVerified,
         )
         return enriched.copy(
-            artist = candidate.artist.ifBlank { row.artist },
-            trackTitle = candidate.title.ifBlank { row.trackTitle },
+            artist = if (candidate.workRelationConfirmed || !row.workRelationConfirmed) candidate.artist.ifBlank { row.artist } else row.artist,
+            trackTitle = if (candidate.workRelationConfirmed || !row.workRelationConfirmed) candidate.title.ifBlank { row.trackTitle } else row.trackTitle,
             sourceNames = (row.sourceNames + candidate.sources).distinct(),
             workRelationConfirmed = row.workRelationConfirmed || candidate.workRelationConfirmed,
-            originalWorkReference = candidate.originalWorkReference || CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, original),
+            originalWorkReference = row.originalWorkReference || candidate.originalWorkReference || CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, original),
             musiclabScore100 = maxOf(score, row.musiclabScore100 ?: 0),
             discogsVerificationChecked = row.discogsVerificationChecked || candidate.releaseVerified,
             confidenceReasons = (row.confidenceReasons + "Prove documentarie aggiornate: ${candidate.sources.joinToString()}").distinct(),
@@ -107,7 +107,7 @@ internal object CoverPriorityOrder {
         val documented = candidates.filter { candidate ->
             candidate.originalWorkReference && candidate.firstPublicationConfirmed && candidate.artist.isNotBlank() &&
                 candidate.playbackVideoSource != "YouTube documentario" &&
-                candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) }
+                candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) || it.equals("Discogs", true) }
         }.groupBy { TitleMeaningResolver.canonical(it.artist) }
             .values.sortedByDescending { it.size }
         val first = documented.firstOrNull() ?: return null
@@ -237,7 +237,6 @@ internal object CoverPriorityOrder {
             val key = key(candidate)
             val previous = rows[key]
             rows[key] = previous?.let { merge(it, candidate) } ?: candidate
-            if (previous != rows[key]) { heldUntilRound.remove(key); attempted.remove(key) }
         }
 
         fun candidates(): List<CoverSourceCandidate> = rows.values.toList()

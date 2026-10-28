@@ -298,6 +298,8 @@ private data class DirectVersionSession(
     val documentaryProgress: MutableMap<String, CoverPriorityOrder.DocumentaryProgress> = linkedMapOf(),
     val originalReferences: MutableMap<String, CoverSourceCandidate> = linkedMapOf(),
     var documentedOriginal: String? = null,
+    var originalResolutionAttempted: Boolean = false,
+    val workCredits: MutableList<com.metrolist.music.discogs.DiscogsCredit> = mutableListOf(),
     var canonicalWorkTitle: String? = null,
     var discogsPage: Int = 1,
     var discogsComplete: Boolean = false,
@@ -555,7 +557,11 @@ internal fun DiscogsDirectVersionBrowser(
                             CoverLabTurboRoundAdmission.candidate(row), referenceTitle, referenceArtist,
                             row.coverRound ?: 1,
                         )
-                        verdict.admitted && (row.coverRound ?: 1) <= saved.round
+                        val savedFacts = row.identityEvidence.toSet()
+                        val allocated = !verdict.rejected && (verdict.admitted ||
+                            (savedFacts.contains("title") && (row.coverRound ?: 1) >=
+                                CoverLabTurboRoundAdmission.minimumRound(savedFacts)))
+                        allocated && (row.coverRound ?: 1) <= saved.round
                     }
                     deferred.forEach { row ->
                         val candidate = CoverLabTurboRoundAdmission.candidate(row)
@@ -3613,7 +3619,7 @@ internal fun DiscogsDirectVersionBrowser(
                 val hint = originalArtist().ifBlank { lockedArtist }
                 val queries = CoverRoundSearchPlan.queries(workTitle(), thisRound, hint)
                 // The native music catalogue identifies performers before uploader channels.
-                if (thisRound == 1) {
+                if (thisRound == 1 && hint.isNotBlank()) {
                     queryWork.offer("${workTitle()} $hint", AiCoverCategory.COVER, songs = true)
                 }
                 queries.forEach { queryWork.offer(it.text, it.categoryHint) }
@@ -3652,6 +3658,10 @@ internal fun DiscogsDirectVersionBrowser(
             }
             fun offerCandidates(candidates: List<CoverSourceCandidate>, atPublicationBoundary: Boolean = false) {
                 if (generation != turboSearchGeneration) return
+                candidates.filter { it.workRelationConfirmed || (it.releaseVerified &&
+                    CoverLab71FoundationGate.isOriginalPerformer(it.artist, lockedArtist)) }.forEach { row ->
+                    row.credits.forEach { if (it !in session.workCredits) session.workCredits.add(it) }
+                }
                 if (!atPublicationBoundary && !CoverPreparationPolicy.mayRefreshVisible(thisRound, coverRoundNumber)) {
                     candidates.filter(::titleAllowed).forEach { candidate ->
                         val key = CoverPriorityOrder.key(candidate)
@@ -3756,9 +3766,6 @@ internal fun DiscogsDirectVersionBrowser(
                             val linkedPending = pending.snapshot().any {
                                 !pending.isTwin(it) && !it.playbackVideoId.isNullOrBlank()
                             }
-                            val documentaryPending = "$thisRound|${workTitle()}|${originalArtist().ifBlank { lockedArtist }}" !in session.completedDocumentaryContexts ||
-                                session.documentaryProgress.values.any { it.remainingPages > 0 } ||
-                                (discogsToken.isNotBlank() && !session.discogsComplete)
                             if (linkedPending || queryWork.remainingVideoPages() > 0) {
                                 presentation.finalProgress(thisRound, complete = false,
                                     blocked = session.sourceRetries.cooling(sourceContext()).isNotEmpty())
@@ -3855,7 +3862,7 @@ internal fun DiscogsDirectVersionBrowser(
                             pending.defer(candidate); return
                         }
                     if (requestedMetadata) recordSource(CoverSourceDiagnostic("Metadati YouTube", true, 1, "metadati ricevuti"))
-                    val verdict = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle(), originalArtist().ifBlank { lockedArtist }, thisRound, verified.title)
+                    val verdict = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle(), originalArtist().ifBlank { lockedArtist }, thisRound, verified.title, session.workCredits.toList())
                     if (!verdict.admitted) {
                         if (verdict.rejected) pending.complete(candidate)
                         else pending.deferUntil(candidate, verdict.minimumRound)
@@ -3925,6 +3932,24 @@ internal fun DiscogsDirectVersionBrowser(
                     pending.complete(candidate)
                     flushInitial()
                     kotlinx.coroutines.yield()
+                }
+                if (!session.originalResolutionAttempted && session.documentedOriginal.isNullOrBlank() &&
+                    thisRound < CoverRoundSearchPlan.finalRound) {
+                    session.originalResolutionAttempted = true
+                    val config = when {
+                        effectiveGoogleKey.isNotBlank() -> CoverOriginalResolver.Config("Gemini", effectiveGoogleKey, effectiveGeminiModel)
+                        aiProvider == "OpenRouter" && sharedApiKey.isNotBlank() && sharedModel.isNotBlank() ->
+                            CoverOriginalResolver.Config("OpenRouter", sharedApiKey, sharedModel)
+                        else -> null
+                    }
+                    // Sibling enrichment never gates packet publication or source completion.
+                    launch {
+                        try {
+                            CoverOriginalResolver.resolve(criteria.title, lockedArtist, pending.snapshot(), config,
+                                awaitResources = { awaitResources() }, onCandidates = { offerCandidates(it) })
+                        } catch (cancelled: java.util.concurrent.CancellationException) { throw cancelled }
+                        catch (_: Exception) { /* Main discovery continues with the selected published reference. */ }
+                    }
                 }
                 try {
                     while (isActive && generation == turboSearchGeneration && presentation.needsPreparation()) {

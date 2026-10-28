@@ -14,3 +14,6 @@ LATEST BRUNO STEERING: percentages and legacy score are COSMETIC ONLY. Never aff
 RED1: native run40750376428 compiled523 tests with5 expected allocation/original failures; all existing tests passed. RED2 run40751721741 compiled7 targeted tests,6 expected failures including displayedPercentagesNeverBreakAPublicationPriorityTie (line41), before cosmetic implementation.
 Ruling: the later ornamental-only request overrides legacy percent sorting and enrichment veto, including shared Turbo helper tie-breaks; leave other modes using their previous behavior. No score affects Turbo admission, metadata merge, ordering or retry allowance.
 Tasks2/3/5 in progress: implemented actual corroboration verdict, deferred round queue, autonomous final video pagination and legacy-cache reassessment; not yet native-tested or complete.
+
+Native intermediate run40753267341 caught one misplaced queue-only heldUntilRound reference in DocumentaryProgress.add; removed there, retained in Pending.offer. No APK produced by this failing build.
+Task4 implementation in progress: source-native first-publication flag; read-only optional configured AI proposal; metadata-first work lookup shared with source lane, documentary verification separate from model. One adequate explicit publication document suffices; earliest year alone does not. No cloud write endpoint used.

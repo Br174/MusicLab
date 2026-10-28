@@ -95,6 +95,7 @@ internal object MusicBrainzCoverSource {
     private const val USER_AGENT = "MusicLab/0.8.9 (https://github.com/Br174/MusicLab)"
 
     private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private val lookupLocks = ConcurrentHashMap<String, Any>()
     private val rateLock = Any()
     private var nextAllowedRequestAtMs = 0L
 
@@ -115,6 +116,7 @@ internal object MusicBrainzCoverSource {
         }
 
         val key = "${canonical(cleanTitle)}|${canonical(cleanArtist)}|${if (deepRecovery) "deep-${deepRound.coerceAtLeast(1)}" else "first"}"
+        return synchronized(lookupLocks.getOrPut(key) { Any() }) {
         val now = System.currentTimeMillis()
         if (!forceRefresh) cache[key]?.let { entry ->
             val ttl = if (
@@ -131,7 +133,8 @@ internal object MusicBrainzCoverSource {
 
         val lookup = lookupFresh(cleanTitle, cleanArtist, deepRecovery, deepRound)
         cache[key] = CacheEntry(now, lookup)
-        return lookup
+        lookup
+        }
     }
 
     private fun lookupFresh(

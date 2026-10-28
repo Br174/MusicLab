@@ -112,6 +112,7 @@ internal object CoverRoundSearchPlan {
                 },
             )
         }
-        return (first + targeted).distinctBy { it.text.trim().lowercase() }
+        return (first + targeted).filter { round >= finalRound || it.text.trim() != clean }
+            .distinctBy { it.text.trim().lowercase() }
     }
 }
