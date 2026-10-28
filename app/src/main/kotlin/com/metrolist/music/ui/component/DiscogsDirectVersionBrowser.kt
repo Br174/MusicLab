@@ -3708,6 +3708,7 @@ internal fun DiscogsDirectVersionBrowser(
             loading = previousRoundRows.isEmpty() && publishedCoverSnapshots.isEmpty()
             sourceDiscoveryLoading = true
             searchJob = scope.launch {
+                presentation.pauseIdleClock(thisRound)
                 val preparationStartedAt = SystemClock.elapsedRealtime()
                 var measuredRound = -1
                 var measuredBoundary = 0
