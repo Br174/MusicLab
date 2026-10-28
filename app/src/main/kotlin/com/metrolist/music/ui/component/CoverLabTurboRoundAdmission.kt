@@ -1,8 +1,55 @@
 package com.metrolist.music.ui.component
 
-/** R2: evidence orders candidates; only the explicit content exceptions veto them. */
+/** Distinct work corroborations allocate rounds. Display percentages are cosmetic. */
 internal object CoverLabTurboRoundAdmission {
-    internal data class Verdict(val admitted: Boolean, val confidencePercent: Int)
+    internal data class Verdict(
+        val admitted: Boolean, val confidencePercent: Int,
+        val evidence: Set<String> = emptySet(), val minimumRound: Int = 6,
+        val rejected: Boolean = false,
+    )
+
+    fun facts(candidate: CoverSourceCandidate, targetTitle: String, referenceArtist: String,
+        metadataTitle: String = candidate.playbackVideoTitle.orEmpty()): Set<String> {
+        val video = metadataTitle.ifBlank { candidate.title }
+        val aliases = setOf(candidate.artist, referenceArtist).filter(String::isNotBlank).toSet()
+        val recorded = TitleMeaningResolver.matchesBaseTitle(candidate.title, video, aliases)
+        val exact = recorded && TitleMeaningResolver.matchesBaseTitle(targetTitle, candidate.title, aliases)
+        val documented = candidate.workRelationConfirmed && candidate.sources.any {
+            it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true)
+        }
+        val adaptation = recorded && documented && candidate.category == AiCoverCategory.FOREIGN
+        if (!exact && !adaptation) return emptySet()
+        return buildSet {
+            add("title")
+            // A documented work relation and its credited rendition are distinct facts,
+            // even when both come from a single authoritative catalogue.
+            if (documented) {
+                add("documented-work")
+                if (candidate.artist.isNotBlank() && !candidate.artist.equals("YouTube", true)) add("credited-rendition")
+            }
+            val reference = TitleMeaningResolver.canonical(referenceArtist)
+            val text = " " + TitleMeaningResolver.canonical(video) + " "
+            if (reference.isNotBlank() &&
+                (CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, referenceArtist) ||
+                    text.contains(" $reference "))) add("reference-performer")
+        }
+    }
+
+    fun minimumRound(evidence: Set<String>): Int = when {
+        evidence.size >= 3 -> 1
+        evidence.size >= 2 -> 2
+        else -> 6
+    }
+
+    fun candidate(row: DiscogsVersionSeed): CoverSourceCandidate = CoverSourceCandidate(
+        title = row.trackTitle, artist = row.artist, sources = row.sourceNames,
+        year = row.year, album = row.releaseTitle, credits = row.credits,
+        playbackVideoId = row.resolvedVideoId, playbackVideoTitle = row.resolvedVideoTitle,
+        playbackVideoSource = row.resolvedVideoSource, sourceUrl = row.sourceUrl,
+        workRelationConfirmed = row.workRelationConfirmed,
+        originalWorkReference = row.originalWorkReference, releaseVerified = row.discogsVerificationChecked,
+        category = if (row.workRelationConfirmed) AiCoverCategory.FOREIGN else AiCoverCategory.COVER,
+    )
 
     fun evaluate(
         candidate: CoverSourceCandidate,
@@ -15,7 +62,7 @@ internal object CoverLabTurboRoundAdmission {
         if (CoverLab71FoundationGate.isForbidden(
                 candidate.title, videoTitle, candidate.album.orEmpty(),
                 candidate.sourceUrl.orEmpty(),
-            )) return Verdict(false, 1)
+            )) return Verdict(false, 1, rejected = true)
         val aliases = setOf(candidate.artist, originalArtist).filter(String::isNotBlank).toSet()
         val requested = TitleMeaningResolver.matchesBaseTitle(targetTitle, videoTitle, aliases) &&
             TitleMeaningResolver.matchesBaseTitle(targetTitle, candidate.title, aliases)
@@ -42,6 +89,9 @@ internal object CoverLabTurboRoundAdmission {
             TitleMeaningResolver.qualityScore(targetTitle, videoTitle, aliases) > 0 -> 25
             else -> 5
         }
-        return Verdict(true, estimate)
+        val evidence = facts(candidate, targetTitle, originalArtist, metadataTitle)
+        val minimum = minimumRound(evidence)
+        return Verdict(evidence.isNotEmpty() && round >= minimum, estimate, evidence, minimum,
+            rejected = evidence.isEmpty())
     }
 }

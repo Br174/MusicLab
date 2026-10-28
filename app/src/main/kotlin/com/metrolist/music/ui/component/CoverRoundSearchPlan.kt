@@ -87,7 +87,7 @@ internal object CoverRoundSearchPlan {
                 Query("$clean $artist official", AiCoverCategory.COVER),
                 Query("$clean $artist cover studio", AiCoverCategory.COVER),
             )
-        } else if (round >= 4) {
+        } else if (round >= finalRound) {
             listOf(
                 Query(clean, AiCoverCategory.COVER),
                 Query("$clean ${family.first()}", AiCoverCategory.COVER),

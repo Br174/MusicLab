@@ -9,7 +9,7 @@ owners=('CoverLabTurboRoundAdmission.kt','CoverPriorityOrder.kt','CoverRoundSear
  'GeminiCoverVerification.kt','MusicBrainzCoverSource.kt','CoverRoundStorage.kt',
  'DiscogsVersionSource.kt','DiscogsDirectVersionBrowser.kt')
 allowed={root+n for n in owners}|{
- 'behaviors/musiclab-cover.json','.motorlab/R8_IMPLEMENTATION_PLAN_20261028.txt',
+ 'behaviors/musiclab-cover.json','.motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt','.motorlab/R8_IMPLEMENTATION_PLAN_20261028.txt',
  'tools/universal-apk-builder/verify-r8-cover-scope.py',
  'tools/universal-apk-builder/prepare-turbo-lab79-preparation-progress-env.py',
  '.github/workflows/musiclab-turbo-lab79-preparation-progress-apk.yml',
@@ -27,6 +27,10 @@ def without(text,start,end):
  before,rest=text.split(start,1);_,after=rest.split(end,1);return before+start+end+after
 for start,end in [('private data class DirectVersionSession(', 'private object DirectVersionSessionStore {'),
  ('    // Read the LAST_GOOD archive asynchronously,', '    DisposableEffect(sessionKey) {'),
+ ('    fun normalizeSearchLocalVideoBindings(', '    fun '),
+ ('    fun sortGroup(', '    fun sortedPool('),
+ ('    fun videoLookupPriority(', '    fun videoPriorityPool('),
+ ('    fun autoVideoAttemptBudget(', '    fun needsAutomaticVideo('),
  ('    fun runSearch(', '        // A further Cover round never clears or reorders already committed')]:
  a,b=without(a,start,end),without(b,start,end)
 assert a.rstrip()==b.rstrip(),'Player, UI/cards/header/footer or unrelated search changed'

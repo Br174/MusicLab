@@ -65,24 +65,25 @@ class CoverLab77AdmissionR2Test {
         assertFalse(CoverLab71FoundationGate.isForbidden("Il mondo backing track"))
     }
 
-    @Test fun weakCandidateEntersFirstRoundWithoutAlbumOrOfficialWords() {
+    @Test fun weakCandidateIsPreservedForTitleOnlyFinalRound() {
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            candidate(), "Il mondo", "Jimmy Fontana", 1, "Il mondo"
+            candidate(), "Il mondo", "Jimmy Fontana", 6, "Il mondo"
         ).admitted)
     }
 
-    @Test fun unresolvedOriginalDoesNotBlockTheCandidate() {
+    @Test fun unresolvedOriginalDoesNotBlockFinalTitleSearch() {
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            candidate(), "Il mondo", "", 1, "Il mondo"
+            candidate(), "Il mondo", "", 6, "Il mondo"
         ).admitted)
     }
 
-    @Test fun differentTitleIsLowEvidenceNotANewAdmissionVeto() {
+    @Test fun differentWorkCannotEnterOnAnUnrelatedTitle() {
         val weak = CoverLabTurboRoundAdmission.evaluate(
             candidate("Un altro titolo"), "Il mondo", "Jimmy Fontana", 1,
             "Un altro titolo"
         )
-        assertTrue(weak.admitted)
+        assertFalse(weak.admitted)
+        assertTrue(weak.rejected)
         assertTrue(weak.confidencePercent < 40)
     }
 

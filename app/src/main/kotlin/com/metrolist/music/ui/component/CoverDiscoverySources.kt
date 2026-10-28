@@ -50,6 +50,7 @@ internal data class CoverSourceCandidate(
     val playbackVideoSource: String? = null,
     val workRelationConfirmed: Boolean = false,
     val originalWorkReference: Boolean = false,
+    val firstPublicationConfirmed: Boolean = false,
     val credits: List<DiscogsCredit> = emptyList(),
     val evidenceScore: Int = 1,
     val recordingReleaseId: Int? = null,
@@ -315,6 +316,7 @@ internal object CoverDiscoverySources {
                             previous.workRelationConfirmed || candidate.workRelationConfirmed,
                         originalWorkReference =
                             previous.originalWorkReference || candidate.originalWorkReference,
+                        firstPublicationConfirmed = previous.firstPublicationConfirmed || candidate.firstPublicationConfirmed,
                         credits =
                             (previous.credits + candidate.credits)
                                 .distinctBy { credit ->
@@ -463,8 +465,8 @@ internal object CoverDiscoverySources {
                 )
             }
 
-        val ordered =
-            certified.sortedWith(
+        val ordered = if (turbo) CoverPriorityOrder.order(certified, cleanTitle, cleanArtist, coverRound)
+        else certified.sortedWith(
                 compareByDescending<CoverSourceCandidate> { it.evidenceScore }
                     .thenBy { it.year ?: Int.MAX_VALUE }
                     .thenBy { canonical(it.artist) },
@@ -1272,6 +1274,7 @@ internal object CoverDiscoverySources {
                         seed.directRelation || seed.relationRole != CoverInfoRelationRole.NONE,
                     originalWorkReference =
                         seed.relationRole == CoverInfoRelationRole.INITIAL,
+                    firstPublicationConfirmed = seed.relationRole == CoverInfoRelationRole.INITIAL,
                     // LAB57: source-native evidence is deliberately modest.
                     // Final 1..20 confidence is assigned only by the global certifier.
                     evidenceScore =

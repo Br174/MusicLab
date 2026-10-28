@@ -203,3 +203,6 @@ Tentativo sempre pertinente e non bloccante: originale non trovato -> ricerca no
 Prospetto completo e proposta di organizzazione delle corsie: .motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt. Il prospetto distingue requisiti di Bruno da scelte operative proposte; non è codice implementato né autorizza nuove dipendenze o fornitori obbligatori.
 Questa precisazione prevale solo sulle letture incompatibili di originale=autore, fonte unica COVER.INFO, data minima=certezza automatica o attesa dell'originale prima dei risultati. Conservare le parti compatibili della sezione 18.
 STATO: SOLO MEMORIA, APP E APK INVARIATI.
+
+20. ULTIMA PRECISAZIONE — PERCENTUALI SOLO ORNAMENTALI
+Le percentuali visibili e i vecchi punteggi rimangono solo per curiosità. Non determinano ingresso, tornata, ordine, priorità, scelta del pacchetto, aggiornamento dei metadati o opportunità di ricerca. I riscontri effettivi distinti e le preferenze già approvate governano il comportamento; le percentuali non li sostituiscono. Questa precisazione prevale su qualsiasi uso precedente dei punteggi per il posizionamento. Nessuna modifica alle schede o alle altre protezioni concordate. Implementazione e collaudo R8 in corso; nessuna dichiarazione di verifica sul telefono.

@@ -15,14 +15,14 @@ class CoverLabTurboRoundAdmissionTest {
         playbackVideoId = "VID12345678",
     )
 
-    @Test fun firstRoundOrdersStrongSignalsWithoutRejectingWeakEvidence() {
+    @Test fun firstRoundDefersInsufficientFactsWithoutDiscardingCandidates() {
         val loose = candidate()
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            loose, "Sapore di sale", "Gino Paoli", 1
+            loose, "Sapore di sale", "Gino Paoli", 6
         ).admitted)
         val originalOfficial = candidate(artist = "Gino Paoli")
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            originalOfficial, "Sapore di sale", "Gino Paoli", 1,
+            originalOfficial, "Sapore di sale", "Gino Paoli", 2,
             "Gino Paoli - Sapore di sale (official audio)"
         ).admitted)
     }
@@ -33,7 +33,7 @@ class CoverLabTurboRoundAdmissionTest {
             cover, "Sapore di sale", "Gino Paoli", 2,
             "Sapore di sale - Gino Paoli piano cover"
         ).admitted)
-        assertTrue(CoverLabTurboRoundAdmission.evaluate(
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(
             candidate(title = "An unrelated track"), "Sapore di sale", "Gino Paoli", 2,
             "An unrelated track"
         ).admitted)
@@ -48,10 +48,9 @@ class CoverLabTurboRoundAdmissionTest {
             creditedCover, "Sapore di sale", "Gino Paoli", 4
         ).admitted)
         val ambiguous = candidate()
-        // LAB76 user rule: from the fourth round the full exact song
-        // title ALONE is sufficient, no uploader/artist attribution needed.
+        // Latest allocation: title alone is sufficient only in the sixth round.
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            ambiguous, "Sapore di sale", "Gino Paoli", 4
+            ambiguous, "Sapore di sale", "Gino Paoli", 6
         ).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
             candidate(title = "Yeniden başlasın", sources = listOf("COVER.INFO"), confirmed = true)
@@ -62,9 +61,9 @@ class CoverLabTurboRoundAdmissionTest {
     }
 
     @Test fun unrelatedUploaderDoesNotBecomeOriginalFromVideoTitleAlone() {
-        val parishUpload = candidate(artist = "Parrocchia Immacolata")
+        val parishUpload = candidate(title = "Felicità", artist = "Parrocchia Immacolata")
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            parishUpload, "Felicità", "Lucio Dalla", 1,
+            parishUpload, "Felicità", "Lucio Dalla", 2,
             "Felicità - Lucio Dalla"
         ).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
@@ -76,7 +75,7 @@ class CoverLabTurboRoundAdmissionTest {
     @Test fun authoritativeTopicChannelStillQualifiesOriginal() {
         val originalChannel = candidate(title = "Felicità", artist = "Lucio Dalla - Topic")
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            originalChannel, "Felicità", "Lucio Dalla", 1,
+            originalChannel, "Felicità", "Lucio Dalla", 2,
             "Lucio Dalla - Felicità"
         ).admitted)
     }

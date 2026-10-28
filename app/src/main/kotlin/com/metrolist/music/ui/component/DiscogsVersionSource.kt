@@ -87,6 +87,7 @@ internal data class DiscogsVersionSeed(
     val musiclabScore100: Int? = null,
     val coverRound: Int? = null,
     val roundPosition: Int? = null,
+    val identityEvidence: List<String> = emptyList(),
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
@@ -229,10 +230,10 @@ internal object DiscogsVersionSource {
     }
 
     internal fun isVerifiedDirectSeed(seed: DiscogsVersionSeed): Boolean =
-        seed.track != null && seed.confidenceScore > 0
+        seed.track != null && (com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" || seed.confidenceScore > 0)
 
     internal fun isDisplayableDirectSeed(seed: DiscogsVersionSeed): Boolean =
-        seed.confidenceScore in 1..20
+        com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" || seed.confidenceScore in 1..20
 
     private fun directModeAdmits(
         seed: DiscogsVersionSeed,
@@ -1010,7 +1011,7 @@ internal object DiscogsVersionSource {
                 .filter { !it.resolvedVideoId.isNullOrBlank() }
                 .maxWithOrNull(
                     compareBy<DiscogsVersionSeed> { directVideoSourcePriority(it) }
-                        .thenBy { it.confidenceScore }
+                        .thenBy { if (com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") 0 else it.confidenceScore }
                         .thenBy { it.videos.size }
                         .thenBy { it.sourceNames.distinct().size }
                         .thenBy { if (it.track != null) 1 else 0 },

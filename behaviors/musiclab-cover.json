@@ -726,6 +726,21 @@
       "testPaths": [],
       "implementationState": "MEMORY_SAVED_NOT_IMPLEMENTED",
       "operationalDesignStatus": "PROPOSED_PROVIDER_ORGANIZATION_SAVED_FOR_REVIEW"
+    },
+    {
+      "id": "musiclab.cover.ornamental-percent.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Latest explicit Bruno clarification: displayed percentages and all legacy scores are ornamental curiosity only. They NEVER influence admission, minimum round, order, priority, metadata enrichment, retry allowance or packet selection. Actual distinct corroborations allocate 3/2/2/2/2/1 including title; compatible released-version and documented preferences remain. Preserve visible percentage labels and archival numerical fields without behavioral authority.",
+      "acceptance": [
+        "Changing only percentage/legacy score cannot change eligibility, round, order, metadata facts or packet membership"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83EvidenceAllocationTest.kt"
+      ]
     }
   ],
   "canonicalBehaviorRevision": "2026-10-28-original-first-published-performer-multisource-memory-only",
@@ -1008,7 +1023,8 @@
       "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
       "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
       "previousImplementationEvidenceDoesNotCoverThisSupplement": true
-    }
+    },
+    "ornamentalPercentOnly": true
   },
   "packetCardAdjustmentR7": {
     "id": "musiclab.cover.packet-card-r7.20261028",

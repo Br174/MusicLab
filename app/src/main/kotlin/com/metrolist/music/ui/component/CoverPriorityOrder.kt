@@ -12,14 +12,13 @@ internal object CoverPriorityOrder {
             releaseDate = row.releaseDate ?: candidate.year?.toString(),
             discogsVerificationChecked = row.discogsVerificationChecked || candidate.releaseVerified,
         )
-        if (score < (row.musiclabScore100 ?: 0)) return enriched
         return enriched.copy(
             artist = candidate.artist.ifBlank { row.artist },
             trackTitle = candidate.title.ifBlank { row.trackTitle },
             sourceNames = (row.sourceNames + candidate.sources).distinct(),
             workRelationConfirmed = row.workRelationConfirmed || candidate.workRelationConfirmed,
             originalWorkReference = candidate.originalWorkReference || CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, original),
-            musiclabScore100 = score,
+            musiclabScore100 = maxOf(score, row.musiclabScore100 ?: 0),
             discogsVerificationChecked = row.discogsVerificationChecked || candidate.releaseVerified,
             confidenceReasons = (row.confidenceReasons + "Prove documentarie aggiornate: ${candidate.sources.joinToString()}").distinct(),
         )
@@ -72,22 +71,16 @@ internal object CoverPriorityOrder {
         candidates: List<CoverSourceCandidate>, targetTitle: String,
         originalArtist: String, round: Int, delayedKeys: Set<String> = emptySet(),
     ): List<CoverSourceCandidate> {
-        data class Ranked(
-            val row: CoverSourceCandidate, val index: Int,
-            val late: Boolean, val evidence: Int, val preference: Int,
-        )
+        data class Ranked(val row: CoverSourceCandidate, val index: Int, val late: Boolean,
+            val minimumRound: Int, val preference: Int)
         return candidates.mapIndexed { index, candidate ->
-            val score = CoverLabTurboRoundAdmission.evaluate(
-                candidate, targetTitle, originalArtist, round,
-                candidate.playbackVideoTitle.orEmpty().ifBlank { candidate.title },
-            ).confidencePercent
-            Ranked(
-                candidate, index, key(candidate) in delayedKeys,
-                when { score >= 90 -> 3; score >= 80 -> 2; score >= 40 -> 1; else -> 0 },
-                group(candidate, originalArtist, round),
-            )
+            Ranked(candidate, index, key(candidate) in delayedKeys,
+                CoverLabTurboRoundAdmission.minimumRound(
+                    CoverLabTurboRoundAdmission.facts(candidate, targetTitle, originalArtist)),
+                group(candidate, originalArtist, round))
         }.sortedWith(
-            compareBy<Ranked> { it.late }.thenBy { it.preference }.thenByDescending { it.evidence }
+            compareBy<Ranked> { it.late }.thenBy { it.minimumRound > round }
+                .thenBy { it.preference }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.collectorHave ?: 0 }.thenBy { it.index }
         ).map { it.row }
@@ -108,12 +101,11 @@ internal object CoverPriorityOrder {
 
     val publicationComparator: Comparator<DiscogsVersionSeed> =
         compareBy<DiscogsVersionSeed>(::publicationGroup)
-            .thenByDescending { it.musiclabScore100 ?: 0 }
             .thenByDescending { it.collectorHave ?: 0 }
 
     fun originalReference(candidates: List<CoverSourceCandidate>): CoverSourceCandidate? {
         val documented = candidates.filter { candidate ->
-            candidate.originalWorkReference && candidate.artist.isNotBlank() &&
+            candidate.originalWorkReference && candidate.firstPublicationConfirmed && candidate.artist.isNotBlank() &&
                 candidate.playbackVideoSource != "YouTube documentario" &&
                 candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) }
         }.groupBy { TitleMeaningResolver.canonical(it.artist) }
@@ -166,6 +158,7 @@ internal object CoverPriorityOrder {
             playbackVideoSource = best.playbackVideoSource ?: other.playbackVideoSource,
             workRelationConfirmed = first.workRelationConfirmed || second.workRelationConfirmed,
             originalWorkReference = first.originalWorkReference || second.originalWorkReference,
+            firstPublicationConfirmed = first.firstPublicationConfirmed || second.firstPublicationConfirmed,
             credits = (first.credits + second.credits).distinct(),
             evidenceScore = maxOf(first.evidenceScore, second.evidenceScore),
             recordingReleaseId = best.recordingReleaseId ?: other.recordingReleaseId,
@@ -242,7 +235,9 @@ internal object CoverPriorityOrder {
 
         fun add(candidate: CoverSourceCandidate) {
             val key = key(candidate)
-            rows[key] = rows[key]?.let { merge(it, candidate) } ?: candidate
+            val previous = rows[key]
+            rows[key] = previous?.let { merge(it, candidate) } ?: candidate
+            if (previous != rows[key]) { heldUntilRound.remove(key); attempted.remove(key) }
         }
 
         fun candidates(): List<CoverSourceCandidate> = rows.values.toList()
@@ -273,7 +268,8 @@ internal object CoverPriorityOrder {
             val key = key(page)
             pages.remove(key)?.let { pages[key] = it }
         }
-        fun next(includeLeads: Boolean = true, texts: Set<String>? = null): Page? = pages.entries.firstOrNull { it.key !in attempted && (includeLeads || it.value.lead == null) && (texts == null || it.value.text in texts) }?.let {
+        fun remainingVideoPages(): Int = pages.values.count { !it.songs && it.lead == null }
+        fun next(includeLeads: Boolean = true, texts: Set<String>? = null, videosOnly: Boolean = false): Page? = pages.entries.firstOrNull { (!videosOnly || (!it.value.songs && it.value.lead == null)) && it.key !in attempted && (includeLeads || it.value.lead == null) && (texts == null || it.value.text in texts) }?.let {
             attempted += it.key
             it.value
         }
@@ -332,17 +328,25 @@ internal object CoverPriorityOrder {
         private var orderContext = ""
         private var dirty = true
         private val retryAfter = hashMapOf<String, Int>()
+        private val heldUntilRound = hashMapOf<String, Int>()
         private var pass = 0
         fun defer(candidate: CoverSourceCandidate) {
             retryAfter[key(candidate)] = pass + 2
         }
+        fun deferUntil(candidate: CoverSourceCandidate, round: Int) {
+            heldUntilRound[key(candidate)] = round
+        }
+        fun eligible(candidate: CoverSourceCandidate, round: Int): Boolean =
+            (heldUntilRound[key(candidate)] ?: 1) <= round
         val size: Int get() = rows.size
         val twinCount: Int get() = rows.keys.count { it in twins }
 
         fun offer(candidate: CoverSourceCandidate) {
             val key = key(candidate)
             if (key in completed) return
-            rows[key] = rows[key]?.let { merge(it, candidate) } ?: candidate
+            val previous = rows[key]
+            rows[key] = previous?.let { merge(it, candidate) } ?: candidate
+            if (previous != rows[key]) { heldUntilRound.remove(key); attempted.remove(key) }
             revision++
             dirty = true
         }
@@ -361,7 +365,7 @@ internal object CoverPriorityOrder {
                 orderContext = context
                 dirty = false
             }
-            val key = orderedKeys.firstOrNull { it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass && (includeTwins || it !in twins) } ?: return null
+            val key = orderedKeys.firstOrNull { (heldUntilRound[it] ?: 1) <= round && it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass && (includeTwins || it !in twins) } ?: return null
             attempted += key
             return rows[key]
         }
@@ -373,6 +377,7 @@ internal object CoverPriorityOrder {
             completed += key
             twins.remove(key)
             retryAfter.remove(key)
+            heldUntilRound.remove(key)
             linkedLeads.remove(key)
         }
 
@@ -394,6 +399,7 @@ internal object CoverPriorityOrder {
             rows.clear()
             revision++
             retryAfter.clear()
+            heldUntilRound.clear()
             linkedLeads.clear()
             pass = 0
             attempted.clear()

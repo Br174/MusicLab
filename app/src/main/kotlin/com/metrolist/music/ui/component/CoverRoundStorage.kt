@@ -68,6 +68,7 @@ internal object CoverRoundStorage {
         put("musiclabScore100", seed.musiclabScore100)
         put("coverRound", seed.coverRound)
         put("roundPosition", seed.roundPosition)
+        put("identityEvidence", JSONArray(seed.identityEvidence))
         put("confidenceReasons", JSONArray(seed.confidenceReasons))
         put("resolvedVideoId", seed.resolvedVideoId)
         put("resolvedVideoTitle", seed.resolvedVideoTitle)
@@ -114,6 +115,7 @@ internal object CoverRoundStorage {
             musiclabScore100 = int(json, "musiclabScore100")?.takeIf { it in 0..100 },
             coverRound = int(json, "coverRound")?.takeIf { it >= 1 },
             roundPosition = int(json, "roundPosition")?.takeIf { it >= 1 },
+            identityEvidence = strings(json.optJSONArray("identityEvidence")),
             confidenceReasons = strings(json.optJSONArray("confidenceReasons")),
             resolvedVideoId = text(json, "resolvedVideoId"),
             resolvedVideoTitle = text(json, "resolvedVideoTitle"),
