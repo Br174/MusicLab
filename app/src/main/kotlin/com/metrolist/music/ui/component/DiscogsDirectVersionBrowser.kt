@@ -3726,7 +3726,7 @@ internal fun DiscogsDirectVersionBrowser(
                         preparationAudioPaused = audioBusy()
                         if (thisRound >= CoverRoundSearchPlan.finalRound &&
                             (sourceCooling("Metadati YouTube") || pending.snapshot().any {
-                                !it.playbackVideoId.isNullOrBlank() && !session.preparedVideoSongs.containsKey(it.playbackVideoId)
+                                !it.playbackVideoId.isNullOrBlank()
                             })) presentation.verificationPending(thisRound)
                         if (audioBusy() || listState.isScrollInProgress) presentation.pauseIdleClock(thisRound)
                         else presentation.closeIfIdle(thisRound)

@@ -55,6 +55,7 @@ internal class CoverRoundPresentation<T>(
     fun stage(number: Int, row: T): Boolean {
         val state = round(number)
         val id = identity(row)
+        if (state.exhausted) return false
         if (id in state.shown) return false
         if (id in state.overflow) { state.overflow[id] = row; return true }
         if (id !in state.prepared && id !in state.overflow &&

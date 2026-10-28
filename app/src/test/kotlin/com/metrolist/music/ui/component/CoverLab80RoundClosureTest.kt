@@ -17,6 +17,7 @@ class CoverLab80RoundClosureTest {
         assertTrue(p.closeIfIdle(1))
         assertEquals(listOf("one"), p.reveal())
         assertTrue(p.status().green)
+        assertFalse(p.stage(1, "late-row-retained-by-discovery"))
     }
 
     @Test fun audioPauseDoesNotConsumeIdleAllowance() {
