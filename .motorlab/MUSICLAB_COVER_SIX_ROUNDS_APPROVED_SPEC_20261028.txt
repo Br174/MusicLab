@@ -1,7 +1,8 @@
 MUSICLAB COVER — SPECIFICA APPROVATA DELLE SEI TORNATE
 Data: 28 ottobre 2026
 Autorità: istruzioni esplicite del signor Bruno nella conversazione MusicLab.
-Stato: APPROVATA COME SPECIFICA; IMPLEMENTAZIONE E COLLAUDO DA ESEGUIRE.
+Stato base: APPROVATA COME SPECIFICA. Integrazione evidenze del 28 ottobre 2026: MEMORIZZATA, NON IMPLEMENTATA; decisioni aperte e conflitti elencati nel rapporto associato.
+Integrazione corrente: .motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt. Prevale nei soli aspetti espressamente aggiornati; le categorie e protezioni compatibili restano intatte.
 Operazione: musiclab-cover-six-rounds-spec-20261028
 Base applicativa verificata: e24bb0a0aba18914109ec6a0f181908edd37a210 (LAB79 Revisione 5).
 Questa registrazione non modifica l'app installata, non certifica il funzionamento sul telefono e non promuove LAST_GOOD.
@@ -10,16 +11,17 @@ Questa registrazione non modifica l'app installata, non certifica il funzionamen
 Questo documento è la specifica desiderata più recente per distribuzione delle tornate, precedenza globale delle incisioni, ricerca finale e gestione dei duplicati. In caso di contrasti sullo stesso comportamento prevale l'ultima precisazione esplicita di Bruno qui consolidata. Conservare le funzioni compatibili già funzionanti.
 La richiesta attuale autorizza esclusivamente la memorizzazione dello schema. La modifica applicativa inizierà successivamente.
 Priorità: velocità, fluidità, risultati di qualità progressiva, abbondanza di versioni distinte, player funzionante.
-Nessuna nuova soglia di qualità, notorietà, pubblicazione o punteggio deve restringere l'ingresso. Restano le esclusioni esplicitamente approvate: MIDI, karaoke, KAR, duplicati confermati, brani diversi e versioni del cantante originale oltre il massimo concordato.
+Nessuna nuova soglia arbitraria di qualità, notorietà, pubblicazione o punteggio deve eliminare candidati dalla ricerca. L'assegnazione alle tornate DEVE invece rispettare le evidenze approvate nella sezione 16: l'insufficienza per una tornata comporta rinvio, non scarto globale. Restano le esclusioni esplicitamente approvate: MIDI, karaoke, KAR, duplicati confermati, brani diversi e versioni del cantante originale oltre il massimo concordato.
 Preservare player nativo, miniature reali YouTube con collegamento al video corrispondente, geometria dell'interfaccia, posizioni già pubblicate, identità/firma del pacchetto e parti estranee allo scopo. Non cambiare schema database, dipendenze, main/MADRE/produzione o LAST_GOOD.
 
 2. PREFERENZA GLOBALE PER LE INCISIONI — TUTTE LE TORNATE
 In ogni tornata, inclusa la sesta, dare precedenza tra i candidati disponibili alle versioni effettivamente incise, registrate in studio o pubblicate come singolo, album o altra pubblicazione documentata e ascoltabile su piattaforme musicali.
 È SOLO una preferenza di ordinamento, MAI una condizione di ammissione. Non richiedere obbligatoriamente un album, una piattaforma, una pubblicazione o una prova discografica per far entrare le altre versioni ammesse.
-La pubblicazione non rende automaticamente una versione più corretta rispetto all'identità dell'opera. Una registrazione domestica può entrare se non vi sono incisioni pronte.
+La pubblicazione non rende automaticamente una versione più corretta rispetto all'identità dell'opera. Una registrazione domestica resta disponibile nella tornata compatibile con le evidenze e la categoria; l'assenza di incisioni pronte non autorizza ad abbassare i requisiti della tornata corrente.
 Non bloccare pacchetti pronti in attesa di una versione più accreditata e non spostare continuamente risultati già mostrati: una versione accreditata arrivata dopo ha precedenza nel prossimo pacchetto utile.
 
 3. TORNATA 1 — PUBBLICATE, ACCREDITATE, FAMOSE E STRANIERE
+Assegnazione: TRE evidenze totali, TITOLO COMPRESO (titolo + due altre evidenze), in ciascuno dei tre cicli. I risultati con meno evidenze vengono conservati per le tornate appropriate.
 Conservare tutte le priorità concordate per la prima tornata; non impoverirne ricerche o copertura:
 a) Cover incise/pubblicate da QUALSIASI cantante, anche non famoso: singoli, album, studio e pubblicazioni riconoscibili.
 b) Versioni effettivamente diverse del cantante originale dell'opera, massimo CINQUE complessive nell'intera ricerca e tra tutte le fonti/tornate. Non serve trovarne cinque per forza. Possibili esempi: studio, live, duetto, esecuzione di gruppo, remix, riarrangiamento.
@@ -34,6 +36,7 @@ La versione in ascolto conta come UN risultato solo se la ricerca trova effettiv
 Identificare l'artista originale dell'opera, senza presumere che coincida sempre con l'interprete della cover selezionata.
 
 4. TORNATA 2 — TV, TALENT, SPETTACOLI, REMIX, MASHUP, AI
+Assegnazione: DUE evidenze totali, TITOLO COMPRESO (titolo + almeno un'altra evidenza), in ciascuno dei tre cicli.
 Ricerche italiane e straniere per programmi/registrazioni TV, audizioni e talent:
 X Factor, The Voice, Amici, Sanremo, Eurovision e altri festival.
 Concerti, stadi, esibizioni ufficiali, sessioni dal vivo, videoclip e ulteriori esecuzioni di cantanti famosi in questi contesti.
@@ -41,16 +44,19 @@ Comprendere QUI le ricerche mirate di remix, mashup e versioni con intelligenza 
 Applicare la preferenza globale per incisioni/pubblicazioni senza escludere le altre.
 
 5. TORNATA 3 — AMATORIALI, INDIPENDENTI, COVER BAND E GRUPPI
+Assegnazione: DUE evidenze totali, TITOLO COMPRESO (titolo + almeno un'altra evidenza), in ciascuno dei tre cicli.
 Cantanti amatoriali/indipendenti/locali, registrazioni domestiche/home studio, interpretazioni vocali, esibizioni di strada, cover band, tribute band, gruppi locali/indipendenti e interpretazioni collettive/rare di questi interpreti.
 Queste famiglie sono riunite in una sola tornata, non tornate separate.
 Anche un'incisione di un artista indipendente ha preferenza rispetto agli altri candidati pronti, senza rendere la pubblicazione obbligatoria.
 
 6. TORNATA 4 — STRUMENTALI, GENERI E REINTERPRETAZIONI
+Assegnazione: DUE evidenze totali, TITOLO COMPRESO (titolo + almeno un'altra evidenza), in ciascuno dei tre cicli.
 Chitarra, pianoforte, altri strumenti, strumentali, orchestra, cori, jazz, soul, folk, rock, classica e altri generi; acustiche, riarrangiamenti, versioni particolari.
 Mantenere le famiglie esistenti, raggruppandole e senza perdere descrittori utili.
 Resta la preferenza globale per incisioni/pubblicazioni.
 
 7. TORNATA 5 — MISTA, CATEGORIE RESTANTI E RECUPERI
+Assegnazione: DUE evidenze totali, TITOLO COMPRESO (titolo + almeno un'altra evidenza), in ciascuno dei tre cicli.
 Riunire tutte le ulteriori categorie, sottogeneri, contesti e combinazioni pertinenti non comprese nelle prime quattro: ad esempio lingue regionali, sessioni radio e registrazioni particolari.
 Recuperare anche candidati, pagine, continuazioni e collegamenti lenti delle precedenti tornate.
 Non limitarsi a ripetere richieste già esaurite: esplorare le modalità utili non ancora percorse.
@@ -58,6 +64,8 @@ Le versioni straniere restano prioritarie già nella prima: la quinta è approfo
 Tutte le categorie devono riferirsi alla stessa opera; resta la preferenza globale.
 
 8. TORNATA 6 — TITOLO SEMPRE DISPONIBILE, DESCRITTORI FACOLTATIVI
+Assegnazione: UNA sola evidenza, il titolo. La ricerca per solo titolo è riservata alla sesta: non anticiparla nelle prime cinque, neppure come query musicale aggiunta.
+Il percorso diretto nei VIDEO YouTube deve essere autonomo e non subordinato a servizi documentali o al catalogo musicale. Nella sesta non avviare nuove ricerche MusicBrainz/Discogs/altri servizi documentali né attenderle per pubblicare, avanzare o decidere la fine della corsia video. Conservare i dati già raccolti e i candidati lenti, senza renderli una dipendenza della ricerca diretta.
 ULTIMA PRECISAZIONE APPROVATA:
 La ricerca del titolo preciso SENZA descrittori deve sempre essere disponibile e autonoma.
 È consentito cercare contemporaneamente CON e SENZA descrittori. I descrittori sono un'aggiunta facoltativa per ampliare il recupero, mai un vincolo per il titolo o per l'ingresso.
@@ -87,8 +95,8 @@ Massimo cinque versioni diverse dell'artista originale, complessive e non cinque
 Nessuna blacklist permanente dell'utente: mantenere l'ambito della sessione/ricerca già concordato.
 
 11. PACCHETTI, CICLI, CAMBIO TORNATA E TEMPI
-Un CICLO è un pacchetto; una TORNATA normalmente comprende tre cicli 10+20+20, massimo 50 pubblicati. Non confondere i due concetti.
-Pubblicare ciascun pacchetto CONTEMPORANEAMENTE appena pronto, senza attese artificiali; un ritardo non autorizza gocciolamento uno alla volta.
+Un CICLO è un pacchetto; una TORNATA normalmente comprende tre cicli 10+20+20, massimo 50 pubblicati. Tutti i cicli della stessa tornata hanno IDENTICHE soglie di evidenza; i cicli proteggono fluidità/grafica/player, non sono livelli progressivi di qualità. Ordinare soltanto dentro un pacchetto non sostituisce l'assegnazione alle tornate. Non confondere i due concetti.
+Pubblicare ciascun pacchetto CONTEMPORANEAMENTE appena pronto, senza attese artificiali; un ritardo non autorizza gocciolamento uno alla volta. La prima decina (o il primo residuo a disponibilità esaurita) è automatica; i successivi pacchetti da venti si mostrano uno per comando Continua tornata. La preparazione in background non autorizza a mostrare automaticamente trenta o cinquanta risultati. Questa è la precisazione già registrata nella R7 e confermata nel riepilogo.
 Obiettivi già richiesti: prime 10 quasi immediate; successive 20 circa 3–7 secondi; ultime 20 circa 10 secondi, il prima possibile. Sono obiettivi di prestazione da verificare sul telefono e dipendono dalle fonti, non garanzie da dichiarare a priori.
 I 5–7 secondi senza nuovi risultati disponibili servono a non tenere fermo il flusso: non sono il tempo standard di pubblicazione né una nuova scadenza per formare pacchetti.
 Se i risultati pronti della tornata sono esauriti prima di completare il pacchetto, mostrare tutti i rimanenti in UN SOLO pacchetto ridotto, anche di soli tre o un risultato, poi verde. Non aspettare dieci per l'ultimo residuo.
@@ -132,3 +140,23 @@ Titolo senza descrittori sempre autonomo nella sesta, anche con descrittori atti
 Pubblicazione atomica 10+20+20 e residui; eccedenze e ritardatari conservati; verde senza cicli vuoti; rosso soltanto su vero zero finale.
 Nessuna regressione su titoli/opera, fonti, miniature, scorrimento e player.
 Non registrare questi criteri come test superati prima delle verifiche; stato attuale PENDING_IMPLEMENTATION_AND_TESTS.
+
+16. INTEGRAZIONE APPROVATA — EVIDENZE COME ASSEGNAZIONE ALLE TORNATE
+Autorità: ultime precisazioni esplicite di Bruno e richiesta di memorizzazione. Questa fase è SOLO memoria e audit; Bruno deciderà come proseguire. App e APK invariati.
+Soglie complessive: prima 3 (titolo + 2); seconda, terza, quarta, quinta 2 (titolo + 1); sesta 1 (solo titolo).
+Le tornate ordinano i risultati su due dimensioni: obiettivo/categoria già stabilita ed evidenze disponibili. Non sono soltanto un riordino all'interno della stessa tornata o fra i suoi cicli.
+Chi non soddisfa la prima resta conservato per la successiva tornata compatibile. Nessuna eliminazione per punteggio basso, fonti lente o metadati incompleti.
+Una versione forte ma lenta non viene declassata nell'identità né perduta: può comparire nella seconda, terza o altra tornata successiva quando è pronta; precede i candidati ancora da mostrare di livello inferiore, senza spostare quelli già pubblicati.
+La preferenza per pubblicazioni/studio/artisti accreditati non sostituisce le prove di identità e non abbassa la soglia della tornata per riempire dieci/venti posti.
+Le percentuali sono distinte dal conteggio di evidenze: non possono sostituirlo o consentire un ingresso anticipato. Il titolo conta UNA volta; duplicazioni dello stesso dato non diventano prove indipendenti.
+COVER.INFO: mantenere la relazione dell'opera già verificata, senza richiedere prove ridondanti. Resta necessario un video realmente corrispondente. Non inventare un conteggio di tre solo per il nome della fonte.
+Per adattamenti stranieri documentati resta valido il titolo della versione collegata all'opera: il requisito del titolo non impone una traduzione letterale e non cancella tale eccezione.
+RITIRO ESPLICITO: Bruno ha annullato il messaggio immediatamente precedente che irrigidiva la sesta sul titolo letteralmente identico e introduceva l'esclusione esplicita di YouTube Music. Quel messaggio NON costituisce una nuova disposizione. Rimane il riepilogo precedente: titolo/opera secondo le regole esistenti, tag di versione ammessi, descrittori facoltativi, percorso video YouTube autonomo. Non ricavare da quel messaggio ritirato nuove restrizioni.
+DA DEFINIRE PRIMA DEL CODICE: catalogo operativo delle evidenze aggiuntive, criteri di indipendenza e modo di rappresentare le prove già fornite da COVER.INFO. Autore/interprete/crediti/relazione dell'opera sono esempi già discussi; non fissare da soli parole obbligatorie, fonti obbligatorie o tre siti diversi. Il titolo e il conteggio totale sono già decisi.
+CONFINE ULTIMA TORNATA: il solo titolo può lasciare non verificata l'appartenenza alla stessa opera; non presentare tali risultati come cover confermate. Conservare l'esclusione dei brani dimostrati diversi salvo nuova disposizione esplicita.
+COLLAUDO FUTURO RICHIESTO: titolo soltanto non pubblicato nelle prime cinque; 3 vs 2 vs 1 assegnati alle rispettive tornate; le stesse soglie in tutti i cicli; candidati rinviati recuperabili; omonimo di Neffa non promosso alla prima per album o percentuale; cache/prefetch/ripristino non aggirano le soglie; sesta video autonoma e paginata senza attesa documentale; COVER.INFO e adattamenti stranieri non persi; 10+20+20/residui/player invariati.
+STATO: MEMORY_SAVED_APP_UNCHANGED_IMPLEMENTATION_NOT_AUTHORIZED_IN_THIS_STEP.
+
+17. SCHEDE E COMPATIBILITÀ GIÀ APPROVATE, CONSOLIDATE SENZA NUOVE MODIFICHE
+Titolo completo e nome degli interpreti per intero, senza ellissi; usare dati effettivi, senza inventare il cantante da un nome di canale. Anno della specifica versione solo quando documentato, mai data di upload YouTube né anno dell'opera originaria trasferito a un'altra registrazione. Mostrare le fonti effettive, inclusa COVER.INFO quando usata, e distinguere il servizio di ascolto. Studio richiede riscontro esplicito; una pubblicazione documentata non basta da sola a provare una sessione in studio. Conservare player, miniatura/video corrispondente e comandi esistenti.
+Questi aspetti sono già descritti nel registro R7; qui vengono richiamati per evitare letture parziali della specifica. La nuova integrazione sulle evidenze non è ancora implementata.

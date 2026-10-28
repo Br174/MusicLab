@@ -644,9 +644,36 @@
         "musiclab.cover.staged25.presentation.r3",
         "musiclab.cover.preparation-progress.r4"
       ]
+    },
+    {
+      "id": "musiclab.cover.round-evidence-allocation.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Latest explicit Bruno clarification: evidence allocates visibility ACROSS rounds, not merely within one packet. Total required evidence INCLUDING TITLE: [3,2,2,2,2,1]. First needs title+2 further evidences; rounds2-5 title+1; sixth title only. Every cycle10+20+20 in the same round has identical requirements. Insufficient evidence defers a candidate to a compatible later round; never discards it globally. Strong late arrivals may appear later when ready. Title-only queries are reserved for round6. The direct YouTube VIDEO path in round6 is autonomous, without new documentary-service searches or waiting for their completion; optional descriptor queries never constrain plain title. Retain the full six category objectives, release preference, COVER.INFO trusted work relationships, language/recording identity rules, duplicate/original caps, packets, fluidity and player. Ignore the explicitly withdrawn immediately preceding stricter sixth-round message. Evidence taxonomy/independence and representation of COVER.INFO's existing evidence remain open for Bruno's decision; do not invent a hardcoded three-service requirement or extra proofs.",
+      "supplements": [
+        "musiclab.cover.six-rounds.v1"
+      ],
+      "supersedes": [],
+      "acceptance": [
+        "First total3 including title; rounds2-5 total2 including title; final total1 title",
+        "Same threshold in every cycle of a round",
+        "Deferred results and stronger late arrivals retained for compatible later publication",
+        "No standalone title query before round6",
+        "Round6 direct video pagination independent of documentary providers",
+        "COVER.INFO relationship remains trusted without redundant checks",
+        "Withdrawn message is not a new requirement",
+        "Metadata-only save does not certify or modify app runtime"
+      ],
+      "testPaths": [],
+      "implementationState": "MEMORY_ONLY_PENDING_DECISIONS_AND_IMPLEMENTATION",
+      "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+      "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt"
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-28-six-objectives-optional-final-descriptors-v1",
+  "canonicalBehaviorRevision": "2026-10-28-six-round-evidence-3-2-2-2-2-1-memory-only",
   "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
@@ -912,6 +939,13 @@
       "apkSha256": "fd8e995bee115e9d349b1ccbea9d0b5513f26a3909ef1c2e29bdaaa93e5f8490",
       "zipSha256": "28f74598657d645fce193d634a46a478dff0fd2535cac65a6259c228371f697c",
       "physicalPhone": "PENDING_BRUNO_TEST"
+    },
+    "evidenceAllocationSupplement": {
+      "ruleId": "musiclab.cover.round-evidence-allocation.v1",
+      "path": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+      "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
+      "state": "MEMORY_ONLY_PENDING_DECISIONS_AND_IMPLEMENTATION",
+      "previousImplementationEvidenceDoesNotCoverThisSupplement": true
     }
   },
   "packetCardAdjustmentR7": {
@@ -946,6 +980,74 @@
       "apkLibraryId": "libfile_e14119daf44881918edd3f3e3e62e158",
       "zipLibraryId": "libfile_e510a8a908b88191bb6ea7646b237e62",
       "physicalPhone": "PENDING_BRUNO_TEST"
+    },
+    "evidenceCoverageNote": "Historical R7 CI/signature results do not prove implementation of the later 3/2/2/2/2/1 evidence allocation."
+  },
+  "approvedEvidenceAllocation": {
+    "id": "musiclab.cover.round-evidence-allocation.v1",
+    "approvedAt": "2026-10-28",
+    "state": "MEMORY_ONLY_PENDING_DECISIONS_AND_IMPLEMENTATION",
+    "titleIncluded": true,
+    "totalEvidenceByRound": [
+      3,
+      2,
+      2,
+      2,
+      2,
+      1
+    ],
+    "additionalBeyondTitleByRound": [
+      2,
+      1,
+      1,
+      1,
+      1,
+      0
+    ],
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "sameThresholdAcrossCycles": true,
+    "insufficientEvidence": "DEFER_WITHOUT_GLOBAL_DELETION",
+    "lateStrongResults": "KEEP_AND_PUBLISH_WHEN_READY_IN_A_COMPATIBLE_LATER_ROUND",
+    "titleOnlyQueryMinimumRound": 6,
+    "categories": "Unchanged six objectives from the approved spec",
+    "withdrawnMessage": "Immediately preceding stricter sixth-round instruction withdrawn explicitly by Bruno. It supplies no new literal-title or YouTube-Music-exclusion requirement.",
+    "finalVideoSearch": "Direct YouTube VIDEO title path autonomous; no new documentary-provider search or wait; optional descriptors remain optional.",
+    "openDecisions": [
+      "Operational inventory and independence of additional evidence",
+      "How to represent COVER.INFO's already-verified facts without redundant checks or fabricated counts"
+    ],
+    "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+    "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
+    "appRuntimeChanged": false,
+    "appTestsRunForThisUpdate": false,
+    "newApkBuilt": false,
+    "lastGoodPromoted": false,
+    "applicationBaseline": "1535d9f013c001ed91636e2544b0385dac165e60"
+  },
+  "scopedAuthorityOverrides": [
+    {
+      "rule": "musiclab.cover.round-evidence-allocation.v1",
+      "overridesRule": "musiclab.cover.priority-and-exceptions.r2",
+      "aspect": "Identity evidence only sorts within a round must not allow early weak candidates. Keep all candidates, allocate their publication round using the new totals. Historical R2 remains archived; do not reactivate it."
+    },
+    {
+      "rule": "musiclab.cover.round-evidence-allocation.v1",
+      "overridesRule": "musiclab.cover.source-and-category-rounds.v8",
+      "aspect": "Any historical title-only from round4 is superseded by title-only from round6. Preserve compatible categories and independent protections."
+    },
+    {
+      "rule": "musiclab.cover.round-evidence-allocation.v1",
+      "overridesRule": "musiclab.cover.six-rounds.v1",
+      "aspect": "Supplement only: explicit evidence allocation and autonomous final video source. Keep six-category objectives, global release PREFERENCE rather than mandatory release admission, cycles, retention, COVER.INFO, language, duplicate/original caps and player unchanged."
+    },
+    {
+      "rule": "musiclab.cover.round-evidence-allocation.v1",
+      "overridesRule": "musiclab.cover.packet-card-r7.20261028",
+      "aspect": "No new admission threshold in the prior R7 scope is not a prohibition on Bruno's later explicit allocation thresholds. Preserve R7 packet/card behavior and historical build evidence."
     }
-  }
+  ]
 }
