@@ -1,0 +1,11 @@
+R7 — PACCHETTI, PRIORITA E SCHEDE COVER
+Base remota 71b7b4fdf945232f3f424ad84062ba82fa37684c. Autorizzazione Bruno: procedere con i soli aggiustamenti concordati.
+Specifica sei tornate invariata; le ultime precisazioni della conversazione aggiornano pubblicazione manuale e scheda moderna.
+1. Regressioni: anno ereditato impropriamente dalla parentela dell'opera; svuotamento automatico di piu pacchetti; priorita sovrascritta dalla disponibilita metadati; scheda con testi troncati e Studio presunto.
+2. Preparazione: mantenere il ranking fino alla selezione, collegare le fonti accreditate senza attesa bloccante; le fonti lente restano nella coda. Nessuna nuova soglia di ammissione.
+3. Pubblicazione: automatica soltanto la prima decina o il primo residuo, poi un singolo pacchetto per comando. Il background prepara senza svuotare la coda sullo schermo.
+4. Scheda moderna: titolo e artista integrali, anno della versione quando documentato, tutte le fonti effettive e servizio di ascolto. Nessuna data di upload e nessun anno della registrazione originale trasferito a un video diverso. Studio solo con riscontro.
+5. Verificare test nativi, contratti audio/identita, guardia del perimetro, build firmata e ZIP. Nome di consegna Revisione-7; versione Android e firma invariate.
+Registro avanzamento: preparazione; nessuna correzione applicativa ancora eseguita.
+Ruling: la parola cover.Lab e interpretata come COVER.INFO secondo il messaggio accettato da Bruno; visualizzare nomi reali delle fonti, non creare un servizio inventato.
+Ruling: un canale denominato Karaoke non prova che un'esecuzione cantata sia karaoke. Il segnale abbassa la priorita, non introduce una blacklist del canale. Restano escluse le tracce esplicitamente karaoke/MIDI/KAR.
