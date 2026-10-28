@@ -3508,7 +3508,10 @@ internal fun DiscogsDirectVersionBrowser(
             }
             val publicationBoundary = appendRound && !resumePreparation
             val sameSearch = activeCriteria == criteria
-            if (appendRound && presentation.status().retryRequired) presentation.retry(coverRoundNumber)
+            if (appendRound && presentation.status().retryRequired) {
+                presentation.retry(coverRoundNumber)
+                session.searchedLeadRounds.entries.removeAll { it.value == coverRoundNumber }
+            }
             if (!appendRound || !sameSearch) {
                 searchJob?.cancel()
                 coverRecoveryJob?.cancel()
@@ -3735,7 +3738,7 @@ internal fun DiscogsDirectVersionBrowser(
                             val documentaryPending = "$thisRound|${workTitle()}|${originalArtist().ifBlank { lockedArtist }}" !in session.completedDocumentaryContexts ||
                                 session.documentaryProgress.values.any { it.remainingPages > 0 } ||
                                 (discogsToken.isNotBlank() && !session.discogsComplete)
-                            if (linkedPending || queryWork.remainingOrdinary > 0 || documentaryPending) {
+                            if (linkedPending || queryWork.size > 0 || documentaryPending) {
                                 presentation.finalProgress(thisRound, complete = false,
                                     blocked = session.sourceRetries.cooling(sourceContext()).isNotEmpty())
                             }
@@ -4116,11 +4119,16 @@ internal fun DiscogsDirectVersionBrowser(
                                         if (titleAllowed(linked)) pending.offer(linked)
                                     }
                                     queryWork.finish(sourcePage, found.continuation)
-                                    if (!bound && !pending.hasLinked(next) && found.continuation.isNullOrBlank()) {
-                                        queryWork.retryUnresolved(sourcePage)
-                                        session.searchedLeadRounds[CoverPriorityOrder.key(next)] = thisRound
+                                    if (thisRound >= CoverRoundSearchPlan.finalRound && found.continuation.isNullOrBlank()) {
+                                        // A successful final lookup exhausted this lead, even without a matching video.
+                                        pending.complete(next)
+                                    } else {
+                                        if (!bound && !pending.hasLinked(next) && found.continuation.isNullOrBlank()) {
+                                            queryWork.retryUnresolved(sourcePage)
+                                            session.searchedLeadRounds[CoverPriorityOrder.key(next)] = thisRound
+                                        }
+                                        pending.lookupComplete(next, linked = bound, morePages = !found.continuation.isNullOrBlank())
                                     }
-                                    pending.lookupComplete(next, linked = bound, morePages = !found.continuation.isNullOrBlank())
                                 } else {
                                     queryWork.defer(sourcePage)
                                     pending.defer(next)
@@ -4155,7 +4163,7 @@ internal fun DiscogsDirectVersionBrowser(
                         trackedContextKeys.all { "$thisRound|$it" in session.completedDocumentaryContexts } &&
                         session.documentaryProgress.values.none { it.remainingPages > 0 } &&
                         (discogsToken.isBlank() || session.discogsComplete)
-                    val searchComplete = !unresolved && queryWork.remainingOrdinary == 0 && sourcesComplete
+                    val searchComplete = !unresolved && queryWork.size == 0 && sourcesComplete
                     if (thisRound >= CoverRoundSearchPlan.finalRound) {
                         presentation.finalProgress(thisRound, complete = searchComplete,
                             blocked = session.sourceRetries.cooling(sourceContext()).isNotEmpty())
@@ -7395,7 +7403,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 presentationStatus.retryRequired -> context.getString(com.metrolist.music.R.string.musiclab_cover_retry_final)
                                 presentationStatus.green && presentationStatus.nextReady > 0 ->
                                     context.getString(com.metrolist.music.R.string.musiclab_cover_next_ready, minOf(coverRoundNumber + 1, CoverRoundSearchPlan.finalRound), presentationStatus.nextReady)
-                                presentationStatus.green -> context.getString(com.metrolist.music.R.string.musiclab_cover_next_round, coverRoundNumber + 1)
+                                presentationStatus.green -> context.getString(com.metrolist.music.R.string.musiclab_cover_next_round, minOf(coverRoundNumber + 1, CoverRoundSearchPlan.finalRound))
                                 presentationStatus.ready > 0 -> context.getString(com.metrolist.music.R.string.musiclab_cover_continue_ready, presentationStatus.ready)
                                 preparationAudioPaused -> context.getString(com.metrolist.music.R.string.musiclab_cover_wait_audio)
                                 preparationWaitingSources.isNotBlank() -> context.getString(com.metrolist.music.R.string.musiclab_cover_wait_named_sources, preparationWaitingSources)

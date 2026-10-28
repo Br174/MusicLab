@@ -167,4 +167,3 @@ internal class CoverRoundPresentation<T>(
     }
     fun clear() { rounds.clear(); visibleRound = 1 }
 }
-

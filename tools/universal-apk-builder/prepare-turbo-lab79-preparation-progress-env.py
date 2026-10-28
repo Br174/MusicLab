@@ -20,4 +20,3 @@ for old, new in changes.items():
     s = s.replace(old, new, 1)
 p.write_text(s, encoding='utf-8')
 print('LAB79 same Android signed family: versionCode33081')
-

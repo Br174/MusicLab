@@ -43,7 +43,7 @@ for marker in ('    fun originalReference(', '    class DocumentaryProgress', ' 
     right=b.split(marker,1)[1]
     if end:
         left,right=left.split(end,1)[0],right.split(end,1)[0]
-    assert left==right, 'Attribution, binding or cursor ownership changed: '+marker
+    assert left.rstrip()==right.rstrip(), 'Attribution, binding or cursor ownership changed: '+marker
 
 path=root+'DiscogsDirectVersionBrowser.kt'
 a,b=old(path),Path(path).read_text()
@@ -54,5 +54,5 @@ a,b=a.split(tail,1)[1],b.split(tail,1)[1]
 button='            if (isTurbo && mode == DiscogsDirectMode.COVER && activeCriteria != null &&'
 end='            if (\n                mode == DiscogsDirectMode.COVER &&\n                !isTurbo'
 assert a.split(button,1)[0]==b.split(button,1)[0], 'Legacy search or cards changed'
-assert a.split(button,1)[1].split(end,1)[1]==b.split(button,1)[1].split(end,1)[1], 'Other UI changed'
+assert a.split(button,1)[1].split(end,1)[1].rstrip()==b.split(button,1)[1].split(end,1)[1].rstrip(), 'Other UI changed'
 print('PASS: scope, first-round queries, descriptor inventory, attribution, cursor queues, player and cards preserved')

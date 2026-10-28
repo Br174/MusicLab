@@ -115,4 +115,3 @@ internal object CoverRoundSearchPlan {
         return (first + targeted).distinctBy { it.text.trim().lowercase() }
     }
 }
-

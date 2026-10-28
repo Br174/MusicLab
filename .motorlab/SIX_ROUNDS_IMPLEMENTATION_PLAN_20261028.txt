@@ -27,3 +27,6 @@ Ruling: device timings remain objectives, not CI-verifiable guarantees.
 
 Task1 RED verified: CI40691521377 / job122827260649; native sources compile, five targeted tests execute, three assertion failures in six objectives, release priority and grouped genres. Two baseline behaviors already pass. Native audio/recording contracts pass. No production source changed in RED commit50a5e33c03b9a0ccdfae5c31c92c71c878a34b03.
 Tasks2/3 source changes: four existing owners only; guard confirms first-round inventory, attribution/binding, queues, player and cards unchanged. Native tests pending.
+
+Final independent review: review_six_rounds_r6 identified P1 final completion ignoring retryable lead pages. Fix: final completion/ticker includes ALL VideoQueries pages, not ordinary-only; failed lead retains page and prevents terminal. Successful final lead with no continuation is closed rather than root-restarted forever; original documentary contribution remains in source progress. Native state/queue regression added.
+CI40693369371 stopped before compilation on EOF blank lines; normalized only changed files, scope guard retained. No functional app verification claimed from that run.

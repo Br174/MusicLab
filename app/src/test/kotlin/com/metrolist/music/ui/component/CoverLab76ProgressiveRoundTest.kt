@@ -101,4 +101,3 @@ class CoverLab76ProgressiveRoundTest {
         assertTrue(CoverRoundSearchPlan.queries("Soli", 2).any { it.text.contains("stadium live") })
     }
 }
-

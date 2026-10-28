@@ -49,6 +49,28 @@ class CoverLab81FinalContinuationTest {
         assertEquals(1,q.remainingOrdinary)
     }
 
+    @Test fun aFailedLeadPreventsTerminalEvenWhenOrdinaryPagesAreFinished() {
+        val q=CoverPriorityOrder.VideoQueries()
+        val lead=CoverSourceCandidate(title="Soli",artist="Singer",sources=listOf("COVER.INFO"))
+        q.offer("Singer Soli",AiCoverCategory.COVER,lead=lead)
+        val failed=q.forLead(lead)!!
+        q.defer(failed)
+        assertEquals(0,q.remainingOrdinary)
+        assertEquals(1,q.size)
+        val p=CoverRoundPresentation<String>{it}
+        p.finalRound=6
+        p.restore(6,emptyList())
+        p.finalProgress(6,complete=q.size==0,blocked=true)
+        p.exhaust(6)
+        assertFalse(p.status().terminal)
+        assertTrue(p.status().retryRequired)
+        q.beginPass()
+        assertEquals(failed,q.forLead(lead))
+        q.finish(failed,null)
+        p.finalProgress(6,complete=q.size==0,blocked=false)
+        assertTrue(p.status().terminal)
+    }
+
     @Test fun trueFinalExhaustionDistinguishesEmptySearchAndFoundOriginal() {
         for(found in listOf(false,true)) {
             val p=CoverRoundPresentation<String>{it}
