@@ -5,7 +5,9 @@ internal object CoverPriorityOrder {
     fun refreshEvidence(row: DiscogsVersionSeed, candidate: CoverSourceCandidate, title: String, original: String, round: Int): DiscogsVersionSeed {
         if (row.resolvedVideoId.isNullOrBlank() || row.resolvedVideoId != candidate.playbackVideoId) return row
         val score = CoverLabTurboRoundAdmission.evaluate(candidate, title, original, round, row.resolvedVideoTitle.orEmpty()).confidencePercent
-        if (score < (row.musiclabScore100 ?: 0)) return row
+        if (score < (row.musiclabScore100 ?: 0)) return row.copy(
+            discogsVerificationChecked = row.discogsVerificationChecked || candidate.releaseVerified,
+        )
         return row.copy(
             artist = candidate.artist.ifBlank { row.artist },
             trackTitle = candidate.title.ifBlank { row.trackTitle },
@@ -13,6 +15,7 @@ internal object CoverPriorityOrder {
             workRelationConfirmed = row.workRelationConfirmed || candidate.workRelationConfirmed,
             originalWorkReference = candidate.originalWorkReference || CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, original),
             musiclabScore100 = score,
+            discogsVerificationChecked = row.discogsVerificationChecked || candidate.releaseVerified,
             confidenceReasons = (row.confidenceReasons + "Prove documentarie aggiornate: ${candidate.sources.joinToString()}").distinct(),
         )
     }
@@ -47,7 +50,7 @@ internal object CoverPriorityOrder {
         val details = candidate.title + " " + candidate.playbackVideoTitle.orEmpty() +
             " " + candidate.album.orEmpty()
         return when {
-            !candidate.album.isNullOrBlank() && sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) } -> 0
+            candidate.releaseVerified || (!candidate.album.isNullOrBlank() && sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) }) -> 0
             candidate.originalWorkReference || (originalArtist.isNotBlank() &&
                 CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 1
             candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 2
@@ -77,12 +80,16 @@ internal object CoverPriorityOrder {
                 group(candidate, originalArtist, round),
             )
         }.sortedWith(
-            compareBy<Ranked> { it.late }.thenByDescending { it.evidence }
+            compareBy<Ranked> { it.late }.thenBy { it.preference != 0 }.thenByDescending { it.evidence }
                 .thenBy { it.preference }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.collectorHave ?: 0 }.thenBy { it.index }
         ).map { it.row }
     }
+
+    fun isPublished(row: DiscogsVersionSeed): Boolean = row.discogsVerificationChecked ||
+        (row.releaseTitle.isNotBlank() && row.releaseTitle != row.sourceNames.joinToString(" + ") &&
+            row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in catalogue && !it.equals("Discogs", true) })
 
     fun originalReference(candidates: List<CoverSourceCandidate>): CoverSourceCandidate? {
         val documented = candidates.filter { candidate ->
@@ -377,3 +384,4 @@ internal object CoverPriorityOrder {
         }
     }
 }
+

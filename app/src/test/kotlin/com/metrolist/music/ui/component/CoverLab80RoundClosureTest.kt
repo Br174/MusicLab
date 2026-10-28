@@ -82,11 +82,11 @@ class CoverLab80RoundClosureTest {
         assertFalse(p.status().noResults)
     }
 
-    @Test fun finalQueriesContainOnlyTitleAfterEveryExistingFamily() {
+    @Test fun finalQueriesKeepPlainTitleAlongsideOptionalDescriptors() {
         val last = CoverRoundSearchPlan.finalRound
         assertTrue(last > 4)
         assertTrue(CoverRoundSearchPlan.queries("Il mondo", last - 1, "Jimmy Fontana").size > 1)
-        assertEquals(listOf("Il mondo"), CoverRoundSearchPlan.queries("Il mondo", last, "Jimmy Fontana").map { it.text })
-        assertEquals(listOf("Il mondo"), CoverRoundSearchPlan.queries("Il mondo", last + 1, "Jimmy Fontana").map { it.text })
+        assertEquals("Il mondo", CoverRoundSearchPlan.queries("Il mondo", last, "Jimmy Fontana").first().text)
+        assertEquals("Il mondo", CoverRoundSearchPlan.queries("Il mondo", last + 1, "Jimmy Fontana").first().text)
     }
 }

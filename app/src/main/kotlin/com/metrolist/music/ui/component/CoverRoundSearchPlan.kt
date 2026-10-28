@@ -49,25 +49,35 @@ internal object CoverRoundSearchPlan {
         "acoustic cover live", "foreign version singer", "cover internazionale",
         "studio live recording", "TV talent performance", "radio live cover",
     )
-    val finalRound: Int get() = 4 + (longTail.size + 3) / 4
+    const val finalRound = 6
+    private val stage = (talent + amateur.filter {
+        listOf("X Factor", "The Voice", "Sanremo", "Eurovision", "stadium", "stadio", "famous artists")
+            .any { name -> it.contains(name, true) }
+    } + longTail.filter {
+        listOf("X Factor", "The Voice", "Sanremo", "Eurovision", "Amici", "stadium", "stadio", "famous singer", "TV talent")
+            .any { name -> it.contains(name, true) }
+    }).distinct()
+    private val instruments = (amateur + longTail).filter {
+        listOf("guitar", "chitarra", "piano", "instrumental", "strumentale", "orchestra", "jazz", "soul", "folk", "choir", "classical", "acoustic", "alternative rock")
+            .any { name -> it.contains(name, true) }
+    }.distinct()
+    private val independent = (amateur.filterNot { it in stage || it in instruments } +
+        listOf("rare cover version", "local singer cover", "tribute band cover", "cover band", "unusual cover")).distinct()
+    private val mixed = (longTail + amateur + talent).distinct()
+    private val finalDescriptors = listOf("cover", "official audio", "studio version", "live", "remix", "mashup", "AI cover", "foreign language cover")
 
-    /** All existing families are visited before the terminal title-only search. */
+    /** Six objectives; descriptors never constrain the autonomous final title query. */
     fun queries(title: String, round: Int, originalArtist: String = ""): List<Query> {
         if (title.isBlank()) return emptyList()
         val clean = title.trim()
-        if (round >= finalRound) return listOf(Query(clean, AiCoverCategory.COVER))
         val artist = originalArtist.trim()
-        val family = when (round) {
-            1 -> official
-            2 -> talent
-            3 -> amateur
-            else -> {
-                // In broad rounds rotate to four completely new topic queries.
-                // Each next round starts on NEW subjects. The base exact-title
-                // query remains available even when all documentary work ends.
-                val start = ((round - 4) * 4) % longTail.size
-                (0 until 4).map { longTail[(start + it) % longTail.size] }
-            }
+        val family = when {
+            round <= 1 -> official
+            round == 2 -> stage
+            round == 3 -> independent
+            round == 4 -> instruments
+            round == 5 -> mixed
+            else -> finalDescriptors
         }
         // Strongest quick discovery is always first, also in later rounds.
         val first = if (round == 1) {
@@ -105,3 +115,4 @@ internal object CoverRoundSearchPlan {
         return (first + targeted).distinctBy { it.text.trim().lowercase() }
     }
 }
+

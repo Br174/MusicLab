@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "musiclab",
   "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
-  "status": "USER_APPROVED_LAB77_R2_CODE_PENDING_CI_AND_PHONE",
+  "status": "USER_APPROVED_SIX_ROUNDS_SOURCE_PENDING_CI_AND_PHONE",
   "rules": [
     {
       "id": "musiclab.cover.same-work",
@@ -544,7 +544,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 2,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "R2 latest user authority: preserve every admissible candidate. Exclude MIDI, karaoke, KAR, confirmed identical recordings and original performer version six onward. Original max five distinct TOTAL across sources/rounds, including studio and genuine duet/group participation. Identity evidence orders work, never vetoes weaker candidates. First round prefers releases, originals, credited/famous performers/versions and foreign adaptations; second continues important performers, TV, talent, concerts, clips, remix, mashup, AI; third rarities/instrumentals/guitar/cover bands; later broad. Every reachable COVER.INFO contribution is first-round work through resumable pages. Uncertain second recording twin waits behind all ordinary executable searches/verifications, then remains visible if unproven. Presentation scheduling is superseded by musiclab.cover.staged25.presentation.r3:50 shown per logical round,25 per block; never a destructive discovery cutoff. Original reference requires explicit documentary attribution; selected cover singer is not automatically original. Available chart/collector facts rank notoriety without invented fame; evidence percentage is an index, not calibrated probability or audio quality. One orange/green button, native actual video thumbnails, stable published order and playback priority remain.",
       "acceptance": [
@@ -578,7 +578,7 @@
       "owner": "musiclab",
       "scope": "cover-presentation",
       "version": 3,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "Bruno-approved LAB78: retain delivered LAB77 source, identity, admission and ranking algorithms. Native queue automatically prepares verified rows. First five stream without waiting for a full block, initial visible group grows to25; next group max25 is hidden until orange reveal with exact ready count. Same criteria for both blocks,50 shown per logical round. Exhausted smaller groups reveal exact available count; zero ready or timed-out/failed work is not exhaustion. Green after50 shown or completed search with no hidden rows; begin next-round first25 preparation while current round stays visible. Preserve every overflow candidate/cursor and existing published order. Audio/startup/buffering and scroll take precedence; no unselected audio stream prewarm. Changes only preparation/publication/button states; no new providers, quality filters or fame/score changes.",
       "acceptance": [
@@ -601,7 +601,7 @@
       "owner": "musiclab",
       "scope": "cover-preparation",
       "version": 4,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "Bruno-approved LAB79 correction only: individual video lookup budgets within the existing20-second pass replace the shared4.4-second window. Failed sources cool independently and retry automatically with every cursor/candidate retained; ready work continues. A prepared group smaller than25 becomes available after12seconds, with exact orange count in the same50-result round. A source failure never means exhausted or green. Status distinguishes retry from audio pause. Preserve all LAB78 search queries, work/title admission, priority, recording identity, source parsing/scoring, poster layout, manual controls, player and audio/scroll guards.",
       "acceptance": [
@@ -616,127 +616,187 @@
         "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79DocumentarySourcesTest.kt"
       ],
       "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.six-rounds.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Canonical approved desired behavior: .motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt. Six objectives: official/famous/foreign; TV/talent/live/remix/mashup/AI; amateur/independent/bands; instruments/genres; mixed recovery; final autonomous title plus optional descriptors. Prefer genuine recorded/published renditions in ALL objectives, never admission gates. Atomic10+20+20 and final reduced packet; retain overflow/slow work. Final pagination continues without replaying completed roots and requires actual exhaustion, not three requests or a single empty page. Confirmed duplicates excluded globally; uncertain twins deferred until distinct. Preserve same-work language rules, max5 original renditions, documented original attribution, authentic thumbnails, stable published order and player precedence. Source implementation pending CI and device verification.",
+      "acceptance": [
+        "Six objectives keep all existing descriptors and first-round queries",
+        "Released preference never removes candidates, including final objective",
+        "Plain title continuation survives empty descriptor pages; no false terminal on pending or failure",
+        "Atomic packets, reduced remainder, overflow and six visible objectives",
+        "Uncertain twin publication cannot bypass native identity check; confirmed duplicates never enter",
+        "Documentary original attribution, work admission, source parsers, player and cards preserved"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81SixRoundTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81FinalContinuationTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77PriorityQueueTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab80RoundClosureTest.kt"
+      ],
+      "supersedes": [
+        "musiclab.cover.priority-and-exceptions.r2",
+        "musiclab.cover.staged25.presentation.r3",
+        "musiclab.cover.preparation-progress.r4"
+      ]
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-27-lab76-progressive-manual-3s-title-foreign-only-v8",
+  "canonicalBehaviorRevision": "2026-10-28-six-objectives-optional-final-descriptors-v1",
   "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
       "oldRule": "musiclab.cover.same-work",
       "disposition": "SUPERSEDED_BY_NEWER_USER_FOUNDATION",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
       "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
-      "intermediateReplacementRule": "musiclab.cover.work-identity-progressive.v2"
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.first-fifty",
       "disposition": "RETIRED_IN_CONTRACT",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
-      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.paged-rounds",
       "disposition": "RETIRED_IN_CONTRACT",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
-      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.category-rounds",
       "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
       "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.score-separation",
       "disposition": "RETIRED_IN_CONTRACT",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
-      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.work-identity-progressive.v2",
       "disposition": "RETIRED_IN_FOUNDATIONAL_MEMORY_CONTRACT",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
-      "appEnforcement": "PENDING_USER_APPROVAL_LAB71"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v2",
       "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
       "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v3",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
       "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
       "appEnforcement": "PENDING_BUILD_AND_DEVICE_VERIFICATION",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v4",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
       "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
       "appEnforcement": "RESTORE_LAB71_BASE_IN_LAB73",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v5",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
       "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
       "appEnforcement": "LAB75_CI_VERIFIED_DEVICE_PENDING",
-      "intermediateReplacementRule": "musiclab.cover.source-and-category-rounds.v7"
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v7",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
       "disposition": "USER_APPROVED_FOLLOWUP_LAB76",
-      "appEnforcement": "LAB76_PENDING_CI_DEVICE"
+      "appEnforcement": "LAB76_PENDING_CI_DEVICE",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.fast-first-fifty.v2",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.manual-round-state.v2",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.visible-confidence-percent.v2",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.work-identity-progressive.v3",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.global-karaoke-midi-exclusion.v1",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.original-performer-version-caps.v1",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.cross-upload-recording-dedupe.v1",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.best-covers-other-artists-breadth.v1",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
     },
     {
       "oldRule": "musiclab.cover.source-and-category-rounds.v8",
       "disposition": "retired by latest user correction R2",
-      "replacementRule": "musiclab.cover.priority-and-exceptions.r2"
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
+      "appEnforcement": "SOURCE_IMPLEMENTED_PENDING_NATIVE_CI_AND_PHONE"
+    },
+    {
+      "oldRule": "musiclab.cover.staged25.presentation.r3",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
+      "appEnforcement": "SOURCE_IMPLEMENTED_PENDING_NATIVE_CI_AND_PHONE"
+    },
+    {
+      "oldRule": "musiclab.cover.preparation-progress.r4",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
+      "appEnforcement": "SOURCE_IMPLEMENTED_PENDING_NATIVE_CI_AND_PHONE"
     }
   ],
   "confirmedGoodBaseline": {
@@ -778,7 +838,7 @@
     }
   ],
   "implementationPolicy": "LAB66 is confirmed user-visible LAST_GOOD for thumbnail production. Future LAB67 changes must be strictly selective, non-destructive, with source-diff and regression guard. Save memory before modifying app. Approval for 4 refinements is user-granted; don't alter existing good method.",
-  "memoryUpdatedAt": "2026-10-27",
+  "memoryUpdatedAt": "2026-10-28",
   "knownBadRegressions": [
     {
       "id": "LAB67_WRONG_THREAD_AND_STALE_SOURCE_DIAG",
@@ -826,7 +886,7 @@
     "id": "musiclab.cover.six-rounds.20261028",
     "path": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
     "approvedAt": "2026-10-28",
-    "status": "USER_APPROVED_SPEC_ONLY_PENDING_IMPLEMENTATION_AND_TESTS",
+    "status": "SOURCE_IMPLEMENTED_PENDING_NATIVE_CI_AND_PHONE",
     "authority": "Latest explicit Bruno instructions; save full schema now, app modifications later.",
     "precedence": "Canonical desired behavior for these responsibilities. Supersedes conflicting earlier descriptions of categories, batching, final search, global release preference and twins. Historical rules below do not prove implementation of this specification.",
     "rounds": 6,
@@ -837,7 +897,7 @@
     ],
     "finalSearch": "Exact work title without descriptors always autonomous; optional descriptor queries may run alongside and never constrain title-only results. Resume reachable pages until user stops or actual exhaustion.",
     "globalReleasePreference": "Prefer available studio/recorded/released versions in EVERY round, never an admission requirement or a reason to block ready flow.",
-    "runtimeChanged": false,
+    "runtimeChanged": true,
     "deviceVerified": false,
     "appBaseline": "e24bb0a0aba18914109ec6a0f181908edd37a210"
   }

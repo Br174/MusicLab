@@ -91,13 +91,14 @@ class CoverLab76ProgressiveRoundTest {
             assertTrue(queries.size>=5)
             assertTrue(queries.any { it.text.contains("Soli ") })
         }
-        assertEquals(listOf("Soli"), CoverRoundSearchPlan.queries("Soli", CoverRoundSearchPlan.finalRound, "Adriano Celentano").map { it.text })
+        assertEquals("Soli", CoverRoundSearchPlan.queries("Soli", CoverRoundSearchPlan.finalRound, "Adriano Celentano").first().text)
         val second=CoverRoundSearchPlan.queries("Soli",2,"Adriano Celentano")
         assertTrue(second.any { it.text.contains("Sanremo") })
         assertTrue(second.any { it.text.contains("Eurovision") })
         assertTrue(second.any { it.text.contains("The Voice") })
         val third=CoverRoundSearchPlan.queries("Soli",3,"Adriano Celentano")
-        assertTrue(third.any { it.text.contains("guitar instrumental") })
-        assertTrue(third.any { it.text.contains("stadium live") })
+        assertTrue(third.any { it.text.contains("cover band") })
+        assertTrue(CoverRoundSearchPlan.queries("Soli", 2).any { it.text.contains("stadium live") })
     }
 }
+

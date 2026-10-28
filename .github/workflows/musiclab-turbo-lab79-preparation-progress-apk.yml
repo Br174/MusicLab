@@ -19,7 +19,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
       - name: Guard delivered LAB78 results, poster layout and player
-        run: git diff --exit-code e24bb0a0aba18914109ec6a0f181908edd37a210 -- app/src/main
+        run: python3 tools/universal-apk-builder/verify-six-round-scope.py
       - name: Native audio and recording identity contracts
         run: node --test cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs
       - name: Canonical behavior consistency
@@ -32,9 +32,9 @@ jobs:
           for disposition in memory['conflictDispositions']:
               assert rules[disposition['oldRule']]['status']=='retired'
               assert rules[disposition['replacementRule']]['status']=='active'
-          assert rules['musiclab.cover.priority-and-exceptions.r2']['status']=='active'
-          assert rules['musiclab.cover.staged25.presentation.r3']['status']=='active'
-          assert rules['musiclab.cover.preparation-progress.r4']['status']=='active'
+          assert rules['musiclab.cover.six-rounds.v1']['status']=='active'
+          assert memory['approvedNextSpecification']['rounds']==6
+          assert memory['approvedNextSpecification']['cycleSizes']==[10,20,20]
           PYGUARD
       - uses: actions/setup-java@v4
         with:
@@ -57,7 +57,7 @@ jobs:
           set -a
           source uab-project.env
           set +a
-          ./gradlew --console=plain :app:testFossDebugUnitTest --tests "*CoverLab81SixRoundTest" --warning-mode summary
+          ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
       - name: Build signed LAB79 APK ZIP
         if: contains(github.event.head_commit.message, '[build-apk]')
         run: |
@@ -68,16 +68,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-5.apk
-          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-5-APK.zip
+          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-6.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-6-APK.zip
           test -s "$APK"
           test -s "$ZIP"
           unzip -tq "$ZIP"
           python3 - <<'PY'
           import hashlib, zipfile
           from pathlib import Path
-          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-5.apk')
-          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-5-APK.zip')
+          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-6.apk')
+          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-6-APK.zip')
           digest=lambda data: hashlib.sha256(data).hexdigest()
           with zipfile.ZipFile(archive) as z:
               names=[n for n in z.namelist() if n.lower().endswith('.apk')]
@@ -99,10 +99,10 @@ jobs:
         if: contains(github.event.head_commit.message, '[build-apk]')
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-Turbo-LAB79-Revisione-5-Preparation-Progress-APK-ZIP
+          name: MusicLab-Turbo-LAB79-Revisione-6-Preparation-Progress-APK-ZIP
           path: |
-            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-5.apk
-            dist/uab/MusicLab-Turbo-LAB79-Revisione-5-APK.zip
+            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-6.apk
+            dist/uab/MusicLab-Turbo-LAB79-Revisione-6-APK.zip
             dist/uab/BUILD_SHA.txt
             dist/uab/SHA256SUMS.txt
           if-no-files-found: error

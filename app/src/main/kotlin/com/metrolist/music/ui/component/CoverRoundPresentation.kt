@@ -25,6 +25,7 @@ internal class CoverRoundPresentation<T>(
         val overflow = linkedMapOf<String, T>()
         var lastProgress: Long? = null
         var finalChecked = false
+        var finalContinuation = false
     }
     private val rounds = linkedMapOf<Int, Round<T>>()
     var visibleRound = 1
@@ -44,11 +45,17 @@ internal class CoverRoundPresentation<T>(
         }
         return false
     }
-    fun finalChecked(number: Int) { round(number).finalChecked = true }
+    fun finalChecked(number: Int) { finalProgress(number, complete = true, blocked = false) }
+    fun finalProgress(number: Int, complete: Boolean, blocked: Boolean) {
+        round(number).apply {
+            finalChecked = complete
+            finalContinuation = !complete && !blocked
+        }
+    }
     fun isFinalChecked(number: Int): Boolean = round(number).finalChecked
-    fun verificationPending(number: Int) { round(number).finalChecked = false }
+    fun verificationPending(number: Int) { finalProgress(number, complete = false, blocked = true) }
     fun retry(number: Int) {
-        round(number).apply { exhausted = false; finalChecked = false; lastProgress = clock() }
+        round(number).apply { exhausted = false; finalChecked = false; finalContinuation = false; lastProgress = clock() }
     }
     val preparationRound: Int get() = if (status().green) visibleRound + 1 else visibleRound
 
@@ -83,6 +90,13 @@ internal class CoverRoundPresentation<T>(
         rounds.values.forEach { state ->
             state.prepared.replaceAll { _, row -> transform(row) }
             state.overflow.replaceAll { _, row -> transform(row) }
+        }
+    }
+    fun prioritizePrepared(preferred: (T) -> Boolean) {
+        rounds.values.forEach { state ->
+            val ordered = state.prepared.entries.sortedBy { !preferred(it.value) }.map { it.key to it.value }
+            state.prepared.clear()
+            ordered.forEach { (id, row) -> state.prepared[id] = row }
         }
     }
     fun retainPrepared(predicate: (T) -> Boolean) {
@@ -133,7 +147,7 @@ internal class CoverRoundPresentation<T>(
         val state = round(visibleRound)
         val finalEmpty = visibleRound >= finalRound && state.exhausted && state.prepared.isEmpty() && state.shown.size < ROUND_SIZE
         val terminal = finalEmpty && state.finalChecked
-        val retryRequired = finalEmpty && !state.finalChecked
+        val retryRequired = finalEmpty && !state.finalChecked && !state.finalContinuation
         val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE || state.exhausted && ready(visibleRound) == 0)
         return Status(state.shown.size, state.prepared.size, ready(visibleRound), green,
             if (green) ready(visibleRound + 1) else 0,
@@ -153,3 +167,4 @@ internal class CoverRoundPresentation<T>(
     }
     fun clear() { rounds.clear(); visibleRound = 1 }
 }
+

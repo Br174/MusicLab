@@ -7,7 +7,7 @@ p = Path('uab-project.env')
 s = p.read_text(encoding='utf-8')
 changes = {
     'UAB_FILE_VERSION="TURBO_LAB78"': 'UAB_FILE_VERSION="TURBO_LAB79"',
-    'UAB_OUTPUT_NAME="MusicLab-Turbo-LAB78"': 'UAB_OUTPUT_NAME="MusicLab-Turbo-LAB79-Revisione-5"',
+    'UAB_OUTPUT_NAME="MusicLab-Turbo-LAB78"': 'UAB_OUTPUT_NAME="MusicLab-Turbo-LAB79-Revisione-6"',
     'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 78"': 'UAB_UPDATE_FAMILY_VISIBLE_NAME="Turbo LAB 79"',
     'UAB_UPDATE_FAMILY_VERSION_CODE="33080"': 'UAB_UPDATE_FAMILY_VERSION_CODE="33081"',
     'export METROLIST_APP_NAME="MusicLab Turbo LAB 78"': 'export METROLIST_APP_NAME="MusicLab Turbo LAB 79"',
@@ -20,3 +20,4 @@ for old, new in changes.items():
     s = s.replace(old, new, 1)
 p.write_text(s, encoding='utf-8')
 print('LAB79 same Android signed family: versionCode33081')
+
