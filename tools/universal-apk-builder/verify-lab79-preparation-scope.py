@@ -12,6 +12,7 @@ allowed = {
 } | {
     'app/src/main/res/values/metrolist_strings.xml',
     'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79PreparationProgressTest.kt',
+    'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PresentationTest.kt',
     'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79DocumentarySourcesTest.kt',
     'tools/universal-apk-builder/prepare-turbo-lab79-preparation-progress-env.py',
     'tools/universal-apk-builder/verify-lab79-preparation-scope.py',

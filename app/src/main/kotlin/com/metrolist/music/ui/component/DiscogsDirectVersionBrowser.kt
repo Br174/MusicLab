@@ -3723,7 +3723,7 @@ internal fun DiscogsDirectVersionBrowser(
                 }
                 fun flushInitial(force: Boolean = false) {
                     val state = presentation.status()
-                    if (state.shown < CoverRoundPresentation.BLOCK_SIZE &&
+                    if (state.shown < CoverRoundPresentation.INITIAL_SIZE &&
                         (state.shown < CoverRoundPresentation.FAST_PREFIX || state.prepared >= 5 || force)) {
                         appendVisible(presentation.takeInitial())
                     } else syncPresentation()

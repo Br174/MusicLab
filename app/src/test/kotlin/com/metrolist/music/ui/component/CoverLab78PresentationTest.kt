@@ -22,10 +22,12 @@ class CoverLab78PresentationTest {
     @Test fun twoBlocksShareOneRoundAndRevealExactlyThePreparedCount() {
         val p = presentation()
         prepare(p, 1, 50)
-        assertEquals(25, p.takeInitial().size)
-        assertEquals(25, p.status().ready)
+        assertEquals(10, p.takeInitial().size)
+        assertEquals(20, p.status().ready)
         assertEquals(1, p.visibleRound)
-        assertEquals(25, p.reveal().size)
+        assertEquals(20, p.reveal().size)
+        assertEquals(30, p.status().shown)
+        assertEquals(20, p.reveal().size)
         assertEquals(50, p.status().shown)
         assertTrue(p.status().green)
         assertEquals(2, p.preparationRound)
@@ -33,7 +35,7 @@ class CoverLab78PresentationTest {
 
     @Test fun unfinishedSmallBufferCannotPromiseFinalCountOrExhaustion() {
         val p = presentation()
-        prepare(p, 1, 25)
+        prepare(p, 1, 10)
         p.takeInitial()
         prepare(p, 1, 8, "rest-")
         assertEquals(0, p.status().ready)
@@ -42,7 +44,7 @@ class CoverLab78PresentationTest {
         p.exhaust(1)
         assertEquals(8, p.status().ready)
         assertEquals(8, p.reveal().size)
-        assertEquals(33, p.status().shown)
+        assertEquals(18, p.status().shown)
         assertTrue(p.status().green)
     }
 
@@ -57,7 +59,7 @@ class CoverLab78PresentationTest {
 
     @Test fun noReadyRowsAndRetryableWorkAreNotExhaustion() {
         val p = presentation()
-        prepare(p, 1, 25)
+        prepare(p, 1, 10)
         p.takeInitial()
         assertEquals(0, p.status().ready)
         assertFalse(p.status().green)
@@ -68,15 +70,15 @@ class CoverLab78PresentationTest {
     @Test fun nextRoundIsPreparedButInvisibleUntilGreenPress() {
         val p = presentation()
         prepare(p, 1, 50)
-        p.takeInitial(); p.reveal()
-        prepare(p, 2, 25)
+        p.takeInitial(); p.reveal(); p.reveal()
+        prepare(p, 2, 20)
         assertEquals(1, p.visibleRound)
         assertEquals(50, p.status().shown)
-        assertEquals(25, p.status().nextReady)
+        assertEquals(20, p.status().nextReady)
         assertFalse(p.needsPreparation())
-        assertEquals((0 until 25).map { "r2-$it" }, p.advance())
+        assertEquals((0 until 10).map { "r2-$it" }, p.advance())
         assertEquals(2, p.visibleRound)
-        assertEquals(25, p.status().shown)
+        assertEquals(10, p.status().shown)
         assertTrue(p.needsPreparation())
     }
 
@@ -94,10 +96,12 @@ class CoverLab78PresentationTest {
     @Test fun fiftyIsPresentationCapacityRatherThanDestructiveOverflow() {
         val p = presentation()
         prepare(p, 1, 50)
-        assertFalse(p.stage(1, "overflow-retained-by-discovery"))
-        p.takeInitial(); p.reveal()
-        assertTrue(p.stage(2, "overflow-retained-by-discovery"))
-        assertEquals(listOf("overflow-retained-by-discovery"), p.preparedRows(2))
+        assertTrue(p.stage(1, "overflow-retained-by-discovery"))
+        assertTrue(p.stage(1, "overflow-retained-by-discovery"))
+        assertEquals(50, p.total(1))
+        p.takeInitial(); p.reveal(); p.reveal()
+        assertEquals(listOf("overflow-retained-by-discovery"), p.advance())
+        assertTrue(p.preparedRows().isEmpty())
     }
 
     @Test fun legacyRestorationKeepsEveryPreviouslyVisibleRow() {
@@ -111,12 +115,12 @@ class CoverLab78PresentationTest {
 
     @Test fun lateEvidenceCanRefreshHiddenRowsWithoutShowingThem() {
         val p = presentation()
-        prepare(p, 1, 25)
+        prepare(p, 1, 10)
         p.takeInitial()
         p.stage(1, "hidden")
         p.mapPrepared { "$it-updated" }
         assertEquals(listOf("hidden-updated"), p.preparedRows(1))
-        assertEquals(25, p.status().shown)
+        assertEquals(10, p.status().shown)
     }
 
     @Test fun resetRemovesOldPreparationAndExhaustion() {
@@ -134,12 +138,12 @@ class CoverLab78PresentationTest {
         val p = presentation()
         prepare(p, 1, 50)
         p.takeInitial()
-        p.synchronizeShown(1, (0 until 24).map { "r1-$it" })
-        assertEquals(24, p.status().shown)
-        assertEquals(25, p.preparedRows(1).size)
+        p.synchronizeShown(1, (0 until 9).map { "r1-$it" })
+        assertEquals(9, p.status().shown)
+        assertEquals(40, p.preparedRows(1).size)
         assertTrue(p.stage(1, "replacement"))
         assertEquals(1, p.takeInitial().size)
-        assertEquals(25, p.status().ready)
+        assertEquals(20, p.status().ready)
     }
 
     @Test fun alreadyShownVideoCannotBePublishedAgainByARepeatedSource() {

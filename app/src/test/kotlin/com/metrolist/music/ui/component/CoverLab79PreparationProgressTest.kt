@@ -19,21 +19,22 @@ class CoverLab79PreparationProgressTest {
     @Test fun verifiedPartialGroupBecomesAvailableWhileAFailedSourceIsStillPending() {
         var now = 0L
         val p = CoverRoundPresentation<String>(clock = { now }) { it }
-        repeat(25) { p.stage(1, "first-$it") }
-        assertEquals(25, p.takeInitial().size)
+        repeat(10) { p.stage(1, "first-$it") }
+        assertEquals(10, p.takeInitial().size)
         repeat(8) { p.stage(1, "later-$it") }
         assertFalse(CoverPreparationPolicy.documentaryComplete(true,
             listOf(CoverSourceDiagnostic("LRCLIB", false, 0, "rete/non disponibile"))))
         assertEquals(0, p.status().ready)
-        now = 12_100L
+        now = 4_100L
         assertEquals(8, p.status().ready)
         assertEquals(8, p.reveal().size)
-        assertEquals(33, p.status().shown)
+        assertEquals(18, p.status().shown)
         assertFalse(p.status().green)
         assertEquals(1, p.visibleRound)
-        repeat(17) { p.stage(1, "last-$it") }
-        assertEquals(17, p.status().ready)
-        assertEquals(17, p.reveal().size)
+        repeat(32) { p.stage(1, "last-$it") }
+        assertEquals(20, p.reveal().size)
+        now = 8_200L
+        assertEquals(12, p.reveal().size)
         assertEquals(50, p.status().shown)
         assertTrue(p.status().green)
     }
@@ -76,7 +77,7 @@ class CoverLab79PreparationProgressTest {
     @Test fun partialGraceRestartsOnlyWhenTheReadyBufferHasBeenEmptied() {
         var now = 0L
         val p = CoverRoundPresentation<String>(clock = { now }) { it }
-        repeat(25) { p.stage(1, "first-$it") }
+        repeat(10) { p.stage(1, "first-$it") }
         p.takeInitial()
         p.stage(1, "first partial")
         now = 11_000L
