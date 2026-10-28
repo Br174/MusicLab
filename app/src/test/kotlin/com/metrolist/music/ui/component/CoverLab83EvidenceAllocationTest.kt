@@ -33,4 +33,17 @@ class CoverLab83EvidenceAllocationTest {
         val oldest=row().copy(sources=listOf("MusicBrainz"),year=1930,originalWorkReference=true,workRelationConfirmed=true)
         assertNull(CoverPriorityOrder.originalReference(listOf(oldest)))
     }
+
+    @Test fun displayedPercentagesNeverBreakAPublicationPriorityTie() {
+        val seed=DiscogsVersionSource.externalSeed(row(),"Aspettando il sole","Neffa")
+        val low=seed.copy(musiclabScore100=1,confidenceScore=1)
+        val high=seed.copy(musiclabScore100=99,confidenceScore=20)
+        assertEquals(0,CoverPriorityOrder.publicationComparator.compare(low,high))
+        val p=CoverRoundPresentation<DiscogsVersionSeed>{it.fingerprint}
+        p.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
+        p.stage(1,low.copy(fingerprint="first",resolvedVideoId="first000001"))
+        p.stage(1,high.copy(fingerprint="later",resolvedVideoId="later000001"))
+        p.exhaust(1)
+        assertEquals("first",p.takeAutomatic().first().fingerprint)
+    }
 }

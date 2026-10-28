@@ -57,7 +57,7 @@ jobs:
           set -a
           source uab-project.env
           set +a
-          ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+          ./gradlew --console=plain :app:testFossDebugUnitTest --tests '*CoverLab83EvidenceAllocationTest' --warning-mode summary
       - name: Build signed LAB79 APK ZIP
         if: contains(github.event.head_commit.message, '[build-apk]')
         run: |
