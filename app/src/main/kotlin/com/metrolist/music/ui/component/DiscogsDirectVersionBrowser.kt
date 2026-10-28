@@ -3796,6 +3796,7 @@ internal fun DiscogsDirectVersionBrowser(
                     val verified = metadata?.takeIf { it.id == id && it.title.isNotBlank() }
                         ?: run {
                             if (requestedMetadata) recordSource(CoverSourceDiagnostic("Metadati YouTube", false, 0, "richiesta non completata; candidati conservati"))
+                            session.searchedLeadRounds[CoverPriorityOrder.key(candidate)] = thisRound
                             pending.defer(candidate); return
                         }
                     if (requestedMetadata) recordSource(CoverSourceDiagnostic("Metadati YouTube", true, 1, "metadati ricevuti"))
@@ -3961,9 +3962,11 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                         } else null
                         val youtube = launch {
-                            // Two native pages per press, all returned items retained. Continuation
+                            // Read further native pages without waiting for slow sources. Continuation
                             // tokens survive the 50-card publication block and the next manual press.
-                            repeat(2) {
+                            repeat(20) {
+                                if (System.currentTimeMillis() - started >= passBudgetMs ||
+                                    presentation.total(thisRound) >= preparationLimit) return@launch
                                 awaitResources()
                                 val page = queryWork.next(includeLeads = false) ?: return@launch
                                 val sourceName = if (page.songs) "YouTube Music" else "YouTube diretto"
@@ -4011,6 +4014,7 @@ internal fun DiscogsDirectVersionBrowser(
                             pending.orderingInput(rankTitle, rankOriginal, thisRound)?.let { input ->
                                 val order = withContext(Dispatchers.Default) {
                                     CoverPriorityOrder.order(input.rows, input.title, input.original, input.round, input.twins)
+                                        .sortedBy { if (session.preparedVideoSongs.containsKey(it.playbackVideoId.orEmpty())) 0 else 1 }
                                 }
                                 if (!pending.applyOrdering(input, order)) return@let
                             }
@@ -4066,6 +4070,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 } else {
                                     queryWork.defer(sourcePage)
                                     pending.defer(next)
+                                    session.searchedLeadRounds[CoverPriorityOrder.key(next)] = thisRound
                                     recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0, "richiesta non completata; candidato e cursore conservati"))
                                 }
                             } else publish(next)

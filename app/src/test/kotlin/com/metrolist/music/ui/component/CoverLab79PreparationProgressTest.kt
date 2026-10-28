@@ -26,15 +26,15 @@ class CoverLab79PreparationProgressTest {
             listOf(CoverSourceDiagnostic("LRCLIB", false, 0, "rete/non disponibile"))))
         assertEquals(0, p.status().ready)
         now = 4_100L
-        assertEquals(8, p.status().ready)
-        assertEquals(8, p.reveal().size)
-        assertEquals(18, p.status().shown)
+        assertEquals(0, p.status().ready)
+        assertTrue(p.reveal().isEmpty())
+        assertEquals(10, p.status().shown)
         assertFalse(p.status().green)
         assertEquals(1, p.visibleRound)
         repeat(32) { p.stage(1, "last-$it") }
         assertEquals(20, p.reveal().size)
         now = 8_200L
-        assertEquals(12, p.reveal().size)
+        assertEquals(20, p.reveal().size)
         assertEquals(50, p.status().shown)
         assertTrue(p.status().green)
     }
@@ -83,11 +83,13 @@ class CoverLab79PreparationProgressTest {
         now = 11_000L
         p.stage(1, "second partial")
         now = 12_100L
-        assertEquals(listOf("first partial", "second partial"), p.reveal())
+        assertTrue(p.reveal().isEmpty())
         p.stage(1, "new partial")
         assertEquals(0, p.status().ready)
         now = 24_200L
-        assertEquals(listOf("new partial"), p.reveal())
+        assertTrue(p.reveal().isEmpty())
+        repeat(17) { p.stage(1, "complete-$it") }
+        assertEquals(20, p.reveal().size)
         assertFalse(p.status().green)
     }
 }

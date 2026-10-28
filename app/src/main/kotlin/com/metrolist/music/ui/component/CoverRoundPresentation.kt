@@ -75,36 +75,37 @@ internal class CoverRoundPresentation<T>(
             .also { if (state.prepared.isEmpty()) state.preparedSince = null }
     }
 
-    fun takeInitial(): List<T> = take(visibleRound,
-        INITIAL_SIZE - round(visibleRound).shown.size)
+    fun takeInitial(): List<T> {
+        val remaining = (INITIAL_SIZE - round(visibleRound).shown.size).coerceAtLeast(0)
+        return if (round(visibleRound).prepared.size >= remaining) take(visibleRound, remaining) else emptyList()
+    }
     fun reveal(): List<T> = take(visibleRound, status().ready)
     fun advance(): List<T> {
         if (!status().green) return emptyList()
         visibleRound++
         val previous = round(visibleRound - 1)
         val next = round(visibleRound)
-        previous.overflow.values.forEach { row ->
+        (previous.prepared.values + previous.overflow.values).forEach { row ->
             val id = identity(row)
             if (id in next.shown || id in next.prepared || id in next.overflow) return@forEach
             if (next.shown.size + next.prepared.size < ROUND_SIZE) next.prepared[id] = row
             else next.overflow[id] = row
         }
         previous.overflow.clear()
+        previous.prepared.clear()
         return takeInitial()
     }
 
     private fun ready(number: Int): Int {
         val state = round(number)
-        val target = minOf(BLOCK_SIZE, (ROUND_SIZE - state.shown.size).coerceAtLeast(0))
+        val target = if (state.shown.size < INITIAL_SIZE) INITIAL_SIZE - state.shown.size
+            else minOf(BLOCK_SIZE, (ROUND_SIZE - state.shown.size).coerceAtLeast(0))
         val size = state.prepared.size
-        // A partial package must become pressable quickly. This is only a
-        // presentation deadline: discovery continues in the background.
-        val graceElapsed = state.preparedSince?.let { clock() - it >= 4_000L } == true
-        return if (size >= target || state.exhausted || graceElapsed) minOf(size, target) else 0
+        return if (size >= target) target else 0
     }
     fun status(): Status {
         val state = round(visibleRound)
-        val green = state.shown.size >= ROUND_SIZE || state.exhausted && state.prepared.isEmpty()
+        val green = state.shown.size >= ROUND_SIZE || state.exhausted && ready(visibleRound) == 0
         return Status(state.shown.size, state.prepared.size, ready(visibleRound), green,
             if (green) ready(visibleRound + 1) else 0)
     }

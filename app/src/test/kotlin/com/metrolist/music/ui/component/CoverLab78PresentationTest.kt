@@ -11,11 +11,13 @@ class CoverLab78PresentationTest {
 
     @Test fun firstFiveDoNotWaitForTwentyFiveOrSourceCompletion() {
         val p = presentation()
-        repeat(5) {
+        repeat(9) {
             p.stage(1, "video$it")
-            assertEquals(listOf("video$it"), p.takeInitial())
+            assertTrue(p.takeInitial().isEmpty())
         }
-        assertEquals(5, p.status().shown)
+        p.stage(1, "video9")
+        assertEquals(10, p.takeInitial().size)
+        assertEquals(10, p.status().shown)
         assertFalse(p.status().green)
     }
 
@@ -42,16 +44,16 @@ class CoverLab78PresentationTest {
         assertFalse(p.status().green)
         assertTrue(p.reveal().isEmpty())
         p.exhaust(1)
-        assertEquals(8, p.status().ready)
-        assertEquals(8, p.reveal().size)
-        assertEquals(18, p.status().shown)
+        assertEquals(0, p.status().ready)
+        assertTrue(p.reveal().isEmpty())
+        assertEquals(10, p.status().shown)
         assertTrue(p.status().green)
     }
 
     @Test fun threeAvailableRowsBecomeVisibleAndThenGreenWithoutEmptyClick() {
         val p = presentation()
         prepare(p, 1, 3)
-        assertEquals(3, p.takeInitial().size)
+        assertTrue(p.takeInitial().isEmpty())
         assertFalse(p.status().green)
         p.exhaust(1)
         assertTrue(p.status().green)
@@ -74,7 +76,7 @@ class CoverLab78PresentationTest {
         prepare(p, 2, 20)
         assertEquals(1, p.visibleRound)
         assertEquals(50, p.status().shown)
-        assertEquals(20, p.status().nextReady)
+        assertEquals(10, p.status().nextReady)
         assertFalse(p.needsPreparation())
         assertEquals((0 until 10).map { "r2-$it" }, p.advance())
         assertEquals(2, p.visibleRound)
@@ -87,7 +89,7 @@ class CoverLab78PresentationTest {
         p.exhaust(1)
         prepare(p, 2, 5)
         assertEquals(0, p.status().nextReady)
-        assertEquals(5, p.advance().size)
+        assertTrue(p.advance().isEmpty())
         assertEquals(2, p.visibleRound)
         assertFalse(p.status().green)
         assertTrue(p.needsPreparation())
@@ -100,8 +102,8 @@ class CoverLab78PresentationTest {
         assertTrue(p.stage(1, "overflow-retained-by-discovery"))
         assertEquals(50, p.total(1))
         p.takeInitial(); p.reveal(); p.reveal()
-        assertEquals(listOf("overflow-retained-by-discovery"), p.advance())
-        assertTrue(p.preparedRows().isEmpty())
+        assertTrue(p.advance().isEmpty())
+        assertEquals(listOf("overflow-retained-by-discovery"), p.preparedRows(2))
     }
 
     @Test fun legacyRestorationKeepsEveryPreviouslyVisibleRow() {
@@ -148,10 +150,11 @@ class CoverLab78PresentationTest {
 
     @Test fun alreadyShownVideoCannotBePublishedAgainByARepeatedSource() {
         val p = presentation()
+        prepare(p, 1, 9)
         p.stage(1, "same-video")
-        assertEquals(listOf("same-video"), p.takeInitial())
+        assertEquals(10, p.takeInitial().size)
         assertFalse(p.stage(1, "same-video"))
         assertTrue(p.takeInitial().isEmpty())
-        assertEquals(1, p.status().shown)
+        assertEquals(10, p.status().shown)
     }
 }
