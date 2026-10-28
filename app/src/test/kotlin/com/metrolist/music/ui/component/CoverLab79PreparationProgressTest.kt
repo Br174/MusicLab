@@ -4,6 +4,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverLab79PreparationProgressTest {
+    @Test fun cachedNormalizationPreservesPreviousResultsAcrossEvictionAndThreads() {
+        fun previous(value: String) = java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "").lowercase().replace(Regex("[’'´]"), "")
+            .replace(Regex("[^a-z0-9]+"), " ").trim().replace(Regex("\\s+"), " ")
+        val samples = listOf("", "Alejandro Sánz – Topic", "L’amòre (LIVE)", "İSTANBUL", "東京", "  Il mondo  ") +
+            (0..1100).map { "Interprète $it" }
+        samples.forEach { assertEquals(previous(it), TitleMeaningResolver.canonical(it)) }
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(4)
+        try {
+            val tasks = (1..8).map { executor.submit<Boolean> {
+                samples.all { previous(it) == TitleMeaningResolver.canonical(it) }
+            } }
+            tasks.forEach { assertTrue(it.get(10, java.util.concurrent.TimeUnit.SECONDS)) }
+        } finally { executor.shutdownNow() }
+        val value = samples[1]
+        val oldStart = System.nanoTime()
+        repeat(10_000) { previous(value) }
+        val oldElapsed = System.nanoTime() - oldStart
+        val newStart = System.nanoTime()
+        repeat(10_000) { TitleMeaningResolver.canonical(value) }
+        println("Repeated normalization 10000 calls: previous_ns=$oldElapsed cached_ns=${System.nanoTime() - newStart}")
+    }
     @Test fun anotherVideoCanBeLinkedAfterTheFirstFourSeconds() {
         var now = 0L
         val budget = CoverPreparationPolicy.PassWindow { now }

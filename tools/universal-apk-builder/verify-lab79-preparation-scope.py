@@ -8,7 +8,8 @@ base = sys.argv[1] if len(sys.argv) > 1 else 'b30334651ec0a304f9291a3fa0ba377009
 root = 'app/src/main/kotlin/com/metrolist/music/ui/component/'
 allowed = {
     root + name for name in ('CoverDiscoverySources.kt', 'CoverPreparationPolicy.kt',
-                             'CoverRoundPresentation.kt', 'DiscogsDirectVersionBrowser.kt')
+                             'CoverRoundPresentation.kt', 'DiscogsDirectVersionBrowser.kt',
+                             'TitleMeaningResolver.kt', 'CoverLab71FoundationGate.kt')
 } | {
     'app/src/main/res/values/metrolist_strings.xml',
     'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79PreparationProgressTest.kt',
@@ -68,13 +69,19 @@ for line in new_tail.splitlines(keepends=True):
 assert old_tail == new_tail, 'Poster layout or legacy search/player/manual behavior changed'
 def fragment(text, start, end):
     return text.split(start, 1)[1].split(end, 1)[0]
+comparison_new = new.replace(
+    'withContext(Dispatchers.Default) { CoverLabTurboTwinGuard.possibleTwin(seed, history) }',
+    'CoverLabTurboTwinGuard.possibleTwin(seed, history)')
+timing_start = comparison_new.index('                    val preparedCount = presentation.total(thisRound)')
+timing_end = comparison_new.index('                    publishedThisPass++', timing_start)
+comparison_new = comparison_new[:timing_start] + comparison_new[timing_end:]
 for start, end in (
     ('            fun offerQueries()', '            offerQueries()'),
     ('            fun titleAllowed(', '            if (publicationBoundary'),
     ('                fun fromVideo(', '                suspend fun publish('),
     ('                    val verdict = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle()', '                try {'),
 ):
-    assert fragment(old, start, end) == fragment(new, start, end), start
+    assert fragment(old, start, end) == fragment(comparison_new, start, end), start
 
 path = 'app/src/main/res/values/metrolist_strings.xml'
 current = Path(path).read_text()

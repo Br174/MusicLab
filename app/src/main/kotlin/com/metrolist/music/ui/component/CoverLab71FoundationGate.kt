@@ -109,8 +109,10 @@ internal object CoverLab71FoundationGate {
     private fun creditedName(value: String): String = TitleMeaningResolver.canonical(value)
         .removeSuffix(" topic").trim()
 
-    internal fun sameCreditedPerformer(left: String, right: String): Boolean =
-        creditedName(left).isNotBlank() && creditedName(left) == creditedName(right)
+    internal fun sameCreditedPerformer(left: String, right: String): Boolean {
+        val creditedLeft = creditedName(left)
+        return creditedLeft.isNotBlank() && creditedLeft == creditedName(right)
+    }
 
     internal fun isOriginalPerformer(artist: String, originalArtist: String): Boolean {
         val original = creditedName(originalArtist)

@@ -3703,6 +3703,9 @@ internal fun DiscogsDirectVersionBrowser(
             loading = previousRoundRows.isEmpty() && publishedCoverSnapshots.isEmpty()
             sourceDiscoveryLoading = true
             searchJob = scope.launch {
+                val preparationStartedAt = SystemClock.elapsedRealtime()
+                var measuredRound = -1
+                var measuredBoundary = 0
                 var started = System.currentTimeMillis()
                 val passBudgetMs = 20_000L
                 var publishedThisPass = 0
@@ -3760,7 +3763,7 @@ internal fun DiscogsDirectVersionBrowser(
                     val preview = withContext(Dispatchers.Default) {
                         DiscogsVersionSource.externalSeed(candidate, previewTitle, previewOriginal)
                     }
-                    if (!pending.isTwin(candidate) && CoverLabTurboTwinGuard.possibleTwin(preview, history)) {
+                    if (!pending.isTwin(candidate) && withContext(Dispatchers.Default) { CoverLabTurboTwinGuard.possibleTwin(preview, history) }) {
                         pending.markTwin(candidate)
                         return
                     }
@@ -3822,7 +3825,7 @@ internal fun DiscogsDirectVersionBrowser(
                         !CoverLab71FoundationGate.withinOriginalCaps(seed, originalArtist(), history)) {
                         pending.complete(candidate); return
                     }
-                    if (!pending.isTwin(candidate) && CoverLabTurboTwinGuard.possibleTwin(seed, history)) {
+                    if (!pending.isTwin(candidate) && withContext(Dispatchers.Default) { CoverLabTurboTwinGuard.possibleTwin(seed, history) }) {
                         pending.markTwin(candidate)
                         return
                     }
@@ -3842,6 +3845,18 @@ internal fun DiscogsDirectVersionBrowser(
                         musiclabScore100 = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle(), originalArtist(), thisRound, verified.title).confidencePercent,
                     )
                     if (!presentation.stage(thisRound, admitted)) return
+                    val preparedCount = presentation.total(thisRound)
+                    val boundary = when {
+                        preparedCount >= 50 -> 50
+                        preparedCount >= 30 -> 30
+                        preparedCount >= 10 -> 10
+                        else -> 0
+                    }
+                    if (measuredRound != thisRound) { measuredRound = thisRound; measuredBoundary = 0 }
+                    if (boundary > measuredBoundary) {
+                        measuredBoundary = boundary
+                        android.util.Log.i("MusicLabCoverTiming", "round=$thisRound prepared=$boundary elapsed_ms=${SystemClock.elapsedRealtime() - preparationStartedAt}")
+                    }
                     publishedThisPass++
                     pending.complete(candidate)
                     flushInitial()
@@ -4034,14 +4049,15 @@ internal fun DiscogsDirectVersionBrowser(
                             if (next.playbackVideoId.isNullOrBlank()) {
                                 if (linkingJob?.isActive == true) { pending.defer(next); continue }
                                 linkingJob = launch {
+                                awaitResources()
                                 if (sourceCooling("YouTube diretto")) { pending.defer(next); return@launch }
                                 val unlinkedTitle = workTitle()
                                 val unlinkedOriginal = originalArtist()
                                 val unlinked = withContext(Dispatchers.Default) {
                                     DiscogsVersionSource.externalSeed(next, unlinkedTitle, unlinkedOriginal)
                                 }
-                                if (!pending.isTwin(next) && CoverLabTurboTwinGuard.possibleTwin(unlinked,
-                                        previousRoundRows + publishedCoverSnapshots)) {
+                                val twinHistory = previousRoundRows + publishedCoverSnapshots
+                                if (!pending.isTwin(next) && withContext(Dispatchers.Default) { CoverLabTurboTwinGuard.possibleTwin(unlinked, twinHistory) }) {
                                     pending.markTwin(next)
                                     return@launch
                                 }

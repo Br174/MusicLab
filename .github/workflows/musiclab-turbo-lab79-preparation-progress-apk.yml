@@ -68,16 +68,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-3.apk
-          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-3-APK.zip
+          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-4.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-4-APK.zip
           test -s "$APK"
           test -s "$ZIP"
           unzip -tq "$ZIP"
           python3 - <<'PY'
           import hashlib, zipfile
           from pathlib import Path
-          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-3.apk')
-          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-3-APK.zip')
+          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-4.apk')
+          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-4-APK.zip')
           digest=lambda data: hashlib.sha256(data).hexdigest()
           with zipfile.ZipFile(archive) as z:
               names=[n for n in z.namelist() if n.lower().endswith('.apk')]
@@ -99,10 +99,10 @@ jobs:
         if: contains(github.event.head_commit.message, '[build-apk]')
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-Turbo-LAB79-Revisione-3-Preparation-Progress-APK-ZIP
+          name: MusicLab-Turbo-LAB79-Revisione-4-Preparation-Progress-APK-ZIP
           path: |
-            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-3.apk
-            dist/uab/MusicLab-Turbo-LAB79-Revisione-3-APK.zip
+            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-4.apk
+            dist/uab/MusicLab-Turbo-LAB79-Revisione-4-APK.zip
             dist/uab/BUILD_SHA.txt
             dist/uab/SHA256SUMS.txt
           if-no-files-found: error
