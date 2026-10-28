@@ -3861,11 +3861,19 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     if (!isActive || generation != turboSearchGeneration || thisRound != presentation.preparationRound) return
                     withContext(Dispatchers.IO) { CoverPlaybackMemory.saveMetadataVerifiedVideo(context, seed.fingerprint, id) }
-                    val commitHistory = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots + presentation.preparedRows()
-                    if (CoverLab71FoundationGate.isDuplicate(seed, commitHistory) ||
-                        !CoverLab71FoundationGate.withinOriginalCaps(seed, originalArtist(), commitHistory)) {
-                        pending.complete(candidate); return
+                    var commitHistory = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots + presentation.preparedRows()
+                    while (isActive) {
+                        val uncertain = withContext(Dispatchers.Default) { CoverLabTurboTwinGuard.possibleTwin(seed, commitHistory) }
+                        val latest = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots + presentation.preparedRows()
+                        if (latest != commitHistory) { commitHistory = latest; continue }
+                        if (CoverLab71FoundationGate.isDuplicate(seed, commitHistory) ||
+                            !CoverLab71FoundationGate.withinOriginalCaps(seed, originalArtist(), commitHistory)) {
+                            pending.complete(candidate); return
+                        }
+                        if (uncertain) { pending.markTwin(candidate); pending.defer(candidate); return }
+                        break
                     }
+                    if (!isActive || generation != turboSearchGeneration || thisRound != presentation.preparationRound) return
                     session.preparedVideoSongs[id] = verified
                     session.playReadyVideoIds.add(id)
                     session.usedVideoIds.add(id)
