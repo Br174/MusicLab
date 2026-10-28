@@ -3978,7 +3978,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 withContext(Dispatchers.Main.immediate) {
                                     offerCandidates(stored.map { item -> CoverSourceCandidate(
                                         title = item.title, artist = item.artist,
-                                        sources = (listOf("Archivio Cloud") + item.sourceNames).distinct(), year = item.year,
+                                        sources = (listOf("Archivio Cloud") + item.sourceNames).distinct(), year = item.year, album = item.album,
                                         category = when (item.category.lowercase()) {
                                             "live" -> AiCoverCategory.LIVE; "remix" -> AiCoverCategory.REMIX
                                             "foreign", "straniera" -> AiCoverCategory.FOREIGN; else -> AiCoverCategory.COVER
