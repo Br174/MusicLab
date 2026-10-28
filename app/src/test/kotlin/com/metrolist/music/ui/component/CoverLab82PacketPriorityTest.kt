@@ -111,7 +111,7 @@ class CoverLab82PacketPriorityTest {
         val singer=candidate("Singer","singer00001")
         val ordered=CoverPriorityOrder.order(listOf(channel,singer),"Il mondo","",1)
         assertEquals(listOf(singer,channel),ordered)
-        assertTrue(CoverLabTurboRoundAdmission.evaluate(channel,"Il mondo","",1).admitted)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(channel,"Il mondo","",6).admitted)
         val karaoke=channel.copy(title="Il mondo karaoke",playbackVideoTitle="Il mondo karaoke")
         assertFalse(CoverLabTurboRoundAdmission.evaluate(karaoke,"Il mondo","",1).admitted)
     }

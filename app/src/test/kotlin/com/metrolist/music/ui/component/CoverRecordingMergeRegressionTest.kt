@@ -82,7 +82,7 @@ class CoverRecordingMergeRegressionTest {
         assertTrue(second.size > 4)
         val fourth = CoverRoundSearchPlan.queries("Che cosa c'è", 4)
         val fifth = CoverRoundSearchPlan.queries("Che cosa c'è", 5)
-        assertEquals("Che cosa c'è", fourth.first().text)
+        assertFalse(fourth.any { it.text.trim() == "Che cosa c'è" })
         assertTrue(fourth.any { it.text.contains("guitar") })
         assertTrue(fourth.any { it.text.contains("orchestra") })
         assertTrue(fifth.map { it.text }.containsAll(fourth.map { it.text }))

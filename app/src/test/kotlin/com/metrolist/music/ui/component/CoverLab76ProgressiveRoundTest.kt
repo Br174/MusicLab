@@ -60,15 +60,15 @@ class CoverLab76ProgressiveRoundTest {
         ))
     }
 
-    @Test fun firstThreeRoundsRankWeakEvidenceWithoutDiscardingIt() {
+    @Test fun firstFiveRoundsDeferTitleOnlyEvidenceWithoutDiscardingIt() {
         val lowMetadata=row("Soli", artist="Uncredited uploader")
-        for(round in 1..3) {
-            assertTrue(CoverLabTurboRoundAdmission.evaluate(
+        for(round in 1..5) {
+            assertFalse(CoverLabTurboRoundAdmission.evaluate(
                 lowMetadata,"Soli","Adriano Celentano",round,"Soli",
             ).admitted)
         }
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
-            lowMetadata,"Soli","Adriano Celentano",4,"Soli",
+            lowMetadata,"Soli","Adriano Celentano",6,"Soli",
         ).admitted)
     }
 
@@ -79,7 +79,7 @@ class CoverLab76ProgressiveRoundTest {
                 row(name),"Soli","Adriano Celentano",9,name,
             ).admitted)
         }
-        assertTrue(CoverLabTurboRoundAdmission.evaluate(
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(
             row("Soli e non soli"),"Soli","Adriano Celentano",10,"Soli e non soli",
         ).admitted)
     }
@@ -87,7 +87,8 @@ class CoverLab76ProgressiveRoundTest {
     @Test fun laterRoundQueriesKeepExactTitleAndUseRotatingMultilingualDescriptors() {
         for(round in 4 until CoverRoundSearchPlan.finalRound) {
             val queries=CoverRoundSearchPlan.queries("Soli",round,"Adriano Celentano")
-            assertEquals("Soli",queries.first().text)
+            assertFalse(queries.any { it.text.trim() == "Soli" })
+            assertTrue(queries.all { it.text.startsWith("Soli ") })
             assertTrue(queries.size>=5)
             assertTrue(queries.any { it.text.contains("Soli ") })
         }

@@ -44,6 +44,7 @@ class CoverLab77PriorityQueueTest {
         title = title, artist = artist, sources = listOf(source), album = album,
         playbackVideoId = id, playbackVideoTitle = title,
         workRelationConfirmed = documented, originalWorkReference = original,
+        firstPublicationConfirmed = original && documented && source == "COVER.INFO",
         category = category,
     )
 

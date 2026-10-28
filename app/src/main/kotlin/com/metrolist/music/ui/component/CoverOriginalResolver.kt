@@ -3,6 +3,7 @@ package com.metrolist.music.ui.component
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.yield
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -103,28 +104,30 @@ internal object CoverOriginalResolver {
     }
 
     /** Uses the existing work catalogue first; success is never required by the caller. */
-    suspend fun resolve(title: String, artist: String, known: List<CoverSourceCandidate>, config: Config?,
+    suspend fun resolve(title: String, artist: String, known: () -> List<CoverSourceCandidate>, config: Config?,
         awaitResources: suspend () -> Unit,
         onCandidates: suspend (List<CoverSourceCandidate>) -> Unit,
     ) {
         if (title.isBlank() || artist.isBlank()) return
-        if (CoverPriorityOrder.originalReference(known) != null) return
+        if (CoverPriorityOrder.originalReference(known()) != null) return
         withTimeoutOrNull(32_000L) {
             awaitResources()
             val lookup = withContext(Dispatchers.IO) { MusicBrainzCoverSource.lookup(title, artist) }
             val credits = lookup.work?.credits.orEmpty().map {
                 com.metrolist.music.discogs.DiscogsCredit(name = it.name, role = it.role)
             }
-            val versions = (lookup.originalVersions + lookup.covers).map { row ->
+            val versions = withContext(Dispatchers.Default) { (lookup.originalVersions + lookup.covers).map { row ->
                 CoverSourceCandidate(title = row.title, artist = row.artist, sources = listOf("MusicBrainz"),
                     year = row.year, sourceUrl = "https://musicbrainz.org/recording/${row.recordingId}",
                     workRelationConfirmed = true, credits = credits,
                     category = if (TitleMeaningResolver.matchesBaseTitle(title, row.title, setOf(row.artist)))
                         AiCoverCategory.COVER else AiCoverCategory.FOREIGN)
             }
-            onCandidates(versions)
+            }
+            for (batch in versions.chunked(25)) { awaitResources(); onCandidates(batch); yield() }
             // Existing catalogue documents are checked before asking the configured model.
-            val documented = known.filter { it.workRelationConfirmed && !it.sourceUrl.isNullOrBlank() }
+            if (CoverPriorityOrder.originalReference(known()) != null) return@withTimeoutOrNull
+            val documented = (known() + versions).filter { it.workRelationConfirmed && !it.sourceUrl.isNullOrBlank() }
                 .sortedBy { it.year ?: Int.MAX_VALUE }
             for (candidate in documented) {
                 awaitResources()
@@ -140,10 +143,10 @@ internal object CoverOriginalResolver {
             awaitResources()
             // Same title alone is insufficient: anchor the suggested rendition to the
             // selected recording's actual work, in either catalogue lookup direction.
-            val linked = versions.firstOrNull {
+            val linked = withContext(Dispatchers.Default) { versions.firstOrNull {
                 CoverLab71FoundationGate.isOriginalPerformer(it.artist, proposal.artist) &&
                     TitleMeaningResolver.matchesBaseTitle(proposal.title, it.title, setOf(proposal.artist))
-            } ?: withContext(Dispatchers.IO) {
+            } } ?: withContext(Dispatchers.IO) {
                 val reverse = MusicBrainzCoverSource.lookup(proposal.title, proposal.artist)
                 if (reverse.covers.none { CoverLab71FoundationGate.isOriginalPerformer(it.artist, artist) &&
                         TitleMeaningResolver.matchesBaseTitle(title, it.title, setOf(artist)) }) null

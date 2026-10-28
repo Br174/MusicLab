@@ -27,12 +27,12 @@ class CoverLab71FoundationGateTest {
         resolvedVideoTitle = title, durationSeconds = duration,
     )
 
-    @Test fun uncertainTitleUsesWeakerEvidenceWithoutAdmissionVeto() {
+    @Test fun differentTitleIsNotTheRequestedWorkInAnyRound() {
         for (round in 1..8) {
             val wrong = CoverLabTurboRoundAdmission.evaluate(candidate("Felicità puttana"), "Felicità", "Lucio Dalla", round, "Felicità puttana")
             val original = CoverLabTurboRoundAdmission.evaluate(candidate(), "Felicità", "Lucio Dalla", round, "Felicità")
-            assertTrue(wrong.admitted)
-            assertTrue(original.admitted)
+            assertFalse(wrong.admitted)
+            assertEquals(round >= 2, original.admitted)
             assertTrue(wrong.confidencePercent < original.confidencePercent)
         }
         assertFalse(CoverLab71FoundationGate.matchesRequestedWork(candidate("Felicità - lead journalist"), "Felicità", "Lucio Dalla", "Felicità - lead journalist"))
@@ -45,7 +45,7 @@ class CoverLab71FoundationGateTest {
         }
         for (title in listOf("Felicità - performed instrumental cover", "Felicità backing track", "Felicità piano tutorial", "Felicità base musicale")) {
             assertFalse(CoverLab71FoundationGate.isForbidden(title))
-            assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 1, title).admitted)
+            assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 2, title).admitted)
         }
     }
 

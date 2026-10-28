@@ -79,7 +79,7 @@ internal object CoverPriorityOrder {
                     CoverLabTurboRoundAdmission.facts(candidate, targetTitle, originalArtist)),
                 group(candidate, originalArtist, round))
         }.sortedWith(
-            compareBy<Ranked> { it.late }.thenBy { it.minimumRound > round }
+            compareBy<Ranked> { it.late }
                 .thenBy { it.preference }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.collectorHave ?: 0 }.thenBy { it.index }
@@ -106,12 +106,11 @@ internal object CoverPriorityOrder {
     fun originalReference(candidates: List<CoverSourceCandidate>): CoverSourceCandidate? {
         val documented = candidates.filter { candidate ->
             candidate.originalWorkReference && candidate.firstPublicationConfirmed && candidate.artist.isNotBlank() &&
-                candidate.playbackVideoSource != "YouTube documentario" &&
                 candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) || it.equals("Discogs", true) }
         }.groupBy { TitleMeaningResolver.canonical(it.artist) }
             .values.sortedByDescending { it.size }
         val first = documented.firstOrNull() ?: return null
-        if (documented.getOrNull(1)?.size == first.size) return null
+        if (documented.size != 1) return null
         return first.first()
     }
 
@@ -332,6 +331,7 @@ internal object CoverPriorityOrder {
         fun defer(candidate: CoverSourceCandidate) {
             retryAfter[key(candidate)] = pass + 2
         }
+        fun reconsiderEvidence() { heldUntilRound.clear(); attempted.clear(); revision++; dirty = true }
         fun deferUntil(candidate: CoverSourceCandidate, round: Int) {
             heldUntilRound[key(candidate)] = round
         }

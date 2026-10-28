@@ -29,4 +29,9 @@ class CoverLab83OriginalResolutionTest {
             assertFalse(url, CoverOriginalResolver.safeDocument(url))
         assertTrue(CoverOriginalResolver.safeDocument("https://www.discogs.com/release/1"))
     }
+    @Test fun aNegatedFirstPublicationClaimCannotConfirmAnOriginal() {
+        assertFalse(CoverOriginalResolver.documentsFirstPublication(
+            "Il mondo was not first released by Primo interprete in 1960.", proposal))
+    }
+
 }

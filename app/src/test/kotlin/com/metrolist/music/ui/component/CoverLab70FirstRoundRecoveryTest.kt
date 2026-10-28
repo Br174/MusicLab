@@ -21,13 +21,13 @@ class CoverLab70FirstRoundRecoveryTest {
         )
 
     @Test fun felicitaLucioDallaOriginalIsAdmittedInFirstRound() {
-        val original = video("Felicità", "Lucio Dalla")
+        val original = video("Felicità", "Lucio Dalla", "COVER.INFO", documentaryWork = true)
         assertTrue(
             CoverLabTurboRoundAdmission.evaluate(
                 original, "Felicità", "Lucio Dalla", 1, "Felicità"
             ).admitted
         )
-        val topic = video("Felicità", "Lucio Dalla - Topic")
+        val topic = video("Felicità", "Lucio Dalla - Topic", "MusicBrainz", documentaryWork = true)
         assertTrue(
             CoverLabTurboRoundAdmission.evaluate(
                 topic, "Felicità", "Lucio Dalla", 1, "Lucio Dalla - Felicità"
@@ -37,7 +37,7 @@ class CoverLab70FirstRoundRecoveryTest {
 
     @Test fun sameNamedOtherWorkIsNotMisattributedToLucioDalla() {
         val homonym = video("Felicità", "Al Bano e Romina Power", "YouTube")
-        assertTrue(
+        assertFalse(
             CoverLabTurboRoundAdmission.evaluate(
                 homonym, "Felicità", "Lucio Dalla", 1, "Felicità"
             ).admitted
@@ -48,7 +48,7 @@ class CoverLab70FirstRoundRecoveryTest {
         val anonymous = video("Felicità", "Unrelated channel", "YouTube")
         assertTrue(
             CoverLabTurboRoundAdmission.evaluate(
-                anonymous, "Felicità", "Lucio Dalla", 1, "Felicità - Lucio Dalla"
+                anonymous, "Felicità", "Lucio Dalla", 2, "Felicità - Lucio Dalla"
             ).admitted
         )
     }
@@ -62,7 +62,7 @@ class CoverLab70FirstRoundRecoveryTest {
                 documented, "Il mondo", "Jimmy Fontana", 1, "El mundo"
             ).admitted
         )
-        val original = video("Sapore di sale", "Gino Paoli")
+        val original = video("Sapore di sale", "Gino Paoli", "COVER.INFO", documentaryWork = true)
         assertTrue(
             CoverLabTurboRoundAdmission.evaluate(
                 original, "Sapore di sale", "Gino Paoli", 1, "Sapore di sale"
