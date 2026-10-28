@@ -918,7 +918,7 @@
     "id": "musiclab.cover.packet-card-r7.20261028",
     "authority": "Bruno: proceed only with agreed packet priority and clean card corrections",
     "plan": ".motorlab/R7_COVER_PACKET_CARD_PLAN_20261028.txt",
-    "state": "IMPLEMENTED_PENDING_NATIVE_VERIFICATION",
+    "state": "CI_VERIFIED_PHONE_PENDING",
     "firstPacketPriority": "Preserve release/original/accredited/related priority in preparation and ready publication pool including overflow; metadata readiness never overrides rank. No new admission threshold.",
     "publication": "Only first 10 (or exhausted first residual) automatic; following 20+20 each require one manual continue command. Background preparation never drains multiple packets.",
     "card": "Full title and credited artist without ellipsis; documentary recording year only, never upload date or inherited year from a related work. All actual discovery sources and playback service. Explicit studio proof required; otherwise Published or Cover.",
@@ -931,6 +931,21 @@
       "case": "workBindingDoesNotDateALiveVideoWithTheStudioAlbumYear"
     },
     "deviceVerified": false,
-    "lastGoodPromoted": false
+    "lastGoodPromoted": false,
+    "implementationEvidence": {
+      "commit": "6540b3d86937959df511c0d3fe24e26c3366ce40",
+      "workflow": "https://github.com/Br174/MusicLab/actions/runs/40709596442",
+      "job": 122891807813,
+      "nativeAndroidSuite": "PASS",
+      "audioRecordingContracts": "PASS",
+      "scopeGuard": "PASS",
+      "signedApkAndZip": "PASS",
+      "artifactId": 12826895516,
+      "apkSha256": "cb175d2f60d7e4c5016d71b8cd58b621af35ebbb94c64e7edea8b54a42b1e466",
+      "zipSha256": "0f16a20ad68bbe030a2ce6a04d2dc6bffd1966fab8af31545325fd9f2205c01d",
+      "apkLibraryId": "libfile_e14119daf44881918edd3f3e3e62e158",
+      "zipLibraryId": "libfile_e510a8a908b88191bb6ea7646b237e62",
+      "physicalPhone": "PENDING_BRUNO_TEST"
+    }
   }
 }
