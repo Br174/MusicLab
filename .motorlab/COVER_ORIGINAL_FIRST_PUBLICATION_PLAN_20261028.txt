@@ -1,0 +1,71 @@
+MUSICLAB COVER — DALLA COVER ALL'INTERPRETE DELLA PRIMA PUBBLICAZIONE
+Data: 28 ottobre 2026. Base memoria: 9d345fd514b1a1c0be126b2811e2abd377d42f21.
+Autorità: Bruno richiede un prospetto riorganizzato e la memorizzazione dei nuovi chiarimenti, con alternative a COVER.INFO. Questa operazione NON modifica app, player, test applicativi, workflow o APK.
+STATO: requisiti utente memorizzati; organizzazione tecnica sotto descritta come proposta operativa per la successiva implementazione/revisione.
+
+1. COSA SIGNIFICA ORIGINALE
+L'obiettivo è l'INTERPRETE della PRIMA VERSIONE PUBBLICATA di quella stessa canzone, con la pubblicazione che lo documenta. Non identificare automaticamente l'originale con autore/compositore, con l'album più vecchio trovato, con una ristampa o con il video caricato prima.
+Si parte da una CANZONE PUBBLICATA/REGISTRATA disponibile online, che può essere una cover. Non da un video YouTube arbitrario. Tale partenza dà un riferimento discografico utile, ma non garantisce che tutti i crediti siano esposti o completi.
+Titolo, autori/compositori e crediti servono a trovare la stessa opera. Da quella si risale alle registrazioni e alla prima pubblicazione e al suo interprete. Eventuali adattamenti stranieri documentati restano collegati all'opera di origine senza imporre titolo letterale uguale.
+
+2. DATI UTILI ALL'INGRESSO, SENZA NUOVI CAMPI OBBLIGATORI
+Riutilizzare titolo, interprete della versione selezionata, album/singolo, identificativi disponibili, crediti di autore/compositore e altri metadati realmente ottenuti. Gli identificativi di registrazione (per esempio ISRC o ID di catalogo) aiutano il riconoscimento quando disponibili, ma non sono nuovi requisiti obbligatori.
+Distinguere interprete, autore del testo e compositore. Due etichette che ripetono lo stesso credito non sono automaticamente due riscontri distinti.
+
+3. PRINCIPIO MULTIFONTE
+COVER.INFO è utile ma non è l'unico archivio né un requisito per completare la ricerca. Assenza del brano, indisponibilità o timeout di una fonte non significano assenza dell'originale né assenza di cover.
+Sono percorsi complementari, secondo disponibilità e dati effettivi:
+- Relazioni già documentate cover-originale: COVER.INFO e altre fonti affidabili che le attestano esplicitamente.
+- Opera, autori e registrazioni collegate: MusicBrainz; gli identificativi e le relazioni possono ridurre ambiguità fra titoli omonimi.
+- Pubblicazioni, tracklist, interpreti, crediti, etichetta e catalogo: Discogs e altre fonti discografiche/documentali utilizzabili.
+- Cataloghi musicali già accessibili nell'app, come Apple/iTunes o Spotify, e discografie ufficiali di artisti/etichette, quando forniscono i dati pertinenti: supportano riconoscimento e verifica, senza attribuire loro metadati non effettivamente disponibili.
+- IA come proponente per casi non risolti dai collegamenti disponibili; verifica documentale sempre separata dalla proposta.
+Nessun singolo servizio, identificativo, parola official o etichetta discografica diventa un nuovo vincolo d'ingresso. Nessuna promessa di copertura completa di tutti i cataloghi.
+
+4. PROPOSTA OPERATIVA PER RIDURRE LE ATTESE
+4A. Riutilizzare subito un riferimento originale già verificato e pertinente, se presente nei dati disponibili; non ripetere ricerche inutili.
+4B. In background avviare il riconoscimento della versione e i percorsi utili di relazione diretta e di opera/crediti. Consultare COVER.INFO e l'alternativa pertinente, ad esempio MusicBrainz, con concorrenza controllata e priorità al player. Non imporre di attendere un esito negativo COVER.INFO prima di poter usare una fonte indipendente.
+4C. Se una fonte documenta chiaramente la prima versione pubblicata e il legame con la cover di partenza, un riscontro affidabile può bastare. Non aspettare che rispondano tutti i servizi e non imporre una maggioranza di fonti.
+4D. Se è stata identificata soltanto l'opera, cercare le sue diverse registrazioni e le loro PRIME PUBBLICAZIONI. Confrontare le date pertinenti alla singola registrazione, verificando singolo/album ed eventualmente etichetta e numero di catalogo.
+4E. Se i dati mancano o sono ambigui, l'IA può suggerire un possibile primo interprete/pubblicazione o altre piste da verificare. Non far ripartire da zero i controlli già compiuti. La sola risposta IA non conferma nulla.
+Questa è una proposta di organizzazione delle corsie, non una nuova scelta di provider a pagamento, un modello IA obbligatorio, una misura di latenza garantita o codice già esistente.
+
+5. COME VALUTARE LA DATA
+La data utile è la prima pubblicazione della specifica registrazione, non la data di caricamento YouTube, di inserimento nella piattaforma, di copyright o di una ristampa. Autore/compositore permettono di collegare l'opera, ma non provano da soli chi l'ha pubblicata per primo.
+La più antica fra quelle trovate è una CANDIDATA; non diventa automaticamente la prima pubblicazione assoluta se mancano dati o altre versioni.
+Quando una fonte affidabile documenta esplicitamente la prima pubblicazione e la relazione con la cover, il collegamento può essere confermato senza ulteriori verifiche ridondanti.
+Se prime versioni risultano contemporanee o non ordinabili, non scegliere arbitrariamente un unico primo interprete.
+
+6. ESITO DA CONSERVARE
+Quando verificato: interprete della prima versione pubblicata, titolo pertinente, data con la precisione realmente nota, album/singolo/pubblicazione ed etichetta se disponibili, fonte del riscontro e collegamento alla cover selezionata.
+Quando incompleto: conservare ipotesi e dati disponibili senza dichiararli originali confermati; nessuna data o attribuzione inventata. Lo stato incerto non elimina candidati.
+
+7. SEMPRE TENTARE, MA NON BLOCCARE
+Il tentativo è sistematico quando si parte da una cover di originale non noto; il successo resta un miglioramento e non è obbligatorio per far funzionare la ricerca.
+Se non si trova l'originale, il sistema continua con la versione selezionata e i metadati disponibili. Risultati, fluidità, riproduzione e recupero dei lenti restano prioritari.
+L'approfondimento può proseguire in background senza rallentare artificialmente i pacchetti o cancellare versioni.
+La verifica inversa originale-verso-cover di partenza resta un rinforzo possibile, non una seconda condizione obbligatoria.
+La ricerca dell'originale non è un nuovo prerequisito per ogni cover trovata né per ogni ciclo.
+
+8. COMPATIBILITÀ CON LA SESTA TORNATA E CON LA RICERCA COVER
+L'arricchimento del riferimento si avvia nel percorso iniziale della ricerca; non riavviare ricerche documentali perché si entra nella sesta.
+La sesta mantiene il proprio percorso video YouTube autonomo, senza attendere servizi documentali. Dati già acquisiti o in arrivo da tentativi precedenti possono migliorare il contesto senza diventare dipendenze.
+Conservare indipendente la raccolta delle cover: trovare l'originale non deve cancellare le altre versioni, fermare le fonti utili o impedire il recupero delle eccedenze.
+
+9. PREVALENZA E CONFLITTI RISOLTI
+- Originale generico/autore/compositore -> interprete della PRIMA VERSIONE PUBBLICATA.
+- COVER.INFO come unica strada o attesa obbligatoria -> più percorsi indipendenti; fonte mancante non blocca gli altri.
+- Più vecchia trovata uguale originale certo -> candidata fino a riscontro adeguato della prima pubblicazione.
+- IA obbligatoria anche quando i metadati bastano -> usare il collegamento documentato disponibile; IA di supporto ai casi irrisolti.
+- Tre riscontri o verifica inversa obbligatori per risalire all'originale -> un riscontro affidabile può bastare, verifica inversa facoltativa.
+Rimangono intatti i conteggi/categorie/cicli e tutte le regole compatibili già salvate. Questa procedura non modifica la matrice delle evidenze delle tornate.
+
+10. FONTI DI DOCUMENTAZIONE DELLA PROPOSTA
+COVER.INFO Help: https://cover.info/en/help — definizione di originale come prima versione pubblicata e relazioni tra versioni, compresi casi co-originali.
+MusicBrainz API: https://musicbrainz.org/doc/MusicBrainz_API — registrazioni, opere, relazioni, pubblicazioni e identificativi, con paginazione dei collegamenti.
+MusicBrainz How to Use Works: https://musicbrainz.org/doc/How_to_Use_Works — collegamenti fra composizione e interpretazioni.
+Discogs Credits: https://support.discogs.com/hc/en-us/articles/360005006834-Database-Guidelines-10-Credits — crediti di pubblicazione e di traccia.
+MusicBrainz Style/Release: https://musicbrainz.org/doc/Style/Release — distinzione della data della specifica pubblicazione e delle ristampe.
+Fonti consultate per i ruoli dei dati; non costituiscono garanzia che una determinata canzone o ogni metadato sia presente.
+
+STATO FINALE: MEMORIA E PROSPETTO SALVATI; IMPLEMENTAZIONE E COLLAUDO APPLICATIVO NON ESEGUITI.

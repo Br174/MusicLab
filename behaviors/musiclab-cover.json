@@ -679,7 +679,7 @@
       "version": 1,
       "status": "active",
       "protected": true,
-      "behavior": "When starting from a cover whose original is not already known, always ATTEMPT original identification in background without blocking search/cards/player. AI proposes a possible original work/performer/version; its answer alone is not evidence. Verify the proposed same-work link through documented corroboration; ONE reliable corroboration can suffice for this separate operation. An equal title alone is only a clue because of homonyms. A reverse lookup from proposed original to the starting cover may strengthen confirmation but is not an obligatory second check. If original identification fails, remains uncertain or is slow, continue with available selected-version information, retaining results/candidates and allowing background enrichment. Never label the selected cover singer or the AI hypothesis as confirmed original without verification. Verified original context improves finding/recognizing other covers; its absence is never a new admission condition. Evidence of any pertinent distinct documented kind is allowed without a rigid mandatory combination. All saved round evidence totals/cycle requirements/categories/retention/COVER.INFO/identity/dedup/player protections remain unchanged.",
+      "behavior": "When starting from a cover whose original is not already known, always ATTEMPT original identification in background without blocking search/cards/player. Original means the performer of the FIRST PUBLISHED VERSION of the same song. Start from the selected published recording; use available metadata and documented links across multiple sources, not COVER.INFO alone. AI can propose a candidate if links/data are insufficient; its answer alone is not evidence. Verify that the candidate is linked to the same work and is the first published version through documented corroboration; ONE reliable explicit corroboration can suffice. Identifying only the work or finding the earliest item in an incomplete catalog does not automatically prove the first published performer. An equal title alone is only a clue because of homonyms. A reverse lookup from proposed original to the starting cover may strengthen confirmation but is not an obligatory second check. If original identification fails, remains uncertain or is slow, continue with available selected-version information, retaining results/candidates and allowing background enrichment. Never label the selected cover singer or the AI hypothesis as confirmed original without verification. Verified original context improves finding/recognizing other covers; its absence is never a new admission condition. Evidence of any pertinent distinct documented kind is allowed without a rigid mandatory combination. All saved round evidence totals/cycle requirements/categories/retention/COVER.INFO/identity/dedup/player protections remain unchanged.",
       "supplements": [
         "musiclab.cover.round-evidence-allocation.v1",
         "musiclab.cover.six-rounds.v1"
@@ -698,9 +698,37 @@
       ],
       "testPaths": [],
       "implementationState": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED"
+    },
+    {
+      "id": "musiclab.cover.original-first-publication.multisource.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Original identification seeks the performer of the FIRST PUBLISHED VERSION of the same song, not automatically its writer/composer or earliest item returned. Input is a published recorded track online, potentially a cover. COVER.INFO is useful but never the sole mandatory archive: use available MusicBrainz work/recording links, Discogs release/track credits, other existing music catalogs and relevant official documentary sources as complementary paths. Missing catalog entry or source timeout never means no original or no covers. Prefer available documented links and reuse known reference data; metadata/credits identify the work, first-publication evidence identifies the performer. Earliest-found date remains a candidate unless supported; distinguish recording first publication from reissue, upload or platform date. AI is support for unresolved leads with independent verification, never sole proof. A single reliable documented first-publication link may suffice; reverse verification remains optional. Always attempt when relevant without blocking results, title queries, audio or scrolling. No documentary restart/dependency in final round. All prior round evidence totals/categories/retention/identity/COVER.INFO trust and player protections preserved.",
+      "supplements": [
+        "musiclab.cover.original-resolution-assistance.v1"
+      ],
+      "supersedes": [],
+      "specPath": ".motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt",
+      "acceptance": [
+        "Original target is first published version performer, distinguished from writer",
+        "Input published recording identified without assuming complete metadata",
+        "Missing COVER.INFO entry does not prevent alternative source lookup",
+        "One adequate documented relation can suffice; no mandatory source consensus",
+        "Credit/work match alone does not automatically identify first published performer",
+        "Earliest-found date is not automatically absolute first release",
+        "AI proposal verified; reverse lookup optional",
+        "Unknown original or source timeout does not block ordinary cover results",
+        "Final YouTube video round has no new documentary dependency"
+      ],
+      "testPaths": [],
+      "implementationState": "MEMORY_SAVED_NOT_IMPLEMENTED",
+      "operationalDesignStatus": "PROPOSED_PROVIDER_ORGANIZATION_SAVED_FOR_REVIEW"
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-28-flexible-corroboration-and-original-assistance-memory-only",
+  "canonicalBehaviorRevision": "2026-10-28-original-first-published-performer-multisource-memory-only",
   "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
@@ -1096,6 +1124,16 @@
       "rule": "musiclab.cover.original-resolution-assistance.v1",
       "overridesRule": "original identification interpretations in prior discussion",
       "aspect": "Always attempt when relevant, but confirmed original is never required before ordinary results. One corroboration may suffice; reverse lookup is optional; AI proposal alone is not proof. Never turn the temporary original-must-be-found interpretation into a rule."
+    },
+    {
+      "rule": "musiclab.cover.original-first-publication.multisource.v1",
+      "overridesRule": "musiclab.cover.original-resolution-assistance.v1",
+      "aspect": "Specify original as first-published performer; documented multisource lookup can resolve it without AI. Same-work evidence alone does not necessarily prove that performer was first. Preserve single adequate corroboration, optional inverse check and nonblocking behavior."
+    },
+    {
+      "rule": "musiclab.cover.original-first-publication.multisource.v1",
+      "overridesRule": "any COVER.INFO-only or earliest-found-equals-original interpretation",
+      "aspect": "COVER.INFO not exclusive; failed/missing source has alternatives. Earliest-found recording remains a candidate without adequate first-publication support. Do not confuse composer with first performer."
     }
   ],
   "approvedOriginalResolution": {
@@ -1106,8 +1144,8 @@
     "trigger": "Search starts from a cover or original role is uncertain, original not already documented",
     "alwaysAttempt": true,
     "blockSearchUntilFound": false,
-    "aiRole": "PROPOSE_HYPOTHESIS_ONLY",
-    "verification": "ONE_RELIABLE_DOCUMENTED_SAME_WORK_CORROBORATION_CAN_SUFFICE",
+    "aiRole": "PROPOSE_UNRESOLVED_CANDIDATES_WHEN_DOCUMENTED_LINKS_ARE_INSUFFICIENT",
+    "verification": "ONE_RELIABLE_DOCUMENTED_LINK_TO_FIRST_PUBLISHED_VERSION_CAN_SUFFICE",
     "sameTitleAlone": "CLUE_NOT_AUTOMATIC_CONFIRMATION",
     "reverseLookup": "OPTIONAL_SUPPORT_NOT_MANDATORY_DOUBLE_VERIFICATION",
     "onVerified": "Use confirmed original as additional reference to find and recognize related covers",
@@ -1118,6 +1156,58 @@
     "appRuntimeChanged": false,
     "newApkBuilt": false,
     "lastGoodPromoted": false,
-    "sourceMemoryCommit": "c35564c69602f618388859f0b4e6ccc54b05641d"
+    "sourceMemoryCommit": "c35564c69602f618388859f0b4e6ccc54b05641d",
+    "originalMeaning": "PERFORMER_OF_FIRST_PUBLISHED_VERSION_OF_THE_SAME_SONG",
+    "input": "Published recorded song online, which may itself be a cover",
+    "coverInfoExclusiveDependency": false,
+    "multisourceRule": "musiclab.cover.original-first-publication.multisource.v1",
+    "sameWorkVersusFirstPerformer": "Credits/work relations identify composition; first-publication link identifies the original performer",
+    "earliestFoundDate": "CANDIDATE_NOT_AUTOMATICALLY_CONFIRMED_ORIGINAL"
+  },
+  "approvedOriginalFirstPublicationPlan": {
+    "ruleId": "musiclab.cover.original-first-publication.multisource.v1",
+    "path": ".motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt",
+    "state": "MEMORY_SAVED_NOT_IMPLEMENTED",
+    "operationalDesign": "PROPOSED_FOR_REVIEW",
+    "userRequirements": {
+      "originalIsFirstPublishedPerformer": true,
+      "selectedSongIsPublished": true,
+      "coverInfoExclusive": false,
+      "sourceFailureDoesNotBlock": true,
+      "alwaysAttemptWhenRelevant": true,
+      "originalSuccessRequired": false,
+      "oneAdequateCorroborationCanSuffice": true,
+      "inverseLookupMandatory": false
+    },
+    "proposedSourceRoles": [
+      {
+        "source": "COVER.INFO",
+        "role": "Explicit cover/original relations when present; not an exclusive prerequisite"
+      },
+      {
+        "source": "MusicBrainz",
+        "role": "Selected recording to work/authors and related recordings/publications"
+      },
+      {
+        "source": "Discogs",
+        "role": "Release/tracklist/credits/label/catalog documentary support"
+      },
+      {
+        "source": "Other already available music catalogs and official discographies",
+        "role": "Use pertinent available metadata, without assuming all fields exist"
+      },
+      {
+        "source": "AI",
+        "role": "Suggest unresolved candidate references, followed by documentary verification"
+      }
+    ],
+    "proposedExecution": "Reuse verified data; independent lightweight source paths with controlled background concurrency; don't wait for all providers after adequate confirmation; publication reconstruction and AI when necessary.",
+    "datePolicy": "Compare first publication of each pertinent recording; don't use upload/platform/reissue dates or treat oldest-found as globally first.",
+    "finalRoundCompatibility": "Initial enrichment may provide context later, but no documentary re-launch/dependency when entering final YouTube video round.",
+    "roundEvidenceCountsChanged": false,
+    "appRuntimeChanged": false,
+    "newApkBuilt": false,
+    "lastGoodPromoted": false,
+    "sourceMemoryCommit": "9d345fd514b1a1c0be126b2811e2abd377d42f21"
   }
 }

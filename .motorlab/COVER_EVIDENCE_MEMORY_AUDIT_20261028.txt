@@ -59,3 +59,11 @@ H4. La precedente voce aperta sul catalogo rigido dei riscontri è sostituita da
 H5. Nessuna regola compatibile già salvata viene ritirata o duplicata; le nuove disposizioni hanno precedenza solo nei propri aspetti. Nessuna conferma di relazioni musicali basata sull'esempio verbale Morgan/De André.
 H6. I contrasti APPLICATIVI della sezione D restano da correggere nel prossimo intervento; non sono dichiarati risolti da questa registrazione.
 STATO: SPECIFICA APPROVATA E SALVATA, APP INVARIATA. Nessun nuovo APK o promozione LAST_GOOD.
+
+
+I. ULTIMA PRECISAZIONE — INTERPRETE DELLA PRIMA PUBBLICAZIONE E METODO MULTIFONTE
+Bruno parte da una registrazione pubblicata disponibile online e cerca l'interprete della PRIMA VERSIONE PUBBLICATA della canzone. Autore/compositore aiutano a riconoscere l'opera, non identificano automaticamente il primo interprete.
+COVER.INFO utile ma non esclusivo: usare alternative documentali e cataloghi disponibili quando manca la relazione. Prospetto salvato in .motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt; MusicBrainz per opere e registrazioni, Discogs per pubblicazioni/crediti, altre fonti pertinenti e IA come supporto verificabile.
+RISOLUZIONI: nessuna attesa obbligatoria COVER.INFO; nessuna prima pubblicazione inventata dalla data più vecchia trovata; nessun bisogno obbligatorio dell'IA se il collegamento documentato è disponibile. Conferma possibile da un riscontro affidabile, verifica inversa eventuale, prosecuzione senza originale confermato.
+Compatibilità sesta: nessun riavvio documentale per entrare nella sesta, nessun legame bloccante fra arricchimento iniziale e corsia video autonoma.
+Nessuna modifica ai conteggi e alle categorie già salvati. I conflitti applicativi della sezione D restano NON CORRETTI; questa registrazione e la proposta operativa non certificano un comportamento runtime.

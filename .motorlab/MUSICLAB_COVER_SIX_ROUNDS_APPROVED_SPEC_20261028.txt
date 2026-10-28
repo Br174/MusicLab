@@ -193,3 +193,13 @@ Superare ogni lettura precedente che richiedesse l'identificazione certa dell'or
 Superare il precedente punto aperto inteso come necessità di una lista rigida di evidenze. Rimangono necessari riscontri pertinenti, realmente attestati e non duplicati.
 Le soglie di tornata già registrate, le categorie, COVER.INFO, il recupero dei lenti, la sesta autonoma, i pacchetti, i titoli/lingue, i duplicati, le schede e il player restano intatti. Il messaggio ritirato continua a non produrre nuove disposizioni.
 STATO: SAVED_APPROVED_NOT_IMPLEMENTED. La successiva modifica dell'app dovrà attuare la specifica consolidata; non è stata avviata in questa operazione.
+
+
+19. PRECISAZIONE SUCCESSIVA — PRIMA PUBBLICAZIONE E ALTERNATIVE A COVER.INFO
+Originale significa l'INTERPRETE della prima versione pubblicata della stessa canzone. Autori/compositori identificano l'opera ma non sono automaticamente i primi interpreti. La partenza è una canzone pubblicata/registrata disponibile online, eventualmente una cover.
+COVER.INFO non è una dipendenza esclusiva. Mancanze o indisponibilità del catalogo non fermano la ricerca: usare anche le relazioni opera-registrazioni di MusicBrainz, i dati di pubblicazione/crediti/tracklist di Discogs, gli altri cataloghi già utilizzabili e fonti ufficiali pertinenti. L'IA suggerisce piste da verificare quando i collegamenti disponibili non bastano.
+La data più vecchia reperita è una candidata, non una prova automatica di prima pubblicazione assoluta. Non usare data upload/piattaforma/ristampa o confondere pubblicazione con registrazione. Una fonte affidabile che documenta il collegamento e la prima pubblicazione può bastare, senza imporre tre fonti o una verifica inversa.
+Tentativo sempre pertinente e non bloccante: originale non trovato -> ricerca normale con i dati disponibili. Conteggi di tornata, categorie, cicli, fonti COVER.INFO già verificate, identità, duplicati e player invariati.
+Prospetto completo e proposta di organizzazione delle corsie: .motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt. Il prospetto distingue requisiti di Bruno da scelte operative proposte; non è codice implementato né autorizza nuove dipendenze o fornitori obbligatori.
+Questa precisazione prevale solo sulle letture incompatibili di originale=autore, fonte unica COVER.INFO, data minima=certezza automatica o attesa dell'originale prima dei risultati. Conservare le parti compatibili della sezione 18.
+STATO: SOLO MEMORIA, APP E APK INVARIATI.
