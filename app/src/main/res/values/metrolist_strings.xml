@@ -1222,4 +1222,7 @@
     <string name="musiclab_cover_preparing">Preparo le altre cover…</string>
     <string name="musiclab_cover_round_shown">Tornata %1$d · %2$d/50 miniature YouTube</string>
     <string name="musiclab_cover_prepared_count"> · %1$d già pronte</string>
+    <string name="musiclab_cover_none_final">Nessuna cover</string>
+    <string name="musiclab_cover_finished">Ricerca completata</string>
+    <string name="musiclab_cover_retry_final">Verifica non completata · Riprova</string>
 </resources>

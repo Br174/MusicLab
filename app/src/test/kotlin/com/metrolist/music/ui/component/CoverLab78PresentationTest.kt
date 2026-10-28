@@ -44,9 +44,9 @@ class CoverLab78PresentationTest {
         assertFalse(p.status().green)
         assertTrue(p.reveal().isEmpty())
         p.exhaust(1)
-        assertEquals(0, p.status().ready)
-        assertTrue(p.reveal().isEmpty())
-        assertEquals(10, p.status().shown)
+        assertEquals(8, p.status().ready)
+        assertEquals(8, p.reveal().size)
+        assertEquals(18, p.status().shown)
         assertTrue(p.status().green)
     }
 
@@ -56,6 +56,7 @@ class CoverLab78PresentationTest {
         assertTrue(p.takeInitial().isEmpty())
         assertFalse(p.status().green)
         p.exhaust(1)
+        assertEquals(3, p.reveal().size)
         assertTrue(p.status().green)
     }
 

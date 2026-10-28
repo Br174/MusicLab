@@ -14,7 +14,8 @@ internal class CoverRoundPresentation<T>(
     }
 
     data class Status(val shown: Int, val prepared: Int, val ready: Int,
-        val green: Boolean, val nextReady: Int)
+        val green: Boolean, val nextReady: Int,
+        val terminal: Boolean = false, val noResults: Boolean = false, val retryRequired: Boolean = false)
 
     private class Round<T> {
         val shown = linkedSetOf<String>()
@@ -22,11 +23,33 @@ internal class CoverRoundPresentation<T>(
         var exhausted = false
         var preparedSince: Long? = null
         val overflow = linkedMapOf<String, T>()
+        var lastProgress: Long? = null
+        var finalChecked = false
     }
     private val rounds = linkedMapOf<Int, Round<T>>()
     var visibleRound = 1
         private set
     private fun round(number: Int) = rounds.getOrPut(number) { Round() }
+    var finalRound: Int = Int.MAX_VALUE
+    fun beginPreparation(number: Int) {
+        val state = round(number)
+        if (state.lastProgress == null) state.lastProgress = clock()
+    }
+    fun pauseIdleClock(number: Int) { round(number).lastProgress = clock() }
+    fun closeIfIdle(number: Int): Boolean {
+        val state = round(number)
+        if (!state.exhausted && state.lastProgress?.let { clock() - it >= 7_000L } == true) {
+            state.exhausted = true
+            return true
+        }
+        return false
+    }
+    fun finalChecked(number: Int) { round(number).finalChecked = true }
+    fun isFinalChecked(number: Int): Boolean = round(number).finalChecked
+    fun verificationPending(number: Int) { round(number).finalChecked = false }
+    fun retry(number: Int) {
+        round(number).apply { exhausted = false; finalChecked = false; lastProgress = clock() }
+    }
     val preparationRound: Int get() = if (status().green) visibleRound + 1 else visibleRound
 
     fun stage(number: Int, row: T): Boolean {
@@ -41,6 +64,7 @@ internal class CoverRoundPresentation<T>(
             state.overflow[id] = row
             return true
         }
+        if (id !in state.prepared) state.lastProgress = clock()
         if (state.prepared.isEmpty()) state.preparedSince = clock()
         state.prepared[id] = row
         return true
@@ -77,7 +101,8 @@ internal class CoverRoundPresentation<T>(
 
     fun takeInitial(): List<T> {
         val remaining = (INITIAL_SIZE - round(visibleRound).shown.size).coerceAtLeast(0)
-        return if (round(visibleRound).prepared.size >= remaining) take(visibleRound, remaining) else emptyList()
+        val state = round(visibleRound)
+        return if (state.prepared.size >= remaining || state.exhausted) take(visibleRound, remaining) else emptyList()
     }
     fun reveal(): List<T> = take(visibleRound, status().ready)
     fun advance(): List<T> {
@@ -101,13 +126,17 @@ internal class CoverRoundPresentation<T>(
         val target = if (state.shown.size < INITIAL_SIZE) INITIAL_SIZE - state.shown.size
             else minOf(BLOCK_SIZE, (ROUND_SIZE - state.shown.size).coerceAtLeast(0))
         val size = state.prepared.size
-        return if (size >= target) target else 0
+        return if (size >= target || state.exhausted) minOf(size, target) else 0
     }
     fun status(): Status {
         val state = round(visibleRound)
-        val green = state.shown.size >= ROUND_SIZE || state.exhausted && ready(visibleRound) == 0
+        val finalEmpty = visibleRound >= finalRound && state.exhausted && state.prepared.isEmpty() && state.shown.size < ROUND_SIZE
+        val terminal = finalEmpty && state.finalChecked
+        val retryRequired = finalEmpty && !state.finalChecked
+        val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE || state.exhausted && ready(visibleRound) == 0)
         return Status(state.shown.size, state.prepared.size, ready(visibleRound), green,
-            if (green) ready(visibleRound + 1) else 0)
+            if (green) ready(visibleRound + 1) else 0,
+            terminal, terminal && rounds.values.all { it.shown.isEmpty() && it.prepared.isEmpty() && it.overflow.isEmpty() }, retryRequired)
     }
     fun needsPreparation(): Boolean {
         val number = preparationRound

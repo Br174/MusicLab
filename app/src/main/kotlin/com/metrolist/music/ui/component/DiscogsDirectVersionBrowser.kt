@@ -3473,6 +3473,7 @@ internal fun DiscogsDirectVersionBrowser(
         // Provider deadlines and 50-card blocks defer work without deleting candidates.
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
             val presentation = session.presentation
+            presentation.finalRound = CoverRoundSearchPlan.finalRound
             fun syncPresentation(synchronizeShown: Boolean = false) {
                 if (synchronizeShown) {
                     val shown = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots
@@ -3481,6 +3482,9 @@ internal fun DiscogsDirectVersionBrowser(
                     }.map { it.resolvedVideoId ?: it.fingerprint })
                 }
                 presentationStatus = presentation.status()
+                if (previousRoundRows.isNotEmpty() || publishedOriginalSnapshots.isNotEmpty()) {
+                    presentationStatus = presentationStatus.copy(noResults = false)
+                }
                 roundPlanComplete = presentationStatus.green
                 session.roundPlanComplete = roundPlanComplete
                 if (presentationStatus.green || previousRoundRows.isNotEmpty() || publishedCoverSnapshots.isNotEmpty()) loading = false
@@ -3504,6 +3508,7 @@ internal fun DiscogsDirectVersionBrowser(
             }
             val publicationBoundary = appendRound && !resumePreparation
             val sameSearch = activeCriteria == criteria
+            if (appendRound && presentation.status().retryRequired) presentation.retry(coverRoundNumber)
             if (!appendRound || !sameSearch) {
                 searchJob?.cancel()
                 coverRecoveryJob?.cancel()
@@ -3719,6 +3724,12 @@ internal fun DiscogsDirectVersionBrowser(
                 val statusUpdates = launch {
                     while (isActive) {
                         preparationAudioPaused = audioBusy()
+                        if (thisRound >= CoverRoundSearchPlan.finalRound && sourceCooling("Metadati YouTube")) presentation.verificationPending(thisRound)
+                        if (audioBusy() || listState.isScrollInProgress) presentation.pauseIdleClock(thisRound)
+                        else presentation.closeIfIdle(thisRound)
+                        if (thisRound == coverRoundNumber && presentation.exhausted(thisRound)) {
+                            while (presentation.status().ready > 0) appendVisible(presentation.reveal())
+                        }
                         preparationWaitingSources = session.sourceRetries.cooling(sourceContext()).keys.take(2).joinToString(", ")
                         syncPresentation()
                         delay(400L)
@@ -3867,6 +3878,7 @@ internal fun DiscogsDirectVersionBrowser(
                     try {
                     awaitResources()
                     thisRound = presentation.preparationRound
+                    presentation.beginPreparation(thisRound)
                     if (session.preparedWorkRound != thisRound) {
                         session.preparedWorkRound = thisRound
                         session.roundSourceChecked = false
@@ -3882,6 +3894,7 @@ internal fun DiscogsDirectVersionBrowser(
                         var documentaryFinished = false
                         val documents = launch(Dispatchers.IO) {
                             try {
+                                if (thisRound >= CoverRoundSearchPlan.finalRound) return@launch
                                 withContext(Dispatchers.Main.immediate) { awaitResources() }
                                 withTimeoutOrNull(16_000L) {
                                     // If a selected cover resolves to a different original, revisit the
@@ -3931,7 +3944,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 withContext(Dispatchers.Main.immediate) { documentaryFinished = true }
                             }
                         }
-                        val cloud = if (coverCloudEnabled && coverArchiveEnabled && foreignScoutConfig != null && !session.roundSourceChecked) launch(Dispatchers.IO) {
+                        val cloud = if (thisRound < CoverRoundSearchPlan.finalRound && coverCloudEnabled && coverArchiveEnabled && foreignScoutConfig != null && !session.roundSourceChecked) launch(Dispatchers.IO) {
                             withContext(Dispatchers.Main.immediate) { awaitResources() }
                             withTimeoutOrNull(6_500L) {
                                 val archiveTitle = withContext(Dispatchers.Main.immediate) { workTitle() }
@@ -3951,7 +3964,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
                         } else null
-                        val discogs = if (discogsToken.isNotBlank() && !session.discogsComplete && !sourceCooling("Discogs")) launch {
+                        val discogs = if (thisRound < CoverRoundSearchPlan.finalRound && discogsToken.isNotBlank() && !session.discogsComplete && !sourceCooling("Discogs")) launch {
                             awaitResources()
                             val discogsCriteria = criteria.copy(title = workTitle())
                             val referenceArtist = originalArtist()
@@ -3977,15 +3990,23 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                         } else null
                         val youtube = launch {
+                            val titleOnly = thisRound >= CoverRoundSearchPlan.finalRound
+                            val activeTexts = CoverRoundSearchPlan.queries(workTitle(), thisRound, originalArtist().ifBlank { lockedArtist }).map { it.text }.toSet()
+                            var successfulFinalCycles = 0
                             // Read further native pages without waiting for slow sources. Continuation
                             // tokens survive the 50-card publication block and the next manual press.
-                            repeat(20) {
+                            repeat(if (titleOnly) 3 else 20) { cycle ->
                                 if (System.currentTimeMillis() - started >= passBudgetMs ||
                                     presentation.total(thisRound) >= preparationLimit) return@launch
                                 awaitResources()
-                                val page = queryWork.next(includeLeads = false) ?: return@launch
+                                if (titleOnly) {
+                                    queryWork.beginPass()
+                                    queryWork.offer(workTitle(), AiCoverCategory.COVER, songs = cycle == 1, retryCompleted = true)
+                                }
+                                val page = (queryWork.next(includeLeads = false, texts = activeTexts)
+                                    ?: if (!titleOnly) queryWork.next(includeLeads = false) else null) ?: return@launch
                                 val sourceName = if (page.songs) "YouTube Music" else "YouTube diretto"
-                                if (sourceCooling(sourceName)) { queryWork.defer(page); return@repeat }
+                                if (!titleOnly && sourceCooling(sourceName)) { queryWork.defer(page); return@repeat }
                                 val found = withTimeoutOrNull(if (appendRound) 7_000L else 5_500L) { withContext(Dispatchers.IO) {
                                     if (page.continuation != null) YouTube.searchContinuation(page.continuation).getOrNull()
                                     else YouTube.search(page.text, if (page.songs) YouTube.SearchFilter.FILTER_SONG else YouTube.SearchFilter.FILTER_VIDEO).getOrNull()
@@ -4011,6 +4032,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (titleAllowed(linked)) pending.offer(linked)
                                 }
                                 queryWork.finish(page, found.continuation)
+                                if (titleOnly) successfulFinalCycles++
                                 page.lead?.let { lead ->
                                     pending.lookupComplete(lead, linked = bound, morePages = !found.continuation.isNullOrBlank())
                                     if (!bound && !pending.hasLinked(lead) && found.continuation.isNullOrBlank()) queryWork.retryUnresolved(page)
@@ -4018,13 +4040,15 @@ internal fun DiscogsDirectVersionBrowser(
                                 session.youtubeQueryCursor++
                                 recordSource(CoverSourceDiagnostic(sourceName, true, videos.size, "candidati conservati nella coda ordinata"))
                             }
+                            if (titleOnly && successfulFinalCycles == 3) presentation.finalChecked(thisRound)
                         }
                         var linkingJob: Job? = null
                         while (isActive && generation == turboSearchGeneration &&
-                            System.currentTimeMillis() - started < passBudgetMs && presentation.total(thisRound) < preparationLimit) {
+                            System.currentTimeMillis() - started < passBudgetMs && !presentation.exhausted(thisRound) && presentation.total(thisRound) < preparationLimit) {
                             if (audioBusy() || listState.isScrollInProgress) { delay(120L); continue }
                             val producersDone = linkingJob?.isActive != true && documentaryFinished && youtube.isCompleted && (discogs?.isCompleted != false) && (cloud?.isCompleted != false)
-                            val allowTwins = producersDone && !queryWork.hasRunnableOrdinary && session.documentaryProgress.values.none { it.hasRunnablePages }
+                            val allowTwins = thisRound >= CoverRoundSearchPlan.finalRound ||
+                                producersDone && !queryWork.hasRunnableOrdinary && session.documentaryProgress.values.none { it.hasRunnablePages }
                             val rankTitle = workTitle()
                             val rankOriginal = originalArtist()
                             pending.orderingInput(rankTitle, rankOriginal, thisRound)?.let { input ->
@@ -4039,6 +4063,7 @@ internal fun DiscogsDirectVersionBrowser(
                             val next = pending.next(rankTitle, rankOriginal, thisRound, includeTwins = allowTwins)
                             if (next == null) {
                                 flushInitial(force = true)
+                                if (producersDone && thisRound >= CoverRoundSearchPlan.finalRound && presentation.isFinalChecked(thisRound) && !sourceCooling("Metadati YouTube")) presentation.exhaust(thisRound)
                                 if (producersDone) break
                                 delay(80L); continue
                             }
@@ -4047,6 +4072,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 pending.complete(next); continue
                             }
                             if (next.playbackVideoId.isNullOrBlank()) {
+                                if (thisRound >= CoverRoundSearchPlan.finalRound) {
+                                    session.searchedLeadRounds[CoverPriorityOrder.key(next)] = thisRound
+                                    pending.defer(next)
+                                    continue
+                                }
                                 if (linkingJob?.isActive == true) { pending.defer(next); continue }
                                 linkingJob = launch {
                                 awaitResources()
@@ -4101,6 +4131,9 @@ internal fun DiscogsDirectVersionBrowser(
                             } else {
                                 linkingJob = launch { publish(next) }
                             }
+                        }
+                        if (presentation.exhausted(thisRound)) {
+                            documents.cancel(); cloud?.cancel(); discogs?.cancel(); youtube.cancel(); linkingJob?.cancel()
                         }
                         documents.join(); cloud?.join(); discogs?.join(); youtube.join(); linkingJob?.join()
                     }
@@ -7330,15 +7363,24 @@ internal fun DiscogsDirectVersionBrowser(
                     ) {
                         Button(
                             onClick = { runSearch(forceRefresh = true, appendRound = true) },
-                            enabled = presentationStatus.green || presentationStatus.ready > 0,
+                            enabled = presentationStatus.green || presentationStatus.ready > 0 || presentationStatus.retryRequired,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (roundPlanComplete) Color(0xFF258E4E)
+                                containerColor = if (presentationStatus.noResults) Color(0xFFB3261E)
+                                    else if (presentationStatus.terminal) Color(0xFF455A64)
+                                    else if (roundPlanComplete) Color(0xFF258E4E)
                                     else Color(0xFFF39A27),
                                 contentColor = if (roundPlanComplete) Color.White
                                     else Color(0xFF352000),
+                                disabledContainerColor = if (presentationStatus.noResults) Color(0xFFB3261E)
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                disabledContentColor = if (presentationStatus.terminal) Color.White
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                             ),
                         ) {
                             Text(when {
+                                presentationStatus.noResults -> context.getString(com.metrolist.music.R.string.musiclab_cover_none_final)
+                                presentationStatus.terminal -> context.getString(com.metrolist.music.R.string.musiclab_cover_finished)
+                                presentationStatus.retryRequired -> context.getString(com.metrolist.music.R.string.musiclab_cover_retry_final)
                                 presentationStatus.green && presentationStatus.nextReady > 0 ->
                                     context.getString(com.metrolist.music.R.string.musiclab_cover_next_ready, coverRoundNumber + 1, presentationStatus.nextReady)
                                 presentationStatus.green -> context.getString(com.metrolist.music.R.string.musiclab_cover_next_round, coverRoundNumber + 1)

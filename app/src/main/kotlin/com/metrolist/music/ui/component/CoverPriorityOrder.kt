@@ -235,9 +235,10 @@ internal object CoverPriorityOrder {
         val remainingOrdinary: Int get() = pages.values.count { it.lead == null }
         val hasRunnable: Boolean get() = pages.keys.any { it !in attempted }
         val hasRunnableOrdinary: Boolean get() = pages.any { it.key !in attempted && it.value.lead == null }
-        fun offer(text: String, category: AiCoverCategory, songs: Boolean = false, lead: CoverSourceCandidate? = null) {
+        fun offer(text: String, category: AiCoverCategory, songs: Boolean = false, lead: CoverSourceCandidate? = null, retryCompleted: Boolean = false) {
             val page = Page(text, category, songs, lead = lead)
             val key = key(page)
+            if (retryCompleted) done.remove(key)
             if (key !in done) pages.putIfAbsent(key, page)
         }
         fun beginPass() { attempted.clear() }
@@ -245,7 +246,7 @@ internal object CoverPriorityOrder {
             val key = key(page)
             pages.remove(key)?.let { pages[key] = it }
         }
-        fun next(includeLeads: Boolean = true): Page? = pages.entries.firstOrNull { it.key !in attempted && (includeLeads || it.value.lead == null) }?.let {
+        fun next(includeLeads: Boolean = true, texts: Set<String>? = null): Page? = pages.entries.firstOrNull { it.key !in attempted && (includeLeads || it.value.lead == null) && (texts == null || it.value.text in texts) }?.let {
             attempted += it.key
             it.value
         }

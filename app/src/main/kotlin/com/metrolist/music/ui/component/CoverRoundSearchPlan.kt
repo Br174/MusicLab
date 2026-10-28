@@ -49,10 +49,13 @@ internal object CoverRoundSearchPlan {
         "acoustic cover live", "foreign version singer", "cover internazionale",
         "studio live recording", "TV talent performance", "radio live cover",
     )
-    /** No percentage quotas, no fixed publication blocks. */
+    val finalRound: Int get() = 4 + (longTail.size + 3) / 4
+
+    /** All existing families are visited before the terminal title-only search. */
     fun queries(title: String, round: Int, originalArtist: String = ""): List<Query> {
         if (title.isBlank()) return emptyList()
         val clean = title.trim()
+        if (round >= finalRound) return listOf(Query(clean, AiCoverCategory.COVER))
         val artist = originalArtist.trim()
         val family = when (round) {
             1 -> official
