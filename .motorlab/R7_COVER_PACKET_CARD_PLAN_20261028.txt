@@ -11,6 +11,7 @@ Registro avanzamento:
 - Correzioni locali: ranking preservato fino alla pubblicazione; pool include eccedenze senza perdita; un solo primo pacchetto automatico, poi comandi manuali; ricerche musicali anche senza interprete nella prima; scheda completa, anno/fonti/ascolto e etichette documentate.
 - Revisore indipendente: eliminato argomento album duplicato; Studio richiede segnale esplicito e pubblicazione, altrimenti Pubblicata/Cover; esaurimento rapido pubblica il primo residuo prima di terminare il worker.
 - Verifica nativa GREEN e build firmata PENDING. Telefono PENDING. Nessuna promozione LAST_GOOD.
+- Isolamento finale: classificazione Studio esplicita solo nel contesto Turbo Cover, flag modernCover predefinito false. Originali e altre modalita mantengono la classificazione precedente.
 Ruling: la parola cover.Lab e interpretata come COVER.INFO secondo il messaggio accettato da Bruno; visualizzare nomi reali delle fonti, non creare un servizio inventato.
 Ruling: un canale denominato Karaoke non prova che un'esecuzione cantata sia karaoke. Il segnale abbassa la priorita, non introduce una blacklist del canale. Restano escluse le tracce esplicitamente karaoke/MIDI/KAR.
 Ruling: Pubblicata distingue una pubblicazione documentata da una sessione in studio effettivamente dichiarata. Non dedurre Studio dall'enum storico di default. Se il segnale manca, la versione resta disponibile e preferita come pubblicata.

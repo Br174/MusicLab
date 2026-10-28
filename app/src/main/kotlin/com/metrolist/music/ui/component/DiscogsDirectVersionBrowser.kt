@@ -206,7 +206,7 @@ private enum class DirectVersionSort {
     NEWEST,
 }
 
-private fun directDisplayCategory(seed: DiscogsVersionSeed): DirectVersionCategory {
+private fun directDisplayCategory(seed: DiscogsVersionSeed, modernCover: Boolean = false): DirectVersionCategory {
     val text = (seed.trackTitle + " " + seed.releaseTitle).lowercase()
     val liveTitle =
         Regex("""\b(live|dal vivo|concert|concerto)\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
@@ -217,7 +217,7 @@ private fun directDisplayCategory(seed: DiscogsVersionSeed): DirectVersionCatego
         liveTitle || seed.kind == DiscogsVersionKind.LIVE -> DirectVersionCategory.LIVE
         remixTitle || seed.kind == DiscogsVersionKind.REMIX -> DirectVersionCategory.REMIX
         !seed.language.isNullOrBlank() -> DirectVersionCategory.FOREIGN
-        else -> if (com.metrolist.music.BuildConfig.APPLICATION_ID != "it.verlezza.musiclab.turbo01" ||
+        else -> if (!modernCover ||
             CoverCardMetadata.isStudio(seed)) DirectVersionCategory.STUDIO else DirectVersionCategory.ALL
     }
 }
@@ -1245,7 +1245,7 @@ internal fun DiscogsDirectVersionBrowser(
             ordered.filter { seed ->
                 when (category) {
                     DirectVersionCategory.ALL -> true
-                    else -> directDisplayCategory(seed) == category
+                    else -> directDisplayCategory(seed, modernCover = isTurbo && mode == DiscogsDirectMode.COVER) == category
                 }
             }
 
@@ -6451,7 +6451,7 @@ internal fun DiscogsDirectVersionBrowser(
             .filter(::belongsToFirstCoverSection)
             .filter {
                 !isRejected(it) &&
-                    (category == DirectVersionCategory.ALL || directDisplayCategory(it) == category)
+                    (category == DirectVersionCategory.ALL || directDisplayCategory(it, modernCover = isTurbo) == category)
             }
             .map(::videoCalibratedDisplaySeed)
         else emptyList()
@@ -7738,7 +7738,7 @@ private fun DirectCategorySelector(
     onSelected: (DirectVersionCategory) -> Unit,
     twoLine: Boolean = false,
 ) {
-    val studio = results.count { directDisplayCategory(it) == DirectVersionCategory.STUDIO }
+    val studio = results.count { directDisplayCategory(it, modernCover = twoLine) == DirectVersionCategory.STUDIO }
     val live = results.count { directDisplayCategory(it) == DirectVersionCategory.LIVE }
     val remix = results.count { directDisplayCategory(it) == DirectVersionCategory.REMIX }
     val foreign = results.count { directDisplayCategory(it) == DirectVersionCategory.FOREIGN }
