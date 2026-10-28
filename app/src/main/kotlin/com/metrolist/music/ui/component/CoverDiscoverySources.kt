@@ -135,6 +135,7 @@ internal object CoverDiscoverySources {
         // The approved first LAB45 search remains exactly as before.
         deepRecovery: Boolean = false,
         documentaryProgress: CoverPriorityOrder.DocumentaryProgress? = null,
+        sourceCooldowns: Map<String, CoverSourceDiagnostic> = emptyMap(),
         // LAB03: source-complete callback remains useful when another provider
         // reaches its deadline. No individual lane gates all other evidence.
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
@@ -182,14 +183,17 @@ internal object CoverDiscoverySources {
         suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
 
         suspend fun cachedLane(name: String, block: suspend () -> Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic>) =
-            reportResult(documentaryProgress?.lanes?.get(name) ?: sourceLane(block))
+            reportResult(documentaryProgress?.lanes?.get(name) ?: sourceCooldowns[name]?.let {
+                emptyList<CoverSourceCandidate>() to it
+            } ?: sourceLane(block))
 
         // LAB59: prioritize cover.info direct videos over auxiliary metadata.
         // Each lane still runs; slow services never gate early thumbnail emission.
         val coverInfo = async(Dispatchers.IO) {
             // COVER.INFO is our lead source. It starts immediately and owns
             // its own lane, independent from auxiliary provider semaphore.
-            val lane = reportResult(discoverCoverInfo(cleanTitle, cleanArtist, mode, deepRecovery, documentaryProgress) { quick ->
+            val lane = reportResult(sourceCooldowns["COVER.INFO"]?.let { emptyList<CoverSourceCandidate>() to it }
+                ?: discoverCoverInfo(cleanTitle, cleanArtist, mode, deepRecovery, documentaryProgress) { quick ->
                 onEarlyVideoCandidates(quick)
             })
             onEarlyVideoCandidates(
@@ -202,7 +206,7 @@ internal object CoverDiscoverySources {
         }
         val musicBrainzLookup =
             async(Dispatchers.IO) {
-                val lookup = sourceLane {
+                val lookup = if ("MusicBrainz" in sourceCooldowns) MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) else sourceLane {
                     runCatching {
                         if (deepRecovery) {
                             MusicBrainzCoverSource.lookup(
@@ -249,7 +253,8 @@ internal object CoverDiscoverySources {
                     "SecondHandSongs", false, 0, "Interprete di riferimento necessario",
                 ))
             } else {
-                reportResult(sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh, deepRecovery) })
+                reportResult(sourceCooldowns["SecondHandSongs"]?.let { emptyList<CoverSourceCandidate>() to it }
+                    ?: sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh, deepRecovery) })
             }
         }
         val deepRound = if (mode == DiscogsDirectMode.COVER && coverRound >= 2 &&

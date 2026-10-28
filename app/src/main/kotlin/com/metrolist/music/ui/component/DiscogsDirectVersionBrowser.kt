@@ -291,6 +291,8 @@ private data class DirectVersionSession(
     val searchedLeadRounds: MutableMap<String, Int> = linkedMapOf(),
     val completedDocumentaryContexts: MutableSet<String> = linkedSetOf(),
     val documentaryContextQueries: MutableMap<String, Pair<String, String>> = linkedMapOf(),
+    val sourceRetries: CoverPreparationPolicy.SourceRetries = CoverPreparationPolicy.SourceRetries(),
+    val documentarySourceStates: MutableMap<String, List<CoverSourceDiagnostic>> = linkedMapOf(),
     val deferredPresentationEvidence: MutableMap<String, CoverSourceCandidate> = linkedMapOf(),
     val documentaryProgress: MutableMap<String, CoverPriorityOrder.DocumentaryProgress> = linkedMapOf(),
     val originalReferences: MutableMap<String, CoverSourceCandidate> = linkedMapOf(),
@@ -484,6 +486,8 @@ internal fun DiscogsDirectVersionBrowser(
     var roundPlanComplete by remember(sessionKey) { mutableStateOf(session.roundPlanComplete) }
     var presentationStatus by remember(sessionKey) { mutableStateOf(session.presentation.status()) }
     var preparationRetrying by remember(sessionKey) { mutableStateOf(false) }
+    var preparationAudioPaused by remember(sessionKey) { mutableStateOf(false) }
+    var preparationWaitingSources by remember(sessionKey) { mutableStateOf("") }
     var restorationReady by remember(sessionKey) {
         mutableStateOf(!isTurbo || mode != DiscogsDirectMode.COVER ||
             session.initialized || session.previousRoundRows.isNotEmpty())
@@ -3524,6 +3528,8 @@ internal fun DiscogsDirectVersionBrowser(
                 session.searchedLeadRounds.clear()
                 session.completedDocumentaryContexts.clear()
                 session.documentaryContextQueries.clear()
+                session.sourceRetries.clear()
+                session.documentarySourceStates.clear()
                 session.deferredPresentationEvidence.clear()
                 session.documentaryProgress.clear()
                 session.originalReferences.clear()
@@ -3596,8 +3602,11 @@ internal fun DiscogsDirectVersionBrowser(
             val generation = turboSearchGeneration
             // Capture player state on Main. Provider callbacks never touch ExoPlayer on IO.
             val documentaryFanOut = if (playbackIsNormallyPlaying()) 1 else 2
-            fun recordSource(diagnostic: CoverSourceDiagnostic) {
+            fun sourceContext() = "${workTitle()}|${originalArtist().ifBlank { lockedArtist }}"
+            fun sourceCooling(name: String) = name in session.sourceRetries.cooling(sourceContext())
+            fun recordSource(diagnostic: CoverSourceDiagnostic, retryContext: String = sourceContext(), attempted: Boolean = true) {
                 if (generation != turboSearchGeneration) return
+                if (attempted) session.sourceRetries.record(retryContext, diagnostic)
                 sourceDiagnostics = sourceDiagnostics.filterNot { it.name.equals(diagnostic.name, true) } + diagnostic
                 session.sourceDiagnostics = sourceDiagnostics
             }
@@ -3697,12 +3706,20 @@ internal fun DiscogsDirectVersionBrowser(
                 var started = System.currentTimeMillis()
                 val passBudgetMs = 20_000L
                 var publishedThisPass = 0
-                var preparation = CoverPriorityOrder.PreparationWindow { android.os.SystemClock.elapsedRealtime() }
+                var preparation = CoverPreparationPolicy.PassWindow { android.os.SystemClock.elapsedRealtime() }
                 var idlePasses = 0
                 val videoIdPattern = Regex("[A-Za-z0-9_-]{11}")
                 fun audioBusy() = backgroundWorkBlocked() || playerConnection?.service?.isCoverAudioAtRisk() == true
                 suspend fun awaitResources() {
                     while (isActive && (audioBusy() || listState.isScrollInProgress)) delay(120L)
+                }
+                val statusUpdates = launch {
+                    while (isActive) {
+                        preparationAudioPaused = audioBusy()
+                        preparationWaitingSources = session.sourceRetries.cooling(sourceContext()).keys.take(2).joinToString(", ")
+                        syncPresentation()
+                        delay(400L)
+                    }
                 }
                 fun flushInitial(force: Boolean = false) {
                     val state = presentation.status()
@@ -3748,6 +3765,8 @@ internal fun DiscogsDirectVersionBrowser(
                         return
                     }
                     var metadata = session.preparedVideoSongs[id]
+                    if (metadata == null && sourceCooling("Metadati YouTube")) { pending.defer(candidate); return }
+                    var requestedMetadata = false
                     val orderedIds = if (metadata == null && presentation.status().shown < CoverRoundPresentation.FAST_PREFIX) {
                         val rows = pending.snapshot().filterNot { pending.isTwin(it) }
                         withContext(Dispatchers.Default) {
@@ -3764,6 +3783,7 @@ internal fun DiscogsDirectVersionBrowser(
                         val ids = CoverPreparationPolicy.metadataIds(id, orderedIds, session.preparedVideoSongs.keys,
                             protectPlayback = attempt > 0 || playbackIsNormallyPlaying() ||
                                 listState.isScrollInProgress || presentation.status().shown >= CoverRoundPresentation.FAST_PREFIX)
+                        requestedMetadata = true
                         val batch = withTimeoutOrNull(budget) {
                             withContext(Dispatchers.IO) { YouTube.queue(videoIds = ids).getOrNull() }
                         }
@@ -3774,7 +3794,11 @@ internal fun DiscogsDirectVersionBrowser(
                         if (metadata != null) break
                     }
                     val verified = metadata?.takeIf { it.id == id && it.title.isNotBlank() }
-                        ?: run { pending.defer(candidate); return }
+                        ?: run {
+                            if (requestedMetadata) recordSource(CoverSourceDiagnostic("Metadati YouTube", false, 0, "richiesta non completata; candidati conservati"))
+                            pending.defer(candidate); return
+                        }
+                    if (requestedMetadata) recordSource(CoverSourceDiagnostic("Metadati YouTube", true, 1, "metadati ricevuti"))
                     val verdict = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle(), originalArtist(), thisRound, verified.title)
                     if (!verdict.admitted) { pending.complete(candidate); return }
                     val seedTitle = workTitle()
@@ -3837,7 +3861,7 @@ internal fun DiscogsDirectVersionBrowser(
                     offerQueries()
                     started = System.currentTimeMillis()
                     publishedThisPass = 0
-                    preparation = CoverPriorityOrder.PreparationWindow { android.os.SystemClock.elapsedRealtime() }
+                    preparation = CoverPreparationPolicy.PassWindow { android.os.SystemClock.elapsedRealtime() }
                     coroutineScope {
                         var documentaryFinished = false
                         val documents = launch(Dispatchers.IO) {
@@ -3855,7 +3879,11 @@ internal fun DiscogsDirectVersionBrowser(
                                                 .filter { it.startsWith("$thisRound|") }
                                                 .map { it.removePrefix("$thisRound|") }
                                                 .toSet()
-                                            CoverPreparationPolicy.nextDocumentaryContext(current, known, visited + completed)
+                                            val cooling = session.documentarySourceStates.filter { (context, diagnostics) ->
+                                                !session.sourceRetries.documentaryReady(context,
+                                                    session.documentaryProgress[context]?.complete == true, diagnostics)
+                                            }.keys
+                                            CoverPreparationPolicy.nextDocumentaryContext(current, known, visited + completed + cooling)
                                         } ?: break
                                         val key = "${sourceContext.first}|${sourceContext.second}"
                                         if (!visited.add(key)) break
@@ -3864,17 +3892,19 @@ internal fun DiscogsDirectVersionBrowser(
                                         val progress = withContext(Dispatchers.Main.immediate) {
                                             session.documentaryProgress.getOrPut(key) { CoverPriorityOrder.DocumentaryProgress() }
                                         }
+                                        val cooldowns = withContext(Dispatchers.Main.immediate) { session.sourceRetries.cooling(key) }
                                         val outcome = CoverDiscoverySources.discover(
                                             title = sourceContext.first, originalArtist = sourceContext.second,
                                             mode = DiscogsDirectMode.COVER, aiConfig = null,
                                             maxNetworkFanOut = documentaryFanOut, coverRound = thisRound,
-                                            deepRecovery = thisRound > 1, documentaryProgress = progress,
+                                            deepRecovery = thisRound > 1, documentaryProgress = progress, sourceCooldowns = cooldowns,
                                             onEarlyVideoCandidates = { rows -> withContext(Dispatchers.Main.immediate) { offerCandidates(rows) } },
                                             onSourceCompleted = { rows, diagnostic, _ -> withContext(Dispatchers.Main.immediate) {
-                                                offerCandidates(rows); recordSource(diagnostic)
+                                                offerCandidates(rows); recordSource(diagnostic, key, attempted = diagnostic.name !in cooldowns)
                                             } },
                                         )
                                         withContext(Dispatchers.Main.immediate) {
+                                            session.documentarySourceStates[key] = outcome.diagnostics
                                             if (CoverPreparationPolicy.documentaryComplete(progress.complete, outcome.diagnostics)) {
                                                 session.completedDocumentaryContexts.add(completionKey)
                                             }
@@ -3905,7 +3935,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                             }
                         } else null
-                        val discogs = if (discogsToken.isNotBlank() && !session.discogsComplete) launch {
+                        val discogs = if (discogsToken.isNotBlank() && !session.discogsComplete && !sourceCooling("Discogs")) launch {
                             awaitResources()
                             val discogsCriteria = criteria.copy(title = workTitle())
                             val referenceArtist = originalArtist()
@@ -3936,6 +3966,8 @@ internal fun DiscogsDirectVersionBrowser(
                             repeat(2) {
                                 awaitResources()
                                 val page = queryWork.next(includeLeads = false) ?: return@launch
+                                val sourceName = if (page.songs) "YouTube Music" else "YouTube diretto"
+                                if (sourceCooling(sourceName)) { queryWork.defer(page); return@repeat }
                                 val found = withTimeoutOrNull(if (appendRound) 7_000L else 5_500L) { withContext(Dispatchers.IO) {
                                     if (page.continuation != null) YouTube.searchContinuation(page.continuation).getOrNull()
                                     else YouTube.search(page.text, if (page.songs) YouTube.SearchFilter.FILTER_SONG else YouTube.SearchFilter.FILTER_VIDEO).getOrNull()
@@ -3948,7 +3980,7 @@ internal fun DiscogsDirectVersionBrowser(
                                         if (titleAllowed(linked)) pending.offer(linked)
                                     }
                                     queryWork.defer(page)
-                                    recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0, "richiesta non completata; cursore conservato"))
+                                    recordSource(CoverSourceDiagnostic(sourceName, false, 0, "richiesta non completata; cursore conservato"))
                                     return@repeat
                                 }
                                 val videos = found.items.filterIsInstance<SongItem>()
@@ -3966,7 +3998,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     if (!bound && !pending.hasLinked(lead) && found.continuation.isNullOrBlank()) queryWork.retryUnresolved(page)
                                 }
                                 session.youtubeQueryCursor++
-                                recordSource(CoverSourceDiagnostic(if (page.songs) "YouTube Music" else "YouTube diretto", true, videos.size, "candidati conservati nella coda ordinata"))
+                                recordSource(CoverSourceDiagnostic(sourceName, true, videos.size, "candidati conservati nella coda ordinata"))
                             }
                         }
                         while (isActive && generation == turboSearchGeneration &&
@@ -3995,6 +4027,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 pending.complete(next); continue
                             }
                             if (next.playbackVideoId.isNullOrBlank()) {
+                                if (sourceCooling("YouTube diretto")) { pending.defer(next); continue }
                                 val unlinkedTitle = workTitle()
                                 val unlinkedOriginal = originalArtist()
                                 val unlinked = withContext(Dispatchers.Default) {
@@ -4033,6 +4066,7 @@ internal fun DiscogsDirectVersionBrowser(
                                 } else {
                                     queryWork.defer(sourcePage)
                                     pending.defer(next)
+                                    recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0, "richiesta non completata; candidato e cursore conservati"))
                                 }
                             } else publish(next)
                         }
@@ -4061,7 +4095,7 @@ internal fun DiscogsDirectVersionBrowser(
                     if (!presentation.needsPreparation()) break
                     if (publishedThisPass == 0) idlePasses++ else idlePasses = 0
                     preparationRetrying = idlePasses > 1
-                    delay(if (idlePasses == 0) 80L else (500L * (1L shl idlePasses.coerceAtMost(5))).coerceAtMost(15_000L))
+                    delay(if (idlePasses == 0) 80L else 500L)
                     } catch (cancelled: java.util.concurrent.CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
@@ -4071,7 +4105,9 @@ internal fun DiscogsDirectVersionBrowser(
                     }
                     }
                 } finally {
+                    statusUpdates.cancel()
                     if (generation == turboSearchGeneration) {
+                        preparationAudioPaused = false
                         loading = false
                         sourceDiscoveryLoading = false
                         syncPresentation()
@@ -7275,6 +7311,8 @@ internal fun DiscogsDirectVersionBrowser(
                                     context.getString(com.metrolist.music.R.string.musiclab_cover_next_ready, coverRoundNumber + 1, presentationStatus.nextReady)
                                 presentationStatus.green -> context.getString(com.metrolist.music.R.string.musiclab_cover_next_round, coverRoundNumber + 1)
                                 presentationStatus.ready > 0 -> context.getString(com.metrolist.music.R.string.musiclab_cover_continue_ready, presentationStatus.ready)
+                                preparationAudioPaused -> context.getString(com.metrolist.music.R.string.musiclab_cover_wait_audio)
+                                preparationWaitingSources.isNotBlank() -> context.getString(com.metrolist.music.R.string.musiclab_cover_wait_named_sources, preparationWaitingSources)
                                 preparationRetrying -> context.getString(com.metrolist.music.R.string.musiclab_cover_wait_sources)
                                 else -> context.getString(com.metrolist.music.R.string.musiclab_cover_preparing)
                             })

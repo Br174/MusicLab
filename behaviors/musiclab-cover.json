@@ -595,6 +595,27 @@
         "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PreparationPolicyTest.kt"
       ],
       "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.preparation-progress.r4",
+      "owner": "musiclab",
+      "scope": "cover-preparation",
+      "version": 4,
+      "status": "active",
+      "protected": true,
+      "behavior": "Bruno-approved LAB79 correction only: individual video lookup budgets within the existing20-second pass replace the shared4.4-second window. Failed sources cool independently and retry automatically with every cursor/candidate retained; ready work continues. A prepared group smaller than25 becomes available after12seconds, with exact orange count in the same50-result round. A source failure never means exhausted or green. Status distinguishes retry from audio pause. Preserve all LAB78 search queries, work/title admission, priority, recording identity, source parsing/scoring, poster layout, manual controls, player and audio/scroll guards.",
+      "acceptance": [
+        "A second lookup after4.5seconds still receives its bounded request budget",
+        "Eight verified prepared cards become revealable while a source is unavailable, without advancing the round",
+        "Failed source cooldown preserves documentary pages and lets successful cached lanes emit",
+        "50 total per round,25 maximum per reveal, no empty enabled orange and no green on failure",
+        "Byte-level scope guard preserves all unrelated result and UI/player code"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79PreparationProgressTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79DocumentarySourcesTest.kt"
+      ],
+      "supersedes": []
     }
   ],
   "canonicalBehaviorRevision": "2026-10-27-lab76-progressive-manual-3s-title-foreign-only-v8",
@@ -793,5 +814,12 @@
     "branch": "lab/musiclab-turbo-lab78-staged25-20261027",
     "userAuthorized": true,
     "scope": "presentation/background scheduling only; results unchanged"
+  },
+  "preparationProgressImplementation": {
+    "state": "SOURCE_IMPLEMENTED_PENDING_ANDROID_AND_PHONE",
+    "base": "b30334651ec0a304f9291a3fa0ba3770096299a2",
+    "branch": "lab/musiclab-turbo-lab79-preparation-progress-20261028",
+    "userAuthorized": true,
+    "scope": "preparation budgets, independent failed-source cooldown, partial-ready release and truthful status only"
   }
 }

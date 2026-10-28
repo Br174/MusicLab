@@ -1,7 +1,10 @@
 package com.metrolist.music.ui.component
 
 /** Presentation buffer only: discovery, identity and ranking remain owned by the native queue. */
-internal class CoverRoundPresentation<T>(private val identity: (T) -> String) {
+internal class CoverRoundPresentation<T>(
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val identity: (T) -> String,
+) {
     companion object {
         const val BLOCK_SIZE = 25
         const val ROUND_SIZE = 50
@@ -15,6 +18,7 @@ internal class CoverRoundPresentation<T>(private val identity: (T) -> String) {
         val shown = linkedSetOf<String>()
         val prepared = linkedMapOf<String, T>()
         var exhausted = false
+        var preparedSince: Long? = null
     }
     private val rounds = linkedMapOf<Int, Round<T>>()
     var visibleRound = 1
@@ -27,6 +31,7 @@ internal class CoverRoundPresentation<T>(private val identity: (T) -> String) {
         val id = identity(row)
         if (id in state.shown) return false
         if (id !in state.prepared && state.shown.size + state.prepared.size >= ROUND_SIZE) return false
+        if (state.prepared.isEmpty()) state.preparedSince = clock()
         state.prepared[id] = row
         return true
     }
@@ -42,13 +47,17 @@ internal class CoverRoundPresentation<T>(private val identity: (T) -> String) {
         rounds.values.forEach { state -> state.prepared.replaceAll { _, row -> transform(row) } }
     }
     fun retainPrepared(predicate: (T) -> Boolean) {
-        rounds.values.forEach { state -> state.prepared.entries.removeAll { !predicate(it.value) } }
+        rounds.values.forEach { state ->
+            state.prepared.entries.removeAll { !predicate(it.value) }
+            if (state.prepared.isEmpty()) state.preparedSince = null
+        }
     }
 
     private fun take(number: Int, limit: Int): List<T> {
         val state = round(number)
         val keys = state.prepared.keys.take(limit.coerceAtLeast(0))
         return keys.mapNotNull { key -> state.prepared.remove(key)?.also { state.shown += key } }
+            .also { if (state.prepared.isEmpty()) state.preparedSince = null }
     }
 
     fun takeInitial(): List<T> = take(visibleRound, BLOCK_SIZE - round(visibleRound).shown.size)
@@ -63,7 +72,8 @@ internal class CoverRoundPresentation<T>(private val identity: (T) -> String) {
         val state = round(number)
         val target = minOf(BLOCK_SIZE, (ROUND_SIZE - state.shown.size).coerceAtLeast(0))
         val size = state.prepared.size
-        return if (size >= target || state.exhausted) minOf(size, target) else 0
+        val graceElapsed = state.preparedSince?.let { clock() - it >= 12_000L } == true
+        return if (size >= target || state.exhausted || graceElapsed) minOf(size, target) else 0
     }
     fun status(): Status {
         val state = round(visibleRound)

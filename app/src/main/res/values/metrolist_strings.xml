@@ -1217,6 +1217,8 @@
     <string name="musiclab_cover_next_round">Cerca ancora · Tornata %1$d</string>
     <string name="musiclab_cover_continue_ready">Continua tornata · Mostra altre %1$d cover</string>
     <string name="musiclab_cover_wait_sources">Preparazione in corso · fonti in attesa</string>
+    <string name="musiclab_cover_wait_audio">Preparazione in pausa per proteggere l’audio</string>
+    <string name="musiclab_cover_wait_named_sources">Fonte in attesa: %1$s · riprovo automaticamente</string>
     <string name="musiclab_cover_preparing">Preparo le altre cover…</string>
     <string name="musiclab_cover_round_shown">Tornata %1$d · %2$d/50 miniature YouTube</string>
     <string name="musiclab_cover_prepared_count"> · %1$d già pronte</string>
