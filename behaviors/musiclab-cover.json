@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "musiclab",
   "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
-  "status": "USER_APPROVED_SIX_ROUNDS_SOURCE_PENDING_CI_AND_PHONE",
+  "status": "USER_APPROVED_SIX_ROUNDS_CI_VERIFIED_PHONE_PENDING",
   "rules": [
     {
       "id": "musiclab.cover.same-work",
@@ -784,19 +784,19 @@
       "oldRule": "musiclab.cover.priority-and-exceptions.r2",
       "replacementRule": "musiclab.cover.six-rounds.v1",
       "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
-      "appEnforcement": "SOURCE_IMPLEMENTED_PENDING_NATIVE_CI_AND_PHONE"
+      "appEnforcement": "CI_VERIFIED_PHONE_PENDING"
     },
     {
       "oldRule": "musiclab.cover.staged25.presentation.r3",
       "replacementRule": "musiclab.cover.six-rounds.v1",
       "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
-      "appEnforcement": "SOURCE_IMPLEMENTED_PENDING_NATIVE_CI_AND_PHONE"
+      "appEnforcement": "CI_VERIFIED_PHONE_PENDING"
     },
     {
       "oldRule": "musiclab.cover.preparation-progress.r4",
       "replacementRule": "musiclab.cover.six-rounds.v1",
       "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
-      "appEnforcement": "SOURCE_IMPLEMENTED_PENDING_NATIVE_CI_AND_PHONE"
+      "appEnforcement": "CI_VERIFIED_PHONE_PENDING"
     }
   ],
   "confirmedGoodBaseline": {
@@ -886,7 +886,7 @@
     "id": "musiclab.cover.six-rounds.20261028",
     "path": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
     "approvedAt": "2026-10-28",
-    "status": "SOURCE_IMPLEMENTED_PENDING_NATIVE_CI_AND_PHONE",
+    "status": "CI_VERIFIED_PHONE_PENDING",
     "authority": "Latest explicit Bruno instructions; save full schema now, app modifications later.",
     "precedence": "Canonical desired behavior for these responsibilities. Supersedes conflicting earlier descriptions of categories, batching, final search, global release preference and twins. Historical rules below do not prove implementation of this specification.",
     "rounds": 6,
@@ -899,6 +899,19 @@
     "globalReleasePreference": "Prefer available studio/recorded/released versions in EVERY round, never an admission requirement or a reason to block ready flow.",
     "runtimeChanged": true,
     "deviceVerified": false,
-    "appBaseline": "e24bb0a0aba18914109ec6a0f181908edd37a210"
+    "appBaseline": "e24bb0a0aba18914109ec6a0f181908edd37a210",
+    "implementationEvidence": {
+      "commit": "8aa8f01545064be0482f6ae1fd1a629f59860388",
+      "workflow": "https://github.com/Br174/MusicLab/actions/runs/40697246205",
+      "job": 122847192848,
+      "nativeAndroidSuite": "PASS",
+      "audioRecordingContracts": "PASS",
+      "scopeGuard": "PASS",
+      "signedApkAndZip": "PASS",
+      "artifactId": 12819938270,
+      "apkSha256": "fd8e995bee115e9d349b1ccbea9d0b5513f26a3909ef1c2e29bdaaa93e5f8490",
+      "zipSha256": "28f74598657d645fce193d634a46a478dff0fd2535cac65a6259c228371f697c",
+      "physicalPhone": "PENDING_BRUNO_TEST"
+    }
   }
 }
