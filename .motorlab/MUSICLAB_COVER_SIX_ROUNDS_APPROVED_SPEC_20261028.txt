@@ -1,0 +1,134 @@
+MUSICLAB COVER — SPECIFICA APPROVATA DELLE SEI TORNATE
+Data: 28 ottobre 2026
+Autorità: istruzioni esplicite del signor Bruno nella conversazione MusicLab.
+Stato: APPROVATA COME SPECIFICA; IMPLEMENTAZIONE E COLLAUDO DA ESEGUIRE.
+Operazione: musiclab-cover-six-rounds-spec-20261028
+Base applicativa verificata: e24bb0a0aba18914109ec6a0f181908edd37a210 (LAB79 Revisione 5).
+Questa registrazione non modifica l'app installata, non certifica il funzionamento sul telefono e non promuove LAST_GOOD.
+
+1. AUTORITÀ E PERIMETRO
+Questo documento è la specifica desiderata più recente per distribuzione delle tornate, precedenza globale delle incisioni, ricerca finale e gestione dei duplicati. In caso di contrasti sullo stesso comportamento prevale l'ultima precisazione esplicita di Bruno qui consolidata. Conservare le funzioni compatibili già funzionanti.
+La richiesta attuale autorizza esclusivamente la memorizzazione dello schema. La modifica applicativa inizierà successivamente.
+Priorità: velocità, fluidità, risultati di qualità progressiva, abbondanza di versioni distinte, player funzionante.
+Nessuna nuova soglia di qualità, notorietà, pubblicazione o punteggio deve restringere l'ingresso. Restano le esclusioni esplicitamente approvate: MIDI, karaoke, KAR, duplicati confermati, brani diversi e versioni del cantante originale oltre il massimo concordato.
+Preservare player nativo, miniature reali YouTube con collegamento al video corrispondente, geometria dell'interfaccia, posizioni già pubblicate, identità/firma del pacchetto e parti estranee allo scopo. Non cambiare schema database, dipendenze, main/MADRE/produzione o LAST_GOOD.
+
+2. PREFERENZA GLOBALE PER LE INCISIONI — TUTTE LE TORNATE
+In ogni tornata, inclusa la sesta, dare precedenza tra i candidati disponibili alle versioni effettivamente incise, registrate in studio o pubblicate come singolo, album o altra pubblicazione documentata e ascoltabile su piattaforme musicali.
+È SOLO una preferenza di ordinamento, MAI una condizione di ammissione. Non richiedere obbligatoriamente un album, una piattaforma, una pubblicazione o una prova discografica per far entrare le altre versioni ammesse.
+La pubblicazione non rende automaticamente una versione più corretta rispetto all'identità dell'opera. Una registrazione domestica può entrare se non vi sono incisioni pronte.
+Non bloccare pacchetti pronti in attesa di una versione più accreditata e non spostare continuamente risultati già mostrati: una versione accreditata arrivata dopo ha precedenza nel prossimo pacchetto utile.
+
+3. TORNATA 1 — PUBBLICATE, ACCREDITATE, FAMOSE E STRANIERE
+Conservare tutte le priorità concordate per la prima tornata; non impoverirne ricerche o copertura:
+a) Cover incise/pubblicate da QUALSIASI cantante, anche non famoso: singoli, album, studio e pubblicazioni riconoscibili.
+b) Versioni effettivamente diverse del cantante originale dell'opera, massimo CINQUE complessive nell'intera ricerca e tra tutte le fonti/tornate. Non serve trovarne cinque per forza. Possibili esempi: studio, live, duetto, esecuzione di gruppo, remix, riarrangiamento.
+c) Cover di cantanti famosi o accreditati, italiani e stranieri.
+d) Versioni famose/riconosciute anche se l'interprete non è generalmente famoso.
+e) Versioni in altre lingue: cercarle SUBITO, su COVER.INFO E NON SOLO; non rinviarle per categoria.
+Queste sono priorità, non un obbligo di attendere la conclusione di a) prima di mostrare un risultato pronto delle altre.
+TUTTI i contributi pertinenti e raggiungibili di COVER.INFO devono essere raccolti attraverso le pagine disponibili e prioritizzati già nella prima tornata. La parentela musicale della versione documentata da COVER.INFO è considerata verificata e non richiede prove aggiuntive.
+La relazione documentaria non inventa però un video riproducibile: per la miniatura occorre individuare il video corrispondente.
+Il limite di pubblicazione di 50 per tornata non è un limite di raccolta: eccedenze e contributi ancora in collegamento vengono conservati e recuperati successivamente.
+La versione in ascolto conta come UN risultato solo se la ricerca trova effettivamente la miniatura/video di quella versione e il risultato non è duplicato. Il brano usato per avviare la ricerca da solo conta ZERO.
+Identificare l'artista originale dell'opera, senza presumere che coincida sempre con l'interprete della cover selezionata.
+
+4. TORNATA 2 — TV, TALENT, SPETTACOLI, REMIX, MASHUP, AI
+Ricerche italiane e straniere per programmi/registrazioni TV, audizioni e talent:
+X Factor, The Voice, Amici, Sanremo, Eurovision e altri festival.
+Concerti, stadi, esibizioni ufficiali, sessioni dal vivo, videoclip e ulteriori esecuzioni di cantanti famosi in questi contesti.
+Comprendere QUI le ricerche mirate di remix, mashup e versioni con intelligenza artificiale.
+Applicare la preferenza globale per incisioni/pubblicazioni senza escludere le altre.
+
+5. TORNATA 3 — AMATORIALI, INDIPENDENTI, COVER BAND E GRUPPI
+Cantanti amatoriali/indipendenti/locali, registrazioni domestiche/home studio, interpretazioni vocali, esibizioni di strada, cover band, tribute band, gruppi locali/indipendenti e interpretazioni collettive/rare di questi interpreti.
+Queste famiglie sono riunite in una sola tornata, non tornate separate.
+Anche un'incisione di un artista indipendente ha preferenza rispetto agli altri candidati pronti, senza rendere la pubblicazione obbligatoria.
+
+6. TORNATA 4 — STRUMENTALI, GENERI E REINTERPRETAZIONI
+Chitarra, pianoforte, altri strumenti, strumentali, orchestra, cori, jazz, soul, folk, rock, classica e altri generi; acustiche, riarrangiamenti, versioni particolari.
+Mantenere le famiglie esistenti, raggruppandole e senza perdere descrittori utili.
+Resta la preferenza globale per incisioni/pubblicazioni.
+
+7. TORNATA 5 — MISTA, CATEGORIE RESTANTI E RECUPERI
+Riunire tutte le ulteriori categorie, sottogeneri, contesti e combinazioni pertinenti non comprese nelle prime quattro: ad esempio lingue regionali, sessioni radio e registrazioni particolari.
+Recuperare anche candidati, pagine, continuazioni e collegamenti lenti delle precedenti tornate.
+Non limitarsi a ripetere richieste già esaurite: esplorare le modalità utili non ancora percorse.
+Le versioni straniere restano prioritarie già nella prima: la quinta è approfondimento/recupero, non rinvio sistematico.
+Tutte le categorie devono riferirsi alla stessa opera; resta la preferenza globale.
+
+8. TORNATA 6 — TITOLO SEMPRE DISPONIBILE, DESCRITTORI FACOLTATIVI
+ULTIMA PRECISAZIONE APPROVATA:
+La ricerca del titolo preciso SENZA descrittori deve sempre essere disponibile e autonoma.
+È consentito cercare contemporaneamente CON e SENZA descrittori. I descrittori sono un'aggiunta facoltativa per ampliare il recupero, mai un vincolo per il titolo o per l'ingresso.
+Non rendere obbligatoria la presenza nel video di parole come cover, live, remix o altre etichette. Non aspettare il fallimento delle query descrittive per rendere disponibile quella con il solo titolo.
+Se le query descrittive non trovano risultati, la ricerca per il solo titolo continua comunque.
+Conservare avanzamento, pagine e continuazioni, senza ripartire sempre dalla prima pagina o mostrare duplicati.
+Non dichiarare conclusa la ricerca per una singola risposta vuota o per un timeout se restano percorsi utili. Proseguire finché Bruno decide di fermarsi oppure le possibilità effettivamente disponibili delle fonti sono esaurite.
+La sesta può continuare oltre 50 mediante ulteriori blocchi 10+20+20: resta lo stesso obiettivo finale, non si inventano nuove categorie di tornata.
+Se tra i risultati trovati per titolo è disponibile una versione pubblicata su album/incisa, darle la preferenza globale. L'assenza di pubblicazione o descrittori non esclude altri risultati.
+Non promettere copertura di tutti i video esistenti su Internet: la conclusione riguarda l'esaurimento verificabile delle ricerche accessibili, non il loro numero globale.
+
+9. STESSA OPERA E LINGUE
+Un risultato deve riguardare la canzone cercata, non soltanto lo stesso cantante o un titolo simile.
+Nella stessa lingua il titolo conserva identità e significato: ammesse diciture di versione/track version tags, non aggiunte che identificano un altro brano. Esempio: Il mondo NON diventa Il mondo che vorrei.
+In altra lingua sono ammessi adattamenti con titolo totalmente diverso, anche non tradotto letteralmente, purché della stessa opera. Regola simmetrica per TUTTE le lingue di partenza/destinazione.
+Le relazioni COVER.INFO non richiedono nuove prove della parentela musicale.
+Non introdurre nuove percentuali arbitrarie o chiamare probabilità calibrate gli indici esistenti. Ricondurre una cover alla corretta opera/versione originale secondo i collegamenti documentati disponibili, senza attribuzioni inventate.
+
+10. DOPPIONI, GEMELLI E SOSIA
+Deduplicare nell'intera ricerca attiva, tra fonti, pacchetti, cicli e tornate.
+Stesso video: una sola volta.
+Stessa registrazione/esecuzione ricaricata su canali diversi o ripubblicata su album, compilation, playlist, piattaforme, copertine o formati diversi: una sola versione.
+Gemelli/sosia CONFERMATI come stessa esecuzione non entrano come risultati nuovi.
+Se l'identità è incerta, pubblicare una versione e rinviare la possibile gemella alle verifiche successive: non trattarla subito come nuova esecuzione; conservarla senza scarto definitivo finché non chiarita. Una nuova pubblicazione come versione distinta richiede di distinguerla dalla registrazione già mostrata.
+Live realmente diversi, duetti, remix e riarrangiamenti realmente distinti restano versioni ammesse.
+Massimo cinque versioni diverse dell'artista originale, complessive e non cinque per tornata.
+Nessuna blacklist permanente dell'utente: mantenere l'ambito della sessione/ricerca già concordato.
+
+11. PACCHETTI, CICLI, CAMBIO TORNATA E TEMPI
+Un CICLO è un pacchetto; una TORNATA normalmente comprende tre cicli 10+20+20, massimo 50 pubblicati. Non confondere i due concetti.
+Pubblicare ciascun pacchetto CONTEMPORANEAMENTE appena pronto, senza attese artificiali; un ritardo non autorizza gocciolamento uno alla volta.
+Obiettivi già richiesti: prime 10 quasi immediate; successive 20 circa 3–7 secondi; ultime 20 circa 10 secondi, il prima possibile. Sono obiettivi di prestazione da verificare sul telefono e dipendono dalle fonti, non garanzie da dichiarare a priori.
+I 5–7 secondi senza nuovi risultati disponibili servono a non tenere fermo il flusso: non sono il tempo standard di pubblicazione né una nuova scadenza per formare pacchetti.
+Se i risultati pronti della tornata sono esauriti prima di completare il pacchetto, mostrare tutti i rimanenti in UN SOLO pacchetto ridotto, anche di soli tre o un risultato, poi verde. Non aspettare dieci per l'ultimo residuo.
+Questa ultima regola sostituisce il vecchio divieto dei pacchetti sotto dieci prima dell'ultima tornata.
+Se il primo ciclo ha esaurito quanto disponibile, saltare gli altri due cicli vuoti e proporre direttamente il cambio tornata.
+Verde = cambio manuale all'obiettivo successivo o continuazione dei blocchi finali, secondo lo stato; mai arancione attivo senza nulla da mostrare.
+Non confondere fine del lavoro pronto con esaurimento definitivo delle fonti. Lavoro lento o fuori tempo passa in coda e viene ripescato, senza perdere candidati, pagine o continuazioni.
+Preparare in background il lavoro successivo compatibile con player e fluidità, mantenendo separate preparazione e pubblicazione. Non annunciare conteggi precisi prima che siano realmente pronti.
+
+12. ZERO RISULTATI, ERRORI E FINE RICERCA
+Nelle tornate intermedie, zero risultati disponibili dopo l'attesa prevista deve permettere il verde e l'obiettivo successivo; nessun blocco di minuti.
+Se ci sono pochi risultati pronti mostrarli come pacchetto residuo prima del verde.
+Nell'ultima ricerca verificare pagine/continuazioni e lavoro utile residuo prima di dichiarare fine definitiva.
+Timeout, errori di rete, sorgenti temporaneamente indisponibili e metadata non completati NON provano che non esistano cover: prevedere recupero/riprova e indicazione veritiera.
+Rosso Nessuna cover soltanto a ricerca finale effettivamente esaurita e ZERO risultati validi nell'intera ricerca.
+Se sono stati trovati risultati validi, compresa la versione originale realmente trovata, la conclusione è Ricerca completata.
+Non fabbricare miniature per evitare lo zero.
+
+13. VELOCITÀ, FLUIDITÀ E PLAYER
+Ricerca, collegamento video, normalizzazioni, confronti e deduplica costosi non devono bloccare il main thread.
+Riservare precedenza all'avvio/riproduzione audio e allo scorrimento; limitare il lavoro in background quando interferisce. Non avviare stream audio di risultati non selezionati.
+Una cover lenta non blocca le pronte e non viene eliminata: recuperarla più avanti.
+Preservare il medesimo video/miniatura nel passaggio al player nativo.
+Non ricercare più risultati cambiando titolo o ammettendo brani estranei.
+Solo un collaudo sul dispositivo può confermare latenze reali, scorrimento e audio senza interruzioni.
+
+14. MAPPA DI SOSTITUZIONE PER LA FUTURA IMPLEMENTAZIONE
+- Piano attuale con 13 fasi -> sei obiettivi qui definiti; riunire tutte le famiglie utili senza cancellare categorie.
+- Prima tornata -> conservare contenuti/priorità; estendere esplicitamente a tutte le tornate la preferenza per le incisioni.
+- Vecchio ultimo obiettivo strettamente titolo-only -> titolo autonomo sempre attivo PIÙ descrittori facoltativi in parallelo.
+- Prima risposta finale vuota / numero fisso di richieste -> continuazione finché esaurimento reale delle possibilità accessibili; errori e attese non costituiscono esaurimento.
+- Vecchia presentazione 25+25 / prime cinque progressive / rilascio parziale a tempo -> pacchetti 10+20+20, residuo unico a fine disponibilità.
+- Vecchia eventuale ammissione della gemella non provata -> rinvio conservativo e verifica per distinguere una registrazione nuova; doppioni confermati mai.
+- Conservazione delle eccedenze, fonti, dati, regole linguistiche, player, thumbnail reali, UI e protezioni compatibili -> mantenute.
+Queste sostituzioni riguardano la specifica desiderata. Il codice applicativo precedente resta invariato fino alla successiva fase autorizzata.
+La vecchia lista rules nel registro contiene anche descrizioni storiche di implementazioni consegnate: non usarle per prevalere sulla specifica approvata qui nei punti sostituiti, né considerarle prova di collaudo della nuova specifica.
+
+15. CRITERI DA VERIFICARE NELLA FUTURA MODIFICA
+Sei obiettivi e nessuna famiglia di ricerca persa; prima tornata completa; incisioni preferite ma non obbligatorie in ciascuna; stranieri e COVER.INFO prioritari dalla prima; max cinque originali distinti; nessun doppione confermato.
+Titolo senza descrittori sempre autonomo nella sesta, anche con descrittori attivi/vuoti; paginazione cumulativa; nessun falso fine per timeout o singola pagina vuota.
+Pubblicazione atomica 10+20+20 e residui; eccedenze e ritardatari conservati; verde senza cicli vuoti; rosso soltanto su vero zero finale.
+Nessuna regressione su titoli/opera, fonti, miniature, scorrimento e player.
+Non registrare questi criteri come test superati prima delle verifiche; stato attuale PENDING_IMPLEMENTATION_AND_TESTS.

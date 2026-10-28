@@ -821,5 +821,24 @@
     "branch": "lab/musiclab-turbo-lab79-preparation-progress-20261028",
     "userAuthorized": true,
     "scope": "preparation budgets, independent failed-source cooldown, partial-ready release and truthful status only"
+  },
+  "approvedNextSpecification": {
+    "id": "musiclab.cover.six-rounds.20261028",
+    "path": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+    "approvedAt": "2026-10-28",
+    "status": "USER_APPROVED_SPEC_ONLY_PENDING_IMPLEMENTATION_AND_TESTS",
+    "authority": "Latest explicit Bruno instructions; save full schema now, app modifications later.",
+    "precedence": "Canonical desired behavior for these responsibilities. Supersedes conflicting earlier descriptions of categories, batching, final search, global release preference and twins. Historical rules below do not prove implementation of this specification.",
+    "rounds": 6,
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "finalSearch": "Exact work title without descriptors always autonomous; optional descriptor queries may run alongside and never constrain title-only results. Resume reachable pages until user stops or actual exhaustion.",
+    "globalReleasePreference": "Prefer available studio/recorded/released versions in EVERY round, never an admission requirement or a reason to block ready flow.",
+    "runtimeChanged": false,
+    "deviceVerified": false,
+    "appBaseline": "e24bb0a0aba18914109ec6a0f181908edd37a210"
   }
 }
