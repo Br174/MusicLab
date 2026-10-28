@@ -29,6 +29,8 @@ internal object CoverOriginalResolver {
         "(?i)(?:first (?:released|published|issued)(?: recording| version)? by|originally (?:released|published|issued) by|prima (?:versione pubblicata|pubblicazione)(?: di| da)?)\\s*[:—-]?\\s*"
     )
 
+    private val negatedClaim = Regex("(?i)\\b(?:not|never|non|mai)(?:\\s+\\p{L}+){0,2}\\s*$")
+
     internal fun safeDocument(url: String): Boolean = runCatching {
         val uri = URI(url)
         uri.scheme == "https" && uri.userInfo == null && (uri.port == -1 || uri.port == 443) &&
@@ -53,6 +55,8 @@ internal object CoverOriginalResolver {
         val artist = TitleMeaningResolver.canonical(proposal.artist)
         if (title.isBlank() || artist.isBlank()) return false
         return firstPublication.findAll(text).any { match ->
+            val prefix = TitleMeaningResolver.canonical(text.substring(maxOf(0, match.range.first - 60), match.range.first))
+            if (negatedClaim.containsMatchIn(prefix)) return@any false
             val after = TitleMeaningResolver.canonical(text.substring(match.range.last + 1,
                 minOf(text.length, match.range.last + 1 + proposal.artist.length + 12)))
             val context = TitleMeaningResolver.canonical(text.substring(
@@ -129,14 +133,19 @@ internal object CoverOriginalResolver {
             if (CoverPriorityOrder.originalReference(known()) != null) return@withTimeoutOrNull
             val documented = (known() + versions).filter { it.workRelationConfirmed && !it.sourceUrl.isNullOrBlank() }
                 .sortedBy { it.year ?: Int.MAX_VALUE }
-            for (candidate in documented) {
-                awaitResources()
-                val proposal = Proposal(candidate.title, candidate.artist, candidate.sourceUrl.orEmpty())
-                if (verifyDocument(proposal)) {
-                    onCandidates(listOf(candidate.copy(originalWorkReference = true, firstPublicationConfirmed = true)))
-                    return@withTimeoutOrNull
+            val publication = withTimeoutOrNull(6_000L) documentation@ {
+                for (candidate in documented) {
+                    awaitResources()
+                    val proposal = Proposal(candidate.title, candidate.artist, candidate.sourceUrl.orEmpty())
+                    if (verifyDocument(proposal)) return@documentation candidate
                 }
+                null
             }
+            if (publication != null) {
+                onCandidates(listOf(publication.copy(originalWorkReference = true, firstPublicationConfirmed = true)))
+                return@withTimeoutOrNull
+            }
+            if (CoverPriorityOrder.originalReference(known()) != null) return@withTimeoutOrNull
             awaitResources()
             val proposal = withContext(Dispatchers.IO) { propose(title, artist,
                 credits.joinToString { "${it.role}: ${it.name}" }, config) } ?: return@withTimeoutOrNull

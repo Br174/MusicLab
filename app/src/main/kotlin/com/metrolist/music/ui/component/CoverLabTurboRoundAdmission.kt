@@ -8,13 +8,19 @@ internal object CoverLabTurboRoundAdmission {
         val rejected: Boolean = false,
     )
 
+    // Musical track/version descriptors, never lexical extensions of the work title.
+    private val trackTags = setOf("instrumental", "strumentale", "instrumentale", "performed", "guitar",
+        "chitarra", "piano", "backing track", "tutorial", "base musicale")
+    fun matchesWorkTitle(target: String, value: String, aliases: Set<String> = emptySet()): Boolean =
+        TitleMeaningResolver.matchesBaseTitle(target, value, aliases + trackTags)
+
     fun facts(candidate: CoverSourceCandidate, targetTitle: String, referenceArtist: String,
         metadataTitle: String = candidate.playbackVideoTitle.orEmpty(),
         referenceCredits: List<com.metrolist.music.discogs.DiscogsCredit> = emptyList()): Set<String> {
         val video = metadataTitle.ifBlank { candidate.title }
         val aliases = setOf(candidate.artist, referenceArtist).filter(String::isNotBlank).toSet()
-        val recorded = TitleMeaningResolver.matchesBaseTitle(candidate.title, video, aliases)
-        val exact = recorded && TitleMeaningResolver.matchesBaseTitle(targetTitle, candidate.title, aliases)
+        val recorded = matchesWorkTitle(candidate.title, video, aliases)
+        val exact = recorded && matchesWorkTitle(targetTitle, candidate.title, aliases)
         val documented = candidate.workRelationConfirmed && candidate.sources.any {
             it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true)
         }
@@ -72,9 +78,9 @@ internal object CoverLabTurboRoundAdmission {
                 candidate.sourceUrl.orEmpty(),
             )) return Verdict(false, 1, rejected = true)
         val aliases = setOf(candidate.artist, originalArtist).filter(String::isNotBlank).toSet()
-        val requested = TitleMeaningResolver.matchesBaseTitle(targetTitle, videoTitle, aliases) &&
-            TitleMeaningResolver.matchesBaseTitle(targetTitle, candidate.title, aliases)
-        val recordedTitle = TitleMeaningResolver.matchesBaseTitle(candidate.title, videoTitle, aliases)
+        val requested = matchesWorkTitle(targetTitle, videoTitle, aliases) &&
+            matchesWorkTitle(targetTitle, candidate.title, aliases)
+        val recordedTitle = matchesWorkTitle(candidate.title, videoTitle, aliases)
         val relation = candidate.workRelationConfirmed && candidate.sources.any {
             it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true)
         }

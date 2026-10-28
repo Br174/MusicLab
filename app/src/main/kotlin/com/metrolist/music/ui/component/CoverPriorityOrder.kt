@@ -63,6 +63,7 @@ internal object CoverPriorityOrder {
             round == 2 && television.containsMatchIn(details) -> 3
             round >= 3 && rare.containsMatchIn(details) -> 3
             candidate.category == AiCoverCategory.FOREIGN && candidate.workRelationConfirmed -> 4
+            candidate.workRelationConfirmed -> 3
             else -> 5
         }
     }
@@ -118,7 +119,7 @@ internal object CoverPriorityOrder {
         if (lead == null) return raw
         val title = raw.playbackVideoTitle ?: raw.title
         val artist = TitleMeaningResolver.canonical(lead.artist)
-        val bound = TitleMeaningResolver.matchesBaseTitle(lead.title, title, setOf(lead.artist)) &&
+        val bound = CoverLabTurboRoundAdmission.matchesWorkTitle(lead.title, title, setOf(lead.artist)) &&
             (CoverLab71FoundationGate.isOriginalPerformer(raw.artist, lead.artist) ||
                 (artist.isNotBlank() && TitleMeaningResolver.canonical(title).startsWith("$artist ")))
         if (!bound) return raw

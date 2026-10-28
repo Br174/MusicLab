@@ -3653,8 +3653,8 @@ internal fun DiscogsDirectVersionBrowser(
             }
             fun titleAllowed(candidate: CoverSourceCandidate): Boolean {
                 val aliases = setOf(candidate.artist).filter(String::isNotBlank).toSet()
-                val sameTitle = TitleMeaningResolver.matchesBaseTitle(workTitle(), candidate.title, aliases) &&
-                    TitleMeaningResolver.matchesBaseTitle(workTitle(), candidate.playbackVideoTitle.orEmpty().ifBlank { candidate.title }, aliases)
+                val sameTitle = CoverLabTurboRoundAdmission.matchesWorkTitle(workTitle(), candidate.title, aliases) &&
+                    CoverLabTurboRoundAdmission.matchesWorkTitle(workTitle(), candidate.playbackVideoTitle.orEmpty().ifBlank { candidate.title }, aliases)
                 if (sameTitle) return true
                 return candidate.category == AiCoverCategory.FOREIGN && candidate.workRelationConfirmed &&
                     candidate.sources.any { it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true) }
