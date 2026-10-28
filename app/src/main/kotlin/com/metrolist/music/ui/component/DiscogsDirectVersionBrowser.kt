@@ -4004,10 +4004,11 @@ internal fun DiscogsDirectVersionBrowser(
                                 recordSource(CoverSourceDiagnostic(sourceName, true, videos.size, "candidati conservati nella coda ordinata"))
                             }
                         }
+                        var linkingJob: Job? = null
                         while (isActive && generation == turboSearchGeneration &&
                             System.currentTimeMillis() - started < passBudgetMs && presentation.total(thisRound) < preparationLimit) {
                             if (audioBusy() || listState.isScrollInProgress) { delay(120L); continue }
-                            val producersDone = documentaryFinished && youtube.isCompleted && (discogs?.isCompleted != false) && (cloud?.isCompleted != false)
+                            val producersDone = linkingJob?.isActive != true && documentaryFinished && youtube.isCompleted && (discogs?.isCompleted != false) && (cloud?.isCompleted != false)
                             val allowTwins = producersDone && !queryWork.hasRunnableOrdinary && session.documentaryProgress.values.none { it.hasRunnablePages }
                             val rankTitle = workTitle()
                             val rankOriginal = originalArtist()
@@ -4031,7 +4032,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 pending.complete(next); continue
                             }
                             if (next.playbackVideoId.isNullOrBlank()) {
-                                if (sourceCooling("YouTube diretto")) { pending.defer(next); continue }
+                                if (linkingJob?.isActive == true) { pending.defer(next); continue }
+                                linkingJob = launch {
+                                if (sourceCooling("YouTube diretto")) { pending.defer(next); return@launch }
                                 val unlinkedTitle = workTitle()
                                 val unlinkedOriginal = originalArtist()
                                 val unlinked = withContext(Dispatchers.Default) {
@@ -4040,14 +4043,14 @@ internal fun DiscogsDirectVersionBrowser(
                                 if (!pending.isTwin(next) && CoverLabTurboTwinGuard.possibleTwin(unlinked,
                                         previousRoundRows + publishedCoverSnapshots)) {
                                     pending.markTwin(next)
-                                    continue
+                                    return@launch
                                 }
                                 val budget = preparation.claim(3_800L)
-                                if (budget <= 0L) { pending.defer(next); continue }
+                                if (budget <= 0L) { pending.defer(next); return@launch }
                                 val queryText = "${next.artist} ${next.title}"
                                 queryWork.offer(queryText, next.category, lead = next)
                                 val sourcePage = queryWork.forLead(next)
-                                if (sourcePage == null) { pending.defer(next); continue }
+                                if (sourcePage == null) { pending.defer(next); return@launch }
                                 val found = withTimeoutOrNull(budget) { withContext(Dispatchers.IO) {
                                     if (sourcePage.continuation != null) YouTube.searchContinuation(sourcePage.continuation).getOrNull()
                                     else YouTube.search(sourcePage.text, YouTube.SearchFilter.FILTER_VIDEO).getOrNull()
@@ -4073,9 +4076,17 @@ internal fun DiscogsDirectVersionBrowser(
                                     session.searchedLeadRounds[CoverPriorityOrder.key(next)] = thisRound
                                     recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0, "richiesta non completata; candidato e cursore conservati"))
                                 }
-                            } else publish(next)
+
+                                }
+                            } else if (session.preparedVideoSongs.containsKey(next.playbackVideoId.orEmpty())) {
+                                publish(next)
+                            } else if (linkingJob?.isActive == true) {
+                                pending.defer(next)
+                            } else {
+                                linkingJob = launch { publish(next) }
+                            }
                         }
-                        documents.join(); cloud?.join(); discogs?.join(); youtube.join()
+                        documents.join(); cloud?.join(); discogs?.join(); youtube.join(); linkingJob?.join()
                     }
                     session.roundSourceChecked = true
                     recordSource(CoverSourceDiagnostic("Coda Cover R2", true, pending.size,
