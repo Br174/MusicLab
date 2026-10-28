@@ -28,6 +28,7 @@ internal class CoverRoundPresentation<T>(
         var finalContinuation = false
     }
     private val rounds = linkedMapOf<Int, Round<T>>()
+    private var publicationPreference: (T) -> Boolean = { false }
     var visibleRound = 1
         private set
     private fun round(number: Int) = rounds.getOrPut(number) { Round() }
@@ -92,13 +93,7 @@ internal class CoverRoundPresentation<T>(
             state.overflow.replaceAll { _, row -> transform(row) }
         }
     }
-    fun prioritizePrepared(preferred: (T) -> Boolean) {
-        rounds.values.forEach { state ->
-            val ordered = state.prepared.entries.sortedBy { !preferred(it.value) }.map { it.key to it.value }
-            state.prepared.clear()
-            ordered.forEach { (id, row) -> state.prepared[id] = row }
-        }
-    }
+    fun prioritizePrepared(preferred: (T) -> Boolean) { publicationPreference = preferred }
     fun retainPrepared(predicate: (T) -> Boolean) {
         rounds.values.forEach { state ->
             state.prepared.entries.removeAll { !predicate(it.value) }
@@ -109,7 +104,8 @@ internal class CoverRoundPresentation<T>(
 
     private fun take(number: Int, limit: Int): List<T> {
         val state = round(number)
-        val keys = state.prepared.keys.take(limit.coerceAtLeast(0))
+        val keys = state.prepared.keys.sortedBy { !publicationPreference(state.prepared.getValue(it)) }
+            .take(limit.coerceAtLeast(0))
         return keys.mapNotNull { key -> state.prepared.remove(key)?.also { state.shown += key } }
             .also { if (state.prepared.isEmpty()) state.preparedSince = null }
     }

@@ -32,3 +32,5 @@ Final independent review: review_six_rounds_r6 identified P1 final completion ig
 CI40693369371 stopped before compilation on EOF blank lines; normalized only changed files, scope guard retained. No functional app verification claimed from that run.
 
 Final publication race check: a cached publication and background metadata publication can overlap while identity runs off-main. Recheck uncertainty against the latest stable history after metadata persistence, repeating off-main if history changed; retain same confirmed-duplicate/original-cap gates. No suspension occurs between stable-history check and stage.
+
+Final edge-case check: carried overflow joins already-prefetched rows during advance; apply the recorded release preference at take(), after merging, so a ready released overflow row can lead the next packet. Scalar predicate only; visible rows never move. Added native carriedReleasePrecedesPrefetchedUnreleasedRowsInTheNextPacket.

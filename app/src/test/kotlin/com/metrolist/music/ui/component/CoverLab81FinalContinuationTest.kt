@@ -99,6 +99,21 @@ class CoverLab81FinalContinuationTest {
         assertEquals(0,p.status().ready)
     }
 
+    @Test fun carriedReleasePrecedesPrefetchedUnreleasedRowsInTheNextPacket() {
+        val p=CoverRoundPresentation<String>{it}
+        repeat(50){p.stage(1,"home$it")}
+        p.stage(1,"album-overflow")
+        repeat(20){p.stage(2,"next-home$it")}
+        p.takeInitial()
+        p.reveal()
+        p.reveal()
+        p.prioritizePrepared{it.startsWith("album")}
+        val next=p.advance()
+        assertEquals(10,next.size)
+        assertEquals("album-overflow",next.first())
+        assertEquals(11,p.preparedRows(2).size)
+    }
+
     @Test fun finalPartialPacketRemainsAtomicAndOverflowSurvivesContinuation() {
         val p=CoverRoundPresentation<String>{it}
         p.finalRound=6
