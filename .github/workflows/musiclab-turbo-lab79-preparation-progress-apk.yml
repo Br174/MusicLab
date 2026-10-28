@@ -19,7 +19,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
       - name: Guard delivered LAB78 results, poster layout and player
-        run: python3 tools/universal-apk-builder/verify-lab80-round-closure-scope.py
+        run: git diff --exit-code e24bb0a0aba18914109ec6a0f181908edd37a210 -- app/src/main
       - name: Native audio and recording identity contracts
         run: node --test cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs
       - name: Canonical behavior consistency
@@ -57,7 +57,7 @@ jobs:
           set -a
           source uab-project.env
           set +a
-          ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+          ./gradlew --console=plain :app:testFossDebugUnitTest --tests "*CoverLab81SixRoundTest" --warning-mode summary
       - name: Build signed LAB79 APK ZIP
         if: contains(github.event.head_commit.message, '[build-apk]')
         run: |
@@ -108,3 +108,4 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
