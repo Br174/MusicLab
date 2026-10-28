@@ -652,7 +652,7 @@
       "version": 1,
       "status": "active",
       "protected": true,
-      "behavior": "Latest explicit Bruno clarification: evidence allocates visibility ACROSS rounds, not merely within one packet. Total required evidence INCLUDING TITLE: [3,2,2,2,2,1]. First needs title+2 further evidences; rounds2-5 title+1; sixth title only. Every cycle10+20+20 in the same round has identical requirements. Insufficient evidence defers a candidate to a compatible later round; never discards it globally. Strong late arrivals may appear later when ready. Title-only queries are reserved for round6. The direct YouTube VIDEO path in round6 is autonomous, without new documentary-service searches or waiting for their completion; optional descriptor queries never constrain plain title. Retain the full six category objectives, release preference, COVER.INFO trusted work relationships, language/recording identity rules, duplicate/original caps, packets, fluidity and player. Ignore the explicitly withdrawn immediately preceding stricter sixth-round message. Evidence taxonomy/independence and representation of COVER.INFO's existing evidence remain open for Bruno's decision; do not invent a hardcoded three-service requirement or extra proofs.",
+      "behavior": "Latest explicit Bruno clarification: evidence allocates visibility ACROSS rounds, not merely within one packet. Total required evidence INCLUDING TITLE: [3,2,2,2,2,1]. First needs title+2 further evidences; rounds2-5 title+1; sixth title only. Every cycle10+20+20 in the same round has identical requirements. Insufficient evidence defers a candidate to a compatible later round; never discards it globally. Strong late arrivals may appear later when ready. Title-only queries are reserved for round6. The direct YouTube VIDEO path in round6 is autonomous, without new documentary-service searches or waiting for their completion; optional descriptor queries never constrain plain title. Retain the full six category objectives, release preference, COVER.INFO trusted work relationships, language/recording identity rules, duplicate/original caps, packets, fluidity and player. Ignore the explicitly withdrawn immediately preceding stricter sixth-round message. Bruno subsequently approved flexible distinct documented corroborations of any pertinent kind, without a mandatory combination or three-site requirement. Existing COVER.INFO facts remain trusted without redundant proof or fabricated counts. Original identification is separate: use a verified original when available, otherwise continue with available selected-version information; do not make finding the original a new gate.",
       "supplements": [
         "musiclab.cover.six-rounds.v1"
       ],
@@ -668,12 +668,39 @@
         "Metadata-only save does not certify or modify app runtime"
       ],
       "testPaths": [],
-      "implementationState": "MEMORY_ONLY_PENDING_DECISIONS_AND_IMPLEMENTATION",
+      "implementationState": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
       "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
       "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt"
+    },
+    {
+      "id": "musiclab.cover.original-resolution-assistance.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "When starting from a cover whose original is not already known, always ATTEMPT original identification in background without blocking search/cards/player. AI proposes a possible original work/performer/version; its answer alone is not evidence. Verify the proposed same-work link through documented corroboration; ONE reliable corroboration can suffice for this separate operation. An equal title alone is only a clue because of homonyms. A reverse lookup from proposed original to the starting cover may strengthen confirmation but is not an obligatory second check. If original identification fails, remains uncertain or is slow, continue with available selected-version information, retaining results/candidates and allowing background enrichment. Never label the selected cover singer or the AI hypothesis as confirmed original without verification. Verified original context improves finding/recognizing other covers; its absence is never a new admission condition. Evidence of any pertinent distinct documented kind is allowed without a rigid mandatory combination. All saved round evidence totals/cycle requirements/categories/retention/COVER.INFO/identity/dedup/player protections remain unchanged.",
+      "supplements": [
+        "musiclab.cover.round-evidence-allocation.v1",
+        "musiclab.cover.six-rounds.v1"
+      ],
+      "supersedes": [],
+      "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt#section-18",
+      "acceptance": [
+        "Starting-cover original identification always attempted when not already known, without waiting before results",
+        "AI hypothesis alone never confirms original or creates evidence",
+        "One documented same-work corroboration may confirm the proposed original",
+        "Same-title coincidence alone does not confirm the relation",
+        "Reverse original-to-cover verification optional, never a second mandatory condition",
+        "Unknown, failed, unavailable or slow original enrichment does not block ordinary search",
+        "No automatic original attribution to selected cover performer",
+        "Saved round totals and distinct evidence counts unchanged"
+      ],
+      "testPaths": [],
+      "implementationState": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED"
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-28-six-round-evidence-3-2-2-2-2-1-memory-only",
+  "canonicalBehaviorRevision": "2026-10-28-flexible-corroboration-and-original-assistance-memory-only",
   "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
@@ -944,7 +971,14 @@
       "ruleId": "musiclab.cover.round-evidence-allocation.v1",
       "path": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
       "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
-      "state": "MEMORY_ONLY_PENDING_DECISIONS_AND_IMPLEMENTATION",
+      "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
+      "previousImplementationEvidenceDoesNotCoverThisSupplement": true
+    },
+    "originalIdentificationSupplement": {
+      "ruleId": "musiclab.cover.original-resolution-assistance.v1",
+      "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+      "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
+      "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
       "previousImplementationEvidenceDoesNotCoverThisSupplement": true
     }
   },
@@ -986,7 +1020,7 @@
   "approvedEvidenceAllocation": {
     "id": "musiclab.cover.round-evidence-allocation.v1",
     "approvedAt": "2026-10-28",
-    "state": "MEMORY_ONLY_PENDING_DECISIONS_AND_IMPLEMENTATION",
+    "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
     "titleIncluded": true,
     "totalEvidenceByRound": [
       3,
@@ -1016,17 +1050,21 @@
     "categories": "Unchanged six objectives from the approved spec",
     "withdrawnMessage": "Immediately preceding stricter sixth-round instruction withdrawn explicitly by Bruno. It supplies no new literal-title or YouTube-Music-exclusion requirement.",
     "finalVideoSearch": "Direct YouTube VIDEO title path autonomous; no new documentary-provider search or wait; optional descriptors remain optional.",
-    "openDecisions": [
-      "Operational inventory and independence of additional evidence",
-      "How to represent COVER.INFO's already-verified facts without redundant checks or fabricated counts"
-    ],
+    "openDecisions": [],
     "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
     "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
     "appRuntimeChanged": false,
     "appTestsRunForThisUpdate": false,
     "newApkBuilt": false,
     "lastGoodPromoted": false,
-    "applicationBaseline": "1535d9f013c001ed91636e2544b0385dac165e60"
+    "applicationBaseline": "1535d9f013c001ed91636e2544b0385dac165e60",
+    "resolvedClarifications": {
+      "pertinentKinds": "Any pertinent documented corroboration, without a mandatory combination or closed inventory",
+      "independence": "Distinct corroborated facts; repeated same information is not multiple evidences",
+      "coverInfo": "Use already-attested facts; no redundant confirmation and no automatic count from provider label",
+      "originalReference": "Verified original when found; otherwise available selected-version context remains usable; original success not a gate",
+      "separateOriginalIdentificationRule": "musiclab.cover.original-resolution-assistance.v1"
+    }
   },
   "scopedAuthorityOverrides": [
     {
@@ -1048,6 +1086,38 @@
       "rule": "musiclab.cover.round-evidence-allocation.v1",
       "overridesRule": "musiclab.cover.packet-card-r7.20261028",
       "aspect": "No new admission threshold in the prior R7 scope is not a prohibition on Bruno's later explicit allocation thresholds. Preserve R7 packet/card behavior and historical build evidence."
+    },
+    {
+      "rule": "musiclab.cover.original-resolution-assistance.v1",
+      "overridesRule": "musiclab.cover.round-evidence-allocation.v1",
+      "aspect": "Resolve previously-open taxonomy: flexible pertinent distinct documented corroborations, no rigid required combination. The optional original-enrichment success is not a new round gate; saved totals are not changed."
+    },
+    {
+      "rule": "musiclab.cover.original-resolution-assistance.v1",
+      "overridesRule": "original identification interpretations in prior discussion",
+      "aspect": "Always attempt when relevant, but confirmed original is never required before ordinary results. One corroboration may suffice; reverse lookup is optional; AI proposal alone is not proof. Never turn the temporary original-must-be-found interpretation into a rule."
     }
-  ]
+  ],
+  "approvedOriginalResolution": {
+    "id": "musiclab.cover.original-resolution-assistance.v1",
+    "approvedAt": "2026-10-28",
+    "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
+    "authority": "Bruno approved the complete post-R7 recap and requested persistence only of still-unsaved provisions. Newest proposal overrides conflicting earlier interpretations only in its scope.",
+    "trigger": "Search starts from a cover or original role is uncertain, original not already documented",
+    "alwaysAttempt": true,
+    "blockSearchUntilFound": false,
+    "aiRole": "PROPOSE_HYPOTHESIS_ONLY",
+    "verification": "ONE_RELIABLE_DOCUMENTED_SAME_WORK_CORROBORATION_CAN_SUFFICE",
+    "sameTitleAlone": "CLUE_NOT_AUTOMATIC_CONFIRMATION",
+    "reverseLookup": "OPTIONAL_SUPPORT_NOT_MANDATORY_DOUBLE_VERIFICATION",
+    "onVerified": "Use confirmed original as additional reference to find and recognize related covers",
+    "onUnknownOrFailure": "Continue ordinary search with available selected-version data, retain results, background verification may continue",
+    "selectedPerformerAutomaticallyOriginal": false,
+    "independentOfRoundEvidenceTotals": true,
+    "countsAlreadySavedNotChanged": true,
+    "appRuntimeChanged": false,
+    "newApkBuilt": false,
+    "lastGoodPromoted": false,
+    "sourceMemoryCommit": "c35564c69602f618388859f0b4e6ccc54b05641d"
+  }
 }

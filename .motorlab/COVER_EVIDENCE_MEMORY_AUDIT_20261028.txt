@@ -38,10 +38,24 @@ Preferenza per incisioni/pubblicazioni in tutte le tornate, senza renderle obbli
 Pacchetti atomici10+20+20, residuo unico e verde quando terminata disponibilità, eccedenze/cursori conservati, nessun gocciolamento. Inattività5–7s non è tempo standard né prova di assenza definitiva. Obiettivi di velocità da verificare fisicamente, grafica e player prioritari.
 Versione in ascolto conta solo con vero video/miniatura trovati. Rosso soltanto su zero finale reale, errori/timeout retry. Schede con titolo/interprete completi, anno documentato della registrazione e mai upload, fonti effettive e ascolto, Studio non presunto.
 
-F. ELEMENTI ANCORA DA DEFINIRE CON BRUNO, SENZA INVENTARE REGOLE
-F1. Elenco operativo delle evidenze aggiuntive e criteri per contare come indipendenti due riscontri. Titolo conta una volta; autore/interprete/crediti/relazione dell'opera sono esempi, non una nuova lista obbligatoria decisa dall'assistente. Tre evidenze NON significa automaticamente tre siti diversi.
-F2. Rappresentazione delle prove già contenute nelle versioni COVER.INFO: conservarne la verifica e la priorità, senza esigere nuove conferme né assegnare arbitrariamente tre punti al nome della fonte.
+F. PUNTI PRECEDENTEMENTE APERTI E CHIARIMENTI SUCCESSIVI
+F1. CHIARITO SUCCESSIVAMENTE: riscontri di qualsiasi natura pertinente e documentabile, senza combinazione fissa, elenco chiuso o tre siti diversi. Titolo una volta; duplicazioni del medesimo fatto non si moltiplicano. Dettagli nella sezione 18 della specifica.
+F2. CHIARITO SUCCESSIVAMENTE: usare i fatti già attestati da COVER.INFO senza richiedere nuove conferme né attribuire un numero arbitrario al solo nome della fonte. La relazione dell'opera già verificata rimane riconosciuta.
 F3. Il solo titolo nella sesta può lasciare incerta l'identità dell'opera. Il riepilogo accettato distingue risultati non ancora verificati da cover confermate; non revoca l'esclusione delle opere dimostrate diverse.
 F4. Categorie e soglie sono entrambe vigenti. Non introdurre di propria iniziativa una nuova esclusività per genere: una versione forte arrivata tardi resta recuperabile, senza sovrascrivere le categorie e le preferenze già concordate.
 
-PROSSIMO PASSO: Bruno esamina questo elenco e indica come andare avanti. Nessuna implementazione o nuovo APK autorizzato da questa sola operazione di memoria.
+PROSSIMO PASSO: utilizzare la specifica consolidata per la successiva fase di modifica dell'app. Questa operazione registra soltanto le disposizioni approvate e non avvia implementazione, test applicativi o nuovo APK.
+
+
+G. INTEGRAZIONE SUCCESSIVA APPROVATA E ORA MEMORIZZATA
+Salvati soltanto i dati nuovi: riscontri flessibili; quando si parte da una cover di originale non noto, tentativo sistematico di identificazione assistito dall'IA; verifica documentata della proposta; UN riscontro affidabile sufficiente per confermare quel collegamento; ricerca inversa eventuale e non obbligatoria; continuazione non bloccante senza originale se non trovato. Le soglie delle tornate rimangono quelle già salvate.
+La proposta IA non è prova. La sola omonimia non è conferma dell'opera. L'originale confermato migliora la ricerca; la sua assenza non impedisce il funzionamento con i dati disponibili.
+
+H. ESITO DEL CONTROLLO CONFLITTI DI QUESTA INTEGRAZIONE
+H1. Qualsiasi obbligo di trovare l'originale prima dei risultati è superato: tentare sempre nel caso pertinente, riuscire non è obbligatorio.
+H2. Qualsiasi obbligo di tre prove per l'identificazione dell'originale è superato: può bastare un solo riscontro affidabile. È un controllo distinto dall'assegnazione alle tornate.
+H3. Qualsiasi doppia verifica obbligatoria è superata: la ricerca inversa è un rinforzo possibile, non una condizione aggiuntiva.
+H4. La precedente voce aperta sul catalogo rigido dei riscontri è sostituita dalla scelta di natura libera, pertinente e documentabile. La stessa informazione non conta più volte; COVER.INFO mantiene la verifica già riconosciuta.
+H5. Nessuna regola compatibile già salvata viene ritirata o duplicata; le nuove disposizioni hanno precedenza solo nei propri aspetti. Nessuna conferma di relazioni musicali basata sull'esempio verbale Morgan/De André.
+H6. I contrasti APPLICATIVI della sezione D restano da correggere nel prossimo intervento; non sono dichiarati risolti da questa registrazione.
+STATO: SPECIFICA APPROVATA E SALVATA, APP INVARIATA. Nessun nuovo APK o promozione LAST_GOOD.

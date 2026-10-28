@@ -152,7 +152,7 @@ Le percentuali sono distinte dal conteggio di evidenze: non possono sostituirlo 
 COVER.INFO: mantenere la relazione dell'opera già verificata, senza richiedere prove ridondanti. Resta necessario un video realmente corrispondente. Non inventare un conteggio di tre solo per il nome della fonte.
 Per adattamenti stranieri documentati resta valido il titolo della versione collegata all'opera: il requisito del titolo non impone una traduzione letterale e non cancella tale eccezione.
 RITIRO ESPLICITO: Bruno ha annullato il messaggio immediatamente precedente che irrigidiva la sesta sul titolo letteralmente identico e introduceva l'esclusione esplicita di YouTube Music. Quel messaggio NON costituisce una nuova disposizione. Rimane il riepilogo precedente: titolo/opera secondo le regole esistenti, tag di versione ammessi, descrittori facoltativi, percorso video YouTube autonomo. Non ricavare da quel messaggio ritirato nuove restrizioni.
-DA DEFINIRE PRIMA DEL CODICE: catalogo operativo delle evidenze aggiuntive, criteri di indipendenza e modo di rappresentare le prove già fornite da COVER.INFO. Autore/interprete/crediti/relazione dell'opera sono esempi già discussi; non fissare da soli parole obbligatorie, fonti obbligatorie o tre siti diversi. Il titolo e il conteggio totale sono già decisi.
+PRECISAZIONE SUCCESSIVA APPROVATA: i riscontri possono essere di qualsiasi natura pertinente al collegamento con la canzone, senza combinazione obbligatoria, elenco chiuso o tre servizi diversi. Devono essere distinti e documentabili; la stessa informazione ripetuta non si moltiplica. Autore/interprete/crediti/relazione dell'opera sono esempi, non campi tutti obbligatori. Le prove già documentate da COVER.INFO restano valide senza nuove conferme ridondanti; non assegnare un numero di prove al solo nome della fonte. Il precedente punto aperto è chiarito nei limiti di questa scelta di principio; non usarlo per introdurre nuove restrizioni. L'identificazione dell'originale è disciplinata separatamente nella sezione 18.
 CONFINE ULTIMA TORNATA: il solo titolo può lasciare non verificata l'appartenenza alla stessa opera; non presentare tali risultati come cover confermate. Conservare l'esclusione dei brani dimostrati diversi salvo nuova disposizione esplicita.
 COLLAUDO FUTURO RICHIESTO: titolo soltanto non pubblicato nelle prime cinque; 3 vs 2 vs 1 assegnati alle rispettive tornate; le stesse soglie in tutti i cicli; candidati rinviati recuperabili; omonimo di Neffa non promosso alla prima per album o percentuale; cache/prefetch/ripristino non aggirano le soglie; sesta video autonoma e paginata senza attesa documentale; COVER.INFO e adattamenti stranieri non persi; 10+20+20/residui/player invariati.
 STATO: MEMORY_SAVED_APP_UNCHANGED_IMPLEMENTATION_NOT_AUTHORIZED_IN_THIS_STEP.
@@ -160,3 +160,36 @@ STATO: MEMORY_SAVED_APP_UNCHANGED_IMPLEMENTATION_NOT_AUTHORIZED_IN_THIS_STEP.
 17. SCHEDE E COMPATIBILITÀ GIÀ APPROVATE, CONSOLIDATE SENZA NUOVE MODIFICHE
 Titolo completo e nome degli interpreti per intero, senza ellissi; usare dati effettivi, senza inventare il cantante da un nome di canale. Anno della specifica versione solo quando documentato, mai data di upload YouTube né anno dell'opera originaria trasferito a un'altra registrazione. Mostrare le fonti effettive, inclusa COVER.INFO quando usata, e distinguere il servizio di ascolto. Studio richiede riscontro esplicito; una pubblicazione documentata non basta da sola a provare una sessione in studio. Conservare player, miniatura/video corrispondente e comandi esistenti.
 Questi aspetti sono già descritti nel registro R7; qui vengono richiamati per evitare letture parziali della specifica. La nuova integrazione sulle evidenze non è ancora implementata.
+
+18. NUOVE PRECISAZIONI APPROVATE — RISCONTRI FLESSIBILI E COVER DI PARTENZA
+Autorità: riepilogo complessivo post-R7 approvato integralmente da Bruno e sua successiva richiesta di salvare soltanto le disposizioni non ancora registrate. Operazione SOLO MEMORIA; nessuna modifica applicativa o certificazione di collaudo.
+Questa sezione integra, senza duplicarli o sostituirli, conteggi, categorie, cicli e protezioni già salvati.
+
+18.1 RISCONTRI SENZA COMBINAZIONE RIGIDA
+Evidenze e riscontri indicano dati pertinenti che aiutano a collegare una versione alla canzone/opera cercata. Possono avere natura diversa: titolo, attribuzione alla canzone di riferimento, autore/compositore, crediti, relazione documentata tra versioni, altri riscontri musicali pertinenti e verificabili. Non è obbligatoria una particolare coppia di campi oltre al titolo, né una lista chiusa, né un numero di siti consultati. Duplicazioni dello stesso fatto non contano come ulteriori riscontri indipendenti. La proposta dell'IA da sola non è un riscontro.
+Il titolo è già incluso nei conteggi salvati. Questi conteggi restano INVARIATI; l'identificazione dell'originale non li sostituisce e non aggiunge una condizione obbligatoria.
+COVER.INFO conserva la relazione dell'opera già verificata; non richiedere nuove prove ridondanti né attribuire automaticamente tre riscontri alla sola etichetta della fonte. Usare i dati effettivamente attestati.
+
+18.2 SE LA RICERCA PARTE DA UNA COVER
+La versione selezionata può essere già una cover. Non dichiarare automaticamente originale il suo interprete.
+Quando l'originale non è già noto, tentare SEMPRE di identificarlo nel percorso che parte da una cover (o da una versione di ruolo non ancora chiarito), senza bloccare la ricerca principale.
+Il sistema può farsi aiutare dall'IA: la domanda riguarda l'originale della cover selezionata. L'IA propone un'opera/interprete/versione di riferimento; il sistema cerca riscontri documentati della proposta.
+Se un collegamento affidabile viene confermato, usare l'originale identificato come riferimento aggiuntivo per riconoscere, ricercare e ordinare meglio le altre versioni della stessa opera.
+Se non si trova, resta incerto, l'IA non risponde o il lavoro è lento, continuare con i dati disponibili della versione selezionata; mantenere risultati e candidati, senza inventare originalità o riscontri. L'approfondimento può proseguire in background.
+È sistematico il TENTATIVO; il SUCCESSO non è obbligatorio. La ricerca dell'originale è un miglioramento, mai un nuovo limite globale o una dipendenza bloccante di una tornata.
+Non applicare nuovamente questa identificazione come verifica obbligatoria a ogni cover trovata, né imporre una nuova attesa quando l'originale è già documentato.
+
+18.3 UN RISCONTRO PUÒ CONFERMARE L'ORIGINALE PROPOSTO
+Per confermare il collegamento fra la cover di partenza e l'originale suggerito può bastare UN SOLO riscontro documentato e affidabile che attesti la stessa opera. Non sono obbligatori tre riscontri per questa operazione separata.
+La semplice presenza dello stesso titolo presso un artista è un indizio, non automaticamente prova della relazione fra due registrazioni: conservare la distinzione già concordata per evitare omonimi. L'esempio discusso Morgan/De André è un esempio del procedimento, non una relazione discografica dichiarata vera dalla presente memoria.
+
+18.4 VERIFICA INVERSA DI SUPPORTO
+Quando utile, partire dall'opera originale proposta e cercare se fra le sue cover documentate compare proprio l'interprete/versione selezionata all'inizio.
+Questa verifica inversa può rafforzare o confermare il collegamento. Non è un secondo requisito obbligatorio se è già disponibile un riscontro sufficiente; non deve allungare artificialmente l'attesa né bloccare i risultati.
+Risultati discordanti mantengono l'ipotesi incerta e consentono ulteriori approfondimenti; nessuna attribuzione inventata.
+
+18.5 PREVALENZA LIMITATA AGLI ASPETTI CHIARITI
+Superare ogni lettura precedente che richiedesse l'identificazione certa dell'originale prima di continuare, che richiedesse sempre tre prove per l'identificazione stessa, che trasformasse l'ipotesi IA in conferma o che rendesse obbligatoria la verifica inversa.
+Superare il precedente punto aperto inteso come necessità di una lista rigida di evidenze. Rimangono necessari riscontri pertinenti, realmente attestati e non duplicati.
+Le soglie di tornata già registrate, le categorie, COVER.INFO, il recupero dei lenti, la sesta autonoma, i pacchetti, i titoli/lingue, i duplicati, le schede e il player restano intatti. Il messaggio ritirato continua a non produrre nuove disposizioni.
+STATO: SAVED_APPROVED_NOT_IMPLEMENTED. La successiva modifica dell'app dovrà attuare la specifica consolidata; non è stata avviata in questa operazione.
