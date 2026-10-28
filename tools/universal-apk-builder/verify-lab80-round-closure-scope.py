@@ -7,6 +7,7 @@ base = '84a858f8e4c95c9d11ce27d0e5a77fb2f8bb0c27'
 root = 'app/src/main/kotlin/com/metrolist/music/ui/component/'
 allowed = {root + n for n in ('CoverRoundPresentation.kt', 'CoverRoundSearchPlan.kt',
     'CoverPriorityOrder.kt', 'DiscogsDirectVersionBrowser.kt')} | {
+    'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab76ProgressiveRoundTest.kt',
     'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PresentationTest.kt',
     'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab80RoundClosureTest.kt',
     'app/src/main/res/values/metrolist_strings.xml',

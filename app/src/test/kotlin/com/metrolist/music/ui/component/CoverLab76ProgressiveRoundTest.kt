@@ -85,12 +85,13 @@ class CoverLab76ProgressiveRoundTest {
     }
 
     @Test fun laterRoundQueriesKeepExactTitleAndUseRotatingMultilingualDescriptors() {
-        for(round in 4..14) {
+        for(round in 4 until CoverRoundSearchPlan.finalRound) {
             val queries=CoverRoundSearchPlan.queries("Soli",round,"Adriano Celentano")
             assertEquals("Soli",queries.first().text)
             assertTrue(queries.size>=5)
             assertTrue(queries.any { it.text.contains("Soli ") })
         }
+        assertEquals(listOf("Soli"), CoverRoundSearchPlan.queries("Soli", CoverRoundSearchPlan.finalRound, "Adriano Celentano").map { it.text })
         val second=CoverRoundSearchPlan.queries("Soli",2,"Adriano Celentano")
         assertTrue(second.any { it.text.contains("Sanremo") })
         assertTrue(second.any { it.text.contains("Eurovision") })
