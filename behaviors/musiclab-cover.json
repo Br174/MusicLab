@@ -913,5 +913,24 @@
       "zipSha256": "28f74598657d645fce193d634a46a478dff0fd2535cac65a6259c228371f697c",
       "physicalPhone": "PENDING_BRUNO_TEST"
     }
+  },
+  "packetCardAdjustmentR7": {
+    "id": "musiclab.cover.packet-card-r7.20261028",
+    "authority": "Bruno: proceed only with agreed packet priority and clean card corrections",
+    "plan": ".motorlab/R7_COVER_PACKET_CARD_PLAN_20261028.txt",
+    "state": "IMPLEMENTED_PENDING_NATIVE_VERIFICATION",
+    "firstPacketPriority": "Preserve release/original/accredited/related priority in preparation and ready publication pool including overflow; metadata readiness never overrides rank. No new admission threshold.",
+    "publication": "Only first 10 (or exhausted first residual) automatic; following 20+20 each require one manual continue command. Background preparation never drains multiple packets.",
+    "card": "Full title and credited artist without ellipsis; documentary recording year only, never upload date or inherited year from a related work. All actual discovery sources and playback service. Explicit studio proof required; otherwise Published or Cover.",
+    "existingProtections": "Same-work title matching, COVER.INFO trusted relationships, original cap, confirmed/uncertain twins, audio resources, cursors and all six objectives preserved.",
+    "redEvidence": {
+      "run": 40706571880,
+      "job": 122880200303,
+      "tests": 506,
+      "expectedFailures": 1,
+      "case": "workBindingDoesNotDateALiveVideoWithTheStudioAlbumYear"
+    },
+    "deviceVerified": false,
+    "lastGoodPromoted": false
   }
 }

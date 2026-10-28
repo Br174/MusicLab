@@ -5,10 +5,15 @@ internal object CoverPriorityOrder {
     fun refreshEvidence(row: DiscogsVersionSeed, candidate: CoverSourceCandidate, title: String, original: String, round: Int): DiscogsVersionSeed {
         if (row.resolvedVideoId.isNullOrBlank() || row.resolvedVideoId != candidate.playbackVideoId) return row
         val score = CoverLabTurboRoundAdmission.evaluate(candidate, title, original, round, row.resolvedVideoTitle.orEmpty()).confidencePercent
-        if (score < (row.musiclabScore100 ?: 0)) return row.copy(
+        val enriched = row.copy(
+            sourceNames = (row.sourceNames + candidate.sources).distinct(),
+            releaseTitle = candidate.album?.takeIf { candidate.releaseVerified && it.isNotBlank() } ?: row.releaseTitle,
+            year = row.year ?: candidate.year,
+            releaseDate = row.releaseDate ?: candidate.year?.toString(),
             discogsVerificationChecked = row.discogsVerificationChecked || candidate.releaseVerified,
         )
-        return row.copy(
+        if (score < (row.musiclabScore100 ?: 0)) return enriched
+        return enriched.copy(
             artist = candidate.artist.ifBlank { row.artist },
             trackTitle = candidate.title.ifBlank { row.trackTitle },
             sourceNames = (row.sourceNames + candidate.sources).distinct(),
@@ -30,6 +35,7 @@ internal object CoverPriorityOrder {
     }
     private val catalogue = setOf("discogs", "apple/itunes", "spotify", "youtube music")
     private val credited = catalogue + "musicbrainz"
+    private val karaokeChannel = Regex("""(?i)\b(karaoke|kar[aà]oke|midi|kar)\b""")
     private val television = Regex(
         """(?i)\b(tv|television|sanremo|x factor|the voice|eurovision|amici|live|concert|remix|mashup|ai cover|intelligenza artificiale)\b"""
     )
@@ -51,6 +57,7 @@ internal object CoverPriorityOrder {
             " " + candidate.album.orEmpty()
         return when {
             candidate.releaseVerified || (!candidate.album.isNullOrBlank() && sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) }) -> 0
+            !candidate.workRelationConfirmed && karaokeChannel.containsMatchIn(candidate.artist) -> 6
             candidate.originalWorkReference || (originalArtist.isNotBlank() &&
                 CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 1
             candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 2
@@ -80,8 +87,7 @@ internal object CoverPriorityOrder {
                 group(candidate, originalArtist, round),
             )
         }.sortedWith(
-            compareBy<Ranked> { it.late }.thenBy { it.preference != 0 }.thenByDescending { it.evidence }
-                .thenBy { it.preference }
+            compareBy<Ranked> { it.late }.thenBy { it.preference }.thenByDescending { it.evidence }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.collectorHave ?: 0 }.thenBy { it.index }
         ).map { it.row }
@@ -90,6 +96,20 @@ internal object CoverPriorityOrder {
     fun isPublished(row: DiscogsVersionSeed): Boolean = row.discogsVerificationChecked ||
         (row.releaseTitle.isNotBlank() && row.releaseTitle != row.sourceNames.joinToString(" + ") &&
             row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in catalogue && !it.equals("Discogs", true) })
+
+    private fun publicationGroup(row: DiscogsVersionSeed): Int = when {
+        isPublished(row) -> 0
+        !row.workRelationConfirmed && karaokeChannel.containsMatchIn(row.artist) -> 6
+        row.originalWorkReference -> 1
+        row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in credited } -> 2
+        row.workRelationConfirmed -> 3
+        else -> 5
+    }
+
+    val publicationComparator: Comparator<DiscogsVersionSeed> =
+        compareBy<DiscogsVersionSeed>(::publicationGroup)
+            .thenByDescending { it.musiclabScore100 ?: 0 }
+            .thenByDescending { it.collectorHave ?: 0 }
 
     fun originalReference(candidates: List<CoverSourceCandidate>): CoverSourceCandidate? {
         val documented = candidates.filter { candidate ->
@@ -119,7 +139,7 @@ internal object CoverPriorityOrder {
             category = if (lead.category == AiCoverCategory.FOREIGN) lead.category else raw.category,
             playbackVideoId = raw.playbackVideoId, playbackVideoTitle = title,
             playbackVideoSource = "YouTube documentario", durationSeconds = raw.durationSeconds,
-            album = raw.album, releaseVerified = raw.releaseVerified,
+            album = raw.album, year = raw.year, releaseVerified = raw.releaseVerified,
             chartPosition = raw.chartPosition,
             recordingReleaseId = null, recordingMasterId = null, recordingTrackPosition = null,
         )

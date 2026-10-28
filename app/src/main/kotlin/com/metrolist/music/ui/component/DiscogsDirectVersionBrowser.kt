@@ -217,7 +217,8 @@ private fun directDisplayCategory(seed: DiscogsVersionSeed): DirectVersionCatego
         liveTitle || seed.kind == DiscogsVersionKind.LIVE -> DirectVersionCategory.LIVE
         remixTitle || seed.kind == DiscogsVersionKind.REMIX -> DirectVersionCategory.REMIX
         !seed.language.isNullOrBlank() -> DirectVersionCategory.FOREIGN
-        else -> DirectVersionCategory.STUDIO
+        else -> if (com.metrolist.music.BuildConfig.APPLICATION_ID != "it.verlezza.musiclab.turbo01" ||
+            CoverCardMetadata.isStudio(seed)) DirectVersionCategory.STUDIO else DirectVersionCategory.ALL
     }
 }
 
@@ -3569,10 +3570,10 @@ internal fun DiscogsDirectVersionBrowser(
                 session.roundEmptyPasses = 0
                 roundPlanComplete = false
                 session.roundPlanComplete = false
-                presentation.prioritizePrepared(CoverPriorityOrder::isPublished)
+                presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
                 appendVisible(presentation.advance())
             } else if (!resumePreparation && presentation.status().ready > 0) {
-                presentation.prioritizePrepared(CoverPriorityOrder::isPublished)
+                presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
                 appendVisible(presentation.reveal())
             }
             if (!session.presentationInitialized) {
@@ -3593,7 +3594,10 @@ internal fun DiscogsDirectVersionBrowser(
                 val hint = originalArtist().ifBlank { lockedArtist }
                 val queries = CoverRoundSearchPlan.queries(workTitle(), thisRound, hint)
                 // The native music catalogue identifies performers before uploader channels.
-                if (thisRound == 1) queryWork.offer("${workTitle()} $hint", AiCoverCategory.COVER, songs = true)
+                if (thisRound == 1) {
+                    queryWork.offer("${workTitle()} $hint", AiCoverCategory.COVER, songs = true)
+                    queryWork.offer(workTitle(), AiCoverCategory.COVER, songs = true)
+                }
                 if (thisRound >= CoverRoundSearchPlan.finalRound) queryWork.offer(workTitle(), AiCoverCategory.COVER, songs = true)
                 queries.forEach { queryWork.offer(it.text, it.categoryHint) }
             }
@@ -3746,8 +3750,8 @@ internal fun DiscogsDirectVersionBrowser(
                         if (audioBusy() || listState.isScrollInProgress) presentation.pauseIdleClock(thisRound)
                         else presentation.closeIfIdle(thisRound)
                         if (thisRound == coverRoundNumber && presentation.exhausted(thisRound)) {
-                            presentation.prioritizePrepared(CoverPriorityOrder::isPublished)
-                            while (presentation.status().ready > 0) appendVisible(presentation.reveal())
+                            presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
+                            appendVisible(presentation.takeAutomatic())
                         }
                         preparationWaitingSources = session.sourceRetries.cooling(sourceContext()).keys.take(2).joinToString(", ")
                         syncPresentation()
@@ -3758,8 +3762,8 @@ internal fun DiscogsDirectVersionBrowser(
                     val state = presentation.status()
                     if (state.shown < CoverRoundPresentation.INITIAL_SIZE &&
                         (state.shown < CoverRoundPresentation.FAST_PREFIX || state.prepared >= 5 || force)) {
-                        presentation.prioritizePrepared(CoverPriorityOrder::isPublished)
-                        appendVisible(presentation.takeInitial())
+                        presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
+                        appendVisible(presentation.takeAutomatic())
                     } else syncPresentation()
                 }
                 fun fromVideo(video: SongItem, category: AiCoverCategory, music: Boolean = false) = CoverSourceCandidate(
@@ -4076,7 +4080,6 @@ internal fun DiscogsDirectVersionBrowser(
                             pending.orderingInput(rankTitle, rankOriginal, thisRound)?.let { input ->
                                 val order = withContext(Dispatchers.Default) {
                                     CoverPriorityOrder.order(input.rows, input.title, input.original, input.round, input.twins)
-                                        .sortedBy { if (session.preparedVideoSongs.containsKey(it.playbackVideoId.orEmpty())) 0 else 1 }
                                 }
                                 if (!pending.applyOrdering(input, order)) return@let
                             }
@@ -4176,7 +4179,10 @@ internal fun DiscogsDirectVersionBrowser(
                         presentation.finalProgress(thisRound, complete = searchComplete,
                             blocked = session.sourceRetries.cooling(sourceContext()).isNotEmpty())
                     }
-                    if (searchComplete) presentation.exhaust(thisRound)
+                    if (searchComplete) {
+                        presentation.exhaust(thisRound)
+                        flushInitial(force = true)
+                    }
                     syncPresentation()
                     val savedRound = coverRoundNumber
                     val savedRows = previousRoundRows + publishedCoverSnapshots
@@ -8059,15 +8065,11 @@ private fun DiscogsVersionCard(
                         seed.trackTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         seed.artist,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     if (provisional) {
                         Text(
@@ -8077,15 +8079,25 @@ private fun DiscogsVersionCard(
                             maxLines = 1,
                         )
                     }
-                    val shownYear = seed.releaseDate?.take(4)?.takeIf(String::isNotBlank)
-                        ?: seed.displayDate?.take(4)?.takeIf(String::isNotBlank) ?: "—"
-                    Text(
-                        shownYear + " · " + primaryDiscoverySource(seed),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    CoverCardMetadata.publicationYear(seed)?.let { year ->
+                        Text(year, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    val discoverySources = CoverCardMetadata.sources(seed).joinToString(" · ")
+                    if (discoverySources.isNotBlank()) {
+                        Text(
+                            imageContext.getString(com.metrolist.music.R.string.musiclab_cover_card_sources, discoverySources),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    CoverCardMetadata.playbackService(seed)?.let { service ->
+                        Text(
+                            imageContext.getString(com.metrolist.music.R.string.musiclab_cover_card_playback, service),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (showConfidence) {
                         Text(
                             (if (seed.musiclabScore100 != null) "Prove disponibili: " else "Precisione stimata: ") + (
@@ -8101,7 +8113,10 @@ private fun DiscogsVersionCard(
                             DirectVersionCategory.LIVE -> "Live"
                             DirectVersionCategory.REMIX -> "Remix"
                             DirectVersionCategory.FOREIGN -> "Stranieri"
-                            else -> "Studio"
+                            else -> imageContext.getString(if (CoverCardMetadata.isStudio(seed))
+                                com.metrolist.music.R.string.musiclab_cover_card_studio
+                                else if (CoverPriorityOrder.isPublished(seed)) com.metrolist.music.R.string.musiclab_cover_card_published
+                                else com.metrolist.music.R.string.musiclab_cover_card_generic)
                         },
                         modifier = Modifier.background(
                             MaterialTheme.colorScheme.surfaceVariant,

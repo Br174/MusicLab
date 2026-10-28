@@ -6,6 +6,11 @@ Specifica sei tornate invariata; le ultime precisazioni della conversazione aggi
 3. Pubblicazione: automatica soltanto la prima decina o il primo residuo, poi un singolo pacchetto per comando. Il background prepara senza svuotare la coda sullo schermo.
 4. Scheda moderna: titolo e artista integrali, anno della versione quando documentato, tutte le fonti effettive e servizio di ascolto. Nessuna data di upload e nessun anno della registrazione originale trasferito a un video diverso. Studio solo con riscontro.
 5. Verificare test nativi, contratti audio/identita, guardia del perimetro, build firmata e ZIP. Nome di consegna Revisione-7; versione Android e firma invariate.
-Registro avanzamento: preparazione; nessuna correzione applicativa ancora eseguita.
+Registro avanzamento:
+- RED nativo: run 40706571880, job 122880200303, sorgente f667df9e4e7990992d27232cd9eec80f591cbf0f; 506 test, un fallimento atteso sull'anno del live ereditato; compilazione riuscita e contratti audio/identita passati.
+- Correzioni locali: ranking preservato fino alla pubblicazione; pool include eccedenze senza perdita; un solo primo pacchetto automatico, poi comandi manuali; ricerche musicali anche senza interprete nella prima; scheda completa, anno/fonti/ascolto e etichette documentate.
+- Revisore indipendente: eliminato argomento album duplicato; Studio richiede segnale esplicito e pubblicazione, altrimenti Pubblicata/Cover; esaurimento rapido pubblica il primo residuo prima di terminare il worker.
+- Verifica nativa GREEN e build firmata PENDING. Telefono PENDING. Nessuna promozione LAST_GOOD.
 Ruling: la parola cover.Lab e interpretata come COVER.INFO secondo il messaggio accettato da Bruno; visualizzare nomi reali delle fonti, non creare un servizio inventato.
 Ruling: un canale denominato Karaoke non prova che un'esecuzione cantata sia karaoke. Il segnale abbassa la priorita, non introduce una blacklist del canale. Restano escluse le tracce esplicitamente karaoke/MIDI/KAR.
+Ruling: Pubblicata distingue una pubblicazione documentata da una sessione in studio effettivamente dichiarata. Non dedurre Studio dall'enum storico di default. Se il segnale manca, la versione resta disponibile e preferita come pubblicata.

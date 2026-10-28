@@ -29,6 +29,7 @@ internal class CoverRoundPresentation<T>(
     }
     private val rounds = linkedMapOf<Int, Round<T>>()
     private var publicationPreference: (T) -> Boolean = { false }
+    private var publicationComparator: Comparator<T>? = null
     var visibleRound = 1
         private set
     private fun round(number: Int) = rounds.getOrPut(number) { Round() }
@@ -93,7 +94,11 @@ internal class CoverRoundPresentation<T>(
             state.overflow.replaceAll { _, row -> transform(row) }
         }
     }
-    fun prioritizePrepared(preferred: (T) -> Boolean) { publicationPreference = preferred }
+    fun prioritizePrepared(preferred: (T) -> Boolean) {
+        publicationPreference = preferred
+        publicationComparator = null
+    }
+    fun prioritizePreparedWith(comparator: Comparator<T>) { publicationComparator = comparator }
     fun retainPrepared(predicate: (T) -> Boolean) {
         rounds.values.forEach { state ->
             state.prepared.entries.removeAll { !predicate(it.value) }
@@ -104,10 +109,20 @@ internal class CoverRoundPresentation<T>(
 
     private fun take(number: Int, limit: Int): List<T> {
         val state = round(number)
-        val keys = state.prepared.keys.sortedBy { !publicationPreference(state.prepared.getValue(it)) }
-            .take(limit.coerceAtLeast(0))
-        return keys.mapNotNull { key -> state.prepared.remove(key)?.also { state.shown += key } }
-            .also { if (state.prepared.isEmpty()) state.preparedSince = null }
+        val pool = (state.prepared.values + state.overflow.values)
+        val ordered = publicationComparator?.let { pool.sortedWith(it) }
+            ?: pool.sortedBy { !publicationPreference(it) }
+        val selected = ordered.take(limit.coerceAtLeast(0))
+        selected.forEach { state.shown += identity(it) }
+        state.prepared.clear()
+        state.overflow.clear()
+        val capacity = (ROUND_SIZE - state.shown.size).coerceAtLeast(0)
+        ordered.drop(selected.size).forEachIndexed { index, row ->
+            if (index < capacity) state.prepared[identity(row)] = row
+            else state.overflow[identity(row)] = row
+        }
+        if (state.prepared.isEmpty()) state.preparedSince = null
+        return selected
     }
 
     fun takeInitial(): List<T> {
@@ -115,6 +130,8 @@ internal class CoverRoundPresentation<T>(
         val state = round(visibleRound)
         return if (state.prepared.size >= remaining || state.exhausted) take(visibleRound, remaining) else emptyList()
     }
+    fun takeAutomatic(): List<T> =
+        if (round(visibleRound).shown.isEmpty()) takeInitial() else emptyList()
     fun reveal(): List<T> = take(visibleRound, status().ready)
     fun advance(): List<T> {
         if (!status().green) return emptyList()

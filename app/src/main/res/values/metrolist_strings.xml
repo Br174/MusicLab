@@ -1225,4 +1225,9 @@
     <string name="musiclab_cover_none_final">Nessuna cover</string>
     <string name="musiclab_cover_finished">Ricerca completata</string>
     <string name="musiclab_cover_retry_final">Verifica non completata · Riprova</string>
+    <string name="musiclab_cover_card_sources">Fonte: %1$s</string>
+    <string name="musiclab_cover_card_playback">Ascolto: %1$s</string>
+    <string name="musiclab_cover_card_generic">Cover</string>
+    <string name="musiclab_cover_card_studio">Studio</string>
+    <string name="musiclab_cover_card_published">Pubblicata</string>
 </resources>
