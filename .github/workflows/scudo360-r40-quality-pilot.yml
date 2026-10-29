@@ -5,6 +5,7 @@ on:
       - motorlab/active-musiclab-turbo
 permissions:
   contents: read
+  actions: read
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -35,6 +36,21 @@ jobs:
           source uab-project.env
           set +a
           node .motorlab/regression/scudo360-gate-r40-pilot.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-r40-native.json
+      - name: Recover original signed R10 Scudo360 regression receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 40919743345 -n scudo360-musiclab-regression-report -D /tmp/scudo360-r10-original
+          test -s /tmp/scudo360-r10-original/.motorlab/scudo360-report.json
+          cp /tmp/scudo360-r10-original/.motorlab/scudo360-report.json .motorlab/scudo360-r39-baseline.json
+          node - <<'NODE'
+          const before=require('./.motorlab/scudo360-r39-baseline.json');
+          if(before.commit!=='6b1326745dcee0d5d5068b90efe8b4d274e210b2'||before.passed!==true)
+            throw Error('R10_ORIGINAL_SIGNED_JUNIT_BASELINE_MISMATCH');
+          console.log('MUSICLAB_R10_VERIFIED_SIGNED_BASELINE',before.commit);
+          NODE
       - name: R40 audit existing executed suite without rerunning Gradle
         run: node .motorlab/regression/scudo360-quality-r40.mjs .motorlab/scudo360-contracts.json .motorlab/scudo360-r40-native.json .motorlab/scudo360-r40-plan.json .motorlab/scudo360-r40-quality.json
       - name: Preserve all proof including failed native tests
