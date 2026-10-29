@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "project": "musiclab",
+  "suites": [
+    {
+      "id": "music-main-jvm",
+      "command": [
+        "./gradlew",
+        ":app:testFossDebugUnitTest",
+        "--console=plain",
+        "--warning-mode",
+        "summary"
+      ],
+      "paths": [
+        "app/src/test/kotlin/com/metrolist/music/db/DatabaseMigrationLadderTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/extensions/PlayerRepeatModeTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/extensions/StringExtTest.kt"
+      ],
+      "junitDir": "app/build/test-results/testFossDebugUnitTest",
+      "timeoutMs": 900000
+    }
+  ],
+  "contracts": [
+    {
+      "id": "music.db.migration-integrity",
+      "priority": "P1",
+      "suites": [
+        "music-main-jvm"
+      ],
+      "junitClasses": [
+        "com.metrolist.music.db.DatabaseMigrationLadderTest"
+      ],
+      "requiredAt": [
+        "lab",
+        "promotion"
+      ]
+    },
+    {
+      "id": "music.player.repeat-state",
+      "priority": "P1",
+      "suites": [
+        "music-main-jvm"
+      ],
+      "junitClasses": [
+        "com.metrolist.music.extensions.PlayerRepeatModeTest"
+      ],
+      "requiredAt": [
+        "lab",
+        "promotion"
+      ]
+    },
+    {
+      "id": "music.search.normalization",
+      "priority": "P1",
+      "suites": [
+        "music-main-jvm"
+      ],
+      "junitClasses": [
+        "com.metrolist.music.extensions.StringExtTest"
+      ],
+      "requiredAt": [
+        "lab",
+        "promotion"
+      ]
+    }
+  ]
+}

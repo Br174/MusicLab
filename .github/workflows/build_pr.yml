@@ -63,7 +63,10 @@ jobs:
       - name: Run unit tests
         # JVM-only unit tests on pure-logic modules. Fast (<1min) and deterministic —
         # we want this to block the merge, so it runs before the longer build step.
-        run: ./gradlew --console=plain :app:testFossDebugUnitTest :spotify:test :betterlyrics:test --warning-mode summary
+        run: |
+          set -euo pipefail
+          node .motorlab/regression/scudo360-gate.mjs .motorlab/scudo360-contracts.json promotion .motorlab/scudo360-report.json
+          ./gradlew --console=plain :spotify:test :betterlyrics:test --warning-mode summary
         env:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}

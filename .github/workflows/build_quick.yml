@@ -18,7 +18,12 @@ permissions:
   contents: write
 
 jobs:
+  scudo360:
+    uses: ./.github/workflows/scudo360-reusable.yml
+    secrets: inherit
+
   build_quick:
+    needs: scudo360
     name: Quick Universal Release Build
     runs-on: ubuntu-latest
 

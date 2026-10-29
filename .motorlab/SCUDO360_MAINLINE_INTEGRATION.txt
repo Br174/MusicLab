@@ -1,0 +1,11 @@
+MOTORLAB SCUDO360 MUSIC MAINLINE INTEGRATION
+RELEASE=2026.10.29-r39
+SOURCE_BASE=8650a9646ae2eefd8121f308d6e2e97e2797c79e
+SCOPE=existing_main_unit_suite_pinned_to_3_real_classes_plus_existing_other_unit_suites
+PR_GATE=.github/workflows/build_pr.yml
+APK_GATES=.github/workflows/build.yml;.github/workflows/build_quick.yml
+NATIVE_CALLABLE_GATE=.github/workflows/scudo360-reusable.yml
+JUNIT_EXACT_CLASS_EVIDENCE=3_PER_CONTRACT_REQUIREMENTS_AND_FULL_APP_SUITE
+NOT_CERTIFIED=CoverLab79_and_LAB82_advanced_cover_runtime_or_LAB_playlist_behavior
+EXISTING_LAB_FAILURE=AddSongsToPlaylistTest_not_silenced
+APP_SOURCE_SIGNING_PACKAGE=UNCHANGED
