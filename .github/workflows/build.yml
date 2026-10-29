@@ -61,6 +61,23 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Fail early if stable release signing credentials are unavailable
+        shell: bash
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.KEYSTORE }}
+          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in SIGNING_KEYSTORE_BASE64 SIGNING_KEY_ALIAS SIGNING_STORE_PASSWORD SIGNING_KEY_PASSWORD; do
+            if [ -z "$(printenv "$name" 2>/dev/null)" ]; then
+              echo "::error::Stable release signing credential $name is unavailable. Build blocked before expensive Gradle work. No replacement identity generated."
+              exit 78
+            fi
+          done
+          echo '[SIGNING_PREFLIGHT=PASS] Existing release signing inputs present; certificate will remain unchanged.'
+
       - name: Build Release APK and Run Lint
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Release :app:lint${{ matrix.variantName }}Release --warning-mode summary
         env:
@@ -140,9 +157,26 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Restore Persistent Keystore
+      - name: Validate original persistent debug keystore before Gradle
+        shell: bash
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE }}
         run: |
-          echo "${{ secrets.DEBUG_KEYSTORE }}" | base64 -d > ./app/persistent-debug.keystore
+          set -euo pipefail
+          if [ -z "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "::error::Original DEBUG_KEYSTORE is unavailable. Refusing to create a replacement certificate."
+            exit 78
+          fi
+          umask 077
+          if ! printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > ./app/persistent-debug.keystore; then
+            echo "::error::Stored DEBUG_KEYSTORE is not valid base64. Original identity preserved."
+            exit 78
+          fi
+          if ! keytool -list -keystore ./app/persistent-debug.keystore -storepass android -alias androiddebugkey >/dev/null 2>&1; then
+            echo "::error::Original debug keystore cannot be read with the expected identity; do not regenerate or change signing certificate."
+            exit 78
+          fi
+          echo '[DEBUG_KEYSTORE=VERIFIED] Existing stable debug signing identity is readable.'
 
       - name: Build Debug APK and Run Lint
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Debug :app:lint${{ matrix.variantName }}Debug --warning-mode summary
