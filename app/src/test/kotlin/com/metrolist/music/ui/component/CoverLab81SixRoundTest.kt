@@ -38,7 +38,10 @@ class CoverLab81SixRoundTest {
             album="Published single", releaseVerified=true, playbackVideoId="record00001", playbackVideoTitle="Soli")
         for (round in 1..8) {
             val ordered = CoverPriorityOrder.order(listOf(documented,released),"Soli","",round)
-            assertEquals("round $round", released, ordered.first())
+            // The published row only has a title clue and is not admitted
+            // before round 6. Release preference sorts eligible peers, not
+            // a candidate that lacks the round's documentary evidence.
+            assertEquals("round $round", if (round < 6) documented else released, ordered.first())
             assertEquals(setOf(documented,released),ordered.toSet())
             assertEquals(listOf(documented),CoverPriorityOrder.order(listOf(documented),"Soli","",round))
         }

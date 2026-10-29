@@ -28,6 +28,8 @@ allowed |= {
  'tools/universal-apk-builder/verify-r10-cover-scope.py',
  'tools/universal-apk-builder/prepare-turbo-r10-empty-packet-env.py',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverR10EmptyRoundRecoveryTest.kt',
+ 'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81FinalContinuationTest.kt',
+ 'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81SixRoundTest.kt',
  '.motorlab/R10_ZERO_POSTER_RECOVERY_20261029.txt',
  'cloudflare/music-intelligence/test/turbo-r9-recovery-wiring.test.mjs',
  'app/src/main/kotlin/com/metrolist/music/discogs/DiscogsModels.kt',

@@ -13,6 +13,18 @@ class CoverLab81FinalContinuationTest {
         p.finalProgress(6,complete=false,blocked=false)
         now=7_000L
         p.closeIfIdle(6)
+        // R10: a visual timeout offers the next manual cycle; slow video pages
+        // are still retained and source exhaustion is not inferred.
+        assertFalse(p.status().green)
+        assertTrue(p.status().manualContinue)
+        assertEquals(2,p.status().nextCycle)
+        assertTrue(p.continueEmptyWindow())
+        now=14_000L
+        p.closeIfIdle(6)
+        assertEquals(3,p.status().nextCycle)
+        assertTrue(p.continueEmptyWindow())
+        now=21_000L
+        p.closeIfIdle(6)
         assertTrue(p.status().green)
         assertFalse(p.status().terminal)
         assertFalse(p.status().noResults)
