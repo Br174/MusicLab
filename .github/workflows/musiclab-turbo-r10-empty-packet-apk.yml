@@ -60,6 +60,17 @@ jobs:
           set +a
           node scripts/scudo360-gate.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-report.json
           echo '[SCUDO360=PASS] Cumulative JVM regression results verified'
+      - name: Preserve Scudo360 failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scudo360-musiclab-regression-report
+          path: |
+            .motorlab/scudo360-report.json
+            app/build/test-results/testFossDebugUnitTest/*.xml
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Build signed LAB79 APK ZIP
         if: contains(github.event.head_commit.message, '[build-apk]')
         run: |
