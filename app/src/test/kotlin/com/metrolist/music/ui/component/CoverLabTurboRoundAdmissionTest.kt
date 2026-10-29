@@ -31,6 +31,15 @@ class CoverLabTurboRoundAdmissionTest {
         val cover = candidate()
         assertTrue(CoverLabTurboRoundAdmission.evaluate(
             cover, "Sapore di sale", "Gino Paoli", 2,
+            "Sapore di sale - Gino Paoli live cover"
+        ).admitted)
+        // Two actual facts do not override a later instrumental category.
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(
+            cover, "Sapore di sale", "Gino Paoli", 2,
+            "Sapore di sale - Gino Paoli piano cover"
+        ).admitted)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(
+            cover, "Sapore di sale", "Gino Paoli", 4,
             "Sapore di sale - Gino Paoli piano cover"
         ).admitted)
         assertFalse(CoverLabTurboRoundAdmission.evaluate(
@@ -41,7 +50,8 @@ class CoverLabTurboRoundAdmissionTest {
 
     @Test fun thirdAndFourthAllowProgressivelyWeakerMatches() {
         val creditedCover = candidate(title = "Sapore di sale - Gino Paoli piano cover")
-        assertTrue(CoverLabTurboRoundAdmission.evaluate(
+        // Piano versions belong to the fourth tier under the six-round spec.
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(
             creditedCover, "Sapore di sale", "Gino Paoli", 3
         ).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(

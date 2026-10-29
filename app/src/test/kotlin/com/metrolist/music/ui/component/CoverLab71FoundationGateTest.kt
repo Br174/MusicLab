@@ -45,7 +45,10 @@ class CoverLab71FoundationGateTest {
         }
         for (title in listOf("Felicità - performed instrumental cover", "Felicità backing track", "Felicità piano tutorial", "Felicità base musicale")) {
             assertFalse(CoverLab71FoundationGate.isForbidden(title))
-            assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 2, title).admitted)
+            // R8 superseded the old unconditional round-2 admission. An allowed
+            // instrumental still needs the evidence total AND its compatible tier.
+            assertFalse(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 1, title).admitted)
+            assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 6, title).admitted)
         }
     }
 

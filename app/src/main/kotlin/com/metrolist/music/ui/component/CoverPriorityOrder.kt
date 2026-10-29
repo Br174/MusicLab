@@ -61,12 +61,17 @@ internal object CoverPriorityOrder {
         return when {
             candidate.releaseVerified || (!candidate.album.isNullOrBlank() && sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) }) -> 0
             !candidate.workRelationConfirmed && karaokeChannel.containsMatchIn(candidate.artist) -> 6
-            candidate.workRelationConfirmed -> 1
+            // The verified first-published interpreter precedes other documented
+            // renditions; documented foreign adaptations stay ahead of weak catalogue hints.
+            // This changes ORDER only; it never adds or removes candidates.
+            candidate.originalWorkReference && candidate.firstPublicationConfirmed -> 1
+            candidate.workRelationConfirmed && candidate.category != AiCoverCategory.FOREIGN -> 2
+            candidate.workRelationConfirmed -> 3
             candidate.originalWorkReference || (originalArtist.isNotBlank() &&
-                CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 2
-            candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 3
-            round == 2 && television.containsMatchIn(details) -> 3
-            round >= 3 && rare.containsMatchIn(details) -> 3
+                CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 4
+            candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 4
+            round == 2 && television.containsMatchIn(details) -> 4
+            round >= 3 && rare.containsMatchIn(details) -> 4
             else -> 5
         }
     }
@@ -97,9 +102,11 @@ internal object CoverPriorityOrder {
     private fun publicationGroup(row: DiscogsVersionSeed): Int = when {
         isPublished(row) -> 0
         !row.workRelationConfirmed && karaokeChannel.containsMatchIn(row.artist) -> 6
-        row.workRelationConfirmed -> 1
-        row.originalWorkReference -> 2
-        row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in credited } -> 3
+        // The same documentary/original precedence must survive poster staging.
+        row.originalWorkReference && row.workRelationConfirmed -> 1
+        row.workRelationConfirmed -> 2
+        row.originalWorkReference -> 3
+        row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in credited } -> 4
         else -> 5
     }
 
