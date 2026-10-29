@@ -1,0 +1,49 @@
+name: MusicLab Turbo R11 Scudo360 r40 quality native pilot
+on:
+  pull_request:
+    branches:
+      - motorlab/active-musiclab-turbo
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Prepare original same-family R11 Gradle configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-r11-scudo360-regression-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33084"' uab-project.env
+      - name: Execute existing full JVM suite with r39 exact class attribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source uab-project.env
+          set +a
+          node .motorlab/regression/scudo360-gate-r40-pilot.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-r40-native.json
+      - name: R40 audit existing executed suite without rerunning Gradle
+        run: node .motorlab/regression/scudo360-quality-r40.mjs .motorlab/scudo360-contracts.json .motorlab/scudo360-r40-native.json .motorlab/scudo360-r40-plan.json .motorlab/scudo360-r40-quality.json
+      - name: Preserve all proof including failed native tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scudo-r40-musiclab-native-proof
+          path: |
+            .motorlab/scudo360-r40-native.json
+            .motorlab/scudo360-r40-quality.json
+            app/build/test-results/testFossDebugUnitTest/*.xml
+          if-no-files-found: warn
