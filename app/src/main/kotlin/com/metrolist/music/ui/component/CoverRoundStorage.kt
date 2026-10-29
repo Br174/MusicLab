@@ -26,19 +26,21 @@ internal object CoverRoundStorage {
     )
 
 
-    /** Pure restoration boundary, extracted from the native screen for regression tests. */
+    /** Published cards and pending discoveries have different restoration boundaries. */
     internal fun partitionForRestoration(saved: Snapshot, referenceTitle: String, referenceArtist: String):
-        Pair<List<DiscogsVersionSeed>, List<DiscogsVersionSeed>> = (saved.rows + saved.deferredRows).partition { row ->
-                        val verdict = CoverLabTurboRoundAdmission.evaluate(
-                            CoverLabTurboRoundAdmission.candidate(row), referenceTitle, referenceArtist,
-                            row.coverRound ?: 1,
-                        )
-                        val savedFacts = row.identityEvidence.toSet()
-                        val allocated = !verdict.rejected && (verdict.admitted ||
-                            (savedFacts.contains("title") && (row.coverRound ?: 1) >=
-                                CoverLabTurboRoundAdmission.minimumRound(savedFacts)))
-                        allocated && (row.coverRound ?: 1) <= saved.round
-                    }
+        Pair<List<DiscogsVersionSeed>, List<DiscogsVersionSeed>> {
+        val (visible, held) = saved.rows.partition { row ->
+            val verdict = CoverLabTurboRoundAdmission.evaluate(
+                CoverLabTurboRoundAdmission.candidate(row), referenceTitle, referenceArtist, row.coverRound ?: 1)
+            val savedFacts = row.identityEvidence.toSet()
+            val allocated = !verdict.rejected && (verdict.admitted ||
+                (savedFacts.contains("title") && (row.coverRound ?: 1) >=
+                    CoverLabTurboRoundAdmission.minimumRound(savedFacts)))
+            allocated && row.videoResolutionChecked && !row.resolvedVideoId.isNullOrBlank() &&
+                (row.coverRound ?: 1) <= saved.round
+        }
+        return visible to (held + saved.deferredRows)
+    }
 
     private fun path(context: Context, workKey: String): AtomicFile {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -174,22 +176,34 @@ internal object CoverRoundStorage {
             results.optJSONObject(index)?.let(::decode)
         }
         val original = text(json, "originalArtist")
+        val pending = json.optJSONArray("deferredRows") ?: JSONArray()
+        val deferred = (0 until pending.length()).mapNotNull { index ->
+            pending.optJSONObject(index)?.let(::decode)
+        }
         val cards = retained(restored, original)
         Snapshot(round = json.optInt("round", 1).coerceAtLeast(1), rows = cards,
-            originalArtist = original, workTitle = text(json, "workTitle"))
+            originalArtist = original, workTitle = text(json, "workTitle"),
+            deferredRows = retained(deferred, original))
     }.getOrDefault(Snapshot())
 
     @Synchronized
     internal fun save(context: Context, workKey: String, round: Int, rows: List<DiscogsVersionSeed>,
-        originalArtist: String? = null, workTitle: String? = null) {
+        originalArtist: String? = null, workTitle: String? = null,
+        deferredRows: List<DiscogsVersionSeed>? = null) {
         runCatching {
             // Out-of-order IO jobs may finish after a newer Cover round.
             // Never overwrite a larger or newer confirmed snapshot.
             val saved = load(context, workKey)
-            if (saved.round > round || (saved.round == round && retained(saved.rows, originalArtist).size > retained(rows, originalArtist).size)) {
+            if (saved.round > round || (deferredRows == null && saved.round == round &&
+                    retained(saved.rows, originalArtist).size > retained(rows, originalArtist).size)) {
                 return@runCatching
             }
             val records = retained(rows, originalArtist ?: saved.originalArtist)
+            // Only the native preparation owner replaces the complete pending queue.
+            // Older/UI-only save callers preserve it instead of erasing hidden discoveries.
+            val shownIds = records.mapNotNull { it.resolvedVideoId }.toSet()
+            val waiting = retained(deferredRows ?: saved.deferredRows, originalArtist ?: saved.originalArtist)
+                .filterNot { it.resolvedVideoId in shownIds }
             val json = JSONObject()
                 .put("schema", 1)
                 .put("originalArtist", originalArtist ?: saved.originalArtist)
@@ -197,6 +211,9 @@ internal object CoverRoundStorage {
                 .put("round", round.coerceAtLeast(1))
                 .put("rows", JSONArray().also { array ->
                     records.forEach { array.put(encode(it)) }
+                })
+                .put("deferredRows", JSONArray().also { array ->
+                    waiting.forEach { array.put(encode(it)) }
                 })
             val file = path(context, workKey)
             var stream: java.io.FileOutputStream? = null

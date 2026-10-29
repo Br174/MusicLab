@@ -22,8 +22,10 @@ internal object CoverOriginalResolver {
     internal class SessionState {
         var attempted: Boolean = false
         val credits: MutableList<com.metrolist.music.discogs.DiscogsCredit> = mutableListOf()
-        // Explicit reset boundary; wired to fresh-search reset in the reviewed fix.
-        fun reset() {}
+        fun reset() {
+            attempted = false
+            credits.clear()
+        }
     }
     data class Config(val provider: String, val key: String, val model: String)
     data class Proposal(val title: String, val artist: String, val document: String)
