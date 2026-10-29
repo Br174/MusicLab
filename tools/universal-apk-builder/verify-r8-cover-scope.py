@@ -9,7 +9,7 @@ owners=('CoverLabTurboRoundAdmission.kt','TitleMeaningResolver.kt','CoverPriorit
  'GeminiCoverVerification.kt','MusicBrainzCoverSource.kt','CoverRoundStorage.kt',
  'DiscogsVersionSource.kt','DiscogsDirectVersionBrowser.kt')
 allowed={root+n for n in owners}|{
- 'behaviors/musiclab-cover.json','.motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt','.motorlab/R8_IMPLEMENTATION_PLAN_20261028.txt',
+ 'behaviors/musiclab-cover.json','.motorlab/MUSICLAB_R8_DELIVERY_CHECKPOINT_20261029.txt','.motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt','.motorlab/R8_IMPLEMENTATION_PLAN_20261028.txt',
  'tools/universal-apk-builder/verify-r8-cover-scope.py',
  'tools/universal-apk-builder/prepare-turbo-lab79-preparation-progress-env.py',
  '.github/workflows/musiclab-turbo-lab79-preparation-progress-apk.yml',

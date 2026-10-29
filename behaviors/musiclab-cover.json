@@ -667,10 +667,15 @@
         "Withdrawn message is not a new requirement",
         "Metadata-only save does not certify or modify app runtime"
       ],
-      "testPaths": [],
-      "implementationState": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83EvidenceAllocationTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83PendingFinalTest.kt"
+      ],
+      "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
       "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
-      "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt"
+      "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
+      "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+      "deviceVerified": false
     },
     {
       "id": "musiclab.cover.original-resolution-assistance.v1",
@@ -696,8 +701,12 @@
         "No automatic original attribution to selected cover performer",
         "Saved round totals and distinct evidence counts unchanged"
       ],
-      "testPaths": [],
-      "implementationState": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED"
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83OriginalResolutionTest.kt"
+      ],
+      "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+      "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+      "deviceVerified": false
     },
     {
       "id": "musiclab.cover.original-first-publication.multisource.v1",
@@ -723,9 +732,13 @@
         "Unknown original or source timeout does not block ordinary cover results",
         "Final YouTube video round has no new documentary dependency"
       ],
-      "testPaths": [],
-      "implementationState": "MEMORY_SAVED_NOT_IMPLEMENTED",
-      "operationalDesignStatus": "PROPOSED_PROVIDER_ORGANIZATION_SAVED_FOR_REVIEW"
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83OriginalResolutionTest.kt"
+      ],
+      "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+      "operationalDesignStatus": "PROPOSED_PROVIDER_ORGANIZATION_SAVED_FOR_REVIEW",
+      "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+      "deviceVerified": false
     },
     {
       "id": "musiclab.cover.ornamental-percent.v1",
@@ -740,7 +753,10 @@
       ],
       "testPaths": [
         "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83EvidenceAllocationTest.kt"
-      ]
+      ],
+      "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+      "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+      "deviceVerified": false
     }
   ],
   "canonicalBehaviorRevision": "2026-10-28-original-first-published-performer-multisource-memory-only",
@@ -935,7 +951,7 @@
     }
   ],
   "implementationPolicy": "LAB66 is confirmed user-visible LAST_GOOD for thumbnail production. Future LAB67 changes must be strictly selective, non-destructive, with source-diff and regression guard. Save memory before modifying app. Approval for 4 refinements is user-granted; don't alter existing good method.",
-  "memoryUpdatedAt": "2026-10-28",
+  "memoryUpdatedAt": "2026-10-29",
   "knownBadRegressions": [
     {
       "id": "LAB67_WRONG_THREAD_AND_STALE_SOURCE_DIAG",
@@ -1064,7 +1080,7 @@
   "approvedEvidenceAllocation": {
     "id": "musiclab.cover.round-evidence-allocation.v1",
     "approvedAt": "2026-10-28",
-    "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
+    "state": "NATIVE_CI_VERIFIED_PHONE_PENDING",
     "titleIncluded": true,
     "totalEvidenceByRound": [
       3,
@@ -1108,7 +1124,9 @@
       "coverInfo": "Use already-attested facts; no redundant confirmation and no automatic count from provider label",
       "originalReference": "Verified original when found; otherwise available selected-version context remains usable; original success not a gate",
       "separateOriginalIdentificationRule": "musiclab.cover.original-resolution-assistance.v1"
-    }
+    },
+    "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+    "deviceVerified": false
   },
   "scopedAuthorityOverrides": [
     {
@@ -1155,7 +1173,7 @@
   "approvedOriginalResolution": {
     "id": "musiclab.cover.original-resolution-assistance.v1",
     "approvedAt": "2026-10-28",
-    "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
+    "state": "NATIVE_CI_VERIFIED_PHONE_PENDING",
     "authority": "Bruno approved the complete post-R7 recap and requested persistence only of still-unsaved provisions. Newest proposal overrides conflicting earlier interpretations only in its scope.",
     "trigger": "Search starts from a cover or original role is uncertain, original not already documented",
     "alwaysAttempt": true,
@@ -1178,12 +1196,14 @@
     "coverInfoExclusiveDependency": false,
     "multisourceRule": "musiclab.cover.original-first-publication.multisource.v1",
     "sameWorkVersusFirstPerformer": "Credits/work relations identify composition; first-publication link identifies the original performer",
-    "earliestFoundDate": "CANDIDATE_NOT_AUTOMATICALLY_CONFIRMED_ORIGINAL"
+    "earliestFoundDate": "CANDIDATE_NOT_AUTOMATICALLY_CONFIRMED_ORIGINAL",
+    "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+    "deviceVerified": false
   },
   "approvedOriginalFirstPublicationPlan": {
     "ruleId": "musiclab.cover.original-first-publication.multisource.v1",
     "path": ".motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt",
-    "state": "MEMORY_SAVED_NOT_IMPLEMENTED",
+    "state": "NATIVE_CI_VERIFIED_PHONE_PENDING",
     "operationalDesign": "PROPOSED_FOR_REVIEW",
     "userRequirements": {
       "originalIsFirstPublishedPerformer": true,
@@ -1224,6 +1244,61 @@
     "appRuntimeChanged": false,
     "newApkBuilt": false,
     "lastGoodPromoted": false,
-    "sourceMemoryCommit": "9d345fd514b1a1c0be126b2811e2abd377d42f21"
+    "sourceMemoryCommit": "9d345fd514b1a1c0be126b2811e2abd377d42f21",
+    "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+    "deviceVerified": false
+  },
+  "implementationR8": {
+    "state": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+    "sourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+    "ciRun": 40826725036,
+    "ciUrl": "https://github.com/Br174/MusicLab/actions/runs/40826725036",
+    "nativeSuite": "FULL_PASS_SAME_542_TEST_METHODS",
+    "package": "it.verlezza.musiclab.turbo01",
+    "versionCode": 33081,
+    "certificateSha256": "9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749",
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "totalEvidenceIncludingTitle": [
+      3,
+      2,
+      2,
+      2,
+      2,
+      1
+    ],
+    "percentages": "ORNAMENTAL_ONLY",
+    "nativeVerification": [
+      "scope-and-protected-player/cards",
+      "audio-and-recording-contracts",
+      "canonical-rule-precedence",
+      "full-Android-JVM-suite",
+      "signed-APK-build",
+      "APK-package/version/certificate",
+      "ZIP-APK-byte-equality"
+    ],
+    "artifacts": {
+      "id": 12877216561,
+      "url": "https://github.com/Br174/MusicLab/actions/runs/40826725036/artifacts/12877216561",
+      "outerZipSha256": "009be527293d349b2089f24f08367da64c51eac85d1ed77d2ea7c1f45cf98be3",
+      "expiresAt": "2026-11-12T06:10:21Z",
+      "apk": "MusicLab-Turbo-LAB79-Revisione-8.apk",
+      "zip": "MusicLab-Turbo-LAB79-Revisione-8-APK.zip"
+    },
+    "delivery": "COMPOSITE_GITHUB_ARTIFACT_AVAILABLE_INDIVIDUAL_LIBRARY_LINKS_BLOCKED_BY_UNAVAILABLE_EXECUTION_ENVIRONMENT",
+    "review": {
+      "independent": "PARTIAL_STOPPED_BY_SERVICE_LIMIT",
+      "importantFindingsFixed": 2,
+      "authorRemainingInspection": true,
+      "completeIndependentReview": false
+    },
+    "phoneVerified": false,
+    "liveProviderCoverageVerified": false,
+    "physicalAudioAndTimingVerified": false,
+    "lastGoodPromoted": false,
+    "checkpoint": ".motorlab/MUSICLAB_R8_DELIVERY_CHECKPOINT_20261029.txt"
   }
 }
