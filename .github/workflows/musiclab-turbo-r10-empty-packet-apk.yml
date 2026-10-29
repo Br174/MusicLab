@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - lab/musiclab-turbo-lab79-r10-empty-packet-recovery-20261029
+      - lab/musiclab-scudo360-regression-pilot-20261029
   workflow_dispatch:
 permissions:
   contents: read
@@ -50,14 +51,15 @@ jobs:
           python3 tools/universal-apk-builder/prepare-turbo-r10-empty-packet-env.py
           grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33083"' uab-project.env
           grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
-      - name: Android JVM regressions full
+      - name: Scudo360 mandatory full JVM regressions
         shell: bash
         run: |
           set -euo pipefail
           set -a
           source uab-project.env
           set +a
-          ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+          node scripts/scudo360-gate.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-report.json
+          echo '[SCUDO360=PASS] Cumulative JVM regression results verified'
       - name: Build signed LAB79 APK ZIP
         if: contains(github.event.head_commit.message, '[build-apk]')
         run: |

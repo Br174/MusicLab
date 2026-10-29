@@ -1,0 +1,9 @@
+MotorLab Scudo360 MusicLab pilot
+SOURCE_BRANCH=lab/musiclab-turbo-lab79-r10-empty-packet-recovery-20261029
+INITIAL_SOURCE_SHA=d278a0417a8e5989f8003da6024ebebef0cd107d
+SCOPE=isolated_lab_no_app_runtime_changes
+PRE_BUILD_GATE=scripts/scudo360-gate.mjs
+REGISTRY=.motorlab/scudo360-contracts.json
+PRESERVE=LAB79_R10_SIGNING_PACKAGE_MADRE_AND_COVER_ENGINE
+PROMOTE_MADRE=NO
+PILOT_CERTIFICATION=JVM_AND_EXISTING_SOURCE_GUARDS_NOT_PHYSICAL_ANDROID
