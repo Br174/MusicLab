@@ -61,6 +61,23 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Fail early if original release signing credentials are unavailable
+        shell: bash
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.KEYSTORE }}
+          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in SIGNING_KEYSTORE_BASE64 SIGNING_KEY_ALIAS SIGNING_STORE_PASSWORD SIGNING_KEY_PASSWORD; do
+            if [ -z "$(printenv "$name" 2>/dev/null)" ]; then
+              echo "::error::Required original release credential $name is unavailable; no signing identity replacement is allowed."
+              exit 78
+            fi
+          done
+          echo "[MUSICLAB_RELEASE_SIGNING_INPUTS=PRESENT] Original certificate still requires independent fingerprint verification."
+
       - name: Build Release APK and Run Lint
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Release :app:lint${{ matrix.variantName }}Release --warning-mode summary
         env:
@@ -140,9 +157,23 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Restore Persistent Keystore
+      - name: Restore and verify original persistent debug signing key
+        shell: bash
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE }}
         run: |
-          echo "${{ secrets.DEBUG_KEYSTORE }}" | base64 -d > ./app/persistent-debug.keystore
+          set -euo pipefail
+          if [[ -z "${DEBUG_KEYSTORE_B64:-}" ]]; then
+            echo "::error title=MusicLab signing preflight::DEBUG_KEYSTORE is not configured; preserving the original signing identity and stopping before Android compilation"
+            exit 1
+          fi
+          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 --decode > ./app/persistent-debug.keystore
+          if ! keytool -list -keystore ./app/persistent-debug.keystore -storepass android -alias androiddebugkey >/dev/null 2>&1; then
+            rm -f ./app/persistent-debug.keystore
+            echo "::error title=MusicLab signing preflight::Original debug keystore is malformed or not the expected Android debug key. Do not regenerate the key"
+            exit 1
+          fi
+          echo "MusicLab original debug signing key: readable and correct alias"
 
       - name: Build Debug APK and Run Lint
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Debug :app:lint${{ matrix.variantName }}Debug --warning-mode summary
