@@ -31,6 +31,8 @@ allowed |= {
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81FinalContinuationTest.kt',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81SixRoundTest.kt',
  '.motorlab/R10_ZERO_POSTER_RECOVERY_20261029.txt',
+ # Scudo360 control-plane only. Application, player, UI and domain owners stay protected.
+ '.motorlab/scudo360-contracts.json','scripts/scudo360-gate.mjs','.motorlab/SCUDO360_PILOT.txt',
  'cloudflare/music-intelligence/test/turbo-r9-recovery-wiring.test.mjs',
  'app/src/main/kotlin/com/metrolist/music/discogs/DiscogsModels.kt',
  'app/src/main/kotlin/com/metrolist/music/discogs/DiscogsClient.kt',
