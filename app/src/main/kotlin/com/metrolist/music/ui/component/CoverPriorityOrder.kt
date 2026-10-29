@@ -88,7 +88,11 @@ internal object CoverPriorityOrder {
                     CoverLabTurboRoundAdmission.facts(candidate, targetTitle, originalArtist)),
                 group(candidate, originalArtist, round))
         }.sortedWith(
+            // Eligible video-linked documentary rows precede unlinked leads;
+            // the old release preference still governs within that group.
             compareBy<Ranked> { it.late }
+                .thenBy { it.minimumRound > round }
+                .thenBy { it.row.playbackVideoId.isNullOrBlank() }
                 .thenBy { it.preference }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.collectorHave ?: 0 }.thenBy { it.index }

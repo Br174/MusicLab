@@ -15,7 +15,8 @@ internal class CoverRoundPresentation<T>(
 
     data class Status(val shown: Int, val prepared: Int, val ready: Int,
         val green: Boolean, val nextReady: Int,
-        val terminal: Boolean = false, val noResults: Boolean = false, val retryRequired: Boolean = false)
+        val terminal: Boolean = false, val noResults: Boolean = false, val retryRequired: Boolean = false,
+        val manualContinue: Boolean = false, val nextCycle: Int = 0)
 
     private class Round<T> {
         val shown = linkedSetOf<String>()
@@ -25,6 +26,7 @@ internal class CoverRoundPresentation<T>(
         val overflow = linkedMapOf<String, T>()
         var lastProgress: Long? = null
         var windowElapsed = false
+        var manualWindowSkips = 0
         var finalChecked = false
         var finalContinuation = false
     }
@@ -58,7 +60,16 @@ internal class CoverRoundPresentation<T>(
     fun isFinalChecked(number: Int): Boolean = round(number).finalChecked
     fun verificationPending(number: Int) { finalProgress(number, complete = false, blocked = true) }
     fun retry(number: Int) {
-        round(number).apply { exhausted = false; windowElapsed = false; finalChecked = false; finalContinuation = false; lastProgress = clock() }
+        round(number).apply { exhausted = false; windowElapsed = false; manualWindowSkips = 0; finalChecked = false; finalContinuation = false; lastProgress = clock() }
+    }
+    /** Skip only the display window; source work is never exhausted. */
+    fun continueEmptyWindow(): Boolean {
+        if (!status().manualContinue) return false
+        val current = round(visibleRound)
+        current.manualWindowSkips++
+        current.windowElapsed = false
+        current.lastProgress = clock()
+        return true
     }
     val preparationRound: Int get() = if (status().green &&
         (round(visibleRound).shown.size >= ROUND_SIZE || round(visibleRound).exhausted)) visibleRound + 1 else visibleRound
@@ -124,7 +135,16 @@ internal class CoverRoundPresentation<T>(
             else state.overflow[identity(row)] = row
         }
         if (state.prepared.isEmpty()) state.preparedSince = null
-        if (selected.isNotEmpty()) { state.lastProgress = clock(); state.windowElapsed = false }
+        if (selected.isNotEmpty()) {
+            state.manualWindowSkips = maxOf(state.manualWindowSkips,
+                when {
+                    state.shown.size >= INITIAL_SIZE + BLOCK_SIZE -> 2
+                    state.shown.size >= INITIAL_SIZE -> 1
+                    else -> 0
+                })
+            state.lastProgress = clock()
+            state.windowElapsed = false
+        }
         return selected
     }
 
@@ -164,11 +184,17 @@ internal class CoverRoundPresentation<T>(
         val finalEmpty = visibleRound >= finalRound && state.exhausted && state.prepared.isEmpty() && state.shown.size < ROUND_SIZE
         val terminal = finalEmpty && state.finalChecked
         val retryRequired = finalEmpty && !state.finalChecked && !state.finalContinuation
+        val available = ready(visibleRound)
+        // Separate three manual display windows from true source exhaustion.
+        val manualGreen = state.windowElapsed && state.manualWindowSkips >= 2 && available == 0
         val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE ||
-            (state.exhausted || state.windowElapsed && state.prepared.isEmpty()) && ready(visibleRound) == 0)
-        return Status(state.shown.size, state.prepared.size, ready(visibleRound), green,
+            (state.exhausted || manualGreen) && available == 0)
+        val manualContinue = !terminal && !retryRequired && !green &&
+            !state.exhausted && state.windowElapsed && available == 0
+        return Status(state.shown.size, state.prepared.size, available, green,
             if (green) ready(visibleRound + 1) else 0,
-            terminal, terminal && rounds.values.all { it.shown.isEmpty() && it.prepared.isEmpty() && it.overflow.isEmpty() }, retryRequired)
+            terminal, terminal && rounds.values.all { it.shown.isEmpty() && it.prepared.isEmpty() && it.overflow.isEmpty() },
+            retryRequired, manualContinue, if (manualContinue) state.manualWindowSkips + 2 else 0)
     }
     fun needsPreparation(): Boolean {
         val number = preparationRound

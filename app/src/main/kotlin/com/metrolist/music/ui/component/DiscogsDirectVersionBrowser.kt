@@ -7494,16 +7494,26 @@ internal fun DiscogsDirectVersionBrowser(
                 }
             }
 
-            if (isTurbo && mode == DiscogsDirectMode.COVER && activeCriteria != null &&
-                (!loading || publishedCoverSnapshots.isNotEmpty() || previousRoundRows.isNotEmpty())) {
+            // Show the continuation even if loading never clears with zero cards.
+            if (isTurbo && mode == DiscogsDirectMode.COVER && activeCriteria != null) {
                 item(key = "musiclab_turbo_cover_search_more_round_${coverRoundNumber}") {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Button(
-                            onClick = { runSearch(forceRefresh = true, appendRound = true) },
-                            enabled = presentationStatus.green || presentationStatus.ready > 0 || presentationStatus.retryRequired,
+                            onClick = {
+                                if (presentationStatus.manualContinue) {
+                                    session.presentation.continueEmptyWindow()
+                                    presentationStatus = session.presentation.status()
+                                    roundPlanComplete = presentationStatus.green
+                                    session.roundPlanComplete = roundPlanComplete
+                                } else {
+                                    runSearch(forceRefresh = true, appendRound = true)
+                                }
+                            },
+                            enabled = presentationStatus.green || presentationStatus.ready > 0 ||
+                                presentationStatus.manualContinue || presentationStatus.retryRequired,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (presentationStatus.noResults) Color(0xFFB3261E)
                                     else if (presentationStatus.terminal) Color(0xFF455A64)
@@ -7525,6 +7535,7 @@ internal fun DiscogsDirectVersionBrowser(
                                     context.getString(com.metrolist.music.R.string.musiclab_cover_next_ready, minOf(coverRoundNumber + 1, CoverRoundSearchPlan.finalRound), presentationStatus.nextReady)
                                 presentationStatus.green -> context.getString(com.metrolist.music.R.string.musiclab_cover_next_round, minOf(coverRoundNumber + 1, CoverRoundSearchPlan.finalRound))
                                 presentationStatus.ready > 0 -> context.getString(com.metrolist.music.R.string.musiclab_cover_continue_ready, presentationStatus.ready)
+                                presentationStatus.manualContinue -> "Continua tornata · ciclo ${presentationStatus.nextCycle}"
                                 preparationAudioPaused -> context.getString(com.metrolist.music.R.string.musiclab_cover_wait_audio)
                                 preparationWaitingSources.isNotBlank() -> context.getString(com.metrolist.music.R.string.musiclab_cover_wait_named_sources, preparationWaitingSources)
                                 preparationRetrying -> context.getString(com.metrolist.music.R.string.musiclab_cover_wait_sources)
