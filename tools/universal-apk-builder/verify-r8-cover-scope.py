@@ -17,7 +17,7 @@ allowed={root+n for n in owners}|{
 testRoot='app/src/test/kotlin/com/metrolist/music/ui/component/'
 allowed|={testRoot+n for n in ('CoverLab83EvidenceAllocationTest.kt','CoverLab83OriginalResolutionTest.kt',
  'CoverLab83PendingFinalTest.kt','CoverLab77AdmissionR2Test.kt','CoverLabTurboRoundAdmissionTest.kt',
- 'CoverLab71FoundationGateTest.kt','CoverLab76ProgressiveRoundTest.kt','CoverLab82PacketPriorityTest.kt','CoverLab77PriorityQueueTest.kt','CoverLab70FirstRoundRecoveryTest.kt','CoverRecordingMergeRegressionTest.kt')}
+ 'CoverLab71FoundationGateTest.kt','CoverLab76ProgressiveRoundTest.kt','CoverLab82PacketPriorityTest.kt','CoverLab77PriorityQueueTest.kt','CoverLab70FirstRoundRecoveryTest.kt','CoverRecordingMergeRegressionTest.kt','CoverLab79PreparationProgressTest.kt')}
 changed=set(subprocess.check_output(['git','diff','--name-only',base],text=True).splitlines())
 assert changed<=allowed,changed-allowed
 subprocess.run(['git','diff','--check',base],check=True)

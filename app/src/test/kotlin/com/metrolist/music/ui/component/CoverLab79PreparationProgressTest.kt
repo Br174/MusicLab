@@ -4,17 +4,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverLab79PreparationProgressTest {
-    @Test fun cachedNormalizationPreservesPreviousResultsAcrossEvictionAndThreads() {
+    @Test fun cachedNormalizationPreservesLatinAndUnicodeAcrossEvictionAndThreads() {
         fun previous(value: String) = java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "").lowercase().replace(Regex("[’'´]"), "")
             .replace(Regex("[^a-z0-9]+"), " ").trim().replace(Regex("\\s+"), " ")
-        val samples = listOf("", "Alejandro Sánz – Topic", "L’amòre (LIVE)", "İSTANBUL", "東京", "  Il mondo  ") +
+        fun expected(value: String) = when (value) {
+            "東京" -> "東京"
+            "Небо" -> "небо"
+            "Il mondo 世界" -> "il mondo 世界"
+            else -> previous(value)
+        }
+        val samples = listOf("", "Alejandro Sánz – Topic", "L’amòre (LIVE)", "İSTANBUL", "東京", "Небо", "Il mondo 世界", "  Il mondo  ") +
             (0..1100).map { "Interprète $it" }
-        samples.forEach { assertEquals(previous(it), TitleMeaningResolver.canonical(it)) }
+        samples.forEach { assertEquals(expected(it), TitleMeaningResolver.canonical(it)) }
         val executor = java.util.concurrent.Executors.newFixedThreadPool(4)
         try {
             val tasks = (1..8).map { executor.submit<Boolean> {
-                samples.all { previous(it) == TitleMeaningResolver.canonical(it) }
+                samples.all { expected(it) == TitleMeaningResolver.canonical(it) }
             } }
             tasks.forEach { assertTrue(it.get(10, java.util.concurrent.TimeUnit.SECONDS)) }
         } finally { executor.shutdownNow() }
