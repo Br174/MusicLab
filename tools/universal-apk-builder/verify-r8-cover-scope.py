@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess,sys
 base=sys.argv[1] if len(sys.argv)>1 else 'f2019cf7086b71fe468d78f87b52d5b6b0d75d49'
 root='app/src/main/kotlin/com/metrolist/music/ui/component/'
-owners=('CoverLabTurboRoundAdmission.kt','CoverPriorityOrder.kt','CoverRoundSearchPlan.kt',
+owners=('CoverLabTurboRoundAdmission.kt','TitleMeaningResolver.kt','CoverPriorityOrder.kt','CoverRoundSearchPlan.kt',
  'CoverRoundPresentation.kt','CoverDiscoverySources.kt','CoverOriginalResolver.kt',
  'GeminiCoverVerification.kt','MusicBrainzCoverSource.kt','CoverRoundStorage.kt',
  'DiscogsVersionSource.kt','DiscogsDirectVersionBrowser.kt')
@@ -44,3 +44,9 @@ for path in ['app/src/main/kotlin/com/metrolist/music/ui/component/CoverCardMeta
  'app/src/main/res/values/metrolist_strings.xml']:
  assert subprocess.check_output(['git','show',base+':'+path],text=True).rstrip()==Path(path).read_text().rstrip(),path
 print('PASS: R8 scope, native player/UI/cards, other modes and resources preserved')
+
+# The approved all-language work identity fix changes only this normalizer expression.
+unicode_path=root+'TitleMeaningResolver.kt'
+unicode_base=subprocess.check_output(['git','show',base+':'+unicode_path],text=True)
+unicode_expected=unicode_base.replace("Regex(\"[^a-z0-9]+\")","Regex(\"[^\\\\p{L}\\\\p{N}]+\")")
+assert unicode_expected.rstrip()==Path(unicode_path).read_text().rstrip(),'Unrelated title resolver behavior changed'

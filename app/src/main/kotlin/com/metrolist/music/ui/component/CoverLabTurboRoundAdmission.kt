@@ -15,8 +15,18 @@ internal object CoverLabTurboRoundAdmission {
         "jazz", "soul", "folk", "orchestra", "orchestral", "choir", "classical", "alternative rock",
         "pop", "blues", "metal", "reggae", "bossa nova", "solo", "electric", "cover band", "tribute band",
         "TV", "X Factor", "The Voice", "Amici", "Sanremo", "Eurovision", "talent show", "audition")
-    fun matchesWorkTitle(target: String, value: String, aliases: Set<String> = emptySet()): Boolean =
-        TitleMeaningResolver.matchesBaseTitle(target, value, aliases + trackTags)
+    fun matchesWorkTitle(target: String, value: String, aliases: Set<String> = emptySet()): Boolean {
+        if (target.isNotBlank() && target.trim().equals(value.trim(), ignoreCase = true)) return true
+        if (TitleMeaningResolver.matchesBaseTitle(target, value, aliases)) return true
+        val base = TitleMeaningResolver.canonical(target)
+        if (base.isBlank()) return false
+        // Descriptor aliases must never strip an actual word from the requested work.
+        val decorations = trackTags.filterTo(linkedSetOf()) {
+            val tag = TitleMeaningResolver.canonical(it)
+            tag != base && !base.startsWith("$tag ") && !base.endsWith(" $tag")
+        }
+        return TitleMeaningResolver.matchesBaseTitle(target, value, aliases + decorations)
+    }
 
     fun facts(candidate: CoverSourceCandidate, targetTitle: String, referenceArtist: String,
         metadataTitle: String = candidate.playbackVideoTitle.orEmpty(),

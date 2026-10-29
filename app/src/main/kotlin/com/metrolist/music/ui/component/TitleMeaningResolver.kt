@@ -19,7 +19,7 @@ internal enum class TitleMeaningMatch {
 internal object TitleMeaningResolver {
     private val combiningMarks = Regex("\\p{M}+")
     private val apostrophes = Regex("[’'´]")
-    private val nonCanonicalCharacters = Regex("[^a-z0-9]+")
+    private val nonCanonicalCharacters = Regex("[^\\p{L}\\p{N}]+")
     private val canonicalWhitespace = Regex("\\s+")
     private val canonicalCache = object : LinkedHashMap<String, String>(1024, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 1024

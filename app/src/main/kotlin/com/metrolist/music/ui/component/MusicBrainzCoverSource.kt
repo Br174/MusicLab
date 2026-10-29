@@ -621,7 +621,7 @@ internal object MusicBrainzCoverSource {
         Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
             .lowercase()
-            .replace(Regex("[^a-z0-9]+"), " ")
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             .trim()
             .replace(Regex("\\s+"), " ")
 }
