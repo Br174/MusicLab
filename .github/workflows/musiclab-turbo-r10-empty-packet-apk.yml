@@ -4,9 +4,10 @@ on:
     branches:
       - lab/musiclab-turbo-lab79-r10-empty-packet-recovery-20261029
       - lab/scudo360-lab79-r10-original-family-20261029
+      - 'lab/musiclab-turbo-*'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: musiclab-lab79-r10-empty-packet-${{ github.ref }}
   cancel-in-progress: true
@@ -19,6 +20,12 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+      - name: MotorLab automatic active Turbo family and Scudo selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/motorlab-active-guard.mjs --self-test
+          node scripts/motorlab-active-guard.mjs
       - name: Guard delivered LAB78 results, poster layout and player
         run: python3 tools/universal-apk-builder/verify-r10-cover-scope.py
       - name: Native audio and recording identity contracts
@@ -121,3 +128,15 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+      - name: Advance verified Turbo source reference after signed APK ZIP success
+        if: success() && github.event_name == 'push' && startsWith(github.ref_name, 'lab/musiclab-turbo-') && contains(github.event.head_commit.message, '[build-apk]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/motorlab-active-guard.mjs
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/motorlab/active-musiclab-turbo" -f "sha=$GITHUB_SHA" -F "force=false" --jq '.object.sha'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/motorlab/active-musiclab-turbo" --jq '.object.sha')" = "$GITHUB_SHA"
+          echo "[MOTORLAB_ACTIVE_TURBO_ADVANCED] $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
