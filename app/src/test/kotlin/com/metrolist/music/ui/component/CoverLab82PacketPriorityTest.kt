@@ -106,12 +106,12 @@ class CoverLab82PacketPriorityTest {
     private fun candidate(artist:String,id:String)=CoverSourceCandidate(title="Il mondo",artist=artist,
         sources=listOf("YouTube"),playbackVideoId=id,playbackVideoTitle="Il mondo")
 
-    @Test fun karaokeChannelIsDeferredWithoutDeletingAVocalPerformance() {
+    @Test fun karaokeChannelRemainsExcludedEvenWithAnExactWorkTitle() {
         val channel=candidate("Singer Karaoke","channel0001")
         val singer=candidate("Singer","singer00001")
         val ordered=CoverPriorityOrder.order(listOf(channel,singer),"Il mondo","",1)
         assertEquals(listOf(singer,channel),ordered)
-        assertTrue(CoverLabTurboRoundAdmission.evaluate(channel,"Il mondo","",6).admitted)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(channel,"Il mondo","",6).rejected)
         val karaoke=channel.copy(title="Il mondo karaoke",playbackVideoTitle="Il mondo karaoke")
         assertFalse(CoverLabTurboRoundAdmission.evaluate(karaoke,"Il mondo","",1).admitted)
     }

@@ -21,9 +21,13 @@ import java.util.concurrent.TimeUnit
 internal object CoverOriginalResolver {
     internal class SessionState {
         var attempted: Boolean = false
+        var inFlight: Boolean = false
+        var retryAfterMs: Long = 0L
         val credits: MutableList<com.metrolist.music.discogs.DiscogsCredit> = mutableListOf()
         fun reset() {
             attempted = false
+            inFlight = false
+            retryAfterMs = 0L
             credits.clear()
         }
     }

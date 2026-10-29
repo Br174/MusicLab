@@ -1300,5 +1300,41 @@
     "physicalAudioAndTimingVerified": false,
     "lastGoodPromoted": false,
     "checkpoint": ".motorlab/MUSICLAB_R8_DELIVERY_CHECKPOINT_20261029.txt"
+  },
+  "approvedR9Recovery": {
+    "state": "IMPLEMENTING_NATIVE_TESTS_PENDING",
+    "approvedBy": "Bruno in current conversation 2026-10-29",
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "presentationTargetMaxMs": 7000,
+    "waitForDeadlineWhenPacketReady": false,
+    "singleRowPublication": false,
+    "presentationDeadlineCancelsSources": false,
+    "audioGovernor": "REUSE_EXISTING_12_SECOND_RESERVE_GOVERNOR",
+    "partialPacket": "only verified real exhaustion, never timer alone",
+    "ruleOwner": "existing CoverRoundPresentation + native coordinator; no second scheduler",
+    "superseded": [
+      "timer-exhausts-round-and-cancels-producers",
+      "reset-display-deadline-on-every-new-row",
+      "karaoke-channel-title-only-admission"
+    ],
+    "protected": [
+      "player",
+      "UI geometry",
+      "main",
+      "MADRE",
+      "R8",
+      "LAST_GOOD",
+      "package/signing",
+      "no paid service"
+    ],
+    "tests": [
+      "CoverR9BackgroundRecoveryTest",
+      "CoverR9EvidenceRecoveryTest",
+      "turbo-r9-recovery-wiring.test.mjs"
+    ]
   }
 }

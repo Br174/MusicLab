@@ -14,7 +14,8 @@ internal object CoverLabTurboRoundAdmission {
         "mashup", "mash up", "AI", "intelligenza artificiale", "a cappella", "acappella",
         "jazz", "soul", "folk", "orchestra", "orchestral", "choir", "classical", "alternative rock",
         "pop", "blues", "metal", "reggae", "bossa nova", "solo", "electric", "cover band", "tribute band",
-        "TV", "X Factor", "The Voice", "Amici", "Sanremo", "Eurovision", "talent show", "audition")
+        "TV", "X Factor", "The Voice", "Amici", "Sanremo", "Eurovision", "talent show", "audition",
+        "home studio", "bedroom", "street performance", "amateur", "local band")
     fun matchesWorkTitle(target: String, value: String, aliases: Set<String> = emptySet()): Boolean {
         if (target.isNotBlank() && target.trim().equals(value.trim(), ignoreCase = true)) return true
         if (TitleMeaningResolver.matchesBaseTitle(target, value, aliases)) return true
@@ -48,12 +49,23 @@ internal object CoverLabTurboRoundAdmission {
                 add("documented-work")
                 if (candidate.artist.isNotBlank() && !candidate.artist.equals("YouTube", true)) add("credited-rendition")
             }
-            fun writers(credits: List<com.metrolist.music.discogs.DiscogsCredit>) = credits.filter {
-                val role = it.role.lowercase(java.util.Locale.ROOT)
-                listOf("writ", "compos", "lyric", "music by", "words by").any(role::contains)
-            }.map { TitleMeaningResolver.canonical(it.name) }.filter(String::isNotBlank).toSet()
-            val sharedWriters = writers(candidate.credits).intersect(writers(referenceCredits))
-            sharedWriters.forEach { add("writer:$it") }
+            fun isWriter(credit: com.metrolist.music.discogs.DiscogsCredit): Boolean {
+                val role = credit.role.lowercase(java.util.Locale.ROOT)
+                return listOf("writ", "compos", "lyric", "music by", "words by").any(role::contains)
+            }
+            fun names(credit: com.metrolist.music.discogs.DiscogsCredit): Set<String> =
+                (listOf(credit.name) + credit.aliases).map(TitleMeaningResolver::canonical)
+                    .filter { it.isNotBlank() && it !in setOf("unknown", "anonymous", "anonimo", "various", "traditional") }.toSet()
+            val candidateWriters = candidate.credits.filter(::isWriter).map(::names)
+            val counted = linkedSetOf<String>()
+            referenceCredits.filter(::isWriter).forEach { credit ->
+                val identity = names(credit)
+                if (identity.isNotEmpty() && identity.none { it in counted } &&
+                    candidateWriters.any { it.intersect(identity).isNotEmpty() }) {
+                    add("writer:${TitleMeaningResolver.canonical(credit.name)}")
+                    counted.addAll(identity)
+                }
+            }
             val reference = TitleMeaningResolver.canonical(referenceArtist)
             val text = " " + TitleMeaningResolver.canonical(video) + " "
             if (reference.isNotBlank() &&
@@ -66,6 +78,17 @@ internal object CoverLabTurboRoundAdmission {
         evidence.size >= 3 -> 1
         evidence.size >= 2 -> 2
         else -> 6
+    }
+
+    private fun categoryRound(candidate: CoverSourceCandidate, video: String): Int {
+        if (candidate.releaseVerified || candidate.category == AiCoverCategory.FOREIGN && candidate.workRelationConfirmed) return 1
+        val context = candidate.title + " " + video
+        return when {
+            Regex("(?i)\\b(tv|sanremo|eurovision|x factor|the voice|amici|talent|mashup|remix|ai cover)\\b").containsMatchIn(context) -> 2
+            Regex("(?i)\\b(home studio|bedroom|amateur|street performance|local band|cover band|tribute band)\\b").containsMatchIn(context) -> 3
+            Regex("(?i)\\b(guitar|chitarra|piano|instrumental|strumentale|orchestra|choir|jazz|soul|folk)\\b").containsMatchIn(context) -> 4
+            else -> 1
+        }
     }
 
     fun candidate(row: DiscogsVersionSeed): CoverSourceCandidate = CoverSourceCandidate(
@@ -97,7 +120,7 @@ internal object CoverLabTurboRoundAdmission {
     ): Verdict {
         val videoTitle = metadataTitle.ifBlank { candidate.title }
         if (CoverLab71FoundationGate.isForbidden(
-                candidate.title, videoTitle, candidate.album.orEmpty(),
+                candidate.title, candidate.artist, videoTitle, candidate.album.orEmpty(),
                 candidate.sourceUrl.orEmpty(),
             )) return Verdict(false, 1, rejected = true)
         val aliases = setOf(candidate.artist, originalArtist).filter(String::isNotBlank).toSet()
@@ -127,7 +150,7 @@ internal object CoverLabTurboRoundAdmission {
             else -> 5
         }
         val evidence = facts(candidate, targetTitle, originalArtist, metadataTitle, referenceCredits)
-        val minimum = minimumRound(evidence)
+        val minimum = maxOf(minimumRound(evidence), categoryRound(candidate, videoTitle))
         return Verdict(evidence.isNotEmpty() && round >= minimum, estimate, evidence, minimum,
             rejected = evidence.isEmpty())
     }

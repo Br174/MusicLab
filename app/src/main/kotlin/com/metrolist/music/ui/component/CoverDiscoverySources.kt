@@ -140,6 +140,7 @@ internal object CoverDiscoverySources {
         // LAB03: source-complete callback remains useful when another provider
         // reaches its deadline. No individual lane gates all other evidence.
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
+        awaitResources: suspend () -> Unit = {},
     ): CoverSourceOutcome = coroutineScope {
         val turbo = BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER
         val cleanTitle = title.trim()
@@ -181,7 +182,7 @@ internal object CoverDiscoverySources {
             onSourceCompleted(lane.first, lane.second, year)
             return lane
         }
-        suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
+        suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { awaitResources(); block() }
 
         suspend fun cachedLane(name: String, block: suspend () -> Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic>) =
             reportResult(documentaryProgress?.lanes?.get(name) ?: sourceCooldowns[name]?.let {
@@ -194,7 +195,7 @@ internal object CoverDiscoverySources {
             // COVER.INFO is our lead source. It starts immediately and owns
             // its own lane, independent from auxiliary provider semaphore.
             val lane = reportResult(sourceCooldowns["COVER.INFO"]?.let { emptyList<CoverSourceCandidate>() to it }
-                ?: discoverCoverInfo(cleanTitle, cleanArtist, mode, deepRecovery, documentaryProgress) { quick ->
+                ?: discoverCoverInfo(cleanTitle, cleanArtist, mode, deepRecovery, documentaryProgress, awaitResources) { quick ->
                 onEarlyVideoCandidates(quick)
             })
             onEarlyVideoCandidates(
@@ -208,15 +209,26 @@ internal object CoverDiscoverySources {
         val musicBrainzLookup =
             async(Dispatchers.IO) {
                 val lookup = if ("MusicBrainz" in sourceCooldowns) MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) else sourceLane {
+                    val sourceContext = kotlinx.coroutines.currentCoroutineContext()
+                    val requestGate: () -> Unit = {
+                        kotlinx.coroutines.runBlocking { awaitResources() }
+                        if (sourceContext[kotlinx.coroutines.Job]?.isActive == false) throw kotlinx.coroutines.CancellationException()
+                    }
+                    val progressive: (MusicBrainzLookup) -> Unit = { partial ->
+                        requestGate()
+                        kotlinx.coroutines.runBlocking { reportResult(discoverMusicBrainz(cleanTitle, mode, partial)) }
+                    }
                     runCatching {
                         if (deepRecovery) {
                             MusicBrainzCoverSource.lookup(
                                 cleanTitle, cleanArtist, forceRefresh = forceRefresh,
                                 deepRecovery = true,
                                 deepRound = coverRound,
+                                beforeRequest = requestGate, onProgress = progressive,
                             )
                         } else {
-                            MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist, forceRefresh = forceRefresh)
+                            MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist, forceRefresh = forceRefresh,
+                                beforeRequest = requestGate, onProgress = progressive)
                         }
                     }
                         .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) }
@@ -1030,6 +1042,7 @@ internal object CoverDiscoverySources {
         title: String,
         originalArtist: String,
         progress: CoverPriorityOrder.DocumentaryProgress,
+        awaitResources: suspend () -> Unit,
         onEarly: suspend (List<CoverSourceCandidate>) -> Unit,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
         if (!progress.initialized) {
@@ -1049,6 +1062,7 @@ internal object CoverDiscoverySources {
         progress.beginPass()
         val started = System.currentTimeMillis()
         while (System.currentTimeMillis() - started < 10_000L) {
+            awaitResources()
             val task = progress.nextPage() ?: break
             val html = fetchHtml(task.url) ?: continue
             val document = runCatching { Jsoup.parse(html, task.url) }.getOrNull() ?: continue
@@ -1071,7 +1085,8 @@ internal object CoverDiscoverySources {
                 matching.sortedByDescending { sameArtist(originalArtist, it.artist) }.forEach {
                     // Other title-homonym roots remain searchable, but their unrelated
                     // original attribution must not overwrite the selected work's reference.
-                    progress.enqueue(it.url, sameArtist(originalArtist, it.artist) || (originalArtist.isBlank() && unique))
+                    val anchored = sameArtist(originalArtist, it.artist) || (originalArtist.isBlank() && unique)
+                    progress.enqueue(it.url, anchored, prioritize = anchored)
                 }
             }
             document.select(".pagination a[rel=next], .pagination li.next a, .pagination a[aria-label=Next], a[rel=next][href*=page]")
@@ -1096,9 +1111,10 @@ internal object CoverDiscoverySources {
         mode: DiscogsDirectMode,
         deepRecovery: Boolean = false,
         progress: CoverPriorityOrder.DocumentaryProgress? = null,
+        awaitResources: suspend () -> Unit = {},
         onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
-        if (progress != null) return discoverCoverInfoProgressively(title, originalArtist, progress, onEarlyVideoCandidates)
+        if (progress != null) return discoverCoverInfoProgressively(title, originalArtist, progress, awaitResources, onEarlyVideoCandidates)
         val cleanTitle = title.replace('"', ' ').trim()
         val cleanArtist = originalArtist.replace('"', ' ').trim()
         val searchTerms =

@@ -457,6 +457,8 @@ internal object DiscogsClient {
                         name = name,
                         role = role,
                         tracks = credit.optString("tracks").cleanDiscogsText().takeIf(String::isNotBlank),
+                        aliases = listOf(credit.optString("anv").cleanDiscogsText().trim())
+                            .filter { it.isNotBlank() && it != name },
                     ),
                 )
             }

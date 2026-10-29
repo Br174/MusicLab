@@ -4,20 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverLab80RoundClosureTest {
-    @Test fun idleClosesOnlyAfterSevenSecondsWithoutNewPreparedResults() {
+    @Test fun deadlineLeavesPartialPacketAndSourceWorkAvailable() {
         var now = 0L
         val p = CoverRoundPresentation<String>(clock = { now }) { it }
         p.beginPreparation(1)
         now = 6_999
         assertFalse(p.closeIfIdle(1))
         p.stage(1, "one")
-        now = 13_998
-        assertFalse(p.closeIfIdle(1))
-        now = 14_000
+        now = 7_000
         assertTrue(p.closeIfIdle(1))
-        assertEquals(listOf("one"), p.reveal())
-        assertTrue(p.status().green)
-        assertFalse(p.stage(1, "late-row-retained-by-discovery"))
+        assertFalse(p.exhausted(1))
+        assertTrue(p.reveal().isEmpty())
+        assertTrue(p.stage(1, "late-row-retained-by-discovery"))
     }
 
     @Test fun audioPauseDoesNotConsumeIdleAllowance() {
@@ -59,6 +57,9 @@ class CoverLab80RoundClosureTest {
         p.beginPreparation(1)
         now = 7_000
         p.closeIfIdle(1)
+        assertFalse(p.exhausted(1))
+        p.verificationPending(1)
+        p.exhaust(1)
         assertTrue(p.status().retryRequired)
         assertFalse(p.status().noResults)
         assertFalse(p.status().green)

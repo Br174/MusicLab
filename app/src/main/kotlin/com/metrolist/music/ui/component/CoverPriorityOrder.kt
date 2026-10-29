@@ -2,11 +2,15 @@ package com.metrolist.music.ui.component
 
 /** The native Turbo queue orders work without turning evidence into admission gates. */
 internal object CoverPriorityOrder {
-    fun refreshEvidence(row: DiscogsVersionSeed, candidate: CoverSourceCandidate, title: String, original: String, round: Int): DiscogsVersionSeed {
+    fun refreshEvidence(row: DiscogsVersionSeed, candidate: CoverSourceCandidate, title: String, original: String, round: Int,
+        referenceCredits: List<com.metrolist.music.discogs.DiscogsCredit> = emptyList()): DiscogsVersionSeed {
         if (row.resolvedVideoId.isNullOrBlank() || row.resolvedVideoId != candidate.playbackVideoId) return row
         val score = CoverLabTurboRoundAdmission.evaluate(candidate, title, original, round, row.resolvedVideoTitle.orEmpty()).confidencePercent
         val enriched = row.copy(
             sourceNames = (row.sourceNames + candidate.sources).distinct(),
+            credits = (row.credits + candidate.credits).distinct(),
+            identityEvidence = (row.identityEvidence + CoverLabTurboRoundAdmission.facts(
+                candidate, title, original, row.resolvedVideoTitle.orEmpty(), referenceCredits)).distinct(),
             releaseTitle = candidate.album?.takeIf { candidate.releaseVerified && it.isNotBlank() } ?: row.releaseTitle,
             year = row.year ?: candidate.year,
             releaseDate = row.releaseDate ?: candidate.year?.toString(),
@@ -57,13 +61,12 @@ internal object CoverPriorityOrder {
         return when {
             candidate.releaseVerified || (!candidate.album.isNullOrBlank() && sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) }) -> 0
             !candidate.workRelationConfirmed && karaokeChannel.containsMatchIn(candidate.artist) -> 6
+            candidate.workRelationConfirmed -> 1
             candidate.originalWorkReference || (originalArtist.isNotBlank() &&
-                CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 1
-            candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 2
+                CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 2
+            candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 3
             round == 2 && television.containsMatchIn(details) -> 3
             round >= 3 && rare.containsMatchIn(details) -> 3
-            candidate.category == AiCoverCategory.FOREIGN && candidate.workRelationConfirmed -> 4
-            candidate.workRelationConfirmed -> 3
             else -> 5
         }
     }
@@ -94,9 +97,9 @@ internal object CoverPriorityOrder {
     private fun publicationGroup(row: DiscogsVersionSeed): Int = when {
         isPublished(row) -> 0
         !row.workRelationConfirmed && karaokeChannel.containsMatchIn(row.artist) -> 6
-        row.originalWorkReference -> 1
-        row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in credited } -> 2
-        row.workRelationConfirmed -> 3
+        row.workRelationConfirmed -> 1
+        row.originalWorkReference -> 2
+        row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in credited } -> 3
         else -> 5
     }
 
@@ -209,9 +212,14 @@ internal object CoverPriorityOrder {
         val complete: Boolean get() = initialized && pages.isEmpty()
         val hasRunnablePages: Boolean get() = pages.keys.any { it !in attempted }
 
-        fun enqueue(url: String, related: Boolean) {
+        fun enqueue(url: String, related: Boolean, prioritize: Boolean = false) {
             if (url !in done) {
                 pages[url] = Page(url, related || pages[url]?.related == true)
+                if (prioritize) {
+                    val rest = pages.filterKeys { it != url }
+                    val first = pages.getValue(url)
+                    pages.clear(); pages[url] = first; pages.putAll(rest)
+                }
             }
         }
 

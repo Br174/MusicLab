@@ -24,6 +24,7 @@ internal class CoverRoundPresentation<T>(
         var preparedSince: Long? = null
         val overflow = linkedMapOf<String, T>()
         var lastProgress: Long? = null
+        var windowElapsed = false
         var finalChecked = false
         var finalContinuation = false
     }
@@ -41,8 +42,8 @@ internal class CoverRoundPresentation<T>(
     fun pauseIdleClock(number: Int) { round(number).lastProgress = clock() }
     fun closeIfIdle(number: Int): Boolean {
         val state = round(number)
-        if (!state.exhausted && state.lastProgress?.let { clock() - it >= 7_000L } == true) {
-            state.exhausted = true
+        if (!state.exhausted && !state.windowElapsed && state.lastProgress?.let { clock() - it >= 7_000L } == true) {
+            state.windowElapsed = true
             return true
         }
         return false
@@ -57,9 +58,10 @@ internal class CoverRoundPresentation<T>(
     fun isFinalChecked(number: Int): Boolean = round(number).finalChecked
     fun verificationPending(number: Int) { finalProgress(number, complete = false, blocked = true) }
     fun retry(number: Int) {
-        round(number).apply { exhausted = false; finalChecked = false; finalContinuation = false; lastProgress = clock() }
+        round(number).apply { exhausted = false; windowElapsed = false; finalChecked = false; finalContinuation = false; lastProgress = clock() }
     }
-    val preparationRound: Int get() = if (status().green) visibleRound + 1 else visibleRound
+    val preparationRound: Int get() = if (status().green &&
+        (round(visibleRound).shown.size >= ROUND_SIZE || round(visibleRound).exhausted)) visibleRound + 1 else visibleRound
 
     fun stage(number: Int, row: T): Boolean {
         val state = round(number)
@@ -74,7 +76,7 @@ internal class CoverRoundPresentation<T>(
             state.overflow[id] = row
             return true
         }
-        if (id !in state.prepared) state.lastProgress = clock()
+        if (state.lastProgress == null) state.lastProgress = clock()
         if (state.prepared.isEmpty()) state.preparedSince = clock()
         state.prepared[id] = row
         return true
@@ -122,6 +124,7 @@ internal class CoverRoundPresentation<T>(
             else state.overflow[identity(row)] = row
         }
         if (state.prepared.isEmpty()) state.preparedSince = null
+        if (selected.isNotEmpty()) { state.lastProgress = clock(); state.windowElapsed = false }
         return selected
     }
 
@@ -161,7 +164,8 @@ internal class CoverRoundPresentation<T>(
         val finalEmpty = visibleRound >= finalRound && state.exhausted && state.prepared.isEmpty() && state.shown.size < ROUND_SIZE
         val terminal = finalEmpty && state.finalChecked
         val retryRequired = finalEmpty && !state.finalChecked && !state.finalContinuation
-        val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE || state.exhausted && ready(visibleRound) == 0)
+        val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE ||
+            (state.exhausted || state.windowElapsed && state.prepared.isEmpty()) && ready(visibleRound) == 0)
         return Status(state.shown.size, state.prepared.size, ready(visibleRound), green,
             if (green) ready(visibleRound + 1) else 0,
             terminal, terminal && rounds.values.all { it.shown.isEmpty() && it.prepared.isEmpty() && it.overflow.isEmpty() }, retryRequired)

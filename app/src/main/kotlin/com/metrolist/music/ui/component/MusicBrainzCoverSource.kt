@@ -98,6 +98,8 @@ internal object MusicBrainzCoverSource {
     private val lookupLocks = ConcurrentHashMap<String, Any>()
     private val rateLock = Any()
     private var nextAllowedRequestAtMs = 0L
+    private val requestGate = ThreadLocal<(() -> Unit)?>()
+    private val progressCallback = ThreadLocal<((MusicBrainzLookup) -> Unit)?>()
 
     private data class CacheEntry(
         val createdAt: Long,
@@ -108,6 +110,8 @@ internal object MusicBrainzCoverSource {
         title: String, artist: String, forceRefresh: Boolean = false,
         deepRecovery: Boolean = false,
         deepRound: Int = 1,
+        beforeRequest: () -> Unit = {},
+        onProgress: (MusicBrainzLookup) -> Unit = {},
     ): MusicBrainzLookup {
         val cleanTitle = title.trim()
         val cleanArtist = artist.trim()
@@ -131,9 +135,16 @@ internal object MusicBrainzCoverSource {
             cache.remove(key)
         }
 
-        val lookup = lookupFresh(cleanTitle, cleanArtist, deepRecovery, deepRound)
-        cache[key] = CacheEntry(now, lookup)
-        lookup
+        requestGate.set(beforeRequest)
+        progressCallback.set(onProgress)
+        try {
+            val lookup = lookupFresh(cleanTitle, cleanArtist, deepRecovery, deepRound)
+            cache[key] = CacheEntry(now, lookup)
+            lookup
+        } finally {
+            requestGate.remove()
+            progressCallback.remove()
+        }
         }
     }
 
@@ -331,6 +342,14 @@ internal object MusicBrainzCoverSource {
                     workId = workId,
                 )
             allRecordings += page
+            if (workMatchesOriginal(allRecordings, wantedTitle, wantedArtist)) {
+                val original = allRecordings.filter { isOriginalRecordingLike(it, wantedTitle, wantedArtist) }
+                progressCallback.get()?.invoke(MusicBrainzLookup(
+                    covers = allRecordings.filterNot { isOriginalRecordingLike(it, wantedTitle, wantedArtist) },
+                    status = MusicBrainzStatus.OK, sourceUrl = browseUrl, originalVersions = original,
+                    work = MusicBrainzWorkAnchor(workId, workTitle, null, emptyList()),
+                ))
+            }
             if (rawPageSize < 100) break
             offset += 100
         }
@@ -560,6 +579,7 @@ internal object MusicBrainzCoverSource {
             .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
 
     private fun fetchXml(url: String): Document? {
+        requestGate.get()?.invoke()
         awaitRequestSlot()
         return runCatching {
             val response = Jsoup.connect(url)

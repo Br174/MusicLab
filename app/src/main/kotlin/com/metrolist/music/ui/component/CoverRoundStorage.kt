@@ -23,6 +23,7 @@ internal object CoverRoundStorage {
         val originalArtist: String? = null,
         val workTitle: String? = null,
         val deferredRows: List<DiscogsVersionSeed> = emptyList(),
+        val referenceCredits: List<DiscogsCredit> = emptyList(),
     )
 
 
@@ -31,7 +32,7 @@ internal object CoverRoundStorage {
         Pair<List<DiscogsVersionSeed>, List<DiscogsVersionSeed>> {
         val (visible, held) = saved.rows.partition { row ->
             val verdict = CoverLabTurboRoundAdmission.evaluate(
-                CoverLabTurboRoundAdmission.candidate(row), referenceTitle, referenceArtist, row.coverRound ?: 1)
+                CoverLabTurboRoundAdmission.candidate(row), referenceTitle, referenceArtist, row.coverRound ?: 1, referenceCredits = saved.referenceCredits)
             val savedFacts = row.identityEvidence.toSet()
             val allocated = !verdict.rejected && (verdict.admitted ||
                 (savedFacts.contains("title") && (row.coverRound ?: 1) >=
@@ -75,7 +76,7 @@ internal object CoverRoundStorage {
         // LAB46: credits are light textual metadata and must survive Android restart.
         put("credits", JSONArray().also { rows ->
             seed.credits.take(40).forEach { credit ->
-                rows.put(JSONObject().put("name", credit.name).put("role", credit.role))
+                rows.put(JSONObject().put("name", credit.name).put("role", credit.role).put("aliases", JSONArray(credit.aliases)).put("tracks", credit.tracks))
             }
         })
         put("coverUrl", seed.coverUrl)
@@ -122,7 +123,7 @@ internal object CoverRoundStorage {
                     val name = credit.optString("name").trim()
                     val role = credit.optString("role").trim()
                     if (name.isBlank() || role.isBlank()) null
-                    else DiscogsCredit(name = name, role = role)
+                    else DiscogsCredit(name = name, role = role, tracks = text(credit, "tracks"), aliases = strings(credit.optJSONArray("aliases")))
                 }
             }.orEmpty(),
             coverUrl = text(json, "coverUrl"),
@@ -167,6 +168,14 @@ internal object CoverRoundStorage {
         }
     }
 
+    private fun retainedPending(rows: List<DiscogsVersionSeed>, original: String?): List<DiscogsVersionSeed> {
+        val linked = retained(rows.filter { !it.resolvedVideoId.isNullOrBlank() }, original)
+        val unlinked = rows.filter { it.resolvedVideoId.isNullOrBlank() &&
+            !CoverLab71FoundationGate.isForbidden(it.trackTitle, it.artist, it.releaseTitle) }
+            .distinctBy { it.fingerprint }
+        return linked + unlinked
+    }
+
     @Synchronized
     internal fun load(context: Context, workKey: String): Snapshot = runCatching {
         val json = JSONObject(String(path(context, workKey).readFully(), Charsets.UTF_8))
@@ -183,13 +192,21 @@ internal object CoverRoundStorage {
         val cards = retained(restored, original)
         Snapshot(round = json.optInt("round", 1).coerceAtLeast(1), rows = cards,
             originalArtist = original, workTitle = text(json, "workTitle"),
-            deferredRows = retained(deferred, original))
+            deferredRows = retainedPending(deferred, original),
+            referenceCredits = json.optJSONArray("referenceCredits")?.let { rows ->
+                (0 until rows.length()).mapNotNull { index ->
+                    rows.optJSONObject(index)?.let { credit ->
+                        DiscogsCredit(credit.optString("name"), credit.optString("role"), tracks = text(credit, "tracks"), aliases = strings(credit.optJSONArray("aliases")))
+                    }
+                }.filter { it.name.isNotBlank() && it.role.isNotBlank() }
+            }.orEmpty())
     }.getOrDefault(Snapshot())
 
     @Synchronized
     internal fun save(context: Context, workKey: String, round: Int, rows: List<DiscogsVersionSeed>,
         originalArtist: String? = null, workTitle: String? = null,
-        deferredRows: List<DiscogsVersionSeed>? = null) {
+        deferredRows: List<DiscogsVersionSeed>? = null,
+        referenceCredits: List<DiscogsCredit>? = null) {
         runCatching {
             // Out-of-order IO jobs may finish after a newer Cover round.
             // Never overwrite a larger or newer confirmed snapshot.
@@ -202,13 +219,18 @@ internal object CoverRoundStorage {
             // Only the native preparation owner replaces the complete pending queue.
             // Older/UI-only save callers preserve it instead of erasing hidden discoveries.
             val shownIds = records.mapNotNull { it.resolvedVideoId }.toSet()
-            val waiting = retained(deferredRows ?: saved.deferredRows, originalArtist ?: saved.originalArtist)
+            val waiting = retainedPending(deferredRows ?: saved.deferredRows, originalArtist ?: saved.originalArtist)
                 .filterNot { it.resolvedVideoId in shownIds }
             val json = JSONObject()
                 .put("schema", 1)
                 .put("originalArtist", originalArtist ?: saved.originalArtist)
                 .put("workTitle", workTitle ?: saved.workTitle)
                 .put("round", round.coerceAtLeast(1))
+                .put("referenceCredits", JSONArray().also { array ->
+                    (referenceCredits ?: saved.referenceCredits).forEach { credit ->
+                        array.put(JSONObject().put("name", credit.name).put("role", credit.role).put("aliases", JSONArray(credit.aliases)).put("tracks", credit.tracks))
+                    }
+                })
                 .put("rows", JSONArray().also { array ->
                     records.forEach { array.put(encode(it)) }
                 })
