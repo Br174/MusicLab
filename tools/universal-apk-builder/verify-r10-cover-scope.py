@@ -31,6 +31,8 @@ allowed |= {
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81FinalContinuationTest.kt',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81SixRoundTest.kt',
  '.motorlab/R10_ZERO_POSTER_RECOVERY_20261029.txt',
+ # Scudo360 only: allow proof script, contract manifest and this LAB checkpoint.
+ 'scripts/scudo360-gate.mjs', '.motorlab/scudo360-contracts.json', '.motorlab/SCUDO360_LAB79_R10_PIN.txt',
  'cloudflare/music-intelligence/test/turbo-r9-recovery-wiring.test.mjs',
  'app/src/main/kotlin/com/metrolist/music/discogs/DiscogsModels.kt',
  'app/src/main/kotlin/com/metrolist/music/discogs/DiscogsClient.kt',
