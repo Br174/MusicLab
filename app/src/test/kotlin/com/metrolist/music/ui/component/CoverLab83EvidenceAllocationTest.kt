@@ -66,4 +66,15 @@ class CoverLab83EvidenceAllocationTest {
         assertEquals(99,changed.musiclabScore100)
     }
 
+    @Test fun musicalVersionTagsDoNotBecomeExtraCorroborationsOrChangeTheWorkTitle() {
+        val version=row(title="Aspettando il sole (AI jazz version)")
+        val final=CoverLabTurboRoundAdmission.evaluate(version,"Aspettando il sole","Neffa",6)
+        assertTrue(final.admitted)
+        assertEquals(setOf("title"),final.evidence)
+        for(round in 1..5) assertFalse(CoverLabTurboRoundAdmission.evaluate(
+            version,"Aspettando il sole","Neffa",round).admitted)
+        val other=row(title="Aspettando il sole che vorrei (AI jazz version)")
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(other,"Aspettando il sole","Neffa",6).admitted)
+    }
+
 }

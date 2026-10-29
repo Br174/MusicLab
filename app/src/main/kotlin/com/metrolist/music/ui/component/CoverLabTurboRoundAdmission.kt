@@ -10,7 +10,11 @@ internal object CoverLabTurboRoundAdmission {
 
     // Musical track/version descriptors, never lexical extensions of the work title.
     private val trackTags = setOf("instrumental", "strumentale", "instrumentale", "performed", "guitar",
-        "chitarra", "piano", "backing track", "tutorial", "base musicale")
+        "chitarra", "piano", "backing track", "tutorial", "base musicale",
+        "mashup", "mash up", "AI", "intelligenza artificiale", "a cappella", "acappella",
+        "jazz", "soul", "folk", "orchestra", "orchestral", "choir", "classical", "alternative rock",
+        "pop", "blues", "metal", "reggae", "bossa nova", "solo", "electric", "cover band", "tribute band",
+        "TV", "X Factor", "The Voice", "Amici", "Sanremo", "Eurovision", "talent show", "audition")
     fun matchesWorkTitle(target: String, value: String, aliases: Set<String> = emptySet()): Boolean =
         TitleMeaningResolver.matchesBaseTitle(target, value, aliases + trackTags)
 
