@@ -1,0 +1,36 @@
+{
+  "commit": "6b1326745dcee0d5d5068b90efe8b4d274e210b2",
+  "passed": true,
+  "contracts": [
+    {
+      "id": "musiclab.cover.round-continuity",
+      "status": "passed",
+      "classEvidence": []
+    },
+    {
+      "id": "musiclab.cover.documentary-sources",
+      "status": "passed",
+      "classEvidence": []
+    },
+    {
+      "id": "musiclab.cover.presentation",
+      "status": "passed",
+      "classEvidence": []
+    },
+    {
+      "id": "musiclab.audio.nonblocking",
+      "status": "passed",
+      "classEvidence": []
+    },
+    {
+      "id": "musiclab.cover.dedupe",
+      "status": "passed",
+      "classEvidence": []
+    }
+  ],
+  "provenance": {
+    "source": "archived-executed-r39-junit-snapshot",
+    "runId": 40919743345,
+    "artifactId": 12918301118
+  }
+}
