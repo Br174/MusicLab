@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "project": "musiclab",
+  "suites": [
+    {
+      "id": "musiclab-full-jvm",
+      "command": [
+        "./gradlew",
+        "--console=plain",
+        ":app:testFossDebugUnitTest",
+        "--warning-mode",
+        "summary"
+      ],
+      "paths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR10EmptyRoundRecoveryTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79DocumentarySourcesTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PreparationPolicyTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/playback/audio/AudioProcessorBufferReuseTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/Lab45CoverDedupTest.kt"
+      ],
+      "junitDir": "app/build/test-results/testFossDebugUnitTest",
+      "timeoutMs": 1200000
+    }
+  ],
+  "contracts": [
+    {
+      "id": "musiclab.cover.round-continuity",
+      "priority": "P1",
+      "suites": [
+        "musiclab-full-jvm"
+      ],
+      "requiredAt": [
+        "lab",
+        "promotion"
+      ]
+    },
+    {
+      "id": "musiclab.cover.documentary-sources",
+      "priority": "P1",
+      "suites": [
+        "musiclab-full-jvm"
+      ],
+      "requiredAt": [
+        "lab",
+        "promotion"
+      ]
+    },
+    {
+      "id": "musiclab.cover.presentation",
+      "priority": "P1",
+      "suites": [
+        "musiclab-full-jvm"
+      ],
+      "requiredAt": [
+        "lab",
+        "promotion"
+      ]
+    },
+    {
+      "id": "musiclab.audio.nonblocking",
+      "priority": "P1",
+      "suites": [
+        "musiclab-full-jvm"
+      ],
+      "requiredAt": [
+        "lab",
+        "promotion"
+      ]
+    },
+    {
+      "id": "musiclab.cover.dedupe",
+      "priority": "P1",
+      "suites": [
+        "musiclab-full-jvm"
+      ],
+      "requiredAt": [
+        "lab",
+        "promotion"
+      ]
+    }
+  ]
+}
