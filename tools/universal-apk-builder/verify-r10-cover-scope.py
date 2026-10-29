@@ -27,6 +27,8 @@ allowed |= {
  '.github/workflows/musiclab-turbo-r10-empty-packet-apk.yml',
  'tools/universal-apk-builder/verify-r10-cover-scope.py',
  'tools/universal-apk-builder/prepare-turbo-r10-empty-packet-env.py',
+ # R11 changes only the already-owned documentary/restore logic and signed update metadata.
+ 'tools/universal-apk-builder/prepare-turbo-r11-scudo360-regression-env.py',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverR10EmptyRoundRecoveryTest.kt',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81FinalContinuationTest.kt',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81SixRoundTest.kt',
