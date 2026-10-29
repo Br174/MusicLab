@@ -4243,16 +4243,22 @@ internal fun DiscogsDirectVersionBrowser(
                     syncPresentation()
                     val savedRound = coverRoundNumber
                     val savedRows = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots
-                    val savedPendingRows = presentation.preparedRows() + pending.snapshot()
-                        .filter { !it.playbackVideoId.isNullOrBlank() }.map { candidate ->
-                            DiscogsVersionSource.externalSeed(candidate, workTitle(), originalArtist()).copy(
-                                videoResolutionChecked = false,
-                                coverRound = maxOf(thisRound, CoverLabTurboRoundAdmission.minimumRound(
-                                    CoverLabTurboRoundAdmission.facts(candidate, workTitle(), originalArtist().ifBlank { lockedArtist }))),
-                            )
-                        }
+                    val savedPreparedRows = presentation.preparedRows()
+                    val savedPendingSources = pending.snapshot().filter { !it.playbackVideoId.isNullOrBlank() }
+                    val savedWorkTitle = workTitle()
+                    val savedReferenceArtist = originalArtist()
+                    val savedPreparationRound = thisRound
                     val savedOriginal = session.documentedOriginal
                     val savedTitle = session.canonicalWorkTitle
+                    val savedPendingRows = withContext(Dispatchers.Default) {
+                        savedPreparedRows + savedPendingSources.map { candidate ->
+                            DiscogsVersionSource.externalSeed(candidate, savedWorkTitle, savedReferenceArtist).copy(
+                                videoResolutionChecked = false,
+                                coverRound = maxOf(savedPreparationRound, CoverLabTurboRoundAdmission.minimumRound(
+                                    CoverLabTurboRoundAdmission.facts(candidate, savedWorkTitle, savedReferenceArtist.ifBlank { lockedArtist }))),
+                            )
+                        }
+                    }
                     withContext(Dispatchers.IO) {
                         CoverRoundStorage.save(context, sessionKey, savedRound, savedRows, savedOriginal, savedTitle,
                             deferredRows = savedPendingRows)
