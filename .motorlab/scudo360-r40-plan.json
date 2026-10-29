@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "surface": "ci",
+  "requestTrace": [
+    {
+      "id": "r11-preserve-musiclab.cover.round-continuity",
+      "contractIds": [
+        "musiclab.cover.round-continuity"
+      ]
+    },
+    {
+      "id": "r11-preserve-musiclab.cover.documentary-sources",
+      "contractIds": [
+        "musiclab.cover.documentary-sources"
+      ]
+    },
+    {
+      "id": "r11-preserve-musiclab.cover.presentation",
+      "contractIds": [
+        "musiclab.cover.presentation"
+      ]
+    },
+    {
+      "id": "r11-preserve-musiclab.audio.nonblocking",
+      "contractIds": [
+        "musiclab.audio.nonblocking"
+      ]
+    },
+    {
+      "id": "r11-preserve-musiclab.cover.dedupe",
+      "contractIds": [
+        "musiclab.cover.dedupe"
+      ]
+    }
+  ],
+  "baselineCommit": null,
+  "baselineReportPath": null
+}
