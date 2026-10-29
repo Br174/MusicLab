@@ -1,10 +1,11 @@
-name: MusicLab Turbo LAB79 Documentary-Recovery-R10 APK ZIP
+name: MusicLab Turbo LAB79 R11 Scudo360 Three-Test Repair APK ZIP
 on:
   push:
     branches:
       - lab/musiclab-turbo-lab79-r10-empty-packet-recovery-20261029
       - lab/scudo360-lab79-r10-original-family-20261029
       - 'lab/musiclab-turbo-*'
+      - lab/musiclab-scudo360-r11-3test-fix-20261029
   workflow_dispatch:
 permissions:
   contents: write
@@ -50,13 +51,13 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v6
       - uses: ./.github/actions/setup-protobuf
-      - name: Prepare same-family Android 33083
+      - name: Prepare same-family Android 33084
         shell: bash
         run: |
           set -euo pipefail
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-          python3 tools/universal-apk-builder/prepare-turbo-r10-empty-packet-env.py
-          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33083"' uab-project.env
+          python3 tools/universal-apk-builder/prepare-turbo-r11-scudo360-regression-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33084"' uab-project.env
           grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
       - name: Scudo360 mandatory full JVM regressions
         shell: bash
@@ -88,16 +89,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-10.apk
-          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-10-APK.zip
+          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-11.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-11-APK.zip
           test -s "$APK"
           test -s "$ZIP"
           unzip -tq "$ZIP"
           python3 - <<'PY'
           import hashlib, zipfile
           from pathlib import Path
-          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-10.apk')
-          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-10-APK.zip')
+          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-11.apk')
+          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-11-APK.zip')
           digest=lambda data: hashlib.sha256(data).hexdigest()
           with zipfile.ZipFile(archive) as z:
               names=[n for n in z.namelist() if n.lower().endswith('.apk')]
@@ -109,7 +110,7 @@ jobs:
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
           BADGING="$("$AAPT" dump badging "$APK")"
           printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
-          printf '%s\n' "$BADGING" | grep -F "versionCode='33083'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33084'"
           "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
           grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
           CERT="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
@@ -119,10 +120,10 @@ jobs:
         if: contains(github.event.head_commit.message, '[build-apk]')
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-Turbo-LAB79-Revisione-10-Empty-Packet-Recovery-R10-APK-ZIP
+          name: MusicLab-Turbo-LAB79-Revisione-11-Empty-Packet-Recovery-R10-APK-ZIP
           path: |
-            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-10.apk
-            dist/uab/MusicLab-Turbo-LAB79-Revisione-10-APK.zip
+            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-11.apk
+            dist/uab/MusicLab-Turbo-LAB79-Revisione-11-APK.zip
             dist/uab/BUILD_SHA.txt
             dist/uab/SHA256SUMS.txt
           if-no-files-found: error
@@ -130,7 +131,7 @@ jobs:
           retention-days: 14
 
       - name: Advance verified Turbo source reference after signed APK ZIP success
-        if: success() && github.event_name == 'push' && startsWith(github.ref_name, 'lab/musiclab-turbo-') && contains(github.event.head_commit.message, '[build-apk]')
+        if: success() && github.event_name == 'push' && (startsWith(github.ref_name, 'lab/musiclab-turbo-') || github.ref_name == 'lab/musiclab-scudo360-r11-3test-fix-20261029') && contains(github.event.head_commit.message, '[build-apk]')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
