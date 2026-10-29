@@ -154,18 +154,10 @@ internal object CoverRoundStorage {
     }.getOrNull()
 
     private fun retained(rows: List<DiscogsVersionSeed>, originalArtist: String? = null): List<DiscogsVersionSeed> {
-        if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
-            // Legacy originalWorkReference flags can mean the selected cover singer.
-            // Only the explicitly persisted R2 documentary reference can impose this cap.
-            val original = originalArtist.orEmpty()
-            return CoverPriorityOrder.retainedRows(rows, original)
-        }
-        val seen = HashSet<String>()
-        val videos = HashSet<String>()
-        return DiscogsVersionSource.dedupeVersions(rows, preserveInputOrder = true).filter { seed ->
-            seen.add(DiscogsVersionSource.recordingIdentityKey(seed)) &&
-                (seed.resolvedVideoId.isNullOrBlank() || videos.add(seed.resolvedVideoId))
-        }
+        // The same documentary/recording identity rules must apply in JVM tests,
+        // PR debug builds and the signed Turbo APK. A debug applicationId is not
+        // evidence that the selected singer is the original interpreter.
+        return CoverPriorityOrder.retainedRows(rows, originalArtist.orEmpty())
     }
 
     private fun retainedPending(rows: List<DiscogsVersionSeed>, original: String?): List<DiscogsVersionSeed> {
