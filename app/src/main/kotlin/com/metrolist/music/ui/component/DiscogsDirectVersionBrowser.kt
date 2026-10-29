@@ -552,17 +552,8 @@ internal fun DiscogsDirectVersionBrowser(
                     saved.originalArtist?.let { resolvedOriginalArtist = it }
                     val referenceTitle = saved.workTitle ?: initialTitle
                     val referenceArtist = saved.originalArtist ?: lockedArtist
-                    val (visible, deferred) = saved.rows.partition { row ->
-                        val verdict = CoverLabTurboRoundAdmission.evaluate(
-                            CoverLabTurboRoundAdmission.candidate(row), referenceTitle, referenceArtist,
-                            row.coverRound ?: 1,
-                        )
-                        val savedFacts = row.identityEvidence.toSet()
-                        val allocated = !verdict.rejected && (verdict.admitted ||
-                            (savedFacts.contains("title") && (row.coverRound ?: 1) >=
-                                CoverLabTurboRoundAdmission.minimumRound(savedFacts)))
-                        allocated && (row.coverRound ?: 1) <= saved.round
-                    }
+                    val (visible, deferred) = CoverRoundStorage.partitionForRestoration(
+                        saved, referenceTitle, referenceArtist)
                     deferred.forEach { row ->
                         val candidate = CoverLabTurboRoundAdmission.candidate(row)
                         session.priorityPending.offer(candidate)

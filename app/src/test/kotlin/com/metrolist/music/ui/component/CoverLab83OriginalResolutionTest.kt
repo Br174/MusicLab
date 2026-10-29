@@ -34,4 +34,13 @@ class CoverLab83OriginalResolutionTest {
             "Il mondo was not first released by Primo interprete in 1960.", proposal))
     }
 
+    @Test fun aFreshSearchCannotReuseThePreviousAttemptOrWriterCredits() {
+        val state=CoverOriginalResolver.SessionState()
+        state.attempted=true
+        state.credits.add(com.metrolist.music.discogs.DiscogsCredit(name="Previous writer",role="Composed By"))
+        state.reset()
+        assertFalse(state.attempted)
+        assertTrue(state.credits.isEmpty())
+    }
+
 }

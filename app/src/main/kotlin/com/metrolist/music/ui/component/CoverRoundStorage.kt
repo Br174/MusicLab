@@ -22,7 +22,23 @@ internal object CoverRoundStorage {
         val rows: List<DiscogsVersionSeed> = emptyList(),
         val originalArtist: String? = null,
         val workTitle: String? = null,
+        val deferredRows: List<DiscogsVersionSeed> = emptyList(),
     )
+
+
+    /** Pure restoration boundary, extracted from the native screen for regression tests. */
+    internal fun partitionForRestoration(saved: Snapshot, referenceTitle: String, referenceArtist: String):
+        Pair<List<DiscogsVersionSeed>, List<DiscogsVersionSeed>> = (saved.rows + saved.deferredRows).partition { row ->
+                        val verdict = CoverLabTurboRoundAdmission.evaluate(
+                            CoverLabTurboRoundAdmission.candidate(row), referenceTitle, referenceArtist,
+                            row.coverRound ?: 1,
+                        )
+                        val savedFacts = row.identityEvidence.toSet()
+                        val allocated = !verdict.rejected && (verdict.admitted ||
+                            (savedFacts.contains("title") && (row.coverRound ?: 1) >=
+                                CoverLabTurboRoundAdmission.minimumRound(savedFacts)))
+                        allocated && (row.coverRound ?: 1) <= saved.round
+                    }
 
     private fun path(context: Context, workKey: String): AtomicFile {
         val digest = MessageDigest.getInstance("SHA-256")

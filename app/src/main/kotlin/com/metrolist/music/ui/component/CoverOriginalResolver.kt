@@ -19,6 +19,12 @@ import java.util.concurrent.TimeUnit
 
 /** Optional first-publication enrichment. A model suggests; a document confirms. */
 internal object CoverOriginalResolver {
+    internal class SessionState {
+        var attempted: Boolean = false
+        val credits: MutableList<com.metrolist.music.discogs.DiscogsCredit> = mutableListOf()
+        // Explicit reset boundary; wired to fresh-search reset in the reviewed fix.
+        fun reset() {}
+    }
     data class Config(val provider: String, val key: String, val model: String)
     data class Proposal(val title: String, val artist: String, val document: String)
     private val client = OkHttpClient.Builder().connectTimeout(4, TimeUnit.SECONDS)

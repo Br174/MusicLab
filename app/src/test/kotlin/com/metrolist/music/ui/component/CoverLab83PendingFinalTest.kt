@@ -38,4 +38,24 @@ class CoverLab83PendingFinalTest {
         assertEquals(2, q.size)
         assertNull(q.next(videosOnly = true))
     }
+    @Test fun deferredDocumentedVideoCannotBecomeAPublishedCardOnColdStart() {
+        val source=row().copy(sources=listOf("COVER.INFO"),workRelationConfirmed=true)
+        val published=DiscogsVersionSource.externalSeed(source,"Il mondo","Jimmy Fontana")
+            .copy(fingerprint="published",resolvedVideoId="public00001",videoResolutionChecked=true,coverRound=1)
+        val waiting=published.copy(fingerprint="waiting",resolvedVideoId="waiting0001")
+        val saved=CoverRoundStorage.Snapshot(round=1,rows=listOf(published),deferredRows=listOf(waiting))
+        val (visible,deferred)=CoverRoundStorage.partitionForRestoration(saved,"Il mondo","Jimmy Fontana")
+        assertEquals(listOf(published),visible)
+        assertEquals(listOf(waiting),deferred)
+    }
+    @Test fun unverifiedMetadataCannotBypassThePublicationBoundaryOnRestore() {
+        val source=row().copy(sources=listOf("COVER.INFO"),workRelationConfirmed=true)
+        val waiting=DiscogsVersionSource.externalSeed(source,"Il mondo","Jimmy Fontana")
+            .copy(videoResolutionChecked=false,coverRound=1)
+        val (visible,deferred)=CoverRoundStorage.partitionForRestoration(
+            CoverRoundStorage.Snapshot(rows=listOf(waiting)),"Il mondo","Jimmy Fontana")
+        assertTrue(visible.isEmpty())
+        assertEquals(listOf(waiting),deferred)
+    }
+
 }
