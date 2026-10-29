@@ -137,6 +137,10 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/motorlab-active-guard.mjs
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/motorlab/active-musiclab-turbo" -f "sha=$GITHUB_SHA" -F "force=false" --jq '.object.sha'
+          # GitHub Apps can deny git-ref PATCH while branch fast-forward push remains allowed.
+          if ! gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/motorlab/active-musiclab-turbo" -f "sha=$GITHUB_SHA" -F "force=false" --jq '.object.sha'; then
+            echo "::notice::GitHub Ref API denied; attempting ordinary non-forced fast-forward push."
+            git push origin "HEAD:refs/heads/motorlab/active-musiclab-turbo"
+          fi
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/motorlab/active-musiclab-turbo" --jq '.object.sha')" = "$GITHUB_SHA"
           echo "[MOTORLAB_ACTIVE_TURBO_ADVANCED] $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
