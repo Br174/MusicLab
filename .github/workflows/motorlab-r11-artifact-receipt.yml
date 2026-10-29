@@ -1,0 +1,34 @@
+name: MotorLab verified R11 signed artifact readback
+on:
+  push:
+    branches:
+      - lab/motorlab-r11-artifact-receipt-20261029
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  receipt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read exact existing R11 signed build without rebuilding APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SOURCE_SHA=a8d32987ed8d291d61aa17a91bd45dbf11d1d3ca
+          WORKFLOW=musiclab-turbo-r10-empty-packet-apk.yml
+          RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs?per_page=100" --jq '.workflow_runs[] | select(.head_sha=="a8d32987ed8d291d61aa17a91bd45dbf11d1d3ca" and .conclusion=="success") | .id' | head -n 1)"
+          test -n "$RUN_ID"
+          ARTIFACT_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[] | select(.name | contains("Revisione-11")) | select(.expired==false) | .id' | head -n 1)"
+          test -n "$ARTIFACT_ID"
+          mkdir -p .motorlab
+          printf 'SOURCE_SHA=%s\nSIGNED_RUN=%s\nARTIFACT_ID=%s\nRUN_URL=https://github.com/%s/actions/runs/%s\n' "$SOURCE_SHA" "$RUN_ID" "$ARTIFACT_ID" "$GITHUB_REPOSITORY" "$RUN_ID" > .motorlab/R11_SIGNED_APK_RECEIPT.txt
+          git config user.name 'motorlab-ci-receipt'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .motorlab/R11_SIGNED_APK_RECEIPT.txt
+          git commit -m 'chore: archive actual signed R11 APK ZIP Actions receipt'
+          git push origin HEAD:refs/heads/lab/motorlab-r11-artifact-receipt-20261029
