@@ -61,11 +61,20 @@ internal object CoverLabTurboRoundAdmission {
     fun candidate(row: DiscogsVersionSeed): CoverSourceCandidate = CoverSourceCandidate(
         title = row.trackTitle, artist = row.artist, sources = row.sourceNames,
         year = row.year, album = row.releaseTitle, credits = row.credits,
+        coverUrl = row.coverUrl, language = row.language, durationSeconds = row.durationSeconds,
+        recordingReleaseId = row.releaseId.takeIf { it > 0 }, recordingMasterId = row.masterId,
+        recordingTrackPosition = row.track?.position, collectorHave = row.collectorHave,
+        evidenceScore = row.confidenceScore,
         playbackVideoId = row.resolvedVideoId, playbackVideoTitle = row.resolvedVideoTitle,
         playbackVideoSource = row.resolvedVideoSource, sourceUrl = row.sourceUrl,
         workRelationConfirmed = row.workRelationConfirmed,
         originalWorkReference = row.originalWorkReference, releaseVerified = row.discogsVerificationChecked,
-        category = if (row.workRelationConfirmed) AiCoverCategory.FOREIGN else AiCoverCategory.COVER,
+        category = when {
+            row.kind == DiscogsVersionKind.LIVE -> AiCoverCategory.LIVE
+            row.kind == DiscogsVersionKind.REMIX -> AiCoverCategory.REMIX
+            row.workRelationConfirmed -> AiCoverCategory.FOREIGN
+            else -> AiCoverCategory.COVER
+        },
     )
 
     fun evaluate(
