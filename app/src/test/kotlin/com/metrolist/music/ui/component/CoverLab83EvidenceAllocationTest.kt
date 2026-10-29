@@ -77,4 +77,22 @@ class CoverLab83EvidenceAllocationTest {
         assertFalse(CoverLabTurboRoundAdmission.evaluate(other,"Aspettando il sole","Neffa",6).admitted)
     }
 
+    @Test fun documentedForeignTitlesInOtherScriptsKeepTheirActualWorkEvidence() {
+        val foreign=row(title="Небо",artist="Певец").copy(sources=listOf("COVER.INFO"),
+            workRelationConfirmed=true,category=AiCoverCategory.FOREIGN,playbackVideoTitle="Певец - Небо")
+        val v=CoverLabTurboRoundAdmission.evaluate(foreign,"Il mondo","Jimmy Fontana",1)
+        assertTrue(v.admitted)
+        assertEquals(3,v.evidence.size)
+    }
+    @Test fun aVersionDescriptorCannotRemoveWordsFromTheWorkTitle() {
+        val version=row(title="Amici mai jazz cover")
+        val v=CoverLabTurboRoundAdmission.evaluate(version,"Amici mai","Antonello Venditti",6)
+        assertTrue(v.admitted)
+        assertEquals(setOf("title"),v.evidence)
+    }
+    @Test fun wordsInAnotherScriptCannotBeSilentlyDeletedFromAnUnrelatedTitle() {
+        val other=row(title="Il mondo 世界")
+        assertFalse(CoverLabTurboRoundAdmission.evaluate(other,"Il mondo","Jimmy Fontana",6).admitted)
+    }
+
 }
