@@ -578,12 +578,11 @@ internal object CoverDiscoverySources {
                     sources = listOf("MusicBrainz"),
                     year = version.year,
                     category = categoryFromTitle(candidateTitle),
-                    sourceUrl = if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER) "https://musicbrainz.org/recording/${version.recordingId}" else lookup.sourceUrl,
+                    sourceUrl = if (mode == DiscogsDirectMode.COVER) "https://musicbrainz.org/recording/${version.recordingId}" else lookup.sourceUrl,
                     workRelationConfirmed = true,
                     // lookup.originalVersions means selected-performer recordings,
                     // not a documentary first-interpreter attribution.
-                    originalWorkReference = mode == DiscogsDirectMode.ORIGINAL ||
-                        BuildConfig.APPLICATION_ID != "it.verlezza.musiclab.turbo01",
+                    originalWorkReference = mode == DiscogsDirectMode.ORIGINAL,
                     credits = musicBrainzWorkCredits,
                     evidenceScore = 8,
                 )
@@ -611,7 +610,7 @@ internal object CoverDiscoverySources {
                         language =
                             if (sameBaseTitle(title, candidateTitle)) null
                             else "titolo/adattamento alternativo",
-                        sourceUrl = if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER) "https://musicbrainz.org/recording/${cover.recordingId}" else lookup.sourceUrl,
+                        sourceUrl = if (mode == DiscogsDirectMode.COVER) "https://musicbrainz.org/recording/${cover.recordingId}" else lookup.sourceUrl,
                         workRelationConfirmed = true,
                         credits = musicBrainzWorkCredits,
                         evidenceScore = 8,
@@ -1613,7 +1612,7 @@ internal object CoverDiscoverySources {
     }
 
     private fun sourceIdentity(candidate: CoverSourceCandidate, mode: DiscogsDirectMode): String =
-        if (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER)
+        if (mode == DiscogsDirectMode.COVER)
             CoverPriorityOrder.key(candidate)
         else identity(candidate.title, candidate.artist, candidate.category)
 
