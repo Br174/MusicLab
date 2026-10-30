@@ -3594,6 +3594,12 @@ internal fun DiscogsDirectVersionBrowser(
             } else if (!resumePreparation && presentation.status().ready > 0) {
                 presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
                 appendVisible(presentation.reveal())
+            } else if (appendRound && !resumePreparation && presentation.status().manualContinue) {
+                // R12: user explicitly requested the next cycle after 7 seconds.
+                // Show the small ALREADY verified packet as one atomic event;
+                // the search sources/cursors and unverified candidates stay alive.
+                presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
+                appendVisible(presentation.takeManualVerifiedPacket())
             }
             if (!session.presentationInitialized) {
                 val restored = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots
@@ -7503,14 +7509,9 @@ internal fun DiscogsDirectVersionBrowser(
                     ) {
                         Button(
                             onClick = {
-                                if (presentationStatus.manualContinue) {
-                                    session.presentation.continueEmptyWindow()
-                                    presentationStatus = session.presentation.status()
-                                    roundPlanComplete = presentationStatus.green
-                                    session.roundPlanComplete = roundPlanComplete
-                                } else {
-                                    runSearch(forceRefresh = true, appendRound = true)
-                                }
+                                // Manual publication stays in the native coordinator so
+                                // prepared rows reach the same stable Compose snapshots.
+                                runSearch(forceRefresh = true, appendRound = true)
                             },
                             enabled = presentationStatus.green || presentationStatus.ready > 0 ||
                                 presentationStatus.manualContinue || presentationStatus.retryRequired,

@@ -4,7 +4,6 @@ on:
     branches:
       - lab/musiclab-turbo-lab79-r10-empty-packet-recovery-20261029
       - lab/scudo360-lab79-r10-original-family-20261029
-      - 'lab/musiclab-turbo-*'
       - lab/musiclab-scudo360-r11-3test-fix-20261029
   workflow_dispatch:
 permissions:

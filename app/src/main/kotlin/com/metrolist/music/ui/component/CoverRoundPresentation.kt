@@ -71,6 +71,24 @@ internal class CoverRoundPresentation<T>(
         current.lastProgress = clock()
         return true
     }
+
+    /** Atomic, user-requested release of ALREADY verified rows at an expired
+     *  display boundary. It does not call a provider or exhaust a search. */
+    fun takeManualVerifiedPacket(): List<T> {
+        if (!status().manualContinue) return emptyList()
+        val current = round(visibleRound)
+        val before = current.manualWindowSkips
+        val limit = minOf(
+            if (before == 0) INITIAL_SIZE else BLOCK_SIZE,
+            current.prepared.size,
+            (ROUND_SIZE - current.shown.size).coerceAtLeast(0),
+        )
+        val result = if (limit > 0) take(visibleRound, limit) else emptyList()
+        current.manualWindowSkips = maxOf(current.manualWindowSkips, before + 1)
+        current.windowElapsed = false
+        current.lastProgress = clock()
+        return result
+    }
     val preparationRound: Int get() = if (status().green &&
         (round(visibleRound).shown.size >= ROUND_SIZE || round(visibleRound).exhausted)) visibleRound + 1 else visibleRound
 
@@ -174,7 +192,8 @@ internal class CoverRoundPresentation<T>(
 
     private fun ready(number: Int): Int {
         val state = round(number)
-        val target = if (state.shown.size < INITIAL_SIZE) INITIAL_SIZE - state.shown.size
+        val target = if (state.manualWindowSkips == 0 && state.shown.size < INITIAL_SIZE)
+            INITIAL_SIZE - state.shown.size
             else minOf(BLOCK_SIZE, (ROUND_SIZE - state.shown.size).coerceAtLeast(0))
         val size = state.prepared.size
         return if (size >= target || state.exhausted) minOf(size, target) else 0
@@ -186,7 +205,8 @@ internal class CoverRoundPresentation<T>(
         val retryRequired = finalEmpty && !state.finalChecked && !state.finalContinuation
         val available = ready(visibleRound)
         // Separate three manual display windows from true source exhaustion.
-        val manualGreen = state.windowElapsed && state.manualWindowSkips >= 2 && available == 0
+        val manualGreen = state.windowElapsed && state.manualWindowSkips >= 2 &&
+            available == 0 && state.prepared.isEmpty()
         val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE ||
             (state.exhausted || manualGreen) && available == 0)
         val manualContinue = !terminal && !retryRequired && !green &&
@@ -194,7 +214,7 @@ internal class CoverRoundPresentation<T>(
         return Status(state.shown.size, state.prepared.size, available, green,
             if (green) ready(visibleRound + 1) else 0,
             terminal, terminal && rounds.values.all { it.shown.isEmpty() && it.prepared.isEmpty() && it.overflow.isEmpty() },
-            retryRequired, manualContinue, if (manualContinue) state.manualWindowSkips + 2 else 0)
+            retryRequired, manualContinue, if (manualContinue) minOf(3, state.manualWindowSkips + 2) else 0)
     }
     fun needsPreparation(): Boolean {
         val number = preparationRound

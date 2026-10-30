@@ -1,0 +1,12 @@
+MusicLab Turbo LAB79 R12, 2026-10-30
+USER DEVICE EVIDENCE R10 02:37–02:38 Europe/Rome:
+- First round 0/50 but 1 verified ready, then 2 ready.
+- Manual cycle2 to cycle3 works; no posters are visible.
+- Source dialog: COVER.INFO69 with 43 pages pending, source candidates229, possible twins21, video pages22, Apple97, Spotify9, MusicBrainz11, Discogs100 page4/100, YouTube Music20, YouTube video20.
+ROOT CAUSE CONFIRMED IN PRODUCTION SOURCE:
+- CoverRoundPresentation.takeAutomatic() holds fewer than10, and R10 manualContinue() only increments the cycle without publishing already staged YouTube-verified rows.
+- Search is not exhausted, so partial verified results remain invisible even after user explicitly presses Continue.
+SPEC COMPATIBILITY: Approved atomic10+20+20 when READY; late/source-unverified never fabricated or published. Approved manual continuation after 7s and residual single atomic packet at available boundary; newest real-device evidence establishes need to emit already-ready small verified packets at the user's explicit continuation press. Source work never stops; if nothing verified, manual pass shows none. This does not loosen 3/2/1 evidence or create videos.
+FIX R12: one native coordinator issues small verified packet on user press, retains stable history, preserves stage sources, prepared overflow and normal exact 10/20 when complete. No audio, player, database, Discogs, COVER.INFO, MusicBrainz, title, author, or score modification.
+R12 source base exact 4a7d24440120e90bda1f95c4ea6f8eb121d04710 is latest protected active Turbo with Scudo r40. New isolated branch, same id/cert, versionCode33085 (R11 33084 remains LAST_GOOD). Requires Scudo r40 full native tests and signed artifact before moving active-family source; no main/MADRE changes.
+NOTE: screenshots also prove 229 documentary candidates not yet converted. R12 fixes visibility of verified residual, NOT yet guaranteed to fill50; additional direct device/metadata resolution investigation is a separate open root-cause queue.
