@@ -49,6 +49,23 @@ class PlaybackSprintPolicyTest {
         assertNull(PlaybackSprintPolicy.nextPreloadMediaId(true, current, null, current))
     }
 
+    @Test fun midSongBufferStallIsRecoverableWithBoundedAttempts() {
+        assertEquals(9_000L, PlaybackSprintPolicy.BUFFER_STALL_RECOVERY_DELAY_MS)
+        assertTrue(PlaybackSprintPolicy.shouldRecoverBufferStall(
+            isBuffering = true,
+            playRequested = true,
+            sameMediaId = true,
+            online = true,
+            recoveryAttempts = 0,
+        ))
+        assertTrue(PlaybackSprintPolicy.shouldRecoverBufferStall(true, true, true, true, 1))
+        assertFalse(PlaybackSprintPolicy.shouldRecoverBufferStall(true, true, true, true, 2))
+        assertFalse(PlaybackSprintPolicy.shouldRecoverBufferStall(false, true, true, true, 0))
+        assertFalse(PlaybackSprintPolicy.shouldRecoverBufferStall(true, false, true, true, 0))
+        assertFalse(PlaybackSprintPolicy.shouldRecoverBufferStall(true, true, false, true, 0))
+        assertFalse(PlaybackSprintPolicy.shouldRecoverBufferStall(true, true, true, false, 0))
+    }
+
     @Test fun safeSingleTrackPreloadCanStartWhenReserveIsHealthy() {
         assertTrue(PlaybackSprintPolicy.canPreload(true,true,false,false,40_000L,40_000L))
         assertTrue(PlaybackSprintPolicy.canPreload(true,true,false,false,30_000L,30_000L))
