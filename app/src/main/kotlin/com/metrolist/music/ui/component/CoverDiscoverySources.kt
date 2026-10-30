@@ -152,7 +152,7 @@ internal object CoverDiscoverySources {
                 mode.name,
                 canonical(cleanTitle),
                 canonical(cleanArtist),
-                "lab77-r2-priority-source-progress",
+                "lab-video-first-v1",
                 if (deepRecovery) "work-first-recovery" else "initial",
                 // A new manual round must not replay a cached deep crawl.
                 // LAB45's first round remains unchanged.
@@ -287,10 +287,14 @@ internal object CoverDiscoverySources {
                     ?: sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh, deepRecovery) })
             }
         }
-        val deepRound = if (mode == DiscogsDirectMode.COVER && coverRound >= 2 &&
-            BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
+        // Video First LAB: start the existing unverified YouTube candidate lane
+        // immediately, including round one. Documentary sources and the Turbo
+        // admission/ranking rules remain unchanged. No video is certified here.
+        val deepRound = if (turbo) {
             async(Dispatchers.IO) {
-                reportResult(sourceLane { discoverYouTubeCoverRound(cleanTitle, coverRound) })
+                val videoRound = coverRound.coerceAtLeast(2)
+                val result = sourceLane { discoverYouTubeCoverRound(cleanTitle, videoRound) }
+                reportResult(result)
             }
         } else null
 
