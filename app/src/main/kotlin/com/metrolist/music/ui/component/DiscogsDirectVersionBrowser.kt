@@ -4227,7 +4227,6 @@ internal fun DiscogsDirectVersionBrowser(
                                 if (producersDone) break
                                 delay(80L); continue
                             }
-                            if (session.searchedLeadRounds[CoverPriorityOrder.key(next)] == thisRound) continue
                             if (CoverLab71FoundationGate.isForbidden(next.title, next.artist, next.playbackVideoTitle.orEmpty(), next.album.orEmpty(), next.sourceUrl.orEmpty())) {
                                 pending.complete(next); continue
                             }
@@ -4288,14 +4287,12 @@ internal fun DiscogsDirectVersionBrowser(
                                     } else {
                                         if (!bound && !pending.hasLinked(next) && found.continuation.isNullOrBlank()) {
                                             queryWork.retryUnresolved(sourcePage)
-                                            session.searchedLeadRounds[CoverPriorityOrder.key(next)] = thisRound
                                         }
                                         pending.lookupComplete(next, linked = bound, morePages = !found.continuation.isNullOrBlank())
                                     }
                                 } else {
                                     queryWork.defer(sourcePage)
                                     pending.defer(next)
-                                    session.searchedLeadRounds[CoverPriorityOrder.key(next)] = thisRound
                                     recordSource(CoverSourceDiagnostic("YouTube diretto", false, 0, "richiesta non completata; candidato e cursore conservati"))
                                 }
 
@@ -4331,7 +4328,7 @@ internal fun DiscogsDirectVersionBrowser(
                     flushInitial(force = true)
                     val sourceContextKey = "$thisRound|${workTitle()}|${originalArtist().ifBlank { lockedArtist }}"
                     val unresolved = pending.snapshot().any {
-                        pending.eligible(it, thisRound) && !pending.isTwin(it) && (session.searchedLeadRounds[CoverPriorityOrder.key(it)] != thisRound || !it.playbackVideoId.isNullOrBlank())
+                        pending.eligible(it, thisRound) && !pending.isTwin(it) && true
                     }
                     val trackedContextKeys = session.documentaryContextQueries.keys
                     val sourcesComplete = sourceContextKey in session.completedDocumentaryContexts &&
