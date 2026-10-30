@@ -1926,7 +1926,10 @@ internal fun DiscogsDirectVersionBrowser(
 
     fun playbackIsCritical(): Boolean =
         playerConnection?.isPlaybackPriorityBurstActive() == true ||
-            playerConnection?.playbackState?.value == Player.STATE_BUFFERING
+            playerConnection?.playbackState?.value == Player.STATE_BUFFERING ||
+            // R20: READY with <12s buffered is still fragile. Never resume
+            // expensive video/source work just because Media3 reported READY.
+            playerConnection?.service?.isCoverAudioAtRisk() == true
 
     fun backgroundWorkBlocked(): Boolean = backgroundPausedForPlayback || playbackIsCritical()
 
@@ -3096,18 +3099,27 @@ internal fun DiscogsDirectVersionBrowser(
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
             // LAB14: manual playback takes the critical lane only for startup,
             // then resumes the independent, bounded video-only worker.
-            backgroundPausedForPlayback = false
-            // Resume within the original bounded coverage window; never
-            // restart its clock or compete with startup/rebuffering.
-            if (!session.turboVideoComplete && session.turboAutoStartedAtMs > 0L &&
-                SystemClock.elapsedRealtime() <
-                    session.turboAutoStartedAtMs + TURBO_VIDEO_COVERAGE_MAX_MS) {
-                turboSearchGeneration++
+            fun continueAfterAudioRecovery() {
+                backgroundPausedForPlayback = false
+                // Resume only within the unchanged R19 coverage window.
+                if (!session.turboVideoComplete && session.turboAutoStartedAtMs > 0L &&
+                    SystemClock.elapsedRealtime() <
+                        session.turboAutoStartedAtMs + TURBO_VIDEO_COVERAGE_MAX_MS) {
+                    turboSearchGeneration++
+                }
+                if (session.turboFinished) {
+                    startDocumentaryRecovery()
+                    playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
+                }
             }
-            if (session.turboFinished) {
-                startDocumentaryRecovery()
-                playerConnection?.service?.setCoverPerformanceLoad(active = false, heavy = false)
-                // LAB11: cached sessions remain idle on re-entry.
+            if (playbackIsCritical()) {
+                backgroundResumeJob = scope.launch {
+                    // Playback state is read only on Compose/Main, never on IO.
+                    while (isActive && playbackIsCritical()) delay(200L)
+                    if (isActive) continueAfterAudioRecovery()
+                }
+            } else {
+                continueAfterAudioRecovery()
             }
             return
         }

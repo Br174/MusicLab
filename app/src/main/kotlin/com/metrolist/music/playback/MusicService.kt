@@ -4314,11 +4314,12 @@ class MusicService :
      * This path never chains a full-song background download.
      */
     private fun scheduleSmartPlaybackPreload() {
-        if (playbackPriorityBurstActive || coverSectionActive) return
+        if (playbackPriorityBurstActive) return
         if (!::player.isInitialized || !player.playWhenReady) return
-        if (player.playbackState != Player.STATE_READY ||
-            player.totalBufferedDuration < SMART_PRELOAD_STABLE_BUFFER_MS
-        ) return
+        if (player.playbackState != Player.STATE_READY) return
+        // R20: do not demand 30s of buffer *before* scheduling the waiter.
+        // READY arrives with a deliberately small startup buffer (900ms).
+        // Wait off the hot path, then prewarm one already-queued track only.
         val anchorId = player.currentMediaItem?.mediaId ?: return
         if (smartPreloadAnchorMediaId == anchorId) return
 
@@ -4332,11 +4333,17 @@ class MusicService :
 
             while (isActive) {
                 if (player.currentMediaItem?.mediaId != anchorId ||
-                    !player.playWhenReady || coverSectionActive
-                ) return@launch
-                val stable =
-                    player.playbackState == Player.STATE_READY &&
-                        player.totalBufferedDuration >= SMART_PRELOAD_STABLE_BUFFER_MS
+                    !player.playWhenReady) return@launch
+                val stable = PlaybackSprintPolicy.canPreload(
+                    isPlaying = player.playWhenReady,
+                    isReady = player.playbackState == Player.STATE_READY,
+                    priorityBurst = playbackPriorityBurstActive,
+                    coverHeavy = coverHeavyLoad,
+                    bufferedMs = player.totalBufferedDuration,
+                    requiredReserveMs = PlaybackSprintPolicy.requiredPreloadReserve(
+                        coverSectionActive, SMART_PRELOAD_STABLE_BUFFER_MS,
+                    ),
+                )
                 if (stable) break
                 if (System.currentTimeMillis() >= deadline) {
                     Timber.tag(PRECACHE_TAG).d("[SMART_PRELOAD] Giving up: current track never reached stable reserve")
@@ -4375,7 +4382,9 @@ class MusicService :
                     player.currentMediaItem?.mediaId == anchorId &&
                     (
                         player.playbackState != Player.STATE_READY ||
-                            player.totalBufferedDuration < SMART_PRELOAD_RESUME_BUFFER_MS
+                            player.totalBufferedDuration < PlaybackSprintPolicy.requiredPreloadReserve(
+                                coverSectionActive, SMART_PRELOAD_RESUME_BUFFER_MS,
+                            ) || coverHeavyLoad || playbackPriorityBurstActive
                     )
                 ) {
                     delay(250)
@@ -4400,8 +4409,10 @@ class MusicService :
             ::player.isInitialized && player.playWhenReady &&
                 player.currentMediaItem?.mediaId == anchorId &&
                 player.playbackState == Player.STATE_READY &&
-                player.totalBufferedDuration >= SMART_PRELOAD_RESUME_BUFFER_MS &&
-                !playbackPriorityBurstActive && !coverSectionActive
+                player.totalBufferedDuration >= PlaybackSprintPolicy.requiredPreloadReserve(
+                    coverSectionActive, SMART_PRELOAD_RESUME_BUFFER_MS,
+                ) &&
+                !playbackPriorityBurstActive && !coverHeavyLoad
         }
 
     private suspend fun prewarmMediaItemPrefix(
@@ -5075,6 +5086,18 @@ class MusicService :
     ): DataSource.Factory {
         return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
             val mediaId = stripQobuzCacheKeyPrefix(dataSpec.key ?: error("No media id"))
+            // R20 sprint lane: a *valid* signed URL already in memory needs no Room
+            // query before playback can begin. The URL cache enforces expiry and
+            // invalidation on playback error and quality/source changes.
+            if (playbackPriorityBurstActive && !mediaId.startsWith("local:") &&
+                !bypassCacheForQualityChange.contains(mediaId)
+            ) {
+                songUrlCache[mediaId]?.let { cachedStream ->
+                    recoverSongDeduped(mediaId)
+                    currentStreamClient.value = cachedStream.clientName
+                    return@Factory dataSpec.withResolvedStream(cachedStream)
+                }
+            }
             val storedFormat = runBlocking(Dispatchers.IO) { database.format(mediaId).first() }
 
             // Handle local audio files — resolve to content URI and bypass YouTube fetch

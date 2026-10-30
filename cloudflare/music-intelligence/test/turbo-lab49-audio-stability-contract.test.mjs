@@ -44,7 +44,11 @@ test('LAB49 Media3 timeline and state reads occur on main player looper, not IO'
 test('LAB49 next-track speculative download waits for healthy reserve and yields to Cover', () => {
   assert.match(service, /SMART_PRELOAD_STABLE_BUFFER_MS = 30_000L/);
   assert.match(service, /SMART_PRELOAD_RESUME_BUFFER_MS = 26_000L/);
-  assert.match(service, /if \(playbackPriorityBurstActive \|\| coverSectionActive\) return/);
+  // R20 supersedes the blanket cover-active block with a 40s buffered
+  // threshold and a strict no-work-while-cover-heavy guard.
+  assert.match(service, /if \(playbackPriorityBurstActive\) return/);
+  assert.match(service, /PlaybackSprintPolicy\.requiredPreloadReserve/);
+  assert.match(service, /coverHeavyLoad/);
   assert.match(service, /if \(!playbackHasHealthyPreloadReserve\(anchorId\)\) return/);
   assert.match(service, /writer\.cancel\(\)/);
 });
