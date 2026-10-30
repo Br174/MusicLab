@@ -1,0 +1,16 @@
+name: MusicLab R15 Root Cause Deterministic Regressions
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-r15-root-cause-cover-recovery-20261030
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  root-cause:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact-cover identity, per-ID metadata retry and catalogue evidence
+        run: node --test cloudflare/music-intelligence/test/turbo-r15-real-root-cause.test.mjs

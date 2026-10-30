@@ -1,0 +1,42 @@
+MusicLab Cover six-round implementation plan and ledger
+Operation: musiclab-cover-six-rounds-spec-20261028
+Spec: .motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt
+Base: e7f54f5b5df8d564521e2b46a8a0fd3b483a1713; app baseline e24bb0a0aba18914109ec6a0f181908edd37a210.
+Authorization: Bruno explicitly requested implementation and necessary supersession only.
+Protected: player, title/work admission, source parsers, identity algorithm, package/certificate, UI outside round controls; main/MADRE/production/LAST_GOOD untouched.
+
+Ownership/conflict disposition:
+CoverRoundSearchPlan owns query families: replace thirteen phases with six, preserve first-round queries verbatim, preserve descriptor inventory. Final title autonomous plus optional descriptors.
+CoverPriorityOrder owns ranking and cursor queue: release preference before evidence for available work, no admission change. Existing VideoQueries owns final pagination; do not introduce another cursor store.
+CoverRoundPresentation owns buffers and button state: retain 10+20+20/residuals; add explicit final-continuation state, separate idle from verified exhaustion; preserve ready rows and overflow.
+Existing browser runSearch owns coordination: remove fixed three-request terminal decision, do not restart exhausted root queries, retain continuation tokens, perform independent plain-title and descriptor work. Final completion requires source/cursor/eligible-candidate exhaustion, not one empty page.
+CoverLabTurboTwinGuard remains sole recording identity authority; publication must not bypass UNCERTAIN simply because a candidate was marked as twin. Defer without discarding. No audio fingerprinting, new threshold or replacement identity engine.
+Existing documentary originalReference remains sole attribution mechanism; tests protect explicit original attribution and no invented catalogue recording proof.
+No existing confirmed-good restore entry is promoted by implementation alone.
+
+Task 1: Write CoverLab81SixRoundTest, run against unchanged source; expected RED for finalRound 13 vs6, final descriptors absent, misplaced families and published preference below evidence. Commit test-only gate. IN PROGRESS, CI40691521377.
+Task 2: Replace query distribution/global release ordering; extend existing tests and compare old official query list/inventory. Native focused tests must pass.
+Task 3: Final pagination/continuation and uncertain twin publication; test final pending vs failure vs exhausted states, atomic packets and overflow. Integration source contracts ensure no fixed-count final completion or forced root restart.
+Task 4: Update only obsolete test expectations and metadata authority; add narrow baseline scope guard; full Android JVM suite, native audio/recording contracts, signed R6 APK/ZIP verification. No compiler/dependency/schema tuning.
+Task 5: Fresh whole-change review via executing-plans skill; fix important findings, rerun relevant checks; save APK/ZIP and exact provenance. Phone quality/speed/audio remain pending Bruno's device test.
+
+Review focus: stale root replay starving continuation; empty intermediate page with nonempty continuation; late metadata after idle close; final pending work falsely red; uncertain twin becoming public after queue mark; release metadata inferred from title alone; partial final buffers/re-entry retaining old13-phase counters.
+Ruling: keep existing logical block counter beyond finalRound for cursor/storage compatibility, but cap displayed objective number at6; additional final blocks retain the same sixth objective.
+Ruling: documented preferences never wait for unavailable rows and never reorder already visible rows; buffered ready rows can be stably prioritized before publication.
+Ruling: device timings remain objectives, not CI-verifiable guarantees.
+
+Task1 RED verified: CI40691521377 / job122827260649; native sources compile, five targeted tests execute, three assertion failures in six objectives, release priority and grouped genres. Two baseline behaviors already pass. Native audio/recording contracts pass. No production source changed in RED commit50a5e33c03b9a0ccdfae5c31c92c71c878a34b03.
+Tasks2/3 source changes: four existing owners only; guard confirms first-round inventory, attribution/binding, queues, player and cards unchanged. Native tests pending.
+
+Final independent review: review_six_rounds_r6 identified P1 final completion ignoring retryable lead pages. Fix: final completion/ticker includes ALL VideoQueries pages, not ordinary-only; failed lead retains page and prevents terminal. Successful final lead with no continuation is closed rather than root-restarted forever; original documentary contribution remains in source progress. Native state/queue regression added.
+CI40693369371 stopped before compilation on EOF blank lines; normalized only changed files, scope guard retained. No functional app verification claimed from that run.
+
+Final publication race check: a cached publication and background metadata publication can overlap while identity runs off-main. Recheck uncertainty against the latest stable history after metadata persistence, repeating off-main if history changed; retain same confirmed-duplicate/original-cap gates. No suspension occurs between stable-history check and stage.
+
+Final edge-case check: carried overflow joins already-prefetched rows during advance; apply the recorded release preference at take(), after merging, so a ready released overflow row can lead the next packet. Scalar predicate only; visible rows never move. Added native carriedReleasePrecedesPrefetchedUnreleasedRowsInTheNextPacket.
+
+Global release-preference metadata: preserve the already-available archive album field when mapping a Cloud candidate, so known catalogue releases can receive the same preference. No new source lookup or invented recording proof.
+
+CI40695856416 / job122842582963: all app sources compile;504 native tests execute,503 pass, sole failure CoverRecordingMergeRegressionTest.firstRoundFindsOfficialVideosAndLaterRoundsRotateWithoutRepeats line86 enforces the retired four-descriptor/nonoverlap plan. New query, ranking, final-state, packet and overflow tests pass. Replace ONLY this obsolete expectation with grouped guitar/orchestra, mixed recovery containing instrument queries plus radio, and autonomous final title plus descriptors. Recording merge test cases remain unchanged. Scope allowlist adds this exact test path. No production source change from162c1eb903e109c66d8367e4cb1f0acd4e7ef26a.
+
+VERIFICATION COMPLETE (CI, not phone): commit8aa8f01545064be0482f6ae1fd1a629f59860388; run40697246205 / job122847192848 SUCCESS. Full Android app JVM suite PASS (6m41s), audio/recording Node contracts PASS, exact scope/attribution/cursor/card/player guard PASS, canonical rule ownership and supersession PASS. Signed APK build PASS (2m03s), package it.verlezza.musiclab.turbo01/versionCode33081 and pinned certificate/v2 signature PASS, ZIP integrity PASS. Artifact12819938270 outerSHA2569bc4b165c1d1696b7c3cf484668dfded151851ef165d344a5c5720baf922224b downloaded and matched; BUILD_SHA matches8aa8f01545064be0482f6ae1fd1a629f59860388; standalone APK and ZIP inner APK identical. APK SHA256fd8e995bee115e9d349b1ccbea9d0b5513f26a3909ef1c2e29bdaaa93e5f8490; ZIP SHA25628f74598657d645fce193d634a46a478dff0fd2535cac65a6259c228371f697c. Outputs MusicLab-Turbo-LAB79-Revisione-6.apk / MusicLab-Turbo-LAB79-Revisione-6-APK.zip. Source unchanged by this evidence-only checkpoint. Physical phone timing, quality, scrolling and audible playback remain PENDING; no promotion of confirmed-good baseline or LAST_GOOD.

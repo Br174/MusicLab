@@ -87,6 +87,7 @@ internal data class DiscogsVersionSeed(
     val musiclabScore100: Int? = null,
     val coverRound: Int? = null,
     val roundPosition: Int? = null,
+    val identityEvidence: List<String> = emptyList(),
 ) {
     val discogsUrl: String
         get() = "https://www.discogs.com/release/$releaseId"
@@ -128,6 +129,7 @@ internal object DiscogsVersionSource {
         perPage: Int = DIRECT_PAGE_SIZE,
         sort: String? = "year",
         sortOrder: String? = "asc",
+        preserveCandidates: Boolean = false,
     ): Result<DiscogsVersionPage> = coroutineScope {
         runCatching {
             require(criteria.title.isNotBlank()) { "Titolo mancante" }
@@ -166,7 +168,7 @@ internal object DiscogsVersionSource {
                 }
 
             DiscogsVersionPage(
-                items = dedupeVersions(candidates),
+                items = if (preserveCandidates) candidates else dedupeVersions(candidates),
                 page = releasePage.page,
                 pages = releasePage.pages,
                 perPage = releasePage.perPage,
@@ -228,10 +230,10 @@ internal object DiscogsVersionSource {
     }
 
     internal fun isVerifiedDirectSeed(seed: DiscogsVersionSeed): Boolean =
-        seed.track != null && seed.confidenceScore > 0
+        seed.track != null && (com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" || seed.confidenceScore > 0)
 
     internal fun isDisplayableDirectSeed(seed: DiscogsVersionSeed): Boolean =
-        seed.confidenceScore in 1..20
+        com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" || seed.confidenceScore in 1..20
 
     private fun directModeAdmits(
         seed: DiscogsVersionSeed,
@@ -846,6 +848,7 @@ internal object DiscogsVersionSource {
 
     internal fun dedupeVersions(
         seeds: List<DiscogsVersionSeed>,
+        preserveInputOrder: Boolean = false,
     ): List<DiscogsVersionSeed> {
         if (seeds.isEmpty()) return emptyList()
 
@@ -856,11 +859,26 @@ internal object DiscogsVersionSource {
                 .values
                 .map { group -> group.drop(1).fold(group.first(), ::mergeEvidence) }
 
-        // Stage 2: collapse repeated releases of the same musical recording.
-        // For a studio recording keep only the first/original publication plus
-        // the newest remaster. Release/upload dates of YouTube videos are never used.
+        // Merge cross-provider evidence before assigning the single recording.
+        // Bucket first to avoid quadratic comparisons on the UI thread.
+        val crossSourceMerged = mutableListOf<DiscogsVersionSeed>()
+        val bucketIndices = hashMapOf<String, MutableList<Int>>()
+        exact.forEach { seed ->
+            val bucket = crossSourceBucketKey(seed)
+            val indices = bucketIndices.getOrPut(bucket) { mutableListOf() }
+            val index = indices.firstOrNull { sameCrossSourceVersion(crossSourceMerged[it], seed) }
+            if (index == null) {
+                indices += crossSourceMerged.size
+                crossSourceMerged += seed
+            } else {
+                crossSourceMerged[index] =
+                    mergeCrossSourceEvidence(crossSourceMerged[index], seed)
+            }
+        }
+
+        // Keep distinct remasters, re-recordings, concerts and mixes separate.
         val collapsed =
-            exact
+            crossSourceMerged
                 .groupBy(::recordingFamilyKey)
                 .values
                 .flatMap { family ->
@@ -887,12 +905,21 @@ internal object DiscogsVersionSource {
                     }
                 }
 
-        return collapsed.sortedWith(
+        val chronological = collapsed.sortedWith(
             compareBy<DiscogsVersionSeed> { it.year ?: Int.MAX_VALUE }
                 .thenBy { normalizedPublicationDate(it) }
                 .thenBy { canonical(it.artist) }
                 .thenBy { canonical(it.releaseTitle) },
         )
+        if (!preserveInputOrder) return chronological
+        // Committed cards retain their earlier positions between search rounds.
+        return chronological.sortedBy { merged ->
+            seeds.indexOfFirst { prior ->
+                prior.fingerprint == merged.fingerprint ||
+                    (crossSourceBucketKey(prior) == crossSourceBucketKey(merged) &&
+                        sameCrossSourceVersion(prior, merged))
+            }.let { if (it < 0) Int.MAX_VALUE else it }
+        }
     }
 
     /**
@@ -945,11 +972,23 @@ internal object DiscogsVersionSource {
             canonicalReleaseContext(left.releaseTitle).isNotBlank() &&
                 canonicalReleaseContext(left.releaseTitle) == canonicalReleaseContext(right.releaseTitle)
         val oneExternal = left.releaseId <= 0 || right.releaseId <= 0
+        val sameDocumentedYear =
+            left.year != null && right.year != null && left.year == right.year
+        val plausibleSourceDuration =
+            leftDuration == null || rightDuration == null ||
+                kotlin.math.abs(leftDuration - rightDuration) <= 25
+        val distantStudioYears =
+            left.year != null && right.year != null &&
+                kotlin.math.abs(left.year - right.year) > 5
 
         return when (left.kind) {
             DiscogsVersionKind.STUDIO ->
-                sameMaster || closeDuration ||
-                    (exactDecoratedTitle && oneExternal && (leftDuration == null || rightDuration == null || sameReleaseContext))
+                sameMaster ||
+                    (!distantStudioYears &&
+                        (closeDuration ||
+                            (exactDecoratedTitle && oneExternal && plausibleSourceDuration &&
+                                (sameReleaseContext || leftDuration == null ||
+                                    rightDuration == null || sameDocumentedYear))))
             DiscogsVersionKind.LIVE,
             DiscogsVersionKind.REMIX,
             DiscogsVersionKind.ACOUSTIC,
@@ -972,7 +1011,7 @@ internal object DiscogsVersionSource {
                 .filter { !it.resolvedVideoId.isNullOrBlank() }
                 .maxWithOrNull(
                     compareBy<DiscogsVersionSeed> { directVideoSourcePriority(it) }
-                        .thenBy { it.confidenceScore }
+                        .thenBy { if (com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") 0 else it.confidenceScore }
                         .thenBy { it.videos.size }
                         .thenBy { it.sourceNames.distinct().size }
                         .thenBy { if (it.track != null) 1 else 0 },
@@ -1185,13 +1224,14 @@ internal object DiscogsVersionSource {
                 AiCoverCategory.FOREIGN,
                 -> DiscogsVersionKind.STUDIO
             }
+        val turbo = com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01"
         val fingerprint =
             listOf(
                 "external",
                 canonicalBaseTitle(candidate.title),
                 canonicalArtist(candidate.artist),
                 kind.name.lowercase(),
-            ).joinToString("|")
+            ).joinToString("|") + if (turbo) "|" + CoverPriorityOrder.key(candidate) else ""
         val titleMatch =
             TitleMeaningResolver.classify(
                 targetTitle = targetTitle,
@@ -1208,8 +1248,8 @@ internal object DiscogsVersionSource {
             trackTitle = candidate.title,
             artist = candidate.artist,
             releaseTitle = candidate.album ?: candidate.sources.joinToString(" + "),
-            releaseId = 0,
-            masterId = null,
+            releaseId = candidate.recordingReleaseId ?: 0,
+            masterId = candidate.recordingMasterId,
             year = candidate.year,
             releaseDate = candidate.year?.toString(),
             kind = kind,
@@ -1222,7 +1262,9 @@ internal object DiscogsVersionSource {
                     ?: candidate.playbackVideoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" },
             durationSeconds = candidate.durationSeconds,
             fingerprint = fingerprint,
-            track = null,
+            track = candidate.recordingTrackPosition?.let { position ->
+                DiscogsTrack(position, candidate.title, listOf(candidate.artist), null, candidate.durationSeconds, candidate.credits)
+            },
             videos = emptyList(),
             credits = candidate.credits,
             language = candidate.language,
@@ -1254,7 +1296,8 @@ internal object DiscogsVersionSource {
             videoResolutionChecked = !candidate.playbackVideoId.isNullOrBlank(),
             sourceNames = candidate.sources.distinct(),
             sourceUrl = candidate.sourceUrl,
-            discogsVerificationChecked = true,
+            discogsVerificationChecked = candidate.releaseVerified,
+            collectorHave = candidate.collectorHave,
             originalWorkReference = artistIsOriginal,
             workRelationConfirmed = candidate.workRelationConfirmed,
         )
@@ -1548,7 +1591,7 @@ internal object DiscogsVersionSource {
         Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
             .lowercase()
-            .replace(Regex("[^a-z0-9]+"), " ")
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             .trim()
             .replace(Regex("\\s+"), " ")
 

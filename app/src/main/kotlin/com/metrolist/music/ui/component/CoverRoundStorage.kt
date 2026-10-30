@@ -2,6 +2,8 @@ package com.metrolist.music.ui.component
 
 import android.content.Context
 import android.util.AtomicFile
+import com.metrolist.music.BuildConfig
+import com.metrolist.music.discogs.DiscogsTrack
 import com.metrolist.music.discogs.DiscogsCredit
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,7 +20,28 @@ internal object CoverRoundStorage {
     internal data class Snapshot(
         val round: Int = 1,
         val rows: List<DiscogsVersionSeed> = emptyList(),
+        val originalArtist: String? = null,
+        val workTitle: String? = null,
+        val deferredRows: List<DiscogsVersionSeed> = emptyList(),
+        val referenceCredits: List<DiscogsCredit> = emptyList(),
     )
+
+
+    /** Published cards and pending discoveries have different restoration boundaries. */
+    internal fun partitionForRestoration(saved: Snapshot, referenceTitle: String, referenceArtist: String):
+        Pair<List<DiscogsVersionSeed>, List<DiscogsVersionSeed>> {
+        val (visible, held) = saved.rows.partition { row ->
+            val verdict = CoverLabTurboRoundAdmission.evaluate(
+                CoverLabTurboRoundAdmission.candidate(row), referenceTitle, referenceArtist, row.coverRound ?: 1, referenceCredits = saved.referenceCredits)
+            val savedFacts = row.identityEvidence.toSet()
+            val allocated = !verdict.rejected && (verdict.admitted ||
+                (savedFacts.contains("title") && (row.coverRound ?: 1) >=
+                    CoverLabTurboRoundAdmission.minimumRound(savedFacts)))
+            allocated && row.videoResolutionChecked && !row.resolvedVideoId.isNullOrBlank() &&
+                (row.coverRound ?: 1) <= saved.round
+        }
+        return visible to (held + saved.deferredRows)
+    }
 
     private fun path(context: Context, workKey: String): AtomicFile {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -53,7 +76,7 @@ internal object CoverRoundStorage {
         // LAB46: credits are light textual metadata and must survive Android restart.
         put("credits", JSONArray().also { rows ->
             seed.credits.take(40).forEach { credit ->
-                rows.put(JSONObject().put("name", credit.name).put("role", credit.role))
+                rows.put(JSONObject().put("name", credit.name).put("role", credit.role).put("aliases", JSONArray(credit.aliases)).put("tracks", credit.tracks))
             }
         })
         put("coverUrl", seed.coverUrl)
@@ -64,6 +87,7 @@ internal object CoverRoundStorage {
         put("musiclabScore100", seed.musiclabScore100)
         put("coverRound", seed.coverRound)
         put("roundPosition", seed.roundPosition)
+        put("identityEvidence", JSONArray(seed.identityEvidence))
         put("confidenceReasons", JSONArray(seed.confidenceReasons))
         put("resolvedVideoId", seed.resolvedVideoId)
         put("resolvedVideoTitle", seed.resolvedVideoTitle)
@@ -76,6 +100,7 @@ internal object CoverRoundStorage {
         put("originalWorkReference", seed.originalWorkReference)
         put("workRelationConfirmed", seed.workRelationConfirmed)
         put("collectorHave", seed.collectorHave)
+        put("trackPosition", seed.track?.position)
     }
 
     private fun decode(json: JSONObject): DiscogsVersionSeed? = runCatching {
@@ -98,7 +123,7 @@ internal object CoverRoundStorage {
                     val name = credit.optString("name").trim()
                     val role = credit.optString("role").trim()
                     if (name.isBlank() || role.isBlank()) null
-                    else DiscogsCredit(name = name, role = role)
+                    else DiscogsCredit(name = name, role = role, tracks = text(credit, "tracks"), aliases = strings(credit.optJSONArray("aliases")))
                 }
             }.orEmpty(),
             coverUrl = text(json, "coverUrl"),
@@ -109,6 +134,7 @@ internal object CoverRoundStorage {
             musiclabScore100 = int(json, "musiclabScore100")?.takeIf { it in 0..100 },
             coverRound = int(json, "coverRound")?.takeIf { it >= 1 },
             roundPosition = int(json, "roundPosition")?.takeIf { it >= 1 },
+            identityEvidence = strings(json.optJSONArray("identityEvidence")),
             confidenceReasons = strings(json.optJSONArray("confidenceReasons")),
             resolvedVideoId = text(json, "resolvedVideoId"),
             resolvedVideoTitle = text(json, "resolvedVideoTitle"),
@@ -121,45 +147,87 @@ internal object CoverRoundStorage {
             originalWorkReference = json.optBoolean("originalWorkReference"),
             workRelationConfirmed = json.optBoolean("workRelationConfirmed"),
             collectorHave = int(json, "collectorHave"),
+            track = text(json, "trackPosition")?.let { position ->
+                DiscogsTrack(position, json.getString("title"), listOf(json.getString("artist")), null, int(json, "durationSeconds"))
+            },
         )
     }.getOrNull()
+
+    private fun retained(rows: List<DiscogsVersionSeed>, originalArtist: String? = null): List<DiscogsVersionSeed> {
+        // The same documentary/recording identity rules must apply in JVM tests,
+        // PR debug builds and the signed Turbo APK. A debug applicationId is not
+        // evidence that the selected singer is the original interpreter.
+        return CoverPriorityOrder.retainedRows(rows, originalArtist.orEmpty())
+    }
+
+    private fun retainedPending(rows: List<DiscogsVersionSeed>, original: String?): List<DiscogsVersionSeed> {
+        val linked = retained(rows.filter { !it.resolvedVideoId.isNullOrBlank() }, original)
+        val unlinked = rows.filter { it.resolvedVideoId.isNullOrBlank() &&
+            !CoverLab71FoundationGate.isForbidden(it.trackTitle, it.artist, it.releaseTitle) }
+            .distinctBy { it.fingerprint }
+        return linked + unlinked
+    }
 
     @Synchronized
     internal fun load(context: Context, workKey: String): Snapshot = runCatching {
         val json = JSONObject(String(path(context, workKey).readFully(), Charsets.UTF_8))
         if (json.optInt("schema") != 1) return@runCatching Snapshot()
         val results = json.optJSONArray("rows") ?: JSONArray()
-        val seen = HashSet<String>()
-        val videos = HashSet<String>()
-        val cards = (0 until results.length()).mapNotNull { index ->
+        val restored = (0 until results.length()).mapNotNull { index ->
             results.optJSONObject(index)?.let(::decode)
-        }.filter { seed ->
-            seen.add(DiscogsVersionSource.recordingIdentityKey(seed)) &&
-                (seed.resolvedVideoId.isNullOrBlank() || videos.add(seed.resolvedVideoId))
         }
-        Snapshot(round = json.optInt("round", 1).coerceAtLeast(1), rows = cards)
+        val original = text(json, "originalArtist")
+        val pending = json.optJSONArray("deferredRows") ?: JSONArray()
+        val deferred = (0 until pending.length()).mapNotNull { index ->
+            pending.optJSONObject(index)?.let(::decode)
+        }
+        val cards = retained(restored, original)
+        Snapshot(round = json.optInt("round", 1).coerceAtLeast(1), rows = cards,
+            originalArtist = original, workTitle = text(json, "workTitle"),
+            deferredRows = retainedPending(deferred, original),
+            referenceCredits = json.optJSONArray("referenceCredits")?.let { rows ->
+                (0 until rows.length()).mapNotNull { index ->
+                    rows.optJSONObject(index)?.let { credit ->
+                        DiscogsCredit(credit.optString("name"), credit.optString("role"), tracks = text(credit, "tracks"), aliases = strings(credit.optJSONArray("aliases")))
+                    }
+                }.filter { it.name.isNotBlank() && it.role.isNotBlank() }
+            }.orEmpty())
     }.getOrDefault(Snapshot())
 
     @Synchronized
-    internal fun save(context: Context, workKey: String, round: Int, rows: List<DiscogsVersionSeed>) {
+    internal fun save(context: Context, workKey: String, round: Int, rows: List<DiscogsVersionSeed>,
+        originalArtist: String? = null, workTitle: String? = null,
+        deferredRows: List<DiscogsVersionSeed>? = null,
+        referenceCredits: List<DiscogsCredit>? = null) {
         runCatching {
             // Out-of-order IO jobs may finish after a newer Cover round.
             // Never overwrite a larger or newer confirmed snapshot.
             val saved = load(context, workKey)
-            if (saved.round > round || (saved.round == round && saved.rows.size > rows.size)) {
+            if (saved.round > round || (deferredRows == null && saved.round == round &&
+                    retained(saved.rows, originalArtist).size > retained(rows, originalArtist).size)) {
                 return@runCatching
             }
-            val seen = HashSet<String>()
-            val videos = HashSet<String>()
-            val records = rows.filter { seed ->
-                seen.add(DiscogsVersionSource.recordingIdentityKey(seed)) &&
-                    (seed.resolvedVideoId.isNullOrBlank() || videos.add(seed.resolvedVideoId))
-            }
+            val records = retained(rows, originalArtist ?: saved.originalArtist)
+            // Only the native preparation owner replaces the complete pending queue.
+            // Older/UI-only save callers preserve it instead of erasing hidden discoveries.
+            val shownIds = records.mapNotNull { it.resolvedVideoId }.toSet()
+            val waiting = retainedPending(deferredRows ?: saved.deferredRows, originalArtist ?: saved.originalArtist)
+                .filterNot { it.resolvedVideoId in shownIds }
             val json = JSONObject()
                 .put("schema", 1)
+                .put("originalArtist", originalArtist ?: saved.originalArtist)
+                .put("workTitle", workTitle ?: saved.workTitle)
                 .put("round", round.coerceAtLeast(1))
+                .put("referenceCredits", JSONArray().also { array ->
+                    (referenceCredits ?: saved.referenceCredits).forEach { credit ->
+                        array.put(JSONObject().put("name", credit.name).put("role", credit.role).put("aliases", JSONArray(credit.aliases)).put("tracks", credit.tracks))
+                    }
+                })
                 .put("rows", JSONArray().also { array ->
                     records.forEach { array.put(encode(it)) }
+                })
+                .put("deferredRows", JSONArray().also { array ->
+                    waiting.forEach { array.put(encode(it)) }
                 })
             val file = path(context, workKey)
             var stream: java.io.FileOutputStream? = null

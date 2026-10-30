@@ -1,0 +1,112 @@
+name: MusicLab Turbo LAB48 Work-first documentary recovery APK ZIP
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-work-first-recovery-20261024
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musiclab-turbo-lab48-work-first
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Isolated LAB48 JVM tests and same-family APK ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CRASH_REPORT_TOKEN: ''
+      CRASH_REPORT_REPO: ''
+      LASTFM_API_KEY: ''
+      LASTFM_SECRET: ''
+    steps:
+      - name: Checkout isolated LAB48 and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Guard exact baseline and approved changes, preserve player and UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=de6343081104409276347f65f943218e9e3f7337
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --name-only "$BASE" HEAD > /tmp/musiclab-lab48-changed.txt
+          cat /tmp/musiclab-lab48-changed.txt
+          while IFS= read -r path; do
+            case "$path" in
+              app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt|app/src/main/kotlin/com/metrolist/music/ui/component/MusicBrainzCoverSource.kt|app/src/main/kotlin/com/metrolist/music/ui/component/SecondHandSongsCoverSource.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverDeepRecoveryGateTest.kt|cloudflare/music-intelligence/test/turbo-lab48-work-first-recovery-contract.test.mjs|tools/universal-apk-builder/prepare-turbo-lab48-work-first-env.py|.github/workflows/musiclab-turbo-lab48-work-first-apk.yml) ;;
+              *) echo "UNAPPROVED PATH: $path"; exit 1 ;;
+            esac
+          done < /tmp/musiclab-lab48-changed.txt
+          for path in app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverSearchScreen.kt app/src/main/AndroidManifest.xml app/build.gradle.kts; do
+            test "$(git hash-object "$path")" = "$(git rev-parse "$BASE:$path")"
+          done
+          node -e "const f=require('fs').readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt','utf8'); if(!f.includes('if (round <= 1 || title.isBlank()) return emptyList()')) process.exit(1)"
+          echo "LAB48 source scope and LAB45 first-round guard verified"
+      - name: Run Cover historic contracts and regression checks
+        run: |
+          node --test cloudflare/music-intelligence/test/turbo-lab45-separated-actions-progressive-rounds.test.mjs cloudflare/music-intelligence/test/turbo-lab45-persistent-rounds.test.mjs cloudflare/music-intelligence/test/turbo-lab46-round-strategy-score100-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs cloudflare/music-intelligence/test/turbo-lab40-work-identity-speed-artwork.test.mjs cloudflare/music-intelligence/test/turbo-lab43-song-identity-refresh.test.mjs cloudflare/music-intelligence/test/turbo-lab48-work-first-recovery-contract.test.mjs
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+      - name: Protobuf
+        uses: ./.github/actions/setup-protobuf
+      - name: Android SDK and LAB48 update family stamp
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-lab48-work-first-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33050"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_CERT_SHA256="9A:2F:67:CF:B3:C1:99:83:68:13:AD:DB:F7:BD:FB:0F:A6:5E:DC:76:5F:FA:CE:4B:6D:F9:49:0B:B0:96:27:49"' uab-project.env
+      - name: Android JVM suite including CoverDeepRecoveryGateTest
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Diagnose and build APK ZIP
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Verify update compatibility, signing and ZIP integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB48.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB48-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33050'"
+          CERT_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 || true)"
+          printf '%s\n' "$CERT_OUTPUT" | grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          CERT="$(printf '%s\n' "$CERT_OUTPUT" | grep -i -m1 'certificate SHA-256 digest:' | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = "9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749"
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+          printf 'APPLICATION_ID=it.verlezza.musiclab.turbo01\nVERSION_CODE=33050\nSIGNING_SHA256=%s\nBASE_SHA=de6343081104409276347f65f943218e9e3f7337\n' "$CERT" > dist/uab/UPDATE_FAMILY.txt
+      - name: Upload verified APK and ZIP
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: MusicLab-Turbo-LAB48-WorkFirst-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB48.apk
+            dist/uab/apk/SHA256SUMS.txt
+            dist/uab/MusicLab-Turbo-LAB48-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/UPDATE_FAMILY.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

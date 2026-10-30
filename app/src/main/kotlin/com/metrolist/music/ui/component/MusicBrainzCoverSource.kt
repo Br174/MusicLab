@@ -37,6 +37,8 @@ internal data class MusicBrainzWorkAnchor(
     val title: String,
     val originalYear: Int?,
     val credits: List<MusicBrainzWorkCredit>,
+    // ISWC identifies a composition, not an individual recording.
+    val iswc: String? = null,
 )
 
 internal data class MusicBrainzLookup(
@@ -85,28 +87,40 @@ internal object MusicBrainzCoverSource {
     private const val MAX_WORK_SEARCH_CANDIDATES = 6
     private const val MAX_DISCOVERED_COVERS = 100
     private const val MAX_BROWSED_RECORDINGS = 300
+    private const val DEEP_VERIFIED_WORK_GOAL = 24
+    private const val DEEP_MAX_ANCHORED_WORKS = 2
     private const val MIN_REQUEST_INTERVAL_MS = 1_100L
     private const val CACHE_TTL_MS = 12L * 60L * 60L * 1000L
     private const val ERROR_CACHE_TTL_MS = 10L * 60L * 1000L
     private const val USER_AGENT = "MusicLab/0.8.9 (https://github.com/Br174/MusicLab)"
 
     private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private val lookupLocks = ConcurrentHashMap<String, Any>()
     private val rateLock = Any()
     private var nextAllowedRequestAtMs = 0L
+    private val requestGate = ThreadLocal<(() -> Unit)?>()
+    private val progressCallback = ThreadLocal<((MusicBrainzLookup) -> Unit)?>()
 
     private data class CacheEntry(
         val createdAt: Long,
         val lookup: MusicBrainzLookup,
     )
 
-    fun lookup(title: String, artist: String, forceRefresh: Boolean = false): MusicBrainzLookup {
+    fun lookup(
+        title: String, artist: String, forceRefresh: Boolean = false,
+        deepRecovery: Boolean = false,
+        deepRound: Int = 1,
+        beforeRequest: () -> Unit = {},
+        onProgress: (MusicBrainzLookup) -> Unit = {},
+    ): MusicBrainzLookup {
         val cleanTitle = title.trim()
         val cleanArtist = artist.trim()
         if (cleanTitle.isBlank()) {
             return MusicBrainzLookup(emptyList(), MusicBrainzStatus.NO_MATCH)
         }
 
-        val key = "${canonical(cleanTitle)}|${canonical(cleanArtist)}"
+        val key = "${canonical(cleanTitle)}|${canonical(cleanArtist)}|${if (deepRecovery) "deep-${deepRound.coerceAtLeast(1)}" else "first"}"
+        return synchronized(lookupLocks.getOrPut(key) { Any() }) {
         val now = System.currentTimeMillis()
         if (!forceRefresh) cache[key]?.let { entry ->
             val ttl = if (
@@ -121,18 +135,30 @@ internal object MusicBrainzCoverSource {
             cache.remove(key)
         }
 
-        val lookup = lookupFresh(cleanTitle, cleanArtist)
-        cache[key] = CacheEntry(now, lookup)
-        return lookup
+        requestGate.set(beforeRequest)
+        progressCallback.set(onProgress)
+        try {
+            val lookup = lookupFresh(cleanTitle, cleanArtist, deepRecovery, deepRound)
+            cache[key] = CacheEntry(now, lookup)
+            lookup
+        } finally {
+            requestGate.remove()
+            progressCallback.remove()
+        }
+        }
     }
 
-    private fun lookupFresh(title: String, artist: String): MusicBrainzLookup {
+    private fun lookupFresh(
+        title: String, artist: String, deepRecovery: Boolean, deepRound: Int,
+    ): MusicBrainzLookup {
         // LAB57: exact quoted Work search is the primary composition anchor.
         val workFirst =
             lookupByWorkTitle(
                 title = title,
                 artist = artist,
                 excludedRecordingIds = emptySet(),
+                deepRecovery = deepRecovery,
+                deepRound = deepRound,
             )
         if (
             workFirst != null &&
@@ -163,7 +189,7 @@ internal object MusicBrainzCoverSource {
 
         for (rawQuery in rawQueries) {
             val searchUrl = "$BASE_URL/recording/?query=${URLEncoder.encode(rawQuery, "UTF-8")}" +
-                "&limit=$MAX_SEARCH_CANDIDATES"
+                "&limit=${if (deepRecovery) 24 else MAX_SEARCH_CANDIDATES}"
             lastUrl = searchUrl
             val searchDocument = fetchXml(searchUrl)
             if (searchDocument == null) {
@@ -177,13 +203,13 @@ internal object MusicBrainzCoverSource {
                     candidates[candidate.id] = candidate
                 }
             }
-            if (candidates.size >= 4) break
+            if (candidates.size >= (if (deepRecovery) 12 else 4)) break
         }
 
         val orderedCandidates =
             candidates.values
                 .sortedByDescending { it.score }
-                .take(MAX_DETAIL_CANDIDATES)
+                .take(if (deepRecovery) 12 else MAX_DETAIL_CANDIDATES)
         val seenWorkIds = mutableSetOf<String>()
 
         for (candidate in orderedCandidates) {
@@ -204,6 +230,8 @@ internal object MusicBrainzCoverSource {
                         wantedTitle = title,
                         wantedArtist = artist,
                         excludedRecordingIds = candidates.keys,
+                        deepRecovery = deepRecovery,
+                        deepRound = deepRound,
                     )
                 if (result == null) {
                     sawNetworkError = true
@@ -230,20 +258,24 @@ internal object MusicBrainzCoverSource {
         title: String,
         artist: String,
         excludedRecordingIds: Set<String>,
+        deepRecovery: Boolean,
+        deepRound: Int,
     ): MusicBrainzLookup? {
         val rawQuery = "work:\"${escapeLucene(title)}\""
         val searchUrl = "$BASE_URL/work/?query=${URLEncoder.encode(rawQuery, "UTF-8")}" +
-            "&limit=$MAX_WORK_SEARCH_CANDIDATES"
+            "&limit=${if (deepRecovery) 12 else MAX_WORK_SEARCH_CANDIDATES}"
         val document = fetchXml(searchUrl)
             ?: return MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR, searchUrl)
 
         val works = parseWorkSearch(document, title)
-            .take(MAX_WORK_SEARCH_CANDIDATES)
+            .take(if (deepRecovery) 12 else MAX_WORK_SEARCH_CANDIDATES)
         if (works.isEmpty()) {
             return MusicBrainzLookup(emptyList(), MusicBrainzStatus.NO_MATCH, searchUrl)
         }
 
         var sawNetworkError = false
+        var bestAnchoredWork: MusicBrainzLookup? = null
+        var validatedWorks = 0
         for (work in works) {
             val result = browseValidatedWork(
                 workId = work.id,
@@ -251,13 +283,28 @@ internal object MusicBrainzCoverSource {
                 wantedTitle = title,
                 wantedArtist = artist,
                 excludedRecordingIds = excludedRecordingIds,
+                deepRecovery = deepRecovery,
+                deepRound = deepRound,
             )
             if (result == null) {
                 sawNetworkError = true
                 continue
             }
-            if (result.work != null) return result
+            // A matching title alone is never a cover. Every considered work
+            // must independently contain the selected performer's recording.
+            if (result.work != null) {
+                if (!deepRecovery) return result
+                validatedWorks++
+                if (bestAnchoredWork == null ||
+                    result.covers.size > bestAnchoredWork.covers.size
+                ) bestAnchoredWork = result
+                // LAB51: return artist-anchored documentary results promptly.
+                if (bestAnchoredWork.covers.size >= DEEP_VERIFIED_WORK_GOAL ||
+                    validatedWorks >= DEEP_MAX_ANCHORED_WORKS
+                ) break
+            }
         }
+        bestAnchoredWork?.let { return it }
 
         return MusicBrainzLookup(
             emptyList(),
@@ -273,12 +320,15 @@ internal object MusicBrainzCoverSource {
         wantedTitle: String,
         wantedArtist: String,
         excludedRecordingIds: Set<String>,
+        deepRecovery: Boolean,
+        deepRound: Int,
     ): MusicBrainzLookup? {
         val allRecordings = mutableListOf<MusicBrainzCover>()
         var offset = 0
         var lastBrowseUrl: String? = null
 
-        while (offset < MAX_BROWSED_RECORDINGS) {
+        val browseLimit = if (deepRecovery) 700 else MAX_BROWSED_RECORDINGS
+        while (offset < browseLimit) {
             val browseUrl =
                 "$BASE_URL/recording?work=${URLEncoder.encode(workId, "UTF-8")}" +
                     "&limit=100&offset=$offset&inc=artist-credits"
@@ -292,6 +342,14 @@ internal object MusicBrainzCoverSource {
                     workId = workId,
                 )
             allRecordings += page
+            if (workMatchesOriginal(allRecordings, wantedTitle, wantedArtist)) {
+                val original = allRecordings.filter { isOriginalRecordingLike(it, wantedTitle, wantedArtist) }
+                progressCallback.get()?.invoke(MusicBrainzLookup(
+                    covers = allRecordings.filterNot { isOriginalRecordingLike(it, wantedTitle, wantedArtist) },
+                    status = MusicBrainzStatus.OK, sourceUrl = browseUrl, originalVersions = original,
+                    work = MusicBrainzWorkAnchor(workId, workTitle, null, emptyList()),
+                ))
+            }
             if (rawPageSize < 100) break
             offset += 100
         }
@@ -299,7 +357,7 @@ internal object MusicBrainzCoverSource {
         val distinctRecordings =
             allRecordings
                 .distinctBy { it.recordingId }
-                .take(MAX_BROWSED_RECORDINGS)
+                .take(browseLimit)
 
         if (!workMatchesOriginal(distinctRecordings, wantedTitle, wantedArtist)) {
             return MusicBrainzLookup(
@@ -315,14 +373,19 @@ internal object MusicBrainzCoverSource {
                 .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}|${it.recordingId}" }
 
         val originalYear = originalVersions.mapNotNull { it.year }.minOrNull()
-        val workCredits = loadWorkCredits(workId)
+        val workEvidence = loadWorkEvidence(workId)
+        val workCredits = workEvidence.first
 
         val covers =
             distinctRecordings
                 .filterNot { it.recordingId in excludedRecordingIds }
                 .filterNot { isOriginalRecordingLike(it, wantedTitle, wantedArtist) }
-                .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
-                .take(MAX_DISCOVERED_COVERS)
+                .distinctBy {
+                    if (com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") it.recordingId
+                    else "${canonical(it.title)}|${canonical(it.artist)}"
+                }
+                .let { selectCoverWindow(it, deepRecovery, deepRound,
+                    preserveAll = com.metrolist.music.BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") }
 
         return MusicBrainzLookup(
             covers = covers,
@@ -335,15 +398,31 @@ internal object MusicBrainzCoverSource {
                     title = workTitle.ifBlank { wantedTitle },
                     originalYear = originalYear,
                     credits = workCredits,
+                    iswc = workEvidence.second,
                 ),
         )
     }
 
-    private fun loadWorkCredits(workId: String): List<MusicBrainzWorkCredit> {
+    // Rotate only artist-anchored work-performance recordings.
+    internal fun selectCoverWindow(
+        recordings: List<MusicBrainzCover>,
+        deepRecovery: Boolean,
+        deepRound: Int,
+        preserveAll: Boolean = false,
+    ): List<MusicBrainzCover> {
+        if (preserveAll) return recordings
+        if (!deepRecovery) return recordings.take(MAX_DISCOVERED_COVERS)
+        val offset = (deepRound - 1).coerceIn(0, 12) * 35
+        return recordings.drop(offset).take(250)
+    }
+
+    private fun loadWorkEvidence(workId: String): Pair<List<MusicBrainzWorkCredit>, String?> {
         val detailUrl =
             "$BASE_URL/work/${URLEncoder.encode(workId, "UTF-8")}?inc=artist-rels"
-        val document = fetchXml(detailUrl) ?: return emptyList()
-        return parseWorkCredits(document)
+        val document = fetchXml(detailUrl) ?: return emptyList<MusicBrainzWorkCredit>() to null
+        val iswc = document.selectFirst("iswc-list > iswc")
+            ?.text()?.trim()?.takeIf { it.matches(Regex("T-[0-9.-]{8,20}")) }
+        return parseWorkCredits(document) to iswc
     }
 
     internal fun parseWorkCredits(document: Document): List<MusicBrainzWorkCredit> =
@@ -500,6 +579,7 @@ internal object MusicBrainzCoverSource {
             .distinctBy { "${canonical(it.title)}|${canonical(it.artist)}" }
 
     private fun fetchXml(url: String): Document? {
+        requestGate.get()?.invoke()
         awaitRequestSlot()
         return runCatching {
             val response = Jsoup.connect(url)
@@ -561,7 +641,7 @@ internal object MusicBrainzCoverSource {
         Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
             .lowercase()
-            .replace(Regex("[^a-z0-9]+"), " ")
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             .trim()
             .replace(Regex("\\s+"), " ")
 }

@@ -1,0 +1,131 @@
+name: MusicLab Turbo LAB78 Staged25 APK ZIP
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-lab78-staged25-20261027
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: musiclab-lab78-staged25-v1
+  cancel-in-progress: true
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Guard delivered LAB77 result algorithms and player
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=cf8ed8fd9dab4a59ab1c7f22795f3962369b7fda
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --check "$BASE" HEAD
+          python3 - <<'PYGUARD'
+          from pathlib import Path
+          import subprocess
+          base='cf8ed8fd9dab4a59ab1c7f22795f3962369b7fda'
+          allowed={'.motorlab/LAB78_RESUME_READY.txt', 'app/src/main/res/values/metrolist_strings.xml', 'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PresentationTest.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt', 'tools/universal-apk-builder/prepare-turbo-lab78-staged25-env.py', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundPresentation.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverPreparationPolicy.kt', 'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PreparationPolicyTest.kt', 'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78SourceProgressTest.kt', '.github/workflows/musiclab-turbo-lab78-staged25-apk.yml', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverPriorityOrder.kt', 'behaviors/musiclab-cover.json'}
+          changed=set(subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines())
+          assert changed <= allowed, changed-allowed
+          protected=['app/build.gradle.kts', 'app/src/main/AndroidManifest.xml', 'app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt', 'app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/MusicBrainzCoverSource.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsVersionSource.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGate.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverLabTurboRoundAdmission.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverLabTurboTwinGuard.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/TitleMeaningResolver.kt', 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundStorage.kt']
+          for path in protected:
+              assert Path(path).read_bytes()==subprocess.check_output(['git','show',base+':'+path]),path
+          assert not subprocess.check_output(['git','diff','--name-only',base,'HEAD','--','cloudflare/music-intelligence/src/'],text=True).strip()
+          path='app/src/main/kotlin/com/metrolist/music/ui/component/CoverPriorityOrder.kt'
+          current=Path(path).read_text().replace('        val remainingOrdinary: Int get() = pages.values.count { it.lead == null }\n','')
+          current=current.replace('    fun mergeEvidence(first: CoverSourceCandidate, second: CoverSourceCandidate): CoverSourceCandidate = merge(first, second)\n\n','')
+          assert current==subprocess.check_output(['git','show',base+':'+path],text=True),'Native ranking/queue behavior changed'
+          print('LAB77 source, identity, admission, ranking, query and playback algorithms are unchanged')
+          PYGUARD
+      - name: Native audio and recording identity contracts
+        run: node --test cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs
+      - name: Canonical behavior consistency
+        run: |
+          python3 - <<'PYGUARD'
+          import json
+          memory=json.load(open('behaviors/musiclab-cover.json'))
+          rules={r['id']:r for r in memory['rules']}
+          assert len(rules)==len(memory['rules'])
+          for disposition in memory['conflictDispositions']:
+              assert rules[disposition['oldRule']]['status']=='retired'
+              assert rules[disposition['replacementRule']]['status']=='active'
+          assert rules['musiclab.cover.priority-and-exceptions.r2']['status']=='active'
+          assert rules['musiclab.cover.staged25.presentation.r3']['status']=='active'
+          PYGUARD
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Prepare same-family Android 33080
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-lab78-staged25-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33080"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+      - name: Android JVM regressions full
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source uab-project.env
+          set +a
+          ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Build signed LAB78 APK ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Verify Android package, signing certificate and ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB78.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB78-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          python3 - <<'PY'
+          import hashlib, zipfile
+          from pathlib import Path
+          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB78.apk')
+          archive=Path('dist/uab/MusicLab-Turbo-LAB78-APK.zip')
+          digest=lambda data: hashlib.sha256(data).hexdigest()
+          with zipfile.ZipFile(archive) as z:
+              names=[n for n in z.namelist() if n.lower().endswith('.apk')]
+              assert len(names)==1, names
+              assert digest(z.read(names[0]))==digest(apk.read_bytes()), 'ZIP APK differs from signed standalone APK'
+          Path('dist/uab/SHA256SUMS.txt').write_text(''.join(digest(p.read_bytes())+'  '+p.name+'\n' for p in (apk,archive)))
+          PY
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33080'"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
+          CERT="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = '9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749'
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+      - name: Publish installable APK and ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB78-Staged25-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB78.apk
+            dist/uab/MusicLab-Turbo-LAB78-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

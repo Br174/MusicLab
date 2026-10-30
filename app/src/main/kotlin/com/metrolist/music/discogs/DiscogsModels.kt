@@ -56,6 +56,7 @@ internal data class DiscogsCredit(
     val name: String,
     val role: String,
     val tracks: String? = null,
+    val aliases: List<String> = emptyList(),
 )
 
 internal data class DiscogsTrack(

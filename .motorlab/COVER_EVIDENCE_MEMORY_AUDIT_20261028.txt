@@ -1,0 +1,69 @@
+MUSICLAB COVER — AGGIORNAMENTO MEMORIA E AUDIT DELLE DISPOSIZIONI
+Data: 28 ottobre 2026. Autorità: richiesta esplicita di Bruno di memorizzare le nuove disposizioni, elencare mancanze/conflitti e attendere la sua decisione prima del codice.
+Base esaminata: 1535d9f013c001ed91636e2544b0385dac165e60; app consegnata R7, sorgente 6540b3d86937959df511c0d3fe24e26c3366ce40.
+STATO: SOLO MEMORIA. NESSUNA MODIFICA AD APP, TEST APPLICATIVI, PLAYER, WORKFLOW, APK, MAIN/MADRE/PRODUZIONE O LAST_GOOD.
+
+A. RITIRO E AUTORITÀ
+Ignorare il messaggio ritirato che chiedeva, per la sesta, titolo letteralmente identico e divieto esplicito di YouTube Music. Quel messaggio non aggiunge nuove restrizioni. Resta il riepilogo completo precedente, con titolo secondo identità/normalizzazione/tag di versione già approvati, percorso diretto nei video YouTube autonomo e descrittori facoltativi.
+L'espressione finale dettata "prima tornata tre titoli, due evidenze comprese il titolo" è ricondotta alla precedente precisazione esplicita e al riepilogo richiamato: prima TRE evidenze totali (titolo + DUE altre); tornate 2,3,4,5 DUE totali (titolo + UNA altra); sesta UNA (titolo). Non significa tre titoli né tre evidenze aggiuntive oltre al titolo.
+
+B. NUOVO, ORA MEMORIZZATO
+B1. Conteggi espliciti 3/2/2/2/2/1 con il titolo incluso una sola volta.
+B2. L'assegnazione alle tornate è ordinamento: prove insufficienti comportano rinvio, non eliminazione dall'intera ricerca. Non basta ordinare dentro lo stesso pacchetto.
+B3. I tre cicli 10+20+20 di una tornata mantengono IDENTICI requisiti. Non abbassare il numero di prove nel secondo/terzo ciclo.
+B4. Il solo titolo come query/modalità autonoma è riservato alla sesta; non anticiparlo nella prima né nella quarta/quinta.
+B5. La sesta usa il percorso diretto nei video YouTube; non richiede nuove ricerche documentali e non dipende dalla loro conclusione. Titolo senza aggiunte sempre autonomo, descrittori facoltativi; mantenere paginazione e risultati distinti.
+B6. Una versione forte ma lenta resta in background e può comparire in una tornata successiva quando pronta, senza perdere dati o prove. Le eccedenze restano recuperabili.
+B7. Album/pubblicazione/notorietà sono preferenze compatibili; non sostituiscono prove dell'identità dell'opera. La percentuale non sostituisce il conteggio reale.
+
+C. CONFLITTI DEL REGISTRO — RISOLTI SOLO NELLA SPECIFICA, NON NEL CODICE
+C1. Storica R2 "Identity evidence orders work, never vetoes weaker candidates" non deve autorizzare pubblicazione precoce. Significa conservazione globale, mentre la tornata di comparsa segue le soglie approvate.
+C2. Storici testi "quarta e successive solo titolo" sono superati: ultima soglia vigente solo nella SESTA.
+C3. Il divieto di nuovi limiti arbitrari resta valido per esclusioni globali. Non annulla l'assegnazione 3/2/2/2/2/1. La preferenza per dischi è distinta dalle prove per riconoscere l'opera.
+C4. La regola attiva delle sei categorie resta ATTIVA: non ritirarla per aggiornare un solo aspetto. Aggiunta regola specifica sulle evidenze con prevalenza per quel solo aspetto.
+C5. La certificazione CI della R7 è storica per le modifiche R7, non prova che questa integrazione sia implementata. Nuovo stato esplicito MEMORY_ONLY_PENDING_DECISIONS_AND_IMPLEMENTATION.
+
+D. CONFLITTI APPLICATIVI ANCORA DA CORREGGERE — SOLO DIAGNOSI
+D1. CoverLabTurboRoundAdmission.evaluate applica le prove al punteggio ma ammette comunque il candidato non vietato; non assegna la tornata tramite 3/2/2/2/2/1.
+D2. DiscogsDirectVersionBrowser offre workTitle senza artista nella corsia musicale già in prima; CoverRoundSearchPlan offre il titolo senza aggiunte anche nei rami quarta/quinta.
+D3. La selezione del pacchetto pronto ordina i candidati ma non impone una destinazione minima per evidenze. Un candidato pronto ma debole può ancora riempire la prima.
+D4. Nella sesta restano attivi documenti/Discogs/archivio, e sourcesComplete è ancora parte del searchComplete: il video diretto rimane legato allo stato di servizi documentali.
+D5. Test R2 weakCandidateEntersFirstRoundWithoutAlbumOrOfficialWords e unresolvedOriginalDoesNotBlockTheCandidate accettano deboli già in prima; non dimostrano il nuovo comportamento. I futuri test devono distinguere conservazione da pubblicazione e controllare l'assegnazione, senza cancellare candidati.
+D6. La verifica Canonical behavior consistency controlla stati/ID/sei tornate/pacchetti, ma non collega queste soglie al comportamento runtime. Servono future regressioni semantiche anche su cache, prefetch, ripristino e risultati rinviati.
+
+E. GIÀ PRESENTE E DA CONSERVARE
+Sei gruppi: 1 pubblicate/originali distinti/accreditate/famose/straniere; 2 TV/talent/festival/concerti/videoclip/remix/mashup/AI; 3 amatoriali/indipendenti/cover band/gruppi; 4 strumenti/generi/reinterpretazioni; 5 mista/restanti/recuperi; 6 titolo autonomo.
+COVER.INFO prioritario dalla prima, relazione dell'opera già verificata senza nuove prove ridondanti; adattamenti stranieri documentati con titolo diverso ammessi. La miniatura deve essere del video realmente corrispondente.
+Preferenza per incisioni/pubblicazioni in tutte le tornate, senza renderle obbligatorie. Max cinque versioni ORIGINALI realmente distinte nell'intera ricerca, non cinque per tornata. Doppioni confermati esclusi, possibili gemelli conservati per verifica. Esclusioni MIDI/karaoke/KAR e brani dimostrati diversi.
+Pacchetti atomici10+20+20, residuo unico e verde quando terminata disponibilità, eccedenze/cursori conservati, nessun gocciolamento. Inattività5–7s non è tempo standard né prova di assenza definitiva. Obiettivi di velocità da verificare fisicamente, grafica e player prioritari.
+Versione in ascolto conta solo con vero video/miniatura trovati. Rosso soltanto su zero finale reale, errori/timeout retry. Schede con titolo/interprete completi, anno documentato della registrazione e mai upload, fonti effettive e ascolto, Studio non presunto.
+
+F. PUNTI PRECEDENTEMENTE APERTI E CHIARIMENTI SUCCESSIVI
+F1. CHIARITO SUCCESSIVAMENTE: riscontri di qualsiasi natura pertinente e documentabile, senza combinazione fissa, elenco chiuso o tre siti diversi. Titolo una volta; duplicazioni del medesimo fatto non si moltiplicano. Dettagli nella sezione 18 della specifica.
+F2. CHIARITO SUCCESSIVAMENTE: usare i fatti già attestati da COVER.INFO senza richiedere nuove conferme né attribuire un numero arbitrario al solo nome della fonte. La relazione dell'opera già verificata rimane riconosciuta.
+F3. Il solo titolo nella sesta può lasciare incerta l'identità dell'opera. Il riepilogo accettato distingue risultati non ancora verificati da cover confermate; non revoca l'esclusione delle opere dimostrate diverse.
+F4. Categorie e soglie sono entrambe vigenti. Non introdurre di propria iniziativa una nuova esclusività per genere: una versione forte arrivata tardi resta recuperabile, senza sovrascrivere le categorie e le preferenze già concordate.
+
+PROSSIMO PASSO: utilizzare la specifica consolidata per la successiva fase di modifica dell'app. Questa operazione registra soltanto le disposizioni approvate e non avvia implementazione, test applicativi o nuovo APK.
+
+
+G. INTEGRAZIONE SUCCESSIVA APPROVATA E ORA MEMORIZZATA
+Salvati soltanto i dati nuovi: riscontri flessibili; quando si parte da una cover di originale non noto, tentativo sistematico di identificazione assistito dall'IA; verifica documentata della proposta; UN riscontro affidabile sufficiente per confermare quel collegamento; ricerca inversa eventuale e non obbligatoria; continuazione non bloccante senza originale se non trovato. Le soglie delle tornate rimangono quelle già salvate.
+La proposta IA non è prova. La sola omonimia non è conferma dell'opera. L'originale confermato migliora la ricerca; la sua assenza non impedisce il funzionamento con i dati disponibili.
+
+H. ESITO DEL CONTROLLO CONFLITTI DI QUESTA INTEGRAZIONE
+H1. Qualsiasi obbligo di trovare l'originale prima dei risultati è superato: tentare sempre nel caso pertinente, riuscire non è obbligatorio.
+H2. Qualsiasi obbligo di tre prove per l'identificazione dell'originale è superato: può bastare un solo riscontro affidabile. È un controllo distinto dall'assegnazione alle tornate.
+H3. Qualsiasi doppia verifica obbligatoria è superata: la ricerca inversa è un rinforzo possibile, non una condizione aggiuntiva.
+H4. La precedente voce aperta sul catalogo rigido dei riscontri è sostituita dalla scelta di natura libera, pertinente e documentabile. La stessa informazione non conta più volte; COVER.INFO mantiene la verifica già riconosciuta.
+H5. Nessuna regola compatibile già salvata viene ritirata o duplicata; le nuove disposizioni hanno precedenza solo nei propri aspetti. Nessuna conferma di relazioni musicali basata sull'esempio verbale Morgan/De André.
+H6. I contrasti APPLICATIVI della sezione D restano da correggere nel prossimo intervento; non sono dichiarati risolti da questa registrazione.
+STATO: SPECIFICA APPROVATA E SALVATA, APP INVARIATA. Nessun nuovo APK o promozione LAST_GOOD.
+
+
+I. ULTIMA PRECISAZIONE — INTERPRETE DELLA PRIMA PUBBLICAZIONE E METODO MULTIFONTE
+Bruno parte da una registrazione pubblicata disponibile online e cerca l'interprete della PRIMA VERSIONE PUBBLICATA della canzone. Autore/compositore aiutano a riconoscere l'opera, non identificano automaticamente il primo interprete.
+COVER.INFO utile ma non esclusivo: usare alternative documentali e cataloghi disponibili quando manca la relazione. Prospetto salvato in .motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt; MusicBrainz per opere e registrazioni, Discogs per pubblicazioni/crediti, altre fonti pertinenti e IA come supporto verificabile.
+RISOLUZIONI: nessuna attesa obbligatoria COVER.INFO; nessuna prima pubblicazione inventata dalla data più vecchia trovata; nessun bisogno obbligatorio dell'IA se il collegamento documentato è disponibile. Conferma possibile da un riscontro affidabile, verifica inversa eventuale, prosecuzione senza originale confermato.
+Compatibilità sesta: nessun riavvio documentale per entrare nella sesta, nessun legame bloccante fra arricchimento iniziale e corsia video autonoma.
+Nessuna modifica ai conteggi e alle categorie già salvati. I conflitti applicativi della sezione D restano NON CORRETTI; questa registrazione e la proposta operativa non certificano un comportamento runtime.

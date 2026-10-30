@@ -1,0 +1,24 @@
+MUSICLAB TURBO LAB77 R2 — user-authorized implementation checkpoint
+Operation: musiclab-priority-r2-lab77-20261027
+Base and source-only safety recipe: a2b8189cd5747d67eabfdf68443e127152913189
+Branch: lab/musiclab-turbo-lab77-priority-r2-20261027
+Approved spec: MusicLab_Progetto_Cover_Corretto_5_Versioni_20261027.txt
+Authority: latest user R2 overrides older admission/title/per-type caps.
+Scope: one native ranked queue; retained documentary/video cursors; exclude MIDI karaoke KAR; maximum FIVE total distinct original performances, including studio/duet/group; confirmed duplicate skipped, uncertain second twin last.
+Protected byte identity: app/build.gradle.kts, AndroidManifest.xml, MusicService.kt, InnerTubeXPlayer.kt and cloud production sources.
+Publication: bounded 50-card blocks, no destructive result/lead cutoffs; cumulative immutable video thumbnails and native playback bindings.
+Evidence: percentages index available work/performer/recording evidence, separate from documented chart/collector notoriety. No invented fame/audio quality.
+Retired stale tests: old LAB66-76 text-pattern assertions imposing strict identity rejection, backing/tutorial bans, 1 studio+2 live+2 remix and round caps. Replaced by actual Android JVM R2 behavior tests. Audio and recording contracts remain required.
+Build: .github/workflows/musiclab-turbo-lab77-priority-r2-apk.yml; native complete JVM suite then ONE UAB update APK+ZIP; versionCode33079, same package/signer. Safety rollback is source recipe, no second safety APK.
+Pending: final fresh whole-branch review, native Android CI, actual package/certificate/ZIP validation, physical phone verification.
+Never promote main/MADRE/production or LAST_GOOD from this LAB build without user phone confirmation.
+
+Review and evidence update:
+- Independent reviewer supplied five Important findings, then its platform usage limit interrupted the final report. Full independent review is NOT claimed; author supplementary review and targeted fixes complete before final CI.
+- Native RED run40542063884 compiled entire Turbo app;444 tests,443 passed; sole failing test reproduced selected MusicBrainz singer falsely labeled original. APK build correctly skipped.
+- Core local R2 suite47/47 and protected audio/recording contracts11/11 pass after RED->GREEN fixes: shared4.4s preparation window; unresolved lead retention; full group credits; recursive documentary relations; late evidence updates; source recording retention; stale background order rejection.
+- Native ranking runs on Default; source callbacks, shared queue mutations and player checks remain Main.
+- All already discovered MusicBrainz recording rows retained in Turbo; native later-round deep lookup preserved. Individual catalogue URLs retain distinct documentary IDs instead of merging by singer/title.
+- Rulings: partial independent review is supplemented by author review plus full native regression gate; live phone timing/fame coverage cannot be certified by unit tests. No production promotion.
+- Native run40544927481 stopped in compilation on a source adapter scope reference; corrected explicitly, no APK created. Final full native gate rerun required.
+- Restored legacy flags do not identify the original; only explicit R2 original context imposes five cap. Regression observed6->5 wrongful loss, corrected and48/48 local tests pass. Cold restore initializes continuation without clearing published history.

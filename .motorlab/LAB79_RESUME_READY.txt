@@ -1,0 +1,9 @@
+MusicLab Turbo LAB79 preparation progress — source checkpoint, Android gate pending.
+Operation musiclab-preparation-lab79-20261028; Bruno approved only the diagnosed preparation fix, no unrelated search/result/layout change.
+Immutable delivered LAB78 baseline b30334651ec0a304f9291a3fa0ba3770096299a2, tree3097bf7f2cdedf083311efa0a1890986c945fb2d; local equivalent e33c2947b526466fba3efc4d2e9cd161b85f331a.
+Replace Turbo's shared4.4-second lookup window with individual request budgets inside the existing20-second pass. Maintain existing per-request maxima and audio/scroll gates.
+Failed sources cool independently10/20/40/60seconds and resume automatically; cache successful lanes and preserve candidates/pages/continuations. Failed or cooling is not exhausted; green still requires50 shown or verified exhaustion with no hidden cards.
+Max25 per orange reveal, same round until50. A verified partial group becomes available after12seconds from the first prepared row, without waiting for all sources to recover. A lightweight lifecycle-owned status updater publishes the exact count and tells source wait from audio pause.
+SourceDiscovery changes only optional cooldown routing; all queries, parsers, filters, scores and relation rules are byte-identical after stripping those exact wrappers. Entire ranking/identity/admission/query-plan/player/manual/layout code remains protected against the delivered baseline.
+Isolated LAB79 branch and worktree; same package it.verlezza.musiclab.turbo01 and pinned certificate. UAB version33081 permits update in place. No main/MADRE/production/LAST_GOOD, dependency/schema/compiler change.
+Actual legacy regression RED:70 tests,2 expected assertion failures (3800ms became0 after4.5s;8 ready cards remained0 after12.1s). Existing native Android full suite and signed APK/ZIP gate still required before delivery. Physical phone throughput/audio/scroll remains unverified.

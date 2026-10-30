@@ -297,12 +297,12 @@ private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
 // Player Veloce 3: shave the remaining tap-to-audio delay without weakening
 // rebuffer protection. 900ms is the new startup target; recovery remains 4s.
 private const val PLAYBACK_START_BUFFER_MS = 900
-private const val PLAYBACK_REBUFFER_MS = 4_000
+private const val PLAYBACK_REBUFFER_MS = 6_000
 
 private const val SMART_PRELOAD_TRACKS = 1
 private const val SMART_PRELOAD_PREFIX_BYTES = 384L * 1024L
-private const val SMART_PRELOAD_STABLE_BUFFER_MS = 12_000L
-private const val SMART_PRELOAD_RESUME_BUFFER_MS = 8_000L
+private const val SMART_PRELOAD_STABLE_BUFFER_MS = 30_000L
+private const val SMART_PRELOAD_RESUME_BUFFER_MS = 26_000L
 private const val SMART_PRELOAD_WAIT_MS = 18_000L
 
 private const val PLAYBACK_PRIORITY_BURST_MIN_MS = 2_000L
@@ -4023,7 +4023,7 @@ class MusicService :
         }
 
         incrementRetryCount(mediaId)
-
+        val failedIndex = player.currentMediaItemIndex
         retryJob?.cancel()
         retryJob =
             scope.launch {
@@ -4031,9 +4031,14 @@ class MusicService :
 
                 delay(RETRY_DELAY_MS)
 
-                // Force re-prepare from position 0 to avoid range issues
-                val currentIndex = player.currentMediaItemIndex
-                player.seekTo(currentIndex, 0)
+                // Never reset the next song because an older source failed.
+                if (player.currentMediaItem?.mediaId != mediaId ||
+                    player.currentMediaItemIndex != failedIndex ||
+                    !player.playWhenReady ||
+                    player.playbackState == Player.STATE_READY ||
+                    failedIndex == C.INDEX_UNSET
+                ) return@launch
+                player.seekTo(failedIndex, 0L)
                 player.prepare()
 
                 Timber.tag(TAG).d("Retrying playback for $mediaId after 416 error (from position 0)")
@@ -4051,7 +4056,7 @@ class MusicService :
         }
 
         incrementRetryCount(mediaId)
-
+        val failedIndex = player.currentMediaItemIndex
         retryJob?.cancel()
         retryJob =
             scope.launch {
@@ -4062,9 +4067,14 @@ class MusicService :
                 // Additional delay for page reload errors as they may be rate-limited
                 delay(RETRY_DELAY_MS * 2)
 
+                if (player.currentMediaItem?.mediaId != mediaId ||
+                    player.currentMediaItemIndex != failedIndex ||
+                    !player.playWhenReady ||
+                    player.playbackState == Player.STATE_READY ||
+                    failedIndex == C.INDEX_UNSET
+                ) return@launch
                 val currentPosition = player.currentPosition
-                val currentIndex = player.currentMediaItemIndex
-                player.seekTo(currentIndex, currentPosition)
+                player.seekTo(failedIndex, currentPosition.coerceAtLeast(0L))
                 player.prepare()
 
                 Timber.tag(TAG).d("Retrying playback for $mediaId after page reload error")
@@ -4174,9 +4184,15 @@ class MusicService :
 
         incrementRetryCount(mediaId)
 
+        val failedIndex = player.currentMediaItemIndex
         retryJob?.cancel()
         retryJob =
             scope.launch {
+                if (player.currentMediaItem?.mediaId != mediaId ||
+                    player.currentMediaItemIndex != failedIndex ||
+                    !player.playWhenReady ||
+                    player.playbackState == Player.STATE_READY
+                ) return@launch
                 val currentPosition = player.currentPosition
                 val currentIndex = player.currentMediaItemIndex
                 if (currentIndex == C.INDEX_UNSET) {
@@ -4218,20 +4234,28 @@ class MusicService :
         }
 
         incrementRetryCount(mediaId)
-
+        val failedIndex = player.currentMediaItemIndex
+        val shouldContinue = player.playWhenReady
+        val retryPosition = player.currentPosition
         retryJob?.cancel()
         retryJob =
             scope.launch {
                 performAggressiveCacheClear(mediaId)
                 delay(RETRY_DELAY_MS)
 
-                val currentPosition = player.currentPosition
-                val currentIndex = player.currentMediaItemIndex
-                if (currentIndex != C.INDEX_UNSET) {
-                    player.seekTo(currentIndex, currentPosition)
+                // A delayed failed-stream retry cannot prepare a newer song,
+                // or turn an intentional user pause back into playback.
+                if (player.currentMediaItem?.mediaId != mediaId ||
+                    player.currentMediaItemIndex != failedIndex ||
+                    player.playWhenReady != shouldContinue ||
+                    !shouldContinue || player.playbackState == Player.STATE_READY ||
+                    failedIndex == C.INDEX_UNSET
+                ) {
+                    Timber.tag("MusicLabLAB49Audio").d("Stale generic IO retry ignored")
+                    return@launch
                 }
+                player.seekTo(failedIndex, retryPosition.coerceAtLeast(0L))
                 player.prepare()
-
                 Timber.tag(TAG).d("Retrying playback for $mediaId after generic IO error")
             }
     }
@@ -4290,19 +4314,26 @@ class MusicService :
      * This path never chains a full-song background download.
      */
     private fun scheduleSmartPlaybackPreload() {
-        if (playbackPriorityBurstActive) return
+        if (playbackPriorityBurstActive || coverSectionActive) return
         if (!::player.isInitialized || !player.playWhenReady) return
+        if (player.playbackState != Player.STATE_READY ||
+            player.totalBufferedDuration < SMART_PRELOAD_STABLE_BUFFER_MS
+        ) return
         val anchorId = player.currentMediaItem?.mediaId ?: return
         if (smartPreloadAnchorMediaId == anchorId) return
 
         smartPreloadJob?.cancel()
         smartPreloadAnchorMediaId = anchorId
 
-        smartPreloadJob = scope.launch(Dispatchers.IO + SilentHandler) {
+        // ExoPlayer state/timeline must be read on its application looper.
+        // Only the actual network/cache prewarm is dispatched to IO.
+        smartPreloadJob = scope.launch(Dispatchers.Main.immediate + SilentHandler) {
             val deadline = System.currentTimeMillis() + SMART_PRELOAD_WAIT_MS
 
             while (isActive) {
-                if (player.currentMediaItem?.mediaId != anchorId || !player.playWhenReady) return@launch
+                if (player.currentMediaItem?.mediaId != anchorId ||
+                    !player.playWhenReady || coverSectionActive
+                ) return@launch
                 val stable =
                     player.playbackState == Player.STATE_READY &&
                         player.totalBufferedDuration >= SMART_PRELOAD_STABLE_BUFFER_MS
@@ -4352,7 +4383,9 @@ class MusicService :
                 if (!isActive || player.currentMediaItem?.mediaId != anchorId) return@launch
 
                 runCatching {
-                    prewarmMediaItemPrefix(mediaItem, anchorId)
+                    withContext(Dispatchers.IO) {
+                        prewarmMediaItemPrefix(mediaItem, anchorId)
+                    }
                 }.onFailure { error ->
                     if (error is CancellationException) throw error
                     Timber.tag(PRECACHE_TAG).d(error, "[SMART_PRELOAD] Non-fatal prewarm miss for ${mediaItem.mediaId}")
@@ -4362,6 +4395,15 @@ class MusicService :
         }
     }
 
+    private suspend fun playbackHasHealthyPreloadReserve(anchorId: String): Boolean =
+        withContext(Dispatchers.Main.immediate) {
+            ::player.isInitialized && player.playWhenReady &&
+                player.currentMediaItem?.mediaId == anchorId &&
+                player.playbackState == Player.STATE_READY &&
+                player.totalBufferedDuration >= SMART_PRELOAD_RESUME_BUFFER_MS &&
+                !playbackPriorityBurstActive && !coverSectionActive
+        }
+
     private suspend fun prewarmMediaItemPrefix(
         mediaItem: MediaItem,
         anchorId: String,
@@ -4370,7 +4412,7 @@ class MusicService :
             mediaItem.mediaMetadata.extras?.getString("mediaId")
                 ?: mediaItem.mediaId
         if (mediaId.isBlank() || mediaId.startsWith("local:")) return
-        if (player.currentMediaItem?.mediaId != anchorId) return
+        if (!playbackHasHealthyPreloadReserve(anchorId)) return
 
         val existingFormat = database.format(mediaId).first()
         val alreadyCachedLength =
@@ -4389,13 +4431,7 @@ class MusicService :
         var contentLength = existingFormat?.contentLength ?: C.LENGTH_UNSET.toLong()
 
         if (cachedStream == null) {
-            if (
-                player.currentMediaItem?.mediaId != anchorId ||
-                player.playbackState != Player.STATE_READY ||
-                player.totalBufferedDuration < SMART_PRELOAD_RESUME_BUFFER_MS
-            ) {
-                return
-            }
+            if (!playbackHasHealthyPreloadReserve(anchorId)) return
 
             val song = database.songEntity(mediaId)
             val cacheGeneration = songUrlCache.generation(mediaId)
@@ -4444,13 +4480,7 @@ class MusicService :
             return
         }
 
-        if (
-            player.currentMediaItem?.mediaId != anchorId ||
-            player.playbackState != Player.STATE_READY ||
-            player.totalBufferedDuration < SMART_PRELOAD_RESUME_BUFFER_MS
-        ) {
-            return
-        }
+        if (!playbackHasHealthyPreloadReserve(anchorId)) return
 
         val httpFactory =
             OkHttpDataSource.Factory(
@@ -4484,7 +4514,9 @@ class MusicService :
                 .setLength(prefixLength)
                 .build()
 
+        if (!playbackHasHealthyPreloadReserve(anchorId)) return
         val writer = CacheWriter(cacheDataSource, dataSpec, null, null)
+        // Media3 BUFFERING cancels smartPreloadJob and therefore this writer.
         coroutineContext[Job]?.invokeOnCompletion { writer.cancel() }
         writer.cache()
         Timber.tag(PRECACHE_TAG).d("[SMART_PRELOAD] Warmed ${prefixLength / 1024}KB: $mediaId")

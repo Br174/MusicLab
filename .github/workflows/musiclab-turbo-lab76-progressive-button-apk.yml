@@ -1,0 +1,94 @@
+name: MusicLab Turbo LAB76 Progressive Manual Search APK ZIP
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-lab76-progressive-button-search-20261027
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: musiclab-lab76-progressive-button-v1
+  cancel-in-progress: true
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Guard LAB75 player and production; only approved progressive CoverLab changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=38b5dd5daf81409c8ac5e6bb1ae25c297fc5cf7c
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --check "$BASE" HEAD
+          git diff --name-only "$BASE" HEAD > /tmp/changed.txt
+          while IFS= read -r file; do
+            case "$file" in
+              .github/workflows/musiclab-turbo-lab76-progressive-button-apk.yml|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab76BroadTitle.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGate.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverLabTurboRoundAdmission.kt|app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundSearchPlan.kt|app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab76ProgressiveRoundTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab70FirstRoundRecoveryTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab71FoundationGateTest.kt|app/src/test/kotlin/com/metrolist/music/ui/component/CoverLabTurboRoundAdmissionTest.kt|cloudflare/music-intelligence/test/turbo-lab71-permanent-cover-foundations.test.mjs|cloudflare/music-intelligence/test/turbo-lab76-progressive-buttons.test.mjs|behaviors/musiclab-cover.json|tools/universal-apk-builder/prepare-turbo-lab76-progressive-env.py) ;;
+              *) echo "LAB76 OUT OF SCOPE: $file"; exit 1 ;;
+            esac
+          done </tmp/changed.txt
+          # The player, cloud production and every native app entrypoint stay exact.
+          git diff --exit-code "$BASE" HEAD -- app/src/main/AndroidManifest.xml app/build.gradle.kts
+          git diff --exit-code "$BASE" HEAD -- cloudflare/music-intelligence/src/
+          for immutable in app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt app/src/main/kotlin/com/metrolist/music/utils/InnerTubeXPlayer.kt app/src/main/kotlin/com/metrolist/music/ui/component/CoverDiscoverySources.kt app/src/main/AndroidManifest.xml app/build.gradle.kts; do
+            test "$(git hash-object "$immutable")" = "$(git rev-parse "$BASE:$immutable")"
+          done
+          test -z "$(git diff --name-only "$BASE" HEAD -- cloudflare/music-intelligence/src/)"
+      - name: LAB71 baseline plus LAB76 new progressive round regressions
+        run: |
+          node --test cloudflare/music-intelligence/test/turbo-lab66-behavior-memory-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab67-verified-good-refinements.test.mjs cloudflare/music-intelligence/test/turbo-lab68-player-thread-source-diagnostics.test.mjs cloudflare/music-intelligence/test/turbo-lab69-nonblocking-provider-diagnostics.test.mjs cloudflare/music-intelligence/test/turbo-lab70-first-round-recovery-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab71-permanent-cover-foundations.test.mjs cloudflare/music-intelligence/test/turbo-lab76-progressive-buttons.test.mjs cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Prepare same-family Android 33078
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-lab76-progressive-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33078"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+      - name: Android JVM regressions full
+        run: ./gradlew --console=plain :app:testFossDebugUnitTest --warning-mode summary
+      - name: Build signed LAB76 APK ZIP
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Verify Android package, signing certificate and ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB76.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB76-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33078'"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
+          CERT="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = '9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749'
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+      - name: Publish installable APK and ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB76-ProgressiveButton-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB76.apk
+            dist/uab/MusicLab-Turbo-LAB76-APK.zip
+            dist/uab/BUILD_SHA.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

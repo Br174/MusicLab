@@ -41,11 +41,13 @@ test('LAB40: recurring query keeps performer identity', () => {
 });
 
 test('LAB40: first verified posters need not wait for ten candidates', () => {
-  assert.match(first, /if \(ranked\.isEmpty\(\)\) return/);
-  assert.match(first, /elapsed < TURBO_FIRST_POSTER_DEADLINE_MS/);
+  assert.match(first, /if \(initialOriginals\.isEmpty\(\) && initialCovers\.isEmpty\(\)\) return/);
+  // LAB59 supersedes the former 1.2s poster gate: first verified video appears immediately.
+  assert.match(first, /seed\.resolvedVideoId\?\.trim\(\)\.orEmpty\(\) in session\.playReadyVideoIds/);
+  assert.doesNotMatch(first, /elapsed < TURBO_FIRST_POSTER_DEADLINE_MS/);
   assert.match(first, /TURBO_MIN_EARLY_POSTER_BLOCK/);
-  assert.match(second, /committedCount == 0 \|\| committedCount >= TURBO_RESULT_QUOTA/);
-  assert.match(second, /take\(TURBO_RESULT_QUOTA - committedCount\)/);
+  assert.match(second, /committedCount == 0 && publishedOriginalSnapshots\.isEmpty\(\)/);
+  assert.match(second, /CoverLab55VisibleCandidates\.publish\(/);
 });
 
 test('LAB40: coalesce provider callbacks before ranked UI state changes', () => {

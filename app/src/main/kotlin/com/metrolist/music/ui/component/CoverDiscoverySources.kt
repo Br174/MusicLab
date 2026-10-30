@@ -50,8 +50,15 @@ internal data class CoverSourceCandidate(
     val playbackVideoSource: String? = null,
     val workRelationConfirmed: Boolean = false,
     val originalWorkReference: Boolean = false,
+    val firstPublicationConfirmed: Boolean = false,
     val credits: List<DiscogsCredit> = emptyList(),
     val evidenceScore: Int = 1,
+    val recordingReleaseId: Int? = null,
+    val recordingMasterId: Int? = null,
+    val recordingTrackPosition: String? = null,
+    val collectorHave: Int? = null,
+    val chartPosition: Int? = null,
+    val releaseVerified: Boolean = false,
 )
 
 internal data class CoverSourceDiagnostic(
@@ -70,6 +77,20 @@ internal data class CoverSourceOutcome(
 )
 
 internal object CoverDiscoverySources {
+    // A true work/performance relationship can preserve foreign adaptations.
+    // Name similarity, Cloud guesses or a user-uploaded "cover" video never
+    // create this proof. The historical first LAB45 search stays unchanged.
+    internal fun admitsAnchoredAlternateTitle(
+        candidate: CoverSourceCandidate,
+        deepRecovery: Boolean,
+    ): Boolean =
+        deepRecovery && candidate.workRelationConfirmed &&
+            candidate.sources.any { source ->
+                source.equals("MusicBrainz", true) ||
+                    source.equals("SecondHandSongs", true) ||
+                    source.equals("COVER.INFO", true)
+            }
+
     private val client =
         OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
@@ -111,10 +132,17 @@ internal object CoverDiscoverySources {
         forceRefresh: Boolean = false,
         // LAB46: targeted queries only on later manual Cover rounds.
         coverRound: Int = 1,
+        // Only recovery searches traverse additional documentary pages/roots.
+        // The approved first LAB45 search remains exactly as before.
+        deepRecovery: Boolean = false,
+        documentaryProgress: CoverPriorityOrder.DocumentaryProgress? = null,
+        sourceCooldowns: Map<String, CoverSourceDiagnostic> = emptyMap(),
         // LAB03: source-complete callback remains useful when another provider
         // reaches its deadline. No individual lane gates all other evidence.
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
+        awaitResources: suspend () -> Unit = {},
     ): CoverSourceOutcome = coroutineScope {
+        val turbo = BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER
         val cleanTitle = title.trim()
         val cleanArtist = originalArtist.trim()
         if (cleanTitle.isBlank()) return@coroutineScope CoverSourceOutcome(emptyList(), emptyList())
@@ -124,13 +152,20 @@ internal object CoverDiscoverySources {
                 mode.name,
                 canonical(cleanTitle),
                 canonical(cleanArtist),
-                "lab60-lastfm-wikidata-disabled",
+                "lab77-r2-priority-source-progress",
+                if (deepRecovery) "work-first-recovery" else "initial",
+                // A new manual round must not replay a cached deep crawl.
+                // LAB45's first round remains unchanged.
+                if (deepRecovery) "deep-round-${coverRound.coerceAtLeast(1)}" else "first",
                 if (aiConfig == null) "no-ai" else "ai",
             ).joinToString("|")
         val now = System.currentTimeMillis()
-        if (!forceRefresh) cache[key]?.takeIf { it.expiresAtMs > now }?.let { hit ->
+        if (!forceRefresh && documentaryProgress == null) cache[key]?.takeIf { it.expiresAtMs > now }?.let { hit ->
             // LAB59: even cache hits must yield video previews immediately.
             onEarlyVideoCandidates(hit.outcome.candidates.filter { !it.playbackVideoId.isNullOrBlank() })
+            hit.outcome.diagnostics.forEach { diagnostic ->
+                onSourceCompleted(hit.outcome.candidates.filter { diagnostic.name in it.sources }, diagnostic, hit.outcome.originalYear)
+            }
             return@coroutineScope hit.outcome
         }
 
@@ -141,17 +176,26 @@ internal object CoverDiscoverySources {
             lane: Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic>,
             year: Int? = null,
         ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+            if (lane.second.available && lane.second.name !in setOf("COVER.INFO", "MusicBrainz")) {
+                documentaryProgress?.lanes?.put(lane.second.name, lane)
+            }
             onSourceCompleted(lane.first, lane.second, year)
             return lane
         }
-        suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { block() }
+        suspend fun <T> sourceLane(block: suspend () -> T): T = sourceGate.withPermit { awaitResources(); block() }
+
+        suspend fun cachedLane(name: String, block: suspend () -> Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic>) =
+            reportResult(documentaryProgress?.lanes?.get(name) ?: sourceCooldowns[name]?.let {
+                emptyList<CoverSourceCandidate>() to it
+            } ?: sourceLane(block))
 
         // LAB59: prioritize cover.info direct videos over auxiliary metadata.
         // Each lane still runs; slow services never gate early thumbnail emission.
         val coverInfo = async(Dispatchers.IO) {
             // COVER.INFO is our lead source. It starts immediately and owns
             // its own lane, independent from auxiliary provider semaphore.
-            val lane = reportResult(discoverCoverInfo(cleanTitle, cleanArtist, mode) { quick ->
+            val lane = reportResult(sourceCooldowns["COVER.INFO"]?.let { emptyList<CoverSourceCandidate>() to it }
+                ?: discoverCoverInfo(cleanTitle, cleanArtist, mode, deepRecovery, documentaryProgress, awaitResources) { quick ->
                 onEarlyVideoCandidates(quick)
             })
             onEarlyVideoCandidates(
@@ -164,39 +208,84 @@ internal object CoverDiscoverySources {
         }
         val musicBrainzLookup =
             async(Dispatchers.IO) {
-                val lookup = sourceLane {
-                    runCatching { MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist, forceRefresh = forceRefresh) }
+                val lookup = if ("MusicBrainz" in sourceCooldowns) MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) else sourceLane {
+                    val sourceContext = kotlinx.coroutines.currentCoroutineContext()
+                    val requestGate: () -> Unit = {
+                        kotlinx.coroutines.runBlocking { awaitResources() }
+                        if (sourceContext[kotlinx.coroutines.Job]?.isActive == false) throw kotlinx.coroutines.CancellationException()
+                    }
+                    val progressive: (MusicBrainzLookup) -> Unit = { partial ->
+                        requestGate()
+                        kotlinx.coroutines.runBlocking { reportResult(discoverMusicBrainz(cleanTitle, mode, partial)) }
+                    }
+                    runCatching {
+                        if (deepRecovery) {
+                            MusicBrainzCoverSource.lookup(
+                                cleanTitle, cleanArtist, forceRefresh = forceRefresh,
+                                deepRecovery = true,
+                                deepRound = coverRound,
+                                beforeRequest = requestGate, onProgress = progressive,
+                            )
+                        } else {
+                            MusicBrainzCoverSource.lookup(cleanTitle, cleanArtist, forceRefresh = forceRefresh,
+                                beforeRequest = requestGate, onProgress = progressive)
+                        }
+                    }
                         .getOrElse { MusicBrainzLookup(emptyList(), MusicBrainzStatus.NETWORK_ERROR) }
                 }
                 reportResult(discoverMusicBrainz(cleanTitle, mode, lookup), lookup.work?.originalYear)
                 lookup
             }
-        // LAB41: a structured musical-work source, not a broad title match.
-        // Already available in MusicLab, now used in the Turbo discovery fan-out.
-        // A missing artist cannot safely anchor ambiguous song titles.
-        val secondHandSongs = async(Dispatchers.IO) {
-            if (mode != DiscogsDirectMode.COVER || cleanArtist.isBlank()) {
-                Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
-                    "SecondHandSongs", false, 0, "Interprete di riferimento necessario",
-                ))
-            } else {
-                reportResult(sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh) })
-            }
-        }
         val iTunes = async(Dispatchers.IO) {
-            reportResult(sourceLane { discoverITunes(cleanTitle, cleanArtist, mode) })
+            cachedLane("Apple/iTunes") { discoverITunes(cleanTitle, cleanArtist, mode) }
         }
         val spotify = async(Dispatchers.IO) {
-            reportResult(sourceLane { discoverSpotify(cleanTitle, cleanArtist, mode) })
+            cachedLane("Spotify") { discoverSpotify(cleanTitle, cleanArtist, mode) }
         }
-        // LAB60 Pollicino: Last.fm is disabled for Cover/Originali discovery.
+        // R14: user restored every free, cover-bearing source except
+        // SecondHandSongs. Last.fm has an existing no-key public fallback.
+        // Keep it bounded; never block COVER.INFO's independent lane.
+        val lastFm = async(Dispatchers.IO) {
+            if (turbo) cachedLane("Last.fm") {
+                kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+                    discoverLastFm(cleanTitle, cleanArtist, mode)
+                } ?: (emptyList<CoverSourceCandidate>() to
+                    CoverSourceDiagnostic("Last.fm", false, 0, "tempo esaurito · altra fonte continua"))
+            } else emptyList<CoverSourceCandidate>() to
+                CoverSourceDiagnostic("Last.fm", false, 0, "Disattivato in LAB60")
+        }
         val lrcLib = async(Dispatchers.IO) {
-            reportResult(sourceLane { discoverLrcLib(cleanTitle, cleanArtist, mode) })
+            cachedLane("LRCLIB") { discoverLrcLib(cleanTitle, cleanArtist, mode) }
         }
         // LAB60 Pollicino: Wikidata (not Wikipedia pages) is disabled in discovery.
         val ai = async(Dispatchers.IO) {
             // AI Scout stays read-only disabled on Turbo: no remote editorial writes.
             reportResult(sourceLane { discoverAi(cleanTitle, cleanArtist, mode, aiConfig) })
+        }
+        // LAB41: a structured musical-work source, not a broad title match.
+        // Already available in MusicLab, now used in the Turbo discovery fan-out.
+        // A missing artist cannot safely anchor ambiguous song titles.
+        val secondHandSongs = async(Dispatchers.IO) {
+            if (turbo) {
+                // Latest user requirement: no SecondHandSongs calls in ANY
+                // Turbo round, including the first, while all other sources
+                // continue to contribute independently.
+                Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
+                    "SecondHandSongs", false, 0, "Standby: fonte non interrogata",
+                ))
+            } else if (deepRecovery) {
+                // Legacy non-Turbo behavior is unchanged.
+                Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
+                    "SecondHandSongs", false, 0, "Escluso dal recupero approfondito",
+                ))
+            } else if (mode != DiscogsDirectMode.COVER || cleanArtist.isBlank()) {
+                Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
+                    "SecondHandSongs", false, 0, "Interprete di riferimento necessario",
+                ))
+            } else {
+                reportResult(sourceCooldowns["SecondHandSongs"]?.let { emptyList<CoverSourceCandidate>() to it }
+                    ?: sourceLane { discoverSecondHandSongs(cleanTitle, cleanArtist, forceRefresh, deepRecovery) })
+            }
         }
         val deepRound = if (mode == DiscogsDirectMode.COVER && coverRound >= 2 &&
             BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
@@ -215,6 +304,7 @@ internal object CoverDiscoverySources {
                 iTunes.await(),
                 lrcLib.await(),
                 spotify.await(),
+                lastFm.await(),
                 ai.await(),
             ) + listOfNotNull(deepRound?.await())
 
@@ -232,7 +322,7 @@ internal object CoverDiscoverySources {
 
         val merged = linkedMapOf<String, CoverSourceCandidate>()
         lanes.flatMap { it.first }.forEach { candidate ->
-            val identity = identity(candidate.title, candidate.artist, candidate.category)
+            val identity = if (turbo) CoverPriorityOrder.key(candidate) else identity(candidate.title, candidate.artist, candidate.category)
             val previous = merged[identity]
             if (previous == null) {
                 merged[identity] = candidate
@@ -256,6 +346,7 @@ internal object CoverDiscoverySources {
                             previous.workRelationConfirmed || candidate.workRelationConfirmed,
                         originalWorkReference =
                             previous.originalWorkReference || candidate.originalWorkReference,
+                        firstPublicationConfirmed = previous.firstPublicationConfirmed || candidate.firstPublicationConfirmed,
                         credits =
                             (previous.credits + candidate.credits)
                                 .distinctBy { credit ->
@@ -321,17 +412,26 @@ internal object CoverDiscoverySources {
                 val independentSourceConsensus = candidate.sources.distinct().size >= 2
                 val crossVerifiedRelation =
                     candidate.workRelationConfirmed && independentSourceConsensus
+                // LAB50: a translated title must not erase a DIRECT
+                // documentary work/performance relationship. Neither
+                // name equality nor an unverified video is sufficient.
+                val linkedDocumentaryWork =
+                    admitsAnchoredAlternateTitle(candidate, deepRecovery) ||
+                        // First round: documented foreign-title COVER.INFO relation.
+                        (candidate.workRelationConfirmed &&
+                            candidate.sources.any { it.equals("COVER.INFO", true) })
 
                 strictTitleMatch ||
                     aiTrusted ||
                     musicBrainzWork ||
                     crossVerifiedRelation ||
+                    linkedDocumentaryWork ||
                     independentSourceConsensus
             }
 
         // LAB59: the inferred original publication year can be wrong (for
         // instance, an album reissue). Keep every identity-confirmed cover.
-        val chronologicallyPossible = identityAccepted
+        val chronologicallyPossible = if (turbo) publicationEnriched else identityAccepted
 
         fun certifiedScore(candidate: CoverSourceCandidate): Int {
             val titleMatch =
@@ -378,7 +478,9 @@ internal object CoverDiscoverySources {
             // A missing musical publication date survives, but cannot rank as if
             // that fundamental piece of evidence had been certified.
             if (candidate.year == null) score = score.coerceAtMost(11)
-            if (candidate.year != null && originalYear != null && candidate.year < originalYear) {
+            if (coverRound <= 1 && !deepRecovery &&
+                candidate.year != null && originalYear != null && candidate.year < originalYear
+            ) {
                 // Chronology uncertainty lowers evidence; it never removes a cover.
                 score = score.coerceAtMost(6)
             }
@@ -393,8 +495,8 @@ internal object CoverDiscoverySources {
                 )
             }
 
-        val ordered =
-            certified.sortedWith(
+        val ordered = if (turbo) CoverPriorityOrder.order(certified, cleanTitle, cleanArtist, coverRound)
+        else certified.sortedWith(
                 compareByDescending<CoverSourceCandidate> { it.evidenceScore }
                     .thenBy { it.year ?: Int.MAX_VALUE }
                     .thenBy { canonical(it.artist) },
@@ -406,21 +508,22 @@ internal object CoverDiscoverySources {
                 available = true,
                 found = ordered.size,
                 note =
-                    "ammessi ${ordered.size}/${publicationEnriched.size} · " +
-                        "titolo rigoroso; AI straniera fidata; servizi con doppia prova",
+                    if (turbo) "candidati conservati ${ordered.size}/${publicationEnriched.size} · prove per ordinare"
+                    else "ammessi ${ordered.size}/${publicationEnriched.size} · titolo rigoroso; servizi con doppia prova",
             )
 
         val outcome = CoverSourceOutcome(
             candidates = ordered,
             diagnostics = lanes.map { it.second } + listOf(
-                CoverSourceDiagnostic("Last.fm", false, 0, "Disattivato in LAB60"),
-                CoverSourceDiagnostic("Wikidata", false, 0, "Disattivato in LAB60"),
+                // Wikidata's current adapter returns only aliases, not cover
+                // candidates; it must not hold up actual result-producing lanes.
+                CoverSourceDiagnostic("Wikidata", false, 0, "Solo alias; non blocca le cover"),
             ) + identityGateDiagnostic,
             originalYear = originalYear,
             workId = resolvedMusicBrainz.work?.id,
             workCredits = workCredits,
         )
-        rememberDiscovery(key, now, outcome)
+        if (documentaryProgress == null) rememberDiscovery(key, now, outcome)
         outcome
     }
 
@@ -432,9 +535,16 @@ internal object CoverDiscoverySources {
         title: String,
         artist: String,
         forceRefresh: Boolean,
+        deepRecovery: Boolean,
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
         val lookup = runCatching {
-            SecondHandSongsCoverSource.lookup(title, artist, forceRefresh = forceRefresh)
+            if (deepRecovery) {
+                SecondHandSongsCoverSource.lookup(
+                    title, artist, forceRefresh = forceRefresh, deepRecovery = true,
+                )
+            } else {
+                SecondHandSongsCoverSource.lookup(title, artist, forceRefresh = forceRefresh)
+            }
         }.getOrElse {
             SecondHandSongsLookup(emptyList(), SecondHandSongsStatus.NETWORK_ERROR)
         }
@@ -454,7 +564,7 @@ internal object CoverDiscoverySources {
                     workRelationConfirmed = true,
                     evidenceScore = 9,
                 )
-            }.distinctBy { identity(it.title, it.artist, it.category) }
+            }.distinctBy { sourceIdentity(it, DiscogsDirectMode.COVER) }
         } else emptyList()
         return versions to CoverSourceDiagnostic(
             name = "SecondHandSongs",
@@ -487,9 +597,11 @@ internal object CoverDiscoverySources {
                     sources = listOf("MusicBrainz"),
                     year = version.year,
                     category = categoryFromTitle(candidateTitle),
-                    sourceUrl = lookup.sourceUrl,
+                    sourceUrl = if (mode == DiscogsDirectMode.COVER) "https://musicbrainz.org/recording/${version.recordingId}" else lookup.sourceUrl,
                     workRelationConfirmed = true,
-                    originalWorkReference = true,
+                    // lookup.originalVersions means selected-performer recordings,
+                    // not a documentary first-interpreter attribution.
+                    originalWorkReference = mode == DiscogsDirectMode.ORIGINAL,
                     credits = musicBrainzWorkCredits,
                     evidenceScore = 8,
                 )
@@ -517,7 +629,7 @@ internal object CoverDiscoverySources {
                         language =
                             if (sameBaseTitle(title, candidateTitle)) null
                             else "titolo/adattamento alternativo",
-                        sourceUrl = lookup.sourceUrl,
+                        sourceUrl = if (mode == DiscogsDirectMode.COVER) "https://musicbrainz.org/recording/${cover.recordingId}" else lookup.sourceUrl,
                         workRelationConfirmed = true,
                         credits = musicBrainzWorkCredits,
                         evidenceScore = 8,
@@ -527,7 +639,7 @@ internal object CoverDiscoverySources {
 
         val candidates =
             (originalVersions + covers)
-                .distinctBy { identity(it.title, it.artist, it.category) }
+                .distinctBy { sourceIdentity(it, mode) }
 
         return candidates to CoverSourceDiagnostic(
             name = "MusicBrainz",
@@ -603,7 +715,7 @@ internal object CoverDiscoverySources {
                     ),
                 )
             }
-        }.distinctBy { identity(it.title, it.artist, it.category) }
+        }.distinctBy { sourceIdentity(it, mode) }
         return candidates to CoverSourceDiagnostic("Apple/iTunes", true, candidates.size, "catalogo senza chiave")
     }
 
@@ -696,7 +808,7 @@ internal object CoverDiscoverySources {
                     ),
                 )
             }
-        }.distinctBy { identity(it.title, it.artist, it.category) }
+        }.distinctBy { sourceIdentity(it, mode) }
 
         if (candidates.isNotEmpty()) {
             return candidates to CoverSourceDiagnostic("Last.fm", true, candidates.size, "API track.search")
@@ -761,7 +873,7 @@ internal object CoverDiscoverySources {
                         evidenceScore = if (titleMatches) 6 else 1,
                     )
                 }
-                .distinctBy { identity(it.title, it.artist, it.category) }
+                .distinctBy { sourceIdentity(it, mode) }
 
         val note =
             if (candidates.isEmpty()) {
@@ -818,7 +930,7 @@ internal object CoverDiscoverySources {
                     ),
                 )
             }
-        }.distinctBy { identity(it.title, it.artist, it.category) }
+        }.distinctBy { sourceIdentity(it, mode) }
         return candidates to CoverSourceDiagnostic(
             "LRCLIB",
             true,
@@ -943,12 +1055,84 @@ internal object CoverDiscoverySources {
         )
     }
 
+    /** Visit-scoped documentary cursor. A request deadline defers work; it never deletes rows. */
+    private suspend fun discoverCoverInfoProgressively(
+        title: String,
+        originalArtist: String,
+        progress: CoverPriorityOrder.DocumentaryProgress,
+        awaitResources: suspend () -> Unit,
+        onEarly: suspend (List<CoverSourceCandidate>) -> Unit,
+    ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+        if (!progress.initialized) {
+            val cleanTitle = title.replace('"', ' ').trim()
+            val cleanArtist = originalArtist.replace('"', ' ').trim()
+            val terms = listOfNotNull(
+                if (cleanArtist.isNotBlank()) "song:\"$cleanTitle\" artist:\"$cleanArtist\"" else null,
+                "song:\"$cleanTitle\"",
+            ).distinct()
+            terms.forEach { term ->
+                progress.enqueue("https://cover.info/en/search".toHttpUrl().newBuilder()
+                    .addQueryParameter("find", term).addQueryParameter("per-page-songs", "200")
+                    .build().toString(), false)
+            }
+            progress.initialized = true
+        }
+        progress.beginPass()
+        val started = System.currentTimeMillis()
+        while (System.currentTimeMillis() - started < 10_000L) {
+            awaitResources()
+            val task = progress.nextPage() ?: break
+            val html = fetchHtml(task.url) ?: continue
+            val document = runCatching { Jsoup.parse(html, task.url) }.getOrNull() ?: continue
+            progress.reachable = true
+            val songPage = COVER_INFO_SONG_URL.containsMatchIn(task.url)
+            val parsed = parseCoverInfoDocument(document).map {
+                when {
+                    task.related -> it.copy(directRelation = true)
+                    songPage -> it.copy(directRelation = false, relationRole = CoverInfoRelationRole.NONE)
+                    else -> it
+                }
+            }
+            val candidates = parsed.map { toCoverInfoCandidate(it, title) }
+            candidates.forEach(progress::add)
+            if (candidates.isNotEmpty()) onEarly(candidates)
+            progress.followRelations(task, parsed.map { it.url })
+            if (!task.related) {
+                val matching = parsed.filter { sameBaseTitle(title, it.title) }
+                val unique = matching.map { canonicalArtist(it.artist) }.distinct().size == 1
+                matching.sortedByDescending { sameArtist(originalArtist, it.artist) }.forEach {
+                    // Other title-homonym roots remain searchable, but their unrelated
+                    // original attribution must not overwrite the selected work's reference.
+                    val anchored = sameArtist(originalArtist, it.artist) || (originalArtist.isBlank() && unique)
+                    progress.enqueue(it.url, anchored, prioritize = anchored)
+                }
+            }
+            document.select(".pagination a[rel=next], .pagination li.next a, .pagination a[aria-label=Next], a[rel=next][href*=page]")
+                .forEach { link ->
+                    val next = link.absUrl("href")
+                    val host = runCatching { next.toHttpUrl().host }.getOrNull()
+                    if (host == "cover.info" || host == "www.cover.info") progress.enqueue(next, task.related)
+                }
+            progress.completePage(task)
+        }
+        val candidates = progress.candidates()
+        return candidates to CoverSourceDiagnostic(
+            "COVER.INFO", progress.reachable, candidates.size,
+            if (progress.complete) "contributi documentari esplorati · video diretti ${candidates.count { !it.playbackVideoId.isNullOrBlank() }}"
+            else "contributi conservati · pagine da riprendere ${progress.remainingPages}",
+        )
+    }
+
     private suspend fun discoverCoverInfo(
         title: String,
         originalArtist: String,
         mode: DiscogsDirectMode,
+        deepRecovery: Boolean = false,
+        progress: CoverPriorityOrder.DocumentaryProgress? = null,
+        awaitResources: suspend () -> Unit = {},
         onEarlyVideoCandidates: suspend (List<CoverSourceCandidate>) -> Unit = {},
     ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> {
+        if (progress != null) return discoverCoverInfoProgressively(title, originalArtist, progress, awaitResources, onEarlyVideoCandidates)
         val cleanTitle = title.replace('"', ' ').trim()
         val cleanArtist = originalArtist.replace('"', ' ').trim()
         val searchTerms =
@@ -994,17 +1178,15 @@ internal object CoverDiscoverySources {
                 val precise = withContext(Dispatchers.IO) {
                     readSearchTerm(searchTerms.first())
                 }
-                val matchesWork = precise?.second?.let { page ->
-                    parseCoverInfoDocument(page).any { sameBaseTitle(title, it.title) }
-                } == true
-                if (matchesWork) {
-                    listOfNotNull(precise)
-                } else {
-                    val fallback = searchTerms.getOrNull(1)?.let { term ->
-                        withContext(Dispatchers.IO) { readSearchTerm(term) }
-                    }
-                    listOfNotNull(precise, fallback)
+                // LAB67: NEVER stop at the original performer's first hit.
+                // Title-only is necessary to find foreign adaptations and
+                // professionally released interpretations omitted by the
+                // artist-specific index (e.g. Jimmy Fontana's Il mondo).
+                // Keep requests sequential to preserve the existing 503 guard.
+                val fallback = searchTerms.getOrNull(1)?.let { term ->
+                    withContext(Dispatchers.IO) { readSearchTerm(term) }
                 }
+                listOfNotNull(precise, fallback)
             } else {
                 coroutineScope {
                     searchTerms.map { term ->
@@ -1048,7 +1230,8 @@ internal object CoverDiscoverySources {
                                 sameArtist(originalArtist, seed.artist)
                             )
                 }
-                .take(COVER_INFO_RELATION_ROOT_LIMIT)
+                .take(if (deepRecovery) COVER_INFO_RELATION_ROOT_LIMIT * 3
+                    else COVER_INFO_RELATION_ROOT_LIMIT)
 
         // LAB04: bounded parallel relationship expansion, not serialized
         // batches of two. Each completed page forwards usable candidates
@@ -1092,7 +1275,7 @@ internal object CoverDiscoverySources {
                 }
 
         val candidates = mergedSeeds.map { seed -> toCoverInfoCandidate(seed, title) }
-            .distinctBy { identity(it.title, it.artist, it.category) }
+            .distinctBy { sourceIdentity(it, mode) }
 
         return candidates to CoverSourceDiagnostic(
             name = "COVER.INFO",
@@ -1125,6 +1308,7 @@ internal object CoverDiscoverySources {
                         seed.directRelation || seed.relationRole != CoverInfoRelationRole.NONE,
                     originalWorkReference =
                         seed.relationRole == CoverInfoRelationRole.INITIAL,
+                    firstPublicationConfirmed = seed.relationRole == CoverInfoRelationRole.INITIAL,
                     // LAB57: source-native evidence is deliberately modest.
                     // Final 1..20 confidence is assigned only by the global certifier.
                     evidenceScore =
@@ -1155,6 +1339,13 @@ internal object CoverDiscoverySources {
         FOLLOW_UP,
     }
 
+    /** The /song/ path ID is the recording identity. Query parameters
+     *  initial-details/follow-up-details identify a RELATED WORK and may be
+     *  identical across dozens of distinct cover recordings. */
+    internal fun coverInfoSongIdentity(url: String): String? =
+        COVER_INFO_SONG_URL.find(url.substringBefore('?').substringBefore('#'))
+            ?.groupValues?.getOrNull(1)
+
     private fun parseCoverInfoDocument(document: org.jsoup.nodes.Document): List<CoverInfoSeed> {
         val seenIds = linkedSetOf<String>()
         return document.select(COVER_INFO_SONG_SELECTOR)
@@ -1162,14 +1353,15 @@ internal object CoverDiscoverySources {
                 val absolute = anchor.absUrl("href").ifBlank { anchor.attr("href") }
                 val pathUrl = absolute.substringBefore('?').substringBefore('#')
                 val match = COVER_INFO_SONG_URL.find(pathUrl) ?: return@mapNotNull null
-                val relationMatch = COVER_INFO_RELATION_TARGET.find(absolute)
                 val relationRole =
                     when {
                         absolute.contains("initial-details=", ignoreCase = true) -> CoverInfoRelationRole.INITIAL
                         absolute.contains("follow-up-details=", ignoreCase = true) -> CoverInfoRelationRole.FOLLOW_UP
                         else -> CoverInfoRelationRole.NONE
                     }
-                val songId = relationMatch?.groupValues?.getOrNull(1).orEmpty().ifBlank { match.groupValues[1] }
+                // NEVER dedupe by ?initial-details=... or ?follow-up-details=...:
+                // those parameters may point to the SAME root for many covers.
+                val songId = match.groupValues[1]
                 if (!seenIds.add(songId)) return@mapNotNull null
 
                 val slugTitle = match.groupValues[2]
@@ -1338,7 +1530,7 @@ internal object CoverDiscoverySources {
 
         val candidates =
             (directCandidates + cloudCandidates)
-                .distinctBy { identity(it.title, it.artist, it.category) }
+                .distinctBy { sourceIdentity(it, mode) }
 
         return candidates to CoverSourceDiagnostic(
             "AI Scout",
@@ -1446,6 +1638,11 @@ internal object CoverDiscoverySources {
         }
     }
 
+    private fun sourceIdentity(candidate: CoverSourceCandidate, mode: DiscogsDirectMode): String =
+        if (mode == DiscogsDirectMode.COVER)
+            CoverPriorityOrder.key(candidate)
+        else identity(candidate.title, candidate.artist, candidate.category)
+
     private fun identity(
         title: String,
         artist: String,
@@ -1464,7 +1661,7 @@ internal object CoverDiscoverySources {
         Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
             .lowercase()
-            .replace(Regex("[^a-z0-9]+"), " ")
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             .trim()
             .replace(Regex("\\s+"), " ")
 

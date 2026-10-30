@@ -1,0 +1,19 @@
+R7 — PACCHETTI, PRIORITA E SCHEDE COVER
+Base remota 71b7b4fdf945232f3f424ad84062ba82fa37684c. Autorizzazione Bruno: procedere con i soli aggiustamenti concordati.
+Specifica sei tornate invariata; le ultime precisazioni della conversazione aggiornano pubblicazione manuale e scheda moderna.
+1. Regressioni: anno ereditato impropriamente dalla parentela dell'opera; svuotamento automatico di piu pacchetti; priorita sovrascritta dalla disponibilita metadati; scheda con testi troncati e Studio presunto.
+2. Preparazione: mantenere il ranking fino alla selezione, collegare le fonti accreditate senza attesa bloccante; le fonti lente restano nella coda. Nessuna nuova soglia di ammissione.
+3. Pubblicazione: automatica soltanto la prima decina o il primo residuo, poi un singolo pacchetto per comando. Il background prepara senza svuotare la coda sullo schermo.
+4. Scheda moderna: titolo e artista integrali, anno della versione quando documentato, tutte le fonti effettive e servizio di ascolto. Nessuna data di upload e nessun anno della registrazione originale trasferito a un video diverso. Studio solo con riscontro.
+5. Verificare test nativi, contratti audio/identita, guardia del perimetro, build firmata e ZIP. Nome di consegna Revisione-7; versione Android e firma invariate.
+Registro avanzamento:
+- RED nativo: run 40706571880, job 122880200303, sorgente f667df9e4e7990992d27232cd9eec80f591cbf0f; 506 test, un fallimento atteso sull'anno del live ereditato; compilazione riuscita e contratti audio/identita passati.
+- Correzioni locali: ranking preservato fino alla pubblicazione; pool include eccedenze senza perdita; un solo primo pacchetto automatico, poi comandi manuali; ricerche musicali anche senza interprete nella prima; scheda completa, anno/fonti/ascolto e etichette documentate.
+- Revisore indipendente: eliminato argomento album duplicato; Studio richiede segnale esplicito e pubblicazione, altrimenti Pubblicata/Cover; esaurimento rapido pubblica il primo residuo prima di terminare il worker.
+- GREEN finale: sorgente 6540b3d86937959df511c0d3fe24e26c3366ce40; run40709596442 job122891807813 SUCCESS. Suite Android completa PASS (4m33s), audio/registrazioni e scope PASS, APK firmato (1m16s) e ZIP PASS. Package e versione33081 e certificato v2 invariati. Telefono PENDING, nessuna promozione LAST_GOOD.
+- Isolamento finale: classificazione Studio esplicita solo nel contesto Turbo Cover, flag modernCover predefinito false. Originali e altre modalita mantengono la classificazione precedente.
+Ruling: la parola cover.Lab e interpretata come COVER.INFO secondo il messaggio accettato da Bruno; visualizzare nomi reali delle fonti, non creare un servizio inventato.
+Ruling: un canale denominato Karaoke non prova che un'esecuzione cantata sia karaoke. Il segnale abbassa la priorita, non introduce una blacklist del canale. Restano escluse le tracce esplicitamente karaoke/MIDI/KAR.
+Ruling: Pubblicata distingue una pubblicazione documentata da una sessione in studio effettivamente dichiarata. Non dedurre Studio dall'enum storico di default. Se il segnale manca, la versione resta disponibile e preferita come pubblicata.
+
+Consegna verificata: artifact12826895516, sha256esterno692ec5fc321f311b377ad314f1a4f10d3cb23428ab3636f4c731e3bccedc9bdf. APK cb175d2f60d7e4c5016d71b8cd58b621af35ebbb94c64e7edea8b54a42b1e466, ZIP 0f16a20ad68bbe030a2ce6a04d2dc6bffd1966fab8af31545325fd9f2205c01d. Sorgente nell'archivio coincide e APK nelloZIP identico allo standalone. Entrambi salvati, nomi Revisione-7; local_metadata_applied true per entrambi.

@@ -1,0 +1,22 @@
+MUSICLAB TURBO LAB79 R14 — CYCLE RELEASE, INDEPENDENT SOURCES, COVER THROUGHPUT
+DATE 2026-10-30
+AUTHORIZED BY USER IN CURRENT MUSICLAB CHAT.
+BASE=4629bc7db1da71b4d503f4b1cd60bfe196c0f27e (successful R13, Scudo360 Quality r40, Android 33086).
+CENTRAL MOTORLAB=2026.10.29-r40; LOCAL=2026.10.29-r40 VERIFIED.
+RUN IN ISOLATED lab/musiclab-turbo-r14-cycle-source-throughput-20261030; main/MADRE, R13 immutable fallback, player, UI layout, package and signer preserved.
+
+MOST RECENT USER REQUIREMENTS (TAKE PRECEDENCE)
+- Each of three cycles may publish fewer than its cap: 10, 20, 20 are MAXIMA, not mandatory minima. Publish verified rows in one atomic batch at the cycle's 7-second presentation boundary. Full first 10 still appear immediately when ready. The user manually starts the next cycle, existing one-turn button. Cumulative round limit 50. Never stream candidates individually on arrival.
+- Keep all cover-producing services: COVER.INFO highest discovery preference, but NOT a blocker. MusicBrainz, Discogs, Apple/iTunes, Spotify, LRCLIB, Last.fm, YouTube Music, YouTube and already enabled local/Cloud archives can all contribute. Never invent data or promote a weak YouTube title to a first-round documentary cover.
+- SecondHandSongs in STANDBY in ALL Turbo rounds, including cycle1, without network call. Explicitly do not spend time repairing it.
+- No extra costs or service keys; original/documentary + title category rules and absolute karaoke/MIDI/KAR veto unchanged.
+
+CONFIRMED ROOT CAUSES IN R13 SOURCE
+1. CoverRoundPresentation.takeInitial() waits for 10 and status.ready for 20; only genuinely exhausted residuals were published. 2 real ready cards after a 7s cycle stayed invisible, contrary to the new policy. The status-window timer never needed to exhaust sources. New takeTimedCycle outputs all currently staged verified rows up to cycle cap once, then retains window's manual continuation state. A full first 10 is immediate.
+2. A single linkingJob caused the main consumer to repeatedly call pending.next() marking other rows attempted and pending.defer(next) postponing by TWO PASSES whenever the job was busy. With 229–290 leads this can starve strong catalogue candidates. R14 checks the job BEFORE consuming any candidate and yields for a short bounded loop; source producer jobs run independently.
+3. COVER.INFO already has dedicated source lane and early callbacks. MusicBrainz, Apple/iTunes, Spotify, LRCLIB already fan out and Discogs and YouTube have independent workers. Stop SecondHandSongs FIRST-round Turbo calls. Reactivate existing no-key Last.fm lookup as an optional bounded (2500ms) lane; it cannot hold up COVER.INFO. Wikidata currently only has alias metadata, no cover candidates, and cannot block cover result production. Keep source callbacks independent, no extra compulsory provider and preserve audio governor.
+
+PERFORMANCE AND SAFETY
+- Search/crawl source producer continuation NOT cancelled by 7-second UI deadline; no new heavy work on UI, 10+20+20 caps, 50 max, append-only and no fake YouTube IDs.
+- Scudo360 quality r40 plus all JVM, audio and recording contracts; new native cycle tests and JS multi-source wiring tests; signed same-family APK + ZIP with versionCode33087 only if green.
+- Offline deterministic tests prove control flow, not real provider availability or live-device performance. After APK installation, test Il mondo Jimmy Fontana: record total per cycle and diagnostic counters (source candidates, linked video, metadata, admissible) to determine remaining bottleneck.

@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "repo": "Br174/MusicLab",
+  "active_ref": "motorlab/active-musiclab-turbo",
+  "original_verified_sha": "74719885e5ac12dc2fe9f935b840b0146259b8b6",
+  "verified_run": 40905125476,
+  "mode": "android-signed",
+  "application_id": "it.verlezza.musiclab.turbo01",
+  "cert_sha256": "9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749",
+  "scudo_manifest": ".motorlab/scudo360-contracts.json",
+  "scudo_runner": "scripts/scudo360-gate.mjs",
+  "native_workflow": ".github/workflows/musiclab-turbo-r10-empty-packet-apk.yml",
+  "scudo_command": "node scripts/scudo360-gate.mjs"
+}

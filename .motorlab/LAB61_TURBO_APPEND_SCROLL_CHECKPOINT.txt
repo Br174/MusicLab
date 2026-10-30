@@ -1,0 +1,15 @@
+MOTORLAB_OPERATION=MusicLab-Turbo-LAB61-append-scroll
+BRANCH=lab/musiclab-turbo-lab61-append-scroll-20261026
+PARENT_LAB60_SHA=c383e31c3e176fb34f24db76bf12ff207a6e9b11
+LOCAL_MOTORLAB_RELEASE=2026.10.22-r38
+CORE_RELEASE=2026.10.22-r38
+APPROVAL=Preserve LAB60 VIDEO FIRST & Cloud-off, same LAB46 round families and quality; only append-only UI, counters, scroll and source-loop UI performance
+PACKAGE_ID=it.verlezza.musiclab.turbo01
+VERSION_CODE=33063
+SIGNER_EXPECTED_SHA256=9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749
+PROTECTED=LAB60 LAB59 LAB58 MADRE main production native-audio cover-round-family cover-discovery-sources source-cloud code
+CHANGED=DiscogsDirectVersionBrowser.kt, LAB61 regression test, UAB adapter, CI workflow, checkpoint only
+SEARCH_MORE=freeze previously video-verified cards; cumulative published counts; no UI scroll-anchor reset on append; stable fingerprint keys; append indicator; avoid transient catalogue resort while searching
+PRESERVE=CoverRoundSearchPlan.kt unchanged, CoverDiscoverySources.kt unchanged, CoverLab55VisibleCandidates.kt unchanged
+CI=.github/workflows/musiclab-turbo-lab61-append-scroll-apk.yml
+GATE=Node regressions + Android JVM + signed installable APK/ZIP + physical phone validation

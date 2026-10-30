@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "project": "musiclab",
   "motorlabCore": "MOTORLAB_BEHAVIOR_MEMORY_V1.txt",
-  "status": "LAB_ONLY_NOT_RELEASED",
+  "status": "USER_APPROVED_SIX_ROUNDS_CI_VERIFIED_PHONE_PENDING",
   "rules": [
     {
       "id": "musiclab.cover.same-work",
       "owner": "musiclab",
       "scope": "cover",
       "version": 1,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "The same musical composition, not title resemblance alone, is mandatory for admitting a Cover candidate.",
       "acceptance": [
@@ -26,7 +26,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 1,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "First 50 results must preserve the verified LAB45 search, display, ranked audio and UI behavior.",
       "acceptance": [
@@ -43,7 +43,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 1,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "Cerca ancora appends up to 50 NEW recordings each round, keeping all prior rows frozen, order stable, no exact recording or video ID duplicates.",
       "acceptance": [
@@ -78,7 +78,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 1,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "Prefer official/released renditions in initial round, talent/live/semi-official in second, amateurs/instrumental in third, and targeted long-tail in later rounds; admit any valid missed sources in later rounds.",
       "acceptance": [
@@ -113,7 +113,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 1,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "Approval is not evidence score; preserve legacy integer 1..20 plus independently computed 0..100 MusicLab points without calling it statistically calibrated reliability.",
       "acceptance": [
@@ -175,6 +175,1255 @@
         "cloudflare/music-intelligence/test/turbo-lab46-cloud-complete-contract.test.mjs"
       ],
       "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.work-identity-progressive.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Musical-work admission becomes intentionally less strict each manual round: first round requires strong independent matches (three sound evidentiary signals as the working model); second needs two credible matches; third needs one; fourth and later may admit a YouTube result on requested title alone, explicitly accepting possible non-covers. A YouTube video ID/link validity check is separate and NEVER loosened. Strong matches discovered late remain eligible. Do not keep an always-on same-Work gate that silently defeats the later rounds.",
+      "acceptance": [
+        "Round 1 rejects a same-title unrelated 1924 work when seeking a known later work",
+        "Round 2 admits candidate with two available musical identity clues without demanding third",
+        "Round 3 admits candidate with one clue",
+        "Round 4 admits same-title video without documentary authorship/year, without labeling it guaranteed cover",
+        "Audio/video technical validity remains unchanged in every round"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.same-work"
+      ]
+    },
+    {
+      "id": "musiclab.cover.fast-first-fifty.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Each round adds up to 50 genuine NEW YouTube-linked visible results when available, with no need to fill a quota. Publish each verified video thumbnail immediately, one by one, without waiting for a 5/10/25/50-item batch, a global 5/10-second seal, mandatory first-block gate, or other batch threshold. Preserve existing positions, do not rerank displayed rows, and keep player/UI/audio responsive. Do not invent results.",
+      "acceptance": [
+        "First verified thumbnail appears before the remainder of that round has completed",
+        "A second verified thumbnail appends without moving the first",
+        "Empty or slow sources do not block a verified video from another source",
+        "At most 50 new results per round and no false placeholder"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.first-fifty"
+      ]
+    },
+    {
+      "id": "musiclab.cover.manual-round-state.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Only ONE button below the visible results, with two mutually exclusive states: ORANGE 'Completa tornata' while the CURRENT round still has planned searches/pages/verifications that can continue; each press resumes from durable in-session query/page checkpoints under the SAME musical-identity strictness. GREEN 'Cerca ancora' only when the current round's planned work is genuinely exhausted (or its 50-new-video quota reached with no further publication this round), then pressing starts the NEXT less strict round and returns the button to orange. No separate second button, no automatic transition to a lower-precision round, no timeout falsely counted as source exhaustion. Previous thumbnails stay cumulative, immovable, no identical recording/video duplicates.",
+      "acceptance": [
+        "Two states of one button; orange 'Completa tornata' and green 'Cerca ancora'",
+        "Repeating orange continues previously unfinished queries/pages and never resets already completed work",
+        "An empty batch while unfinished keeps orange; timeout does not falsely mark complete",
+        "Green initiates exactly next round with relaxed precision threshold",
+        "Already displayed results stable and duplicates excluded through the session"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.paged-rounds"
+      ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "retired",
+      "protected": true,
+      "behavior": "First round seeks highest-confidence official/released covers, original performer's studio/live/duets, strong documented renditions, and FOREIGN/LANGUAGE-ADAPTED covers from COVER.INFO FROM THE VERY FIRST SEARCH in parallel with YouTube and other useful sources. Exploit existing COVER.INFO YouTube video IDs after technical metadata confirmation rather than rediscovering them. Second round expands to talent, live, acoustic, semi-official; third to independent, amateur, instruments; fourth+ rare/long-tail/title-only. These are preferences, not exclusivity: a strong official match found late is still admitted. Never make SecondHandSongs the main provider. Keep categories Tutto/Studio/Live/Remix/Stranieri without replacing the native categorization system.",
+      "acceptance": [
+        "Foreign COVER.INFO records are considered in round 1, including different-language titles with documentary relation",
+        "Pre-linked COVER.INFO YouTube IDs go through lightweight technical verification and correct YouTube thumbnail",
+        "Round families expand without disabling high-confidence matches",
+        "Fourth round permits title-only candidates",
+        "Native five categories remain usable"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.category-rounds"
+      ]
+    },
+    {
+      "id": "musiclab.cover.visible-confidence-percent.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "retired",
+      "protected": true,
+      "behavior": "All visible ranking/confidence labels on CoverLab cards are a single approximate 0%-100% musical-match precision percentage (e.g. 10%, 70%, 80%, 95%). NEVER display legacy 1..20, 20/20, 10/20, or a raw 0..100 points score as a distinct scale. Percentage is an estimate, NOT a statistical guarantee that the item is a cover; very low precision remains allowed in later rounds. Remove every percentage-based distribution/quota formula between rounds (such as 20% previous, 10% old categories), preserving only the per-card confidence percentage. Legacy numerical fields may remain in archival storage for backward compatibility but cannot override active visible rules.",
+      "acceptance": [
+        "No /20 or /100 point indicators visible on Turbo Cover cards",
+        "Cards show percent signs for estimated match precision only",
+        "Rounds do not enforce percentage-based source/category quotas",
+        "10% candidates are not automatically rejected in later rounds"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.score-separation"
+      ]
+    },
+    {
+      "id": "musiclab.cover.youtube-thumbnail-and-link.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "CoverLab visible results show ONLY each found YouTube video's authentic thumbnail derived from that video's valid video ID and its corresponding already-identified YouTube link. NO discographic record covers, editorial poster fallback, grey/red provisional nonvideo cards, embedded autoplay video inside scrolling wall, or red/green status dots. On tap pass the SAME video ID to the existing native playback path without re-searching which video matches; stream resolution on playback is allowed. Verify YouTube metadata/availability before first publication to the feasible level, but do not claim metadata check guarantees streaming on every device.",
+      "acceptance": [
+        "Every published visible result has a valid YouTube video ID, thumbnail URL and link bound to the same ID",
+        "No catalog-only or poster-first visible path, including Cloud cache/fallbacks and recovered old history",
+        "No red or green status dots in Turbo results",
+        "Tap never searches for a different video ID; native player receives selected ID",
+        "No embedded video surface within the scrolling cards"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.session-lifecycle.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "Same-session results and cursor are cumulative append-only and previous cards never shift, including while showing details and returning; dedupe exact video ID and identical recording within that active CoverLab visit. When user truly leaves CoverLab and later starts a new visit/search, clear round counters/cursors/temporary exclusions and retry state; no permanent user-wide rejection blacklist. Audio keeps precedence and searching must not cause stutter, ANR or playback interruption.",
+      "acceptance": [
+        "Exiting CoverLab then starting a fresh visit resets temporary rounds/exclusions",
+        "Opening details then returning retains active session and scroll position",
+        "No persistence of temporary negative matches as a global exclusion list",
+        "Playback and scrolling remain responsive while discovery runs"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.change-safety-and-preflight.v2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "active",
+      "protected": true,
+      "behavior": "Before ANY future app implementation, read this canonical behavior contract, old version/history and current code, identify old conflicting enforcement routes, and present the specific old->new conflict and exact protected scope to the user for approval. The new approved requirement replaces contradictory rules in the SAME scope only; retain compatible functioning behavior, exact signing/package ID, native player, graphics outside requested button/dot/score changes, LAST_GOOD, main/MADRE/production, and free-only dependencies. Do not assert implemented before device/end-to-end test; static tests and compiled APK alone cannot prove search quality.",
+      "acceptance": [
+        "Pre-change report identifies conflicts and protected components before writing app code",
+        "Negative tests prove poster-first/batch-first/strict-work-after-round3 and old scores no longer run after implementation",
+        "Live sample search verifies quick YouTube thumbnail publication, categories, progressive manual turns and playback",
+        "No protected production/MADRE/player regression"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.work-identity-progressive.v3",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 3,
+      "status": "retired",
+      "protected": true,
+      "behavior": "FOUNDATIONAL immutable title and musical Work identity in ALL rounds. Searching 'Felicità' must match the exact normalized whole musical song title 'Felicità', optionally with non-title recording qualifiers '(Live)', '(Studio)', '(Remix)', 'Official'; never title substring/prefix matches such as a different song 'Felicità puttana', unrelated titles or spurious metadata ('lead journalist'). Reject distinct same-title musical works when evidence disambiguates them. A foreign-language title variation is allowed ONLY with independently documented SAME musical composition (COVER.INFO/MusicBrainz or equally reliable work relation). Technical YouTube ID validity cannot replace correct musical identity. Musical evidence threshold can progressively widen for true same-Work candidate discoveries, but original title identity, disambiguation, proof for translated titles and forbidden content NEVER become optional in late rounds; no title-only arbitrary additions in round 4+.",
+      "acceptance": [
+        "Reject 'Felicità puttana' for 'Felicità' in round 1 through 4+",
+        "Accept title 'Felicità (Live)' only if the recording is the requested musical composition",
+        "Accept translated titles only with reliable same-composition documentary evidence",
+        "Reject same-title unrelated compositions despite verified video IDs",
+        "Permit late legitimate covers without abandoning title/work identity"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.work-identity-progressive.v2"
+      ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v3",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 3,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Keep verified LAB66 YouTube original-video-thumbnail publication and LAB70 source-backed credited lookup. First round actively searches professionally documented high-quality COVER performances BY OTHER SINGERS, popular studio renditions, bona fide original versions and COVER.INFO-backed foreign adaptations; consult relevant MusicBrainz, Discogs, Apple/iTunes, Spotify and YouTube when useful. Do not rely mainly on SecondHandSongs. Subsequent manual rounds widen to talent, artistic live/acoustic, amateur and rare interpreted covers, WITHOUT permitting wrong-title/different-Work results, karaoke/MIDI/backing tracks or duplicates in ANY tier. Artistic credited instrumental reinterpretation is different from karaoke/accompaniment and may qualify only with real performance evidence. No source timeout becomes permanent absence or blacklist. At most 50 genuine unique YouTube video-linked results PER round if available; never invent results; prefer other interpreters once canonical original-artist recordings are represented.",
+      "acceptance": [
+        "Broader genuine high-quality alternate singers in first round",
+        "COVER.INFO documented foreign versions considered already in first round",
+        "Strict title/work and global exclusions remain enforced in later rounds",
+        "Never substitute album-art posters for original verified YouTube thumbnail",
+        "Quantity comes only from proven distinct renditions, not fabricated 50"
+      ],
+      "testPaths": [],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v2"
+      ]
+    },
+    {
+      "id": "musiclab.cover.global-karaoke-midi-exclusion.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "PERMANENT GLOBAL CoverLab veto: NO karaoke, MIDI file or MIDI-generated song, minus-one track, karaoke instrumental base, backing/accompaniment track, sing-along accompaniment, video tutorial/exercise masquerading as a cover. Apply to first/best-quality and every lower-precision round, all categories, direct and documentary providers, Cloud/cache and prior-round results, regardless of title match, uploader or video ID. A different upload of the SAME forbidden performance stays forbidden. Avoid falsely rejecting a genuinely performed and credited artistic instrumental arrangement solely because it lacks sung vocals; this is distinct from a backing track. Reject the offending recording, not the entire song or artist.",
+      "acceptance": [
+        "No karaoke/MIDI/backing-track publication in ANY round or quality tier",
+        "Reuploads under other video IDs remain vetoed",
+        "Keep bona fide performed artistic instrumental versions distinct from karaoke",
+        "No wholesale permanent blacklist of song or artist"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.original-performer-version-caps.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "During an active CoverLab visit, for the ORIGINAL interpreter of one song retain at most 1 canonical studio recording, up to 2 GENUINELY DISTINCT live performances, up to 2 GENUINELY DISTINCT remixes, and only a small number of verifiable DISTINCT duets/collaborations (no invented numeric hard cap for duets). Same performance republished as official, lyric, remastered, shortened, compilation or other-channel upload is ONE recording, never extra posters. Caps apply across every search round and source, while existing poster positions never shift. DO NOT impose the same narrow limits on cover versions sung by DIFFERENT artists.",
+      "acceptance": [
+        "At most one original-studio, two different original-live, two different original-remix results",
+        "Ten reuploads of one live performance produce only one poster",
+        "Allow a small number of real independently recorded original-artist duets",
+        "Do not cap distinct other artists' true live covers as if original singer",
+        "Previously published session poster positions remain frozen"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.cross-upload-recording-dedupe.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Deduplicate identical YouTube video ID and identical audio/performance/recording across multiple IDs, providers, channels, reuploads, cover images, titles and prior manual search rounds. A new genuinely different studio take, live concert recording, authentic remix, duet or other artist's version may appear, subject only to original-performer caps. Do not collapse distinct actual singers or independent cover performances; do not hide existing rows or reshuffle published results. A fresh CoverLab visit clears session-level exclusion as in session-lifecycle.v2.",
+      "acceptance": [
+        "Same recording with different video IDs is ONE result across rounds",
+        "Different live takes and other artist's genuine performances remain eligible",
+        "No previously displayed cards disappear or change order",
+        "On CoverLab exit and new visit temporary blacklist resets"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.best-covers-other-artists-breadth.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "In the BEST/MOST FAITHFUL covers section, increase genuine, technically verified, documentary-supported versions by OTHER singers, in particular professional/famous/foreign performances found in the FIRST round, not repeated originals. Avoid rejecting legitimate performers solely because channel names lack 'official' or another magic word when other reliable musical evidence exists. Stay strict on identity, forbidden karaoke/MIDI, deduplication and video thumbnail ID; widen admissible artist/source coverage instead. Up to 50 NEW real different versions per round when discoverable, not an artificial fill guarantee.",
+      "acceptance": [
+        "First round meaningfully retrieves genuine versions by other singers",
+        "Professionally documented foreign adaptations eligible first round",
+        "No original-upload flooding, irrelevant filler, karaoke or wrong song",
+        "Preserve source-backed video links, thumbnails and player stability"
+      ],
+      "testPaths": [],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v4",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 4,
+      "status": "retired",
+      "protected": true,
+      "behavior": "FOUNDATIONAL user-approved DISCOSGRAPHIC-FIRST round ordering. Round ONE only includes recordings actually published as a track on a named official album, single, EP, compilation or officially released live album; no exception merely for X Factor, The Voice, Sanremo or YouTube 'official' labels. Published TV-talent recordings qualify when THEIR particular performance has independent discographic release proof. First round includes original singer (respecting 1 studio/2 distinct live/2 distinct remix caps), documented covers by known and other artists, and COVER.INFO foreign-language Work adaptations EARLY IN THE VISIBLE ORDER when corroborated by actual release records. A COVER.INFO same-work relationship proves composition only, NEVER automatically a discographic recording. Apple/iTunes catalog track+collection identifiers and track URL; Spotify authentic track ID and album; Discogs actual release tracklist with recording artist provide eligible evidence. A generic title, search summary, year, YouTube Topic/VEVO/official badge and publication claim alone DO NOT constitute release proof. Corroborate performer, musical title/translated Work, performance category (studio/live/remix) and source video ID; never claim famousness without independent evidence or use unverifiable celebrity rankings. Search Discogs verified release details and other singers, not only first 15 results nor only the original. Round TWO contains non-discographically verified professionally filmed TV, Sanremo, X Factor, The Voice, radio sessions and officially produced concert live performances. Round THREE and later progressively include independent and amateur cover performances. Never discard a rejected first-round candidate permanently; keep subsequent rounds available, no duplicates across session. Every round retains immutable title/same-work identity, global karaoke/MIDI/backing track veto, verified YouTube thumbnail video, audio priority, speed, 50 true new rendition ceiling, no invented fillers. Changing first-round source priority cannot demote verified COVER.INFO foreign performances to later rounds.",
+      "acceptance": [
+        "Round 1: reject any unknown/unverified discographic recording even if titled official, live, TOPIC or X Factor",
+        "Round 1: accept original plus credited other singers only after actual independent released track matches artist/title and video",
+        "Round 1: officially published live-album recording accepted, unreleased audience-recorded live rejected",
+        "Round 1: published talent competition compilation recording accepted; unreleased talent TV clip deferred to round 2",
+        "Round 1: COVER.INFO authenticated foreign Work adaptations appear ahead of later general results only when a release of their specific recording is evidenced",
+        "Round 2: Sanremo and professionally filmed TV/radio/live without documented album can appear",
+        "Round 3+: amateur videos remain discoverable, never bypass title/karaoke/MIDI/dedupe veto",
+        "Discogs: verified tracklist from other singers, not summaries or original-only first page",
+        "No audio/UI/signature/main/MADRE/production changes, phone test remains required"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab72PublicationProofTest.kt",
+        "cloudflare/music-intelligence/test/turbo-lab72-discographic-first-round.test.mjs"
+      ],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v3"
+      ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v5",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 5,
+      "status": "retired",
+      "protected": true,
+      "behavior": "USER-APPROVED ROOT-CAUSE CORRECTION. MusicLab Turbo LAB73 must restore LAB71's verified VIDEO-FIRST, ASYNCHRONOUS, APPEND-ONLY publication in ALL cover rounds, exactly preserving the base first/second/third/fourth+ admission thresholds (including legal covers, no new required release proof, no additional professional-only veto, no batch staging or suppression). DISCOVERY IS ADDITIVE: expand YouTube/YouTube Music queries for famous singers, cover albums, discs, released studio recordings, talent TV and foreign adaptations in all tiers; expand Discogs optional release tracklist query depth, allow other artists, increase verified video attempts; COVER.INFO early foreign leads remain first-class. Catalog albums or official discs provide POSITIVE evidence/ranking, never a necessary condition for a result already satisfying LAB71 gates. Keep immutable title/Work, no karaoke/MIDI/backing tracks, original-performer 1 studio 2 distinct live 2 remix, no same performance duplicates and independent video IDs and audio priority. A missing/disconnected Discogs token must not block other providers and must be shown as a source diagnostic rather than no-cover proof. After an empty source search, continue additional query keys and rounds without discarding them or imposing new category veto. Do not implement LAB72's mandatory isReleaseProof, professionalUnreleased, firstRoundVideos queue, flushFirstRound or withDocumentedRelease as gates. LAB72 APK is known BAD for coverage; preserve LAB71 as LAST_GOOD functional publication baseline. LAB73 is isolated LAB and needs Android tests, original-signer APK+ZIP verification and user device testing.",
+      "acceptance": [
+        "LAB73 starts from LAB71 exact publication logic; LAB72 mandatory discography gate and professional-only second-round gate absent",
+        "Round 1 remains rich in real cover videos, original singer, famous artists and COVER.INFO foreign versions using existing LAB71 identity policy",
+        "Rounds 2 and 3 and subsequent rounds retain unchanged LAB71 admission; no new automatic suppression",
+        "Discogs optional discovery looks beyond 15 first-page candidates/2 original artist videos, includes other credited singers where documented",
+        "More first, second and third round search queries without slowing player or requiring paid source credentials",
+        "Without Discogs credential, other sources still publish and Discogs is reported unavailable",
+        "Never admit karaoke, MIDI, wrong musical work, or repeated recordings",
+        "APK must update LAB72 with versionCode >33074 and same package/signing hash"
+      ],
+      "testPaths": [
+        "cloudflare/music-intelligence/test/turbo-lab73-additive-restore.test.mjs"
+      ],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v4",
+        "musiclab.cover.source-and-category-rounds.v3"
+      ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v7",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 7,
+      "status": "retired",
+      "protected": true,
+      "behavior": "USER-CONFIRMED RECOVERY: LAB73 was NOT functionally identical to LAB71 (additional query keys and altered Discogs candidate counts/attempts changed progressive behavior). LAB74 positive-scoring experiment FAILED static CI and is NOT verified and NOT to be promoted. Latest reproducible exact LAB71 application source is commit 664d176054d35728032dda31e3d05a1ff406ab4b; LAB75 versionCode 33077 commit 38b5dd5daf81409c8ac5e6bb1ae25c297fc5cf7c copied all app/src/main and app/src/test files EXACTLY from that commit. Its CI run 40439385148 succeeded including bit-identical application-source diff gate, static and JVM tests, signed APK, v2 certificate validation, ZIP integrity and artifact publication. USER DEVICE SEARCH BEHAVIOR FOR LAB75 IS STILL PENDING. Treat LAB71 exact CoverLab work search, cursor, round transitions, progressive loosening, immediate poster publication, source availability diagnostics and existing acceptance rules as LAST_GOOD; do not modify or de-prioritize them without a separate side-by-side regression check and user-authorized scope. User wants MORE cover discovery and positive priority for documented original studio discs/recordings, well-known singers and COVER.INFO foreign adaptations, NEVER blocking or narrowing by discographic evidence. This future ranking/discovery enhancement is DEFERRED until the exact LAB71 behavior of LAB75 is validated ON DEVICE. Do not add new gating, batch queues, mandatory release proof, optional-source hard dependency, restrictive category constraints or arbitrary per-round ceilings. Preserve already approved title/same-work identity, global karaoke/MIDI/backing track ban, cross-ID duplicate guard and original-singer 1 studio/2 distinct live/2 distinct remix caps. Main, MADRE, production, player and Android signer/ID stay protected. A LAB75 successful build does NOT independently prove that YouTube results are now numerous or matching on device.",
+      "acceptance": [
+        "LAB75 exact app/src/main and app/src/test tree matched LAB71 664d176054d35728032dda31e3d05a1ff406ab4b",
+        "LAB75 workflow 40439385148 passed static checks, Android JVM suite, signed same-family APK/ZIP and integrity checks",
+        "Fresh CoverLab entry on device after LAB75 installation must restore LAB71 behavior for rounds 1, 2, 3, 7+; do not assert this verified before user test",
+        "Any future Discogs expansion, studio priority or alternate-artist search must add evidence and positive ordering, not ban candidates and not lengthen round progression unintentionally",
+        "COVER.INFO documented foreign Work variants stay eligible early; non-discographical versions are never rejected for missing discography",
+        "No karaoke/MIDI/wrong-title/double-upload exceptions; no additional hard barriers",
+        "Only after user-confirmed functional restoration consider isolated future positive-priority LAB with side-by-side baseline test"
+      ],
+      "testPaths": [
+        "https://github.com/Br174/MusicLab/actions/runs/40439385148"
+      ],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v5"
+      ]
+    },
+    {
+      "id": "musiclab.cover.source-and-category-rounds.v8",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 8,
+      "status": "retired",
+      "protected": true,
+      "behavior": "LAB76 USER APPROVED: keep source-identical LAB75/LAB71 first-round immediate-video publisher baseline and augment later rounds without restricting other performer sources. Round 2 favor Italian and international talent TV X Factor, The Voice, Sanremo, Eurovision, Amici, famous other singers and professionally filmed stadium/live/remix; round 3 favor cover bands, guitar/instrumental REAL performances, emerging artists, foreign artists and concerts; round 4+ rotate wide English/Italian search keys and allow exact FULL requested song title as sole positive musical admission evidence, with permitted version descriptor tokens such as live, concert, stadium, guitar, cover band, instrumental, remix, TV and date. No artist name/record album confirmation required in broad round 4+. ONLY documented FOREIGN adaptations of the same musical Work from COVER.INFO or MusicBrainz may have a nonmatching song title, and their linked video must match the documented translated title. All other songs must retain exact/decorated FULL song title, never lexical continuation (Felicità vs Felicità puttana, Soli vs Soli e non soli). Retain user-approved global karaoke, MIDI, backing track exclusion, same-performance cross-upload duplicate veto, original singer 1 studio, at most 2 distinct live and 2 remix limits; no extra source/category hard gates. Button-invoked manual searches (both Completa tornata and Cerca ancora) get +3000 milliseconds in total divided over their up-to-two query requests; initial search budget unchanged. On FIRST completed query step returning ZERO new admitted videos in a round, immediately mark roundPlanComplete and color existing Completa tornata button green, letting next tap advance to wider following round. Preserve published poster identity, order, memory and audio priority across rounds, and keep broad manual rounds without an arbitrary fixed termination horizon. The button can continue new searches indefinitely, but cannot guarantee a new cover exists or fabricate repeats. Preserve signed Android family, main/MADRE/production and player.",
+      "acceptance": [
+        "Round 1 remains LAB75 first-round acceptance and original ordering untouched",
+        "Round 2 has extra specific Sanremo/X Factor/The Voice/Eurovision and famous singer query keys, no category-only rejection",
+        "Round 3 searches band, stadium, guitar/instrumental, international and live independently without veto",
+        "Round 4+ accepts exact full song name decorated with English or Italian performance terms; does not require artist/source proof",
+        "Only documented foreign-language same-Work cover may have a different musical title; ordinary wrong-title video remains banned",
+        "Completa tornata becomes green after first round search step with zero NEW cover thumbnails, regardless of untried keyword count; next press advances",
+        "Both manual search button actions allow +3000ms total across up-to-two query keys; initial automatic search remains unchanged",
+        "No duplicate recordings, karaoke, MIDI, backing tracks or player slowdown; show only actual YouTube images and IDs",
+        "After technical tests, on-device proof is required; no invented guarantee of finding a song when none exists"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab76ProgressiveRoundTest.kt",
+        "cloudflare/music-intelligence/test/turbo-lab76-progressive-buttons.test.mjs"
+      ],
+      "supersedes": [
+        "musiclab.cover.source-and-category-rounds.v7"
+      ]
+    },
+    {
+      "id": "musiclab.cover.priority-and-exceptions.r2",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 2,
+      "status": "retired",
+      "protected": true,
+      "behavior": "R2 latest user authority: preserve every admissible candidate. Exclude MIDI, karaoke, KAR, confirmed identical recordings and original performer version six onward. Original max five distinct TOTAL across sources/rounds, including studio and genuine duet/group participation. Identity evidence orders work, never vetoes weaker candidates. First round prefers releases, originals, credited/famous performers/versions and foreign adaptations; second continues important performers, TV, talent, concerts, clips, remix, mashup, AI; third rarities/instrumentals/guitar/cover bands; later broad. Every reachable COVER.INFO contribution is first-round work through resumable pages. Uncertain second recording twin waits behind all ordinary executable searches/verifications, then remains visible if unproven. Presentation scheduling is superseded by musiclab.cover.staged25.presentation.r3:50 shown per logical round,25 per block; never a destructive discovery cutoff. Original reference requires explicit documentary attribution; selected cover singer is not automatically original. Available chart/collector facts rank notoriety without invented fame; evidence percentage is an index, not calibrated probability or audio quality. One orange/green button, native actual video thumbnails, stable published order and playback priority remain.",
+      "acceptance": [
+        "All R2 admission, cap, history, priority, candidate-retention, documentary/video cursor and original-reference tests pass",
+        "No fuzzy recording merge in Turbo publication/storage",
+        "Unprocessed work is retained after bounded pass; no 48-video/four-lead truncation",
+        "Package, signer, protected player and native video method unchanged"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77AdmissionR2Test.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77PriorityQueueTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77ResumeAndHistoryTest.kt"
+      ],
+      "supersedes": [
+        "musiclab.cover.fast-first-fifty.v2",
+        "musiclab.cover.manual-round-state.v2",
+        "musiclab.cover.visible-confidence-percent.v2",
+        "musiclab.cover.work-identity-progressive.v3",
+        "musiclab.cover.global-karaoke-midi-exclusion.v1",
+        "musiclab.cover.original-performer-version-caps.v1",
+        "musiclab.cover.cross-upload-recording-dedupe.v1",
+        "musiclab.cover.best-covers-other-artists-breadth.v1",
+        "musiclab.cover.source-and-category-rounds.v8"
+      ],
+      "supersededAspects": [
+        "presentation block size and logical-round display boundary only; admission, ranking and source coverage remain R2"
+      ]
+    },
+    {
+      "id": "musiclab.cover.staged25.presentation.r3",
+      "owner": "musiclab",
+      "scope": "cover-presentation",
+      "version": 3,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Bruno-approved LAB78: retain delivered LAB77 source, identity, admission and ranking algorithms. Native queue automatically prepares verified rows. First five stream without waiting for a full block, initial visible group grows to25; next group max25 is hidden until orange reveal with exact ready count. Same criteria for both blocks,50 shown per logical round. Exhausted smaller groups reveal exact available count; zero ready or timed-out/failed work is not exhaustion. Green after50 shown or completed search with no hidden rows; begin next-round first25 preparation while current round stays visible. Preserve every overflow candidate/cursor and existing published order. Audio/startup/buffering and scroll take precedence; no unselected audio stream prewarm. Changes only preparation/publication/button states; no new providers, quality filters or fame/score changes.",
+      "acceptance": [
+        "25+25 retains round1 and yields green only after display",
+        "First5 progressive, no ten/25 gate",
+        "Partially prepared buffer/network failures never imply exhausted",
+        "One reveal appends exactly promised count",
+        "Next round hidden until green, buffers and cursors retained in session",
+        "Source/admission/ranking byte-invariance guards and full native JVM suite pass"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PresentationTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78SourceProgressTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PreparationPolicyTest.kt"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.preparation-progress.r4",
+      "owner": "musiclab",
+      "scope": "cover-preparation",
+      "version": 4,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Bruno-approved LAB79 correction only: individual video lookup budgets within the existing20-second pass replace the shared4.4-second window. Failed sources cool independently and retry automatically with every cursor/candidate retained; ready work continues. A prepared group smaller than25 becomes available after12seconds, with exact orange count in the same50-result round. A source failure never means exhausted or green. Status distinguishes retry from audio pause. Preserve all LAB78 search queries, work/title admission, priority, recording identity, source parsing/scoring, poster layout, manual controls, player and audio/scroll guards.",
+      "acceptance": [
+        "A second lookup after4.5seconds still receives its bounded request budget",
+        "Eight verified prepared cards become revealable while a source is unavailable, without advancing the round",
+        "Failed source cooldown preserves documentary pages and lets successful cached lanes emit",
+        "50 total per round,25 maximum per reveal, no empty enabled orange and no green on failure",
+        "Byte-level scope guard preserves all unrelated result and UI/player code"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79PreparationProgressTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab79DocumentarySourcesTest.kt"
+      ],
+      "supersedes": []
+    },
+    {
+      "id": "musiclab.cover.six-rounds.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Canonical approved desired behavior: .motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt. Six objectives: official/famous/foreign; TV/talent/live/remix/mashup/AI; amateur/independent/bands; instruments/genres; mixed recovery; final autonomous title plus optional descriptors. Prefer genuine recorded/published renditions in ALL objectives, never admission gates. Atomic10+20+20 and final reduced packet; retain overflow/slow work. Final pagination continues without replaying completed roots and requires actual exhaustion, not three requests or a single empty page. Confirmed duplicates excluded globally; uncertain twins deferred until distinct. Preserve same-work language rules, max5 original renditions, documented original attribution, authentic thumbnails, stable published order and player precedence. Source implementation pending CI and device verification.",
+      "acceptance": [
+        "Six objectives keep all existing descriptors and first-round queries",
+        "Released preference never removes candidates, including final objective",
+        "Plain title continuation survives empty descriptor pages; no false terminal on pending or failure",
+        "Atomic packets, reduced remainder, overflow and six visible objectives",
+        "Uncertain twin publication cannot bypass native identity check; confirmed duplicates never enter",
+        "Documentary original attribution, work admission, source parsers, player and cards preserved"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81SixRoundTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81FinalContinuationTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77PriorityQueueTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab80RoundClosureTest.kt"
+      ],
+      "supersedes": [
+        "musiclab.cover.priority-and-exceptions.r2",
+        "musiclab.cover.staged25.presentation.r3",
+        "musiclab.cover.preparation-progress.r4"
+      ]
+    },
+    {
+      "id": "musiclab.cover.round-evidence-allocation.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "retired",
+      "protected": true,
+      "behavior": "Latest explicit Bruno clarification: evidence allocates visibility ACROSS rounds, not merely within one packet. Total required evidence INCLUDING TITLE: [3,2,2,2,2,1]. First needs title+2 further evidences; rounds2-5 title+1; sixth title only. Every cycle10+20+20 in the same round has identical requirements. Insufficient evidence defers a candidate to a compatible later round; never discards it globally. Strong late arrivals may appear later when ready. Title-only queries are reserved for round6. The direct YouTube VIDEO path in round6 is autonomous, without new documentary-service searches or waiting for their completion; optional descriptor queries never constrain plain title. Retain the full six category objectives, release preference, COVER.INFO trusted work relationships, language/recording identity rules, duplicate/original caps, packets, fluidity and player. Ignore the explicitly withdrawn immediately preceding stricter sixth-round message. Bruno subsequently approved flexible distinct documented corroborations of any pertinent kind, without a mandatory combination or three-site requirement. Existing COVER.INFO facts remain trusted without redundant proof or fabricated counts. Original identification is separate: use a verified original when available, otherwise continue with available selected-version information; do not make finding the original a new gate.",
+      "supplements": [
+        "musiclab.cover.six-rounds.v1"
+      ],
+      "supersedes": [],
+      "acceptance": [
+        "First total3 including title; rounds2-5 total2 including title; final total1 title",
+        "Same threshold in every cycle of a round",
+        "Deferred results and stronger late arrivals retained for compatible later publication",
+        "No standalone title query before round6",
+        "Round6 direct video pagination independent of documentary providers",
+        "COVER.INFO relationship remains trusted without redundant checks",
+        "Withdrawn message is not a new requirement",
+        "Metadata-only save does not certify or modify app runtime"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83EvidenceAllocationTest.kt",
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83PendingFinalTest.kt"
+      ],
+      "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+      "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+      "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
+      "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+      "deviceVerified": false,
+      "supersededBy": "musiclab.cover.quality-progressive.r17"
+    },
+    {
+      "id": "musiclab.cover.original-resolution-assistance.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "When starting from a cover whose original is not already known, always ATTEMPT original identification in background without blocking search/cards/player. Original means the performer of the FIRST PUBLISHED VERSION of the same song. Start from the selected published recording; use available metadata and documented links across multiple sources, not COVER.INFO alone. AI can propose a candidate if links/data are insufficient; its answer alone is not evidence. Verify that the candidate is linked to the same work and is the first published version through documented corroboration; ONE reliable explicit corroboration can suffice. Identifying only the work or finding the earliest item in an incomplete catalog does not automatically prove the first published performer. An equal title alone is only a clue because of homonyms. A reverse lookup from proposed original to the starting cover may strengthen confirmation but is not an obligatory second check. If original identification fails, remains uncertain or is slow, continue with available selected-version information, retaining results/candidates and allowing background enrichment. Never label the selected cover singer or the AI hypothesis as confirmed original without verification. Verified original context improves finding/recognizing other covers; its absence is never a new admission condition. Evidence of any pertinent distinct documented kind is allowed without a rigid mandatory combination. All saved round evidence totals/cycle requirements/categories/retention/COVER.INFO/identity/dedup/player protections remain unchanged.",
+      "supplements": [
+        "musiclab.cover.round-evidence-allocation.v1",
+        "musiclab.cover.six-rounds.v1"
+      ],
+      "supersedes": [],
+      "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt#section-18",
+      "acceptance": [
+        "Starting-cover original identification always attempted when not already known, without waiting before results",
+        "AI hypothesis alone never confirms original or creates evidence",
+        "One documented same-work corroboration may confirm the proposed original",
+        "Same-title coincidence alone does not confirm the relation",
+        "Reverse original-to-cover verification optional, never a second mandatory condition",
+        "Unknown, failed, unavailable or slow original enrichment does not block ordinary search",
+        "No automatic original attribution to selected cover performer",
+        "Saved round totals and distinct evidence counts unchanged"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83OriginalResolutionTest.kt"
+      ],
+      "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+      "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+      "deviceVerified": false
+    },
+    {
+      "id": "musiclab.cover.original-first-publication.multisource.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Original identification seeks the performer of the FIRST PUBLISHED VERSION of the same song, not automatically its writer/composer or earliest item returned. Input is a published recorded track online, potentially a cover. COVER.INFO is useful but never the sole mandatory archive: use available MusicBrainz work/recording links, Discogs release/track credits, other existing music catalogs and relevant official documentary sources as complementary paths. Missing catalog entry or source timeout never means no original or no covers. Prefer available documented links and reuse known reference data; metadata/credits identify the work, first-publication evidence identifies the performer. Earliest-found date remains a candidate unless supported; distinguish recording first publication from reissue, upload or platform date. AI is support for unresolved leads with independent verification, never sole proof. A single reliable documented first-publication link may suffice; reverse verification remains optional. Always attempt when relevant without blocking results, title queries, audio or scrolling. No documentary restart/dependency in final round. All prior round evidence totals/categories/retention/identity/COVER.INFO trust and player protections preserved.",
+      "supplements": [
+        "musiclab.cover.original-resolution-assistance.v1"
+      ],
+      "supersedes": [],
+      "specPath": ".motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt",
+      "acceptance": [
+        "Original target is first published version performer, distinguished from writer",
+        "Input published recording identified without assuming complete metadata",
+        "Missing COVER.INFO entry does not prevent alternative source lookup",
+        "One adequate documented relation can suffice; no mandatory source consensus",
+        "Credit/work match alone does not automatically identify first published performer",
+        "Earliest-found date is not automatically absolute first release",
+        "AI proposal verified; reverse lookup optional",
+        "Unknown original or source timeout does not block ordinary cover results",
+        "Final YouTube video round has no new documentary dependency"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83OriginalResolutionTest.kt"
+      ],
+      "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+      "operationalDesignStatus": "PROPOSED_PROVIDER_ORGANIZATION_SAVED_FOR_REVIEW",
+      "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+      "deviceVerified": false
+    },
+    {
+      "id": "musiclab.cover.ornamental-percent.v1",
+      "owner": "musiclab",
+      "scope": "cover",
+      "version": 1,
+      "status": "active",
+      "protected": true,
+      "behavior": "Latest explicit Bruno clarification: displayed percentages and all legacy scores are ornamental curiosity only. They NEVER influence admission, minimum round, order, priority, metadata enrichment, retry allowance or packet selection. Actual distinct corroborations allocate 3/2/2/2/2/1 including title; compatible released-version and documented preferences remain. Preserve visible percentage labels and archival numerical fields without behavioral authority.",
+      "acceptance": [
+        "Changing only percentage/legacy score cannot change eligibility, round, order, metadata facts or packet membership"
+      ],
+      "testPaths": [
+        "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab83EvidenceAllocationTest.kt"
+      ],
+      "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+      "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+      "deviceVerified": false
+    },
+    {
+      "id": "musiclab.cover.quality-progressive.r17",
+      "status": "active",
+      "authority": "Bruno approval 2026-10-30",
+      "summary": "No numeric evidence thresholds for admission, quality only determines order; preserve exact Italian title, documented foreign adaptations, karaoke/MIDI/KAR exclusion, deduplication, original caps, 10+20+20, same family signing and player."
     }
-  ]
+  ],
+  "canonicalBehaviorRevision": "r17-quality-progressive",
+  "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
+  "conflictDispositions": [
+    {
+      "oldRule": "musiclab.cover.same-work",
+      "disposition": "SUPERSEDED_BY_NEWER_USER_FOUNDATION",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.first-fifty",
+      "disposition": "RETIRED_IN_CONTRACT",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.paged-rounds",
+      "disposition": "RETIRED_IN_CONTRACT",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.category-rounds",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.score-separation",
+      "disposition": "RETIRED_IN_CONTRACT",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_NEXT_AUTHORIZED_LAB",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.work-identity-progressive.v2",
+      "disposition": "RETIRED_IN_FOUNDATIONAL_MEMORY_CONTRACT",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v2",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "appEnforcement": "PENDING_USER_APPROVAL_LAB71",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v3",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
+      "appEnforcement": "PENDING_BUILD_AND_DEVICE_VERIFICATION",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v4",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
+      "appEnforcement": "RESTORE_LAB71_BASE_IN_LAB73",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v5",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "USER_APPROVED_LAB76_PROGRESSIVE_SEARCH",
+      "appEnforcement": "LAB75_CI_VERIFIED_DEVICE_PENDING",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v7",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "USER_APPROVED_FOLLOWUP_LAB76",
+      "appEnforcement": "LAB76_PENDING_CI_DEVICE",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.fast-first-fifty.v2",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.manual-round-state.v2",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.visible-confidence-percent.v2",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.work-identity-progressive.v3",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.global-karaoke-midi-exclusion.v1",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.original-performer-version-caps.v1",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.cross-upload-recording-dedupe.v1",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.best-covers-other-artists-breadth.v1",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.source-and-category-rounds.v8",
+      "disposition": "retired by latest user correction R2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "intermediateReplacementRule": "musiclab.cover.priority-and-exceptions.r2"
+    },
+    {
+      "oldRule": "musiclab.cover.priority-and-exceptions.r2",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
+      "appEnforcement": "CI_VERIFIED_PHONE_PENDING"
+    },
+    {
+      "oldRule": "musiclab.cover.staged25.presentation.r3",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
+      "appEnforcement": "CI_VERIFIED_PHONE_PENDING"
+    },
+    {
+      "oldRule": "musiclab.cover.preparation-progress.r4",
+      "replacementRule": "musiclab.cover.six-rounds.v1",
+      "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
+      "appEnforcement": "CI_VERIFIED_PHONE_PENDING"
+    },
+    {
+      "oldRule": "musiclab.cover.round-evidence-allocation.v1",
+      "replacementRule": "musiclab.cover.quality-progressive.r17",
+      "disposition": "CONFLICT_REPLACED",
+      "appEnforcement": "LAB_R17_NATIVE_AND_SCUDO_PENDING"
+    }
+  ],
+  "confirmedGoodBaseline": {
+    "label": "MusicLab Turbo LAB66 video thumbnails, direct YouTube search, orange/green manual rounds",
+    "commit": "26f652fd34cbf6856d76c6efc8baf3fd14bf333f",
+    "ref": "lab/musiclab-turbo-lab66-youtube-streaming-20261026",
+    "workflow": "https://github.com/Br174/MusicLab/actions/runs/40372637689",
+    "build": "SIGNED_APK_ZIP_GREEN_17_OF_17",
+    "evidence": "On 2026-10-26 user installed/tested and explicitly confirmed: finally system works and actual original YouTube thumbnails and results appear.",
+    "protectedBehavior": [
+      "Use existing LAB66 direct YouTube video -> check actual YouTube ID/metadata -> show immediately matching original thumbnail and link.",
+      "Do not replace thumbnail stream with album posters, catalogue metadata-only cards, green/red status dots, embedded video in scrolling list, or wait for batches.",
+      "Append results one by one without moving already displayed positions and keep the single orange 'Completa tornata' and green 'Cerca ancora' semantics.",
+      "Keep manual progressive precision rounds, percentage-estimate labels, original category filters, YouTube playback binding, and Cloud/Archive switches.",
+      "Preserve exact LAB66 known-good source path in isolation; selective small fixes only, never rewrite working pathway for unrelated changes."
+    ],
+    "deviceVerifiedScope": "Visible search outputs and method functioning, NOT certified high-confidence coverage, end-of-round transition, dedup or full audio/scroller smoothness."
+  },
+  "pendingUserAuthorizedRefinements": [
+    {
+      "key": "round1_providers",
+      "symptom": "Il mondo / Jimmy Fontana: only one COVER.INFO item and one original; known many foreign versions at COVER.INFO; YouTube weaker covers appear first",
+      "intent": "Keep direct YouTube result stream, restore broad immediate first-round COVER.INFO and MusicBrainz/Discogs documentary professional studio originals, well-known and foreign adaptations; publish every verified original YouTube thumbnail as received, without poster fallback, more than one known version"
+    },
+    {
+      "key": "orange_to_green",
+      "symptom": "After repeatedly finishing without new finds orange never becomes green",
+      "intent": "Track actual query completion, retry/timeouts and source exhaustion; transition green after planned sources exhausted or a small bounded number of no-new-result attempts, never infinite orange; green moves to next precision round"
+    },
+    {
+      "key": "duplicates",
+      "symptom": "Several repeated identical performances/videos",
+      "intent": "Dedupe video ID, same recording across different videos/uploads and true identical twin recordings without rejecting genuinely different live/studio versions"
+    },
+    {
+      "key": "performance_audio",
+      "symptom": "Mild stutters, music occasionally interrupts, thumbnails scroll less smoothly especially during loading",
+      "intent": "Move I/O and expensive matching off main; pause/reduce background work when audio needs resources; keep list stable and smooth while streaming"
+    }
+  ],
+  "implementationPolicy": "LAB66 is confirmed user-visible LAST_GOOD for thumbnail production. Future LAB67 changes must be strictly selective, non-destructive, with source-diff and regression guard. Save memory before modifying app. Approval for 4 refinements is user-granted; don't alter existing good method.",
+  "memoryUpdatedAt": "2026-10-29",
+  "knownBadRegressions": [
+    {
+      "id": "LAB67_WRONG_THREAD_AND_STALE_SOURCE_DIAG",
+      "sourceCommit": "ec316ae4243192b02de5574b08bfaa1598ec626b",
+      "observedOnDevice": "2026-10-26",
+      "symptoms": [
+        "java.lang.IllegalStateException: Player is accessed on wrong thread; current DefaultDispatcher-worker-2, expected main",
+        "Old LAB56 provisional covers source dialog while seven YouTube thumbnails are shown",
+        "Weak first-round cover quality, unattributed original artist uploads",
+        "No Discogs query in active Turbo LAB67 path"
+      ],
+      "rootCause": "Playback-priority checks executed from Dispatchers.IO onSourceCompleted and network fan-out; stale LAB56 diagnostics; Discogs not wired into Turbo LAB67 direct branch; first round trusted video title performer text instead of original channel.",
+      "goldenReference": "LAB66_USER_DEVICE_VERIFIED_GOOD_SEARCH_BASELINE",
+      "patchCandidate": {
+        "branch": "lab/musiclab-turbo-lab68-main-thread-sources-20261026",
+        "commit": "192c99150b78318bc4a72901b51c6b0f02b3cdbc",
+        "githubActions": "https://github.com/Br174/MusicLab/actions/runs/40387604610",
+        "ci": "17/17 passed, APK signed; physical device quality/stability not yet verified"
+      },
+      "guard": "Never mark LAB67 as device-verified good or silently promote LAB68 over LAB66 before explicit user device confirmation."
+    }
+  ],
+  "foundationsApprovedAt": "2026-10-27",
+  "foundationsImplementationState": "LAB77_R2_IMPLEMENTED_PENDING_CI_AND_PHONE",
+  "foundationsNextStep": "Run native Android suite, isolated LAB77 same-family signed APK/ZIP, physical phone verification; do not promote LAST_GOOD.",
+  "pendingFoundationalImplementation": [
+    "LAB77 full native JVM regressions and signed APK/ZIP",
+    "Physical phone quality, timing and audio verification pending"
+  ],
+  "staged25Implementation": {
+    "state": "REVIEW_FIXES_VERIFIED_LOCAL_FINAL_NATIVE_GATE_PENDING",
+    "base": "cf8ed8fd9dab4a59ab1c7f22795f3962369b7fda",
+    "branch": "lab/musiclab-turbo-lab78-staged25-20261027",
+    "userAuthorized": true,
+    "scope": "presentation/background scheduling only; results unchanged"
+  },
+  "preparationProgressImplementation": {
+    "state": "SOURCE_IMPLEMENTED_PENDING_ANDROID_AND_PHONE",
+    "base": "b30334651ec0a304f9291a3fa0ba3770096299a2",
+    "branch": "lab/musiclab-turbo-lab79-preparation-progress-20261028",
+    "userAuthorized": true,
+    "scope": "preparation budgets, independent failed-source cooldown, partial-ready release and truthful status only"
+  },
+  "approvedNextSpecification": {
+    "id": "musiclab.cover.six-rounds.20261028",
+    "path": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+    "approvedAt": "2026-10-28",
+    "status": "CI_VERIFIED_PHONE_PENDING",
+    "authority": "Latest explicit Bruno instructions; save full schema now, app modifications later.",
+    "precedence": "Canonical desired behavior for these responsibilities. Supersedes conflicting earlier descriptions of categories, batching, final search, global release preference and twins. Historical rules below do not prove implementation of this specification.",
+    "rounds": 6,
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "cyclePublicationOverrideR14": "10/20/20 are maximum capacities, not minimum publication thresholds. At each 7-second cycle deadline publish the whole already verified batch together even when smaller (2, 3, ...); full first 10 appear immediately. Sources keep working; user controls continuation.",
+    "finalSearch": "Exact work title without descriptors always autonomous; optional descriptor queries may run alongside and never constrain title-only results. Resume reachable pages until user stops or actual exhaustion.",
+    "globalReleasePreference": "Prefer available studio/recorded/released versions in EVERY round, never an admission requirement or a reason to block ready flow.",
+    "runtimeChanged": true,
+    "deviceVerified": false,
+    "appBaseline": "e24bb0a0aba18914109ec6a0f181908edd37a210",
+    "implementationEvidence": {
+      "commit": "8aa8f01545064be0482f6ae1fd1a629f59860388",
+      "workflow": "https://github.com/Br174/MusicLab/actions/runs/40697246205",
+      "job": 122847192848,
+      "nativeAndroidSuite": "PASS",
+      "audioRecordingContracts": "PASS",
+      "scopeGuard": "PASS",
+      "signedApkAndZip": "PASS",
+      "artifactId": 12819938270,
+      "apkSha256": "fd8e995bee115e9d349b1ccbea9d0b5513f26a3909ef1c2e29bdaaa93e5f8490",
+      "zipSha256": "28f74598657d645fce193d634a46a478dff0fd2535cac65a6259c228371f697c",
+      "physicalPhone": "PENDING_BRUNO_TEST"
+    },
+    "evidenceAllocationSupplement": {
+      "ruleId": "musiclab.cover.round-evidence-allocation.v1",
+      "path": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+      "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
+      "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
+      "previousImplementationEvidenceDoesNotCoverThisSupplement": true
+    },
+    "originalIdentificationSupplement": {
+      "ruleId": "musiclab.cover.original-resolution-assistance.v1",
+      "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+      "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
+      "state": "MEMORY_SAVED_APPROVED_NOT_IMPLEMENTED",
+      "previousImplementationEvidenceDoesNotCoverThisSupplement": true
+    },
+    "ornamentalPercentOnly": true
+  },
+  "packetCardAdjustmentR7": {
+    "id": "musiclab.cover.packet-card-r7.20261028",
+    "authority": "Bruno: proceed only with agreed packet priority and clean card corrections",
+    "plan": ".motorlab/R7_COVER_PACKET_CARD_PLAN_20261028.txt",
+    "state": "CI_VERIFIED_PHONE_PENDING",
+    "firstPacketPriority": "Preserve release/original/accredited/related priority in preparation and ready publication pool including overflow; metadata readiness never overrides rank. No new admission threshold.",
+    "publication": "Only first 10 (or exhausted first residual) automatic; following 20+20 each require one manual continue command. Background preparation never drains multiple packets.",
+    "card": "Full title and credited artist without ellipsis; documentary recording year only, never upload date or inherited year from a related work. All actual discovery sources and playback service. Explicit studio proof required; otherwise Published or Cover.",
+    "existingProtections": "Same-work title matching, COVER.INFO trusted relationships, original cap, confirmed/uncertain twins, audio resources, cursors and all six objectives preserved.",
+    "redEvidence": {
+      "run": 40706571880,
+      "job": 122880200303,
+      "tests": 506,
+      "expectedFailures": 1,
+      "case": "workBindingDoesNotDateALiveVideoWithTheStudioAlbumYear"
+    },
+    "deviceVerified": false,
+    "lastGoodPromoted": false,
+    "implementationEvidence": {
+      "commit": "6540b3d86937959df511c0d3fe24e26c3366ce40",
+      "workflow": "https://github.com/Br174/MusicLab/actions/runs/40709596442",
+      "job": 122891807813,
+      "nativeAndroidSuite": "PASS",
+      "audioRecordingContracts": "PASS",
+      "scopeGuard": "PASS",
+      "signedApkAndZip": "PASS",
+      "artifactId": 12826895516,
+      "apkSha256": "cb175d2f60d7e4c5016d71b8cd58b621af35ebbb94c64e7edea8b54a42b1e466",
+      "zipSha256": "0f16a20ad68bbe030a2ce6a04d2dc6bffd1966fab8af31545325fd9f2205c01d",
+      "apkLibraryId": "libfile_e14119daf44881918edd3f3e3e62e158",
+      "zipLibraryId": "libfile_e510a8a908b88191bb6ea7646b237e62",
+      "physicalPhone": "PENDING_BRUNO_TEST"
+    },
+    "evidenceCoverageNote": "Historical R7 CI/signature results do not prove implementation of the later 3/2/2/2/2/1 evidence allocation."
+  },
+  "approvedEvidenceAllocation": {
+    "id": "musiclab.cover.round-evidence-allocation.v1",
+    "approvedAt": "2026-10-28",
+    "state": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+    "titleIncluded": true,
+    "totalEvidenceByRound": [
+      3,
+      2,
+      2,
+      2,
+      2,
+      1
+    ],
+    "additionalBeyondTitleByRound": [
+      2,
+      1,
+      1,
+      1,
+      1,
+      0
+    ],
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "sameThresholdAcrossCycles": true,
+    "insufficientEvidence": "DEFER_WITHOUT_GLOBAL_DELETION",
+    "lateStrongResults": "KEEP_AND_PUBLISH_WHEN_READY_IN_A_COMPATIBLE_LATER_ROUND",
+    "titleOnlyQueryMinimumRound": 6,
+    "categories": "Unchanged six objectives from the approved spec",
+    "withdrawnMessage": "Immediately preceding stricter sixth-round instruction withdrawn explicitly by Bruno. It supplies no new literal-title or YouTube-Music-exclusion requirement.",
+    "finalVideoSearch": "Direct YouTube VIDEO title path autonomous; no new documentary-provider search or wait; optional descriptors remain optional.",
+    "openDecisions": [],
+    "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
+    "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
+    "appRuntimeChanged": false,
+    "appTestsRunForThisUpdate": false,
+    "newApkBuilt": false,
+    "lastGoodPromoted": false,
+    "applicationBaseline": "1535d9f013c001ed91636e2544b0385dac165e60",
+    "resolvedClarifications": {
+      "pertinentKinds": "Any pertinent documented corroboration, without a mandatory combination or closed inventory",
+      "independence": "Distinct corroborated facts; repeated same information is not multiple evidences",
+      "coverInfo": "Use already-attested facts; no redundant confirmation and no automatic count from provider label",
+      "originalReference": "Verified original when found; otherwise available selected-version context remains usable; original success not a gate",
+      "separateOriginalIdentificationRule": "musiclab.cover.original-resolution-assistance.v1"
+    },
+    "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+    "deviceVerified": false
+  },
+  "scopedAuthorityOverrides": [
+    {
+      "rule": "musiclab.cover.round-evidence-allocation.v1",
+      "overridesRule": "musiclab.cover.priority-and-exceptions.r2",
+      "aspect": "Identity evidence only sorts within a round must not allow early weak candidates. Keep all candidates, allocate their publication round using the new totals. Historical R2 remains archived; do not reactivate it."
+    },
+    {
+      "rule": "musiclab.cover.round-evidence-allocation.v1",
+      "overridesRule": "musiclab.cover.source-and-category-rounds.v8",
+      "aspect": "Any historical title-only from round4 is superseded by title-only from round6. Preserve compatible categories and independent protections."
+    },
+    {
+      "rule": "musiclab.cover.round-evidence-allocation.v1",
+      "overridesRule": "musiclab.cover.six-rounds.v1",
+      "aspect": "Supplement only: explicit evidence allocation and autonomous final video source. Keep six-category objectives, global release PREFERENCE rather than mandatory release admission, cycles, retention, COVER.INFO, language, duplicate/original caps and player unchanged."
+    },
+    {
+      "rule": "musiclab.cover.round-evidence-allocation.v1",
+      "overridesRule": "musiclab.cover.packet-card-r7.20261028",
+      "aspect": "No new admission threshold in the prior R7 scope is not a prohibition on Bruno's later explicit allocation thresholds. Preserve R7 packet/card behavior and historical build evidence."
+    },
+    {
+      "rule": "musiclab.cover.original-resolution-assistance.v1",
+      "overridesRule": "musiclab.cover.round-evidence-allocation.v1",
+      "aspect": "Resolve previously-open taxonomy: flexible pertinent distinct documented corroborations, no rigid required combination. The optional original-enrichment success is not a new round gate; saved totals are not changed."
+    },
+    {
+      "rule": "musiclab.cover.original-resolution-assistance.v1",
+      "overridesRule": "original identification interpretations in prior discussion",
+      "aspect": "Always attempt when relevant, but confirmed original is never required before ordinary results. One corroboration may suffice; reverse lookup is optional; AI proposal alone is not proof. Never turn the temporary original-must-be-found interpretation into a rule."
+    },
+    {
+      "rule": "musiclab.cover.original-first-publication.multisource.v1",
+      "overridesRule": "musiclab.cover.original-resolution-assistance.v1",
+      "aspect": "Specify original as first-published performer; documented multisource lookup can resolve it without AI. Same-work evidence alone does not necessarily prove that performer was first. Preserve single adequate corroboration, optional inverse check and nonblocking behavior."
+    },
+    {
+      "rule": "musiclab.cover.original-first-publication.multisource.v1",
+      "overridesRule": "any COVER.INFO-only or earliest-found-equals-original interpretation",
+      "aspect": "COVER.INFO not exclusive; failed/missing source has alternatives. Earliest-found recording remains a candidate without adequate first-publication support. Do not confuse composer with first performer."
+    }
+  ],
+  "approvedOriginalResolution": {
+    "id": "musiclab.cover.original-resolution-assistance.v1",
+    "approvedAt": "2026-10-28",
+    "state": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+    "authority": "Bruno approved the complete post-R7 recap and requested persistence only of still-unsaved provisions. Newest proposal overrides conflicting earlier interpretations only in its scope.",
+    "trigger": "Search starts from a cover or original role is uncertain, original not already documented",
+    "alwaysAttempt": true,
+    "blockSearchUntilFound": false,
+    "aiRole": "PROPOSE_UNRESOLVED_CANDIDATES_WHEN_DOCUMENTED_LINKS_ARE_INSUFFICIENT",
+    "verification": "ONE_RELIABLE_DOCUMENTED_LINK_TO_FIRST_PUBLISHED_VERSION_CAN_SUFFICE",
+    "sameTitleAlone": "CLUE_NOT_AUTOMATIC_CONFIRMATION",
+    "reverseLookup": "OPTIONAL_SUPPORT_NOT_MANDATORY_DOUBLE_VERIFICATION",
+    "onVerified": "Use confirmed original as additional reference to find and recognize related covers",
+    "onUnknownOrFailure": "Continue ordinary search with available selected-version data, retain results, background verification may continue",
+    "selectedPerformerAutomaticallyOriginal": false,
+    "independentOfRoundEvidenceTotals": true,
+    "countsAlreadySavedNotChanged": true,
+    "appRuntimeChanged": false,
+    "newApkBuilt": false,
+    "lastGoodPromoted": false,
+    "sourceMemoryCommit": "c35564c69602f618388859f0b4e6ccc54b05641d",
+    "originalMeaning": "PERFORMER_OF_FIRST_PUBLISHED_VERSION_OF_THE_SAME_SONG",
+    "input": "Published recorded song online, which may itself be a cover",
+    "coverInfoExclusiveDependency": false,
+    "multisourceRule": "musiclab.cover.original-first-publication.multisource.v1",
+    "sameWorkVersusFirstPerformer": "Credits/work relations identify composition; first-publication link identifies the original performer",
+    "earliestFoundDate": "CANDIDATE_NOT_AUTOMATICALLY_CONFIRMED_ORIGINAL",
+    "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+    "deviceVerified": false
+  },
+  "approvedOriginalFirstPublicationPlan": {
+    "ruleId": "musiclab.cover.original-first-publication.multisource.v1",
+    "path": ".motorlab/COVER_ORIGINAL_FIRST_PUBLICATION_PLAN_20261028.txt",
+    "state": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+    "operationalDesign": "PROPOSED_FOR_REVIEW",
+    "userRequirements": {
+      "originalIsFirstPublishedPerformer": true,
+      "selectedSongIsPublished": true,
+      "coverInfoExclusive": false,
+      "sourceFailureDoesNotBlock": true,
+      "alwaysAttemptWhenRelevant": true,
+      "originalSuccessRequired": false,
+      "oneAdequateCorroborationCanSuffice": true,
+      "inverseLookupMandatory": false
+    },
+    "proposedSourceRoles": [
+      {
+        "source": "COVER.INFO",
+        "role": "Explicit cover/original relations when present; not an exclusive prerequisite"
+      },
+      {
+        "source": "MusicBrainz",
+        "role": "Selected recording to work/authors and related recordings/publications"
+      },
+      {
+        "source": "Discogs",
+        "role": "Release/tracklist/credits/label/catalog documentary support"
+      },
+      {
+        "source": "Other already available music catalogs and official discographies",
+        "role": "Use pertinent available metadata, without assuming all fields exist"
+      },
+      {
+        "source": "AI",
+        "role": "Suggest unresolved candidate references, followed by documentary verification"
+      }
+    ],
+    "proposedExecution": "Reuse verified data; independent lightweight source paths with controlled background concurrency; don't wait for all providers after adequate confirmation; publication reconstruction and AI when necessary.",
+    "datePolicy": "Compare first publication of each pertinent recording; don't use upload/platform/reissue dates or treat oldest-found as globally first.",
+    "finalRoundCompatibility": "Initial enrichment may provide context later, but no documentary re-launch/dependency when entering final YouTube video round.",
+    "roundEvidenceCountsChanged": false,
+    "appRuntimeChanged": false,
+    "newApkBuilt": false,
+    "lastGoodPromoted": false,
+    "sourceMemoryCommit": "9d345fd514b1a1c0be126b2811e2abd377d42f21",
+    "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+    "deviceVerified": false
+  },
+  "implementationR8": {
+    "state": "NATIVE_CI_VERIFIED_PHONE_PENDING",
+    "sourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
+    "ciRun": 40826725036,
+    "ciUrl": "https://github.com/Br174/MusicLab/actions/runs/40826725036",
+    "nativeSuite": "FULL_PASS_SAME_542_TEST_METHODS",
+    "package": "it.verlezza.musiclab.turbo01",
+    "versionCode": 33081,
+    "certificateSha256": "9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749",
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "totalEvidenceIncludingTitle": [
+      3,
+      2,
+      2,
+      2,
+      2,
+      1
+    ],
+    "percentages": "ORNAMENTAL_ONLY",
+    "nativeVerification": [
+      "scope-and-protected-player/cards",
+      "audio-and-recording-contracts",
+      "canonical-rule-precedence",
+      "full-Android-JVM-suite",
+      "signed-APK-build",
+      "APK-package/version/certificate",
+      "ZIP-APK-byte-equality"
+    ],
+    "artifacts": {
+      "id": 12877216561,
+      "url": "https://github.com/Br174/MusicLab/actions/runs/40826725036/artifacts/12877216561",
+      "outerZipSha256": "009be527293d349b2089f24f08367da64c51eac85d1ed77d2ea7c1f45cf98be3",
+      "expiresAt": "2026-11-12T06:10:21Z",
+      "apk": "MusicLab-Turbo-LAB79-Revisione-8.apk",
+      "zip": "MusicLab-Turbo-LAB79-Revisione-8-APK.zip"
+    },
+    "delivery": "COMPOSITE_GITHUB_ARTIFACT_AVAILABLE_INDIVIDUAL_LIBRARY_LINKS_BLOCKED_BY_UNAVAILABLE_EXECUTION_ENVIRONMENT",
+    "review": {
+      "independent": "PARTIAL_STOPPED_BY_SERVICE_LIMIT",
+      "importantFindingsFixed": 2,
+      "authorRemainingInspection": true,
+      "completeIndependentReview": false
+    },
+    "phoneVerified": false,
+    "liveProviderCoverageVerified": false,
+    "physicalAudioAndTimingVerified": false,
+    "lastGoodPromoted": false,
+    "checkpoint": ".motorlab/MUSICLAB_R8_DELIVERY_CHECKPOINT_20261029.txt"
+  },
+  "approvedR9Recovery": {
+    "state": "IMPLEMENTING_NATIVE_TESTS_PENDING",
+    "approvedBy": "Bruno in current conversation 2026-10-29",
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "presentationTargetMaxMs": 7000,
+    "waitForDeadlineWhenPacketReady": false,
+    "singleRowPublication": false,
+    "presentationDeadlineCancelsSources": false,
+    "audioGovernor": "REUSE_EXISTING_12_SECOND_RESERVE_GOVERNOR",
+    "partialPacket": "only verified real exhaustion, never timer alone",
+    "ruleOwner": "existing CoverRoundPresentation + native coordinator; no second scheduler",
+    "superseded": [
+      "timer-exhausts-round-and-cancels-producers",
+      "reset-display-deadline-on-every-new-row",
+      "karaoke-channel-title-only-admission"
+    ],
+    "protected": [
+      "player",
+      "UI geometry",
+      "main",
+      "MADRE",
+      "R8",
+      "LAST_GOOD",
+      "package/signing",
+      "no paid service"
+    ],
+    "tests": [
+      "CoverR9BackgroundRecoveryTest",
+      "CoverR9EvidenceRecoveryTest",
+      "turbo-r9-recovery-wiring.test.mjs"
+    ]
+  },
+  "approvedR14CyclesAndSources": {
+    "id": "musiclab.cover.r14-cycles-and-all-sources.20261030",
+    "authority": "Latest direct user instruction 2026-10-30: all cover-bearing sources, COVER.INFO prioritized, SecondHandSongs standby; partial verified batch at every cycle deadline.",
+    "sourcePriority": "COVER.INFO first preference, never a veto or blocker for Apple/iTunes, Spotify, Discogs, MusicBrainz, LRCLIB, Last.fm, YouTube Music, YouTube, local/cloud archive where enabled.",
+    "secondHandSongs": "STANDBY_NO_REQUEST_IN_TURBO_ALL_ROUNDS",
+    "wikidata": "Alias-only adapter, cannot supply a cover; do not block cover sources.",
+    "cycleCaps": [
+      10,
+      20,
+      20
+    ],
+    "publication": "At every completed presentation window publish verified available rows as one atomic batch, even fewer than the cap. A ready complete first 10 is immediate. Never individually stream each thumbnail as it arrives.",
+    "sourceContinuity": "Timer only ends visible cycle, never cancels documentary source progress or discards candidates.",
+    "retention": "Append-only results; previously presented rows never disappear; no duplicate recordings; 50 limit per round.",
+    "admission": "Existing documentary work evidence thresholds and forbidden content unchanged, no invented identities or recording metadata.",
+    "compatibility": "Explicitly supersedes R9 'partialPacket only true exhaustion, never timer' and earlier all-or-nothing packet minimum; keeps independent per-source network protections, player, look, same signing family, no paid services.",
+    "implementationState": "R14_PATCH_PREPARED_CI_PENDING",
+    "deviceVerified": false
+  },
+  "approvedR15RootCauseRecovery": {
+    "id": "musiclab.cover.r15-root-cause-recovery.20261030",
+    "authority": "Direct user approved radical fix after R14 real phone produced no more covers",
+    "state": "IMPLEMENTING_RED_OBSERVED_FULL_JVM_PENDING",
+    "baseline": "a3f2d6ebea442895eb2fe484bcd751f4f7afb239",
+    "causes": [
+      "COVER.INFO /song/ID replaced by shared ?initial-details or follow-up relation target, producing phantom duplicates",
+      "Per-video failed YouTube metadata marked attempted for whole round and deferred, blocking later cycles",
+      "Metadata queue always single-ID when ordinary audio played and after first five; bounded batching required",
+      "Verified Apple/Spotify/Discogs recording performer credit never counted alongside an independent confirmed work writer, even though both documented facts are available",
+      "Documented singer at END of YouTube title not recognized when uploader/channel differs from performer"
+    ],
+    "protections": {
+      "cycleLimits": [
+        10,
+        20,
+        20
+      ],
+      "cyclePublication": "atomic available verified at presentation deadline",
+      "evidenceByRound": [
+        3,
+        2,
+        2,
+        2,
+        2,
+        1
+      ],
+      "sources": "COVER.INFO priority; MusicBrainz Discogs Apple Spotify LRCLIB Last.fm YouTube active; SecondHandSongs standby",
+      "prohibited": "Karaoke MIDI KAR; no title-only before 6",
+      "player": "no change",
+      "costEur": 0,
+      "release": "isolated signed same family from R14; no main or MADRE"
+    },
+    "redRun": 41001482313,
+    "redTests": "four independent deterministic source-root regressions all failed against exact R14 baseline",
+    "testExpectation": "all same R15 tests GREEN plus full Android, Scudo360 Quality r40, signature, ZIP integrity",
+    "phoneVerified": false
+  },
+  "approvedR17QualityProgressive": {
+    "id": "musiclab.cover.quality-progressive.r17",
+    "approvedAt": "2026-10-30",
+    "sourceBase": "b35cc61c18daca9d4752fac201dcacf28a35015f",
+    "thresholds": "NONE",
+    "admission": "same requested Italian work title OR documentary foreign adaptation, excluding karaoke/MIDI/KAR",
+    "ranking": "original first publication; verified released recordings; documented credited performers; documented foreign versions; television and rare; weak title-only last",
+    "sixRounds": true,
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "oldEvidenceGateRetired": true,
+    "playerChanged": false,
+    "mainOrMadreChanged": false,
+    "deviceVerified": false
+  }
 }

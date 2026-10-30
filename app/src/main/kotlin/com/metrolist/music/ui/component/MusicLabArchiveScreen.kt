@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.metrolist.music.constants.DEFAULT_MUSIC_AI_CLOUD_ENDPOINT
 import com.metrolist.music.constants.MusicAiCloudEndpointKey
+import com.metrolist.music.constants.MusicLabCoverArchiveEnabledKey
+import com.metrolist.music.constants.MusicLabCloudEnabledKey
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.delay
@@ -42,6 +44,8 @@ internal fun MusicLabArchiveScreen(
     navController: NavHostController,
 ) {
     val cloudEndpoint by rememberPreference(MusicAiCloudEndpointKey, DEFAULT_MUSIC_AI_CLOUD_ENDPOINT)
+    val archiveEnabled by rememberPreference(MusicLabCoverArchiveEnabledKey, true)
+    val cloudEnabled by rememberPreference(MusicLabCloudEnabledKey, true)
     val endpoint = cloudEndpoint.trim().ifBlank { DEFAULT_MUSIC_AI_CLOUD_ENDPOINT }
     val config =
         remember(endpoint) {
@@ -64,7 +68,15 @@ internal fun MusicLabArchiveScreen(
         }
     }
 
-    LaunchedEffect(query, endpoint) {
+    LaunchedEffect(query, endpoint, archiveEnabled, cloudEnabled) {
+        if (!archiveEnabled || !cloudEnabled) {
+            CloudMusicDiscovery.cancelArchiveRequests()
+            items = emptyList()
+            error = if (!archiveEnabled) "Archivio Cover disattivato nelle Impostazioni."
+                else "Cloud MusicLab disattivato nelle Impostazioni."
+            loading = false
+            return@LaunchedEffect
+        }
         delay(if (query.isBlank()) 0 else 280)
         loading = true
         error = null

@@ -17,6 +17,13 @@ internal enum class TitleMeaningMatch {
  * are rejected for the base title "Il mondo".
  */
 internal object TitleMeaningResolver {
+    private val combiningMarks = Regex("\\p{M}+")
+    private val apostrophes = Regex("[’'´]")
+    private val nonCanonicalCharacters = Regex("[^\\p{L}\\p{N}]+")
+    private val canonicalWhitespace = Regex("\\s+")
+    private val canonicalCache = object : LinkedHashMap<String, String>(1024, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 1024
+    }
     fun matchesBaseTitle(
         targetTitle: String,
         value: String,
@@ -176,14 +183,18 @@ internal object TitleMeaningResolver {
         return TitleMeaningMatch.DIFFERENT
     }
 
-    internal fun canonical(value: String): String =
-        Normalizer.normalize(value, Normalizer.Form.NFD)
-            .replace(Regex("\\p{M}+"), "")
+    internal fun canonical(value: String): String {
+        synchronized(canonicalCache) { canonicalCache[value]?.let { return it } }
+        val result = Normalizer.normalize(value, Normalizer.Form.NFD)
+            .replace(combiningMarks, "")
             .lowercase()
-            .replace(Regex("[’'´]"), "")
-            .replace(Regex("[^a-z0-9]+"), " ")
+            .replace(apostrophes, "")
+            .replace(nonCanonicalCharacters, " ")
             .trim()
-            .replace(Regex("\\s+"), " ")
+            .replace(canonicalWhitespace, " ")
+        synchronized(canonicalCache) { canonicalCache[value] = result }
+        return result
+    }
 
     private fun semanticSegments(value: String): List<String> =
         value
