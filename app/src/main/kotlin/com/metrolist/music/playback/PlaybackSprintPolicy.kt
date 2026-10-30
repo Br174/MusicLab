@@ -1,5 +1,7 @@
 package com.metrolist.music.playback
 
+import androidx.media3.common.Player
+
 /** MusicLab Turbo R20: bounded speculative network work must never outrank playing music. */
 internal object PlaybackSprintPolicy {
     const val COVER_PRELOAD_RESERVE_MS = 40_000L
@@ -16,4 +18,22 @@ internal object PlaybackSprintPolicy {
         requiredReserveMs: Long,
     ): Boolean =
         isPlaying && isReady && !priorityBurst && !coverHeavy && bufferedMs >= requiredReserveMs
+
+    // R21: an already selected song cannot leave IDLE by playWhenReady alone.
+    fun shouldPrepareExistingTrack(playbackState: Int): Boolean =
+        playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED
+
+    // One existing smart-preload worker owns the next item; prefer an already
+    // documented Cover video without adding another download/resolver coordinator.
+    fun nextPreloadMediaId(
+        coverActive: Boolean,
+        currentMediaId: String,
+        nextCoverVideoId: String?,
+        queuedMediaId: String?,
+    ): String? {
+        val coverId = nextCoverVideoId?.takeIf {
+            coverActive && it != currentMediaId && it.matches(Regex("[A-Za-z0-9_-]{11}"))
+        }
+        return coverId ?: queuedMediaId?.takeIf { it.isNotBlank() && it != currentMediaId }
+    }
 }
