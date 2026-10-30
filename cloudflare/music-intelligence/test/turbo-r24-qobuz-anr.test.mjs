@@ -17,7 +17,7 @@ test('R24 initial Qobuz overrides are sourced from startupPrefs without four mai
  assert.doesNotMatch(init,/dataStore\.get\(|runBlocking/);
 });
 test('R24 onCreate Qobuz observer collects a typed snapshot and retains source switching',()=>{
- const observer=section('var isFirstQobuzEmit = true','// Watch for');
+ const observer=section('var isFirstQobuzEmit = true','                    player.stop()');
  assert.match(observer,/dataStore\.data\s*\.map\s*\{/);
  assert.match(observer,/\.distinctUntilChanged\(\)/);
  assert.match(observer,/\.collect \{ values ->/);
