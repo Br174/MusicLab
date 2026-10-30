@@ -611,6 +611,10 @@ class MusicService :
     private val lab31AudioEvents = java.util.ArrayDeque<String>()
     @Volatile private var lab31CoverTapAtMs = 0L
     @Volatile private var lab31FirstAudioReportedTapMs = 0L
+    // R23: in-memory only, never included in diagnostics or sent anywhere.
+    @Volatile private var lab31TappedMediaId: String? = null
+    @Volatile private var lab31FirstOpenReportedTapMs = 0L
+    @Volatile private var lab31FirstReadReportedTapMs = 0L
     @Volatile private var lab31BufferStartedAtMs = 0L
 
     private fun lab31AudioEvent(event: String, detail: String = "") {
@@ -628,6 +632,9 @@ class MusicService :
     fun lab31BeginCoverTap() {
         lab31CoverTapAtMs = android.os.SystemClock.elapsedRealtime()
         lab31FirstAudioReportedTapMs = 0L
+        lab31TappedMediaId = null
+        lab31FirstOpenReportedTapMs = 0L
+        lab31FirstReadReportedTapMs = 0L
         lab31BufferStartedAtMs = 0L
         lab31AudioEvent("COVER_TAP", "player_ready=" + playerInitialized.value)
     }
@@ -1652,7 +1659,10 @@ class MusicService :
                 playoutStartSystemTimeMs: Long,
             ) {
                 val tapMs = lab31CoverTapAtMs
-                if (tapMs > 0L && lab31FirstAudioReportedTapMs != tapMs) {
+                if (tapMs > 0L &&
+                    player.currentMediaItem?.mediaId == lab31TappedMediaId &&
+                    lab31FirstAudioReportedTapMs != tapMs
+                ) {
                     lab31FirstAudioReportedTapMs = tapMs
                     lab31AudioEvent(
                         "AUDIO_POSITION_ADVANCING",
@@ -2469,6 +2479,7 @@ class MusicService :
     }
 
     fun playNow(item: MediaItem) {
+        lab31TappedMediaId = item.mediaId
         lab31AudioEvent("PLAY_NOW", "player_state=" + player.playbackState)
         beginPlaybackPriorityBurst("play-now")
 
@@ -5190,11 +5201,80 @@ class MusicService :
         )
     }
 
+    /**
+     * R23 measurement-only wrapper. Track the delay until cache/upstream open
+     * and the first payload bytes are consumed. No new HTTP requests, retries,
+     * cache writes, polling, data probes or raw URLs/IDs in the diagnostic.
+     * The wrapper delegates everything else to the original data source.
+     */
+    private fun createObservedCacheDataSource(): DataSource.Factory {
+        val underlyingFactory = createCacheDataSource()
+        return DataSource.Factory {
+            val delegate = underlyingFactory.createDataSource()
+            object : DataSource by delegate {
+                private var openingStartedMs = 0L
+                private var observedTapMs = 0L
+
+                override fun open(dataSpec: DataSpec): Long {
+                    openingStartedMs = android.os.SystemClock.elapsedRealtime()
+                    val tapMs = lab31CoverTapAtMs
+                    val ageMs = openingStartedMs - tapMs
+                    observedTapMs =
+                        if (tapMs > 0L && ageMs in 0L..30_000L &&
+                            dataSpec.key?.let(::stripQobuzCacheKeyPrefix) == lab31TappedMediaId
+                        ) tapMs else 0L
+
+                    try {
+                        val length = delegate.open(dataSpec)
+                        if (observedTapMs > 0L &&
+                            lab31FirstOpenReportedTapMs != observedTapMs
+                        ) {
+                            lab31FirstOpenReportedTapMs = observedTapMs
+                            lab31AudioEvent(
+                                "STREAM_DATA_OPEN",
+                                "open_ms=" +
+                                    (android.os.SystemClock.elapsedRealtime() - openingStartedMs),
+                            )
+                        }
+                        return length
+                    } catch (error: java.io.IOException) {
+                        if (observedTapMs > 0L) {
+                            lab31AudioEvent(
+                                "STREAM_DATA_OPEN_ERROR",
+                                "open_ms=" +
+                                    (android.os.SystemClock.elapsedRealtime() - openingStartedMs) +
+                                    " kind=" + error.javaClass.simpleName,
+                            )
+                        }
+                        throw error
+                    }
+                }
+
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    val count = delegate.read(buffer, offset, length)
+                    if (count > 0 && observedTapMs > 0L &&
+                        lab31FirstReadReportedTapMs != observedTapMs
+                    ) {
+                        lab31FirstReadReportedTapMs = observedTapMs
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        lab31AudioEvent(
+                            "STREAM_DATA_FIRST_READ",
+                            "since_tap_ms=" + (now - observedTapMs) +
+                                " since_open_ms=" + (now - openingStartedMs) +
+                                " bytes=" + count,
+                        )
+                    }
+                    return count
+                }
+            }
+        }
+    }
+
     private fun createDataSourceFactory(
         normalizationProcessor: VolumeNormalizationAudioProcessor,
         playerProvider: () -> ExoPlayer?,
     ): DataSource.Factory {
-        return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
+        return ResolvingDataSource.Factory(createObservedCacheDataSource()) { dataSpec ->
             val mediaId = stripQobuzCacheKeyPrefix(dataSpec.key ?: error("No media id"))
             // R20 sprint lane: a *valid* signed URL already in memory needs no Room
             // query before playback can begin. The URL cache enforces expiry and
