@@ -58,8 +58,9 @@ internal object CoverPriorityOrder {
         val sources = candidate.sources.map { it.lowercase(java.util.Locale.ROOT) }.toSet()
         val details = candidate.title + " " + candidate.playbackVideoTitle.orEmpty() +
             " " + candidate.album.orEmpty()
-        // Editorial priority is soft: no musical candidate is discarded or deferred.
+        // Editorial priority is soft; forbidden karaoke can never outrank a real version.
         return when {
+            !candidate.workRelationConfirmed && karaokeChannel.containsMatchIn(candidate.artist) -> 9
             candidate.originalWorkReference && candidate.firstPublicationConfirmed -> 0
             candidate.releaseVerified ||
                 (!candidate.album.isNullOrBlank() &&
@@ -85,9 +86,10 @@ internal object CoverPriorityOrder {
             Ranked(candidate, index, key(candidate) in delayedKeys,
                 group(candidate, originalArtist, round))
         }.sortedWith(
+            // Avoid hundreds of unlinked catalogue leads starving a ready-to-play video.
             compareBy<Ranked> { it.late }
-                .thenBy { it.preference }
                 .thenBy { it.row.playbackVideoId.isNullOrBlank() }
+                .thenBy { it.preference }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.collectorHave ?: 0 }
                 .thenByDescending { it.row.sources.distinct().size }
@@ -100,6 +102,7 @@ internal object CoverPriorityOrder {
             row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in catalogue && !it.equals("Discogs", true) })
 
     private fun publicationGroup(row: DiscogsVersionSeed): Int = when {
+        !row.workRelationConfirmed && karaokeChannel.containsMatchIn(row.artist) -> 9
         row.originalWorkReference && row.workRelationConfirmed -> 0
         isPublished(row) -> 1
         row.workRelationConfirmed -> 2

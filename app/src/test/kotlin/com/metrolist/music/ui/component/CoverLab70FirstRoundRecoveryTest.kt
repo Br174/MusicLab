@@ -35,9 +35,9 @@ class CoverLab70FirstRoundRecoveryTest {
         )
     }
 
-    @Test fun sameNamedOtherWorkIsNotMisattributedToLucioDalla() {
+    @Test fun sameNamedOtherWorkIsLowerConfidenceAndNeverClaimedAsOriginal() {
         val homonym = video("Felicità", "Al Bano e Romina Power", "YouTube")
-        assertFalse(
+        assertTrue(
             CoverLabTurboRoundAdmission.evaluate(
                 homonym, "Felicità", "Lucio Dalla", 1, "Felicità"
             ).admitted

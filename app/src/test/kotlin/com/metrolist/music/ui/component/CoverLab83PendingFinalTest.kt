@@ -7,12 +7,14 @@ class CoverLab83PendingFinalTest {
     private fun row() = CoverSourceCandidate("Il mondo", "Un interprete", listOf("YouTube"),
         playbackVideoId = "video000001", playbackVideoTitle = "Il mondo")
 
-    @Test fun weakerCandidateIsRetainedAcrossPassesAndBecomesRunnableInItsRound() {
+    @Test fun legacyRoundHoldCannotDelayTitleMatchedCandidateAnymore() {
         val p = CoverPriorityOrder.Pending(); val row = row()
         p.offer(row); p.deferUntil(row, 6)
-        for (round in 1..5) { p.beginPass(); assertNull(p.next("Il mondo", "Jimmy Fontana", round)) }
+        p.beginPass()
+        assertEquals(row, p.next("Il mondo", "Jimmy Fontana", 1))
         assertEquals(listOf(row), p.snapshot())
-        p.beginPass(); assertEquals(row, p.next("Il mondo", "Jimmy Fontana", 6))
+        p.beginPass()
+        assertEquals(row, p.next("Il mondo", "Jimmy Fontana", 2))
     }
     @Test fun newDocumentedFactsReopenADeferredVideoBeforeSixthRound() {
         val p = CoverPriorityOrder.Pending(); val row = row()

@@ -60,10 +60,10 @@ class CoverLab76ProgressiveRoundTest {
         ))
     }
 
-    @Test fun firstFiveRoundsDeferTitleOnlyEvidenceWithoutDiscardingIt() {
+    @Test fun titleOnlyCandidatesAreAllowedFromFirstRoundWithoutDiscardingThem() {
         val lowMetadata=row("Soli", artist="Uncredited uploader")
         for(round in 1..5) {
-            assertFalse(CoverLabTurboRoundAdmission.evaluate(
+            assertTrue(CoverLabTurboRoundAdmission.evaluate(
                 lowMetadata,"Soli","Adriano Celentano",round,"Soli",
             ).admitted)
         }
