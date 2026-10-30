@@ -60,7 +60,7 @@ class CoverLab77PriorityQueueTest {
                 sources = listOf("MusicBrainz", "Apple/iTunes")
             )
         assertEquals(
-            listOf("original001", "released001", "known000001", "foreign0001", "amateur0001"),
+            listOf("original001", "foreign0001", "released001", "known000001", "amateur0001"),
             CoverPriorityOrder.order(
                 listOf(amateur, foreign, known, original, released),
                 "Il mondo", "Jimmy Fontana", 1

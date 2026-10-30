@@ -18,6 +18,13 @@ internal object CoverCardMetadata {
         .map(String::trim).filter(String::isNotBlank)
         .distinctBy { it.lowercase(java.util.Locale.ROOT) }
         .sortedBy { source -> sourceOrder.indexOfFirst { it.equals(source, true) }.let { if (it < 0) Int.MAX_VALUE else it } }
+        .map { source ->
+            // The archived item belongs to MusicLab's existing catalogue.
+            // This is a display alias only; NEVER change sourceNames/admission.
+            if (source.equals("Archivio Cloud", true) &&
+                seed.videoResolutionChecked && !seed.resolvedVideoId.isNullOrBlank())
+                "MusicLab (archivio)" else source
+        }
 
     fun playbackService(seed: DiscogsVersionSeed): String? = when {
         seed.resolvedVideoId.isNullOrBlank() -> null

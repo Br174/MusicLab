@@ -36,6 +36,9 @@ internal object CoverPriorityOrder {
             return minOf(timeoutMs, (4_400L - (now - start)).coerceAtLeast(0L))
         }
     }
+    // R19: priority is a soft ordering preference, NEVER admission or round gating.
+    // MusicLab reads its own archive and exact cached video bindings before extra
+    // network lookups. The internal tier is only for already-linked archived video IDs.
     private val catalogue = setOf("discogs", "apple/itunes", "spotify", "youtube music")
     private val credited = catalogue + "musicbrainz"
     private val karaokeChannel = Regex("""(?i)\b(karaoke|kar[aà]oke|midi|kar)\b""")
@@ -46,6 +49,26 @@ internal object CoverPriorityOrder {
         """(?i)\b(rare|guitar|chitarra|instrumental|strumentale|cover band|piano|orchestra)\b"""
     )
 
+    private fun musicalSourceTier(names: List<String>, hasVideoId: Boolean): Int {
+        val sources = names.map { it.trim().lowercase(java.util.Locale.ROOT) }
+        // A YouTube video linked to COVER.INFO retains documentary priority.
+        if (sources.any { it == "cover.info" }) return 1
+        if (sources.any { it == "discogs" || it == "musicbrainz" ||
+                it == "apple/itunes" || it == "apple music" ||
+                it == "itunes" || it == "spotify" }) return 2
+        if (sources.any { it == "last.fm" || it == "lrclib" ||
+                it == "soundcloud" || it == "musicbed" || it == "soundstripe" }) return 3
+        // Reuse existing MusicLab archival references, not a fabricated
+        // provider or a new network request. The normal video verifier still runs.
+        if (hasVideoId && sources.any { it == "archivio cloud" ||
+                it == "musiclab interno" || it == "musiclab" }) return 4
+        if (sources.any { it == "youtube music" }) return 5
+        // Other/unknown candidates remain available, ahead of plain YouTube.
+        if (sources.any { it == "youtube" || it.startsWith("youtube discovery") ||
+                it.startsWith("youtube/") || it.startsWith("youtube candidate") }) return 7
+        return 6
+    }
+
     fun key(candidate: CoverSourceCandidate): String =
         candidate.playbackVideoId?.takeIf(String::isNotBlank)?.let { "video:$it" }
             ?: listOf(
@@ -55,25 +78,12 @@ internal object CoverPriorityOrder {
             ).joinToString("|")
 
     private fun group(candidate: CoverSourceCandidate, originalArtist: String, round: Int): Int {
-        val sources = candidate.sources.map { it.lowercase(java.util.Locale.ROOT) }.toSet()
-        val details = candidate.title + " " + candidate.playbackVideoTitle.orEmpty() +
-            " " + candidate.album.orEmpty()
-        // Editorial priority is soft; forbidden karaoke can never outrank a real version.
-        return when {
-            !candidate.workRelationConfirmed && karaokeChannel.containsMatchIn(candidate.artist) -> 9
-            candidate.originalWorkReference && candidate.firstPublicationConfirmed -> 0
-            candidate.releaseVerified ||
-                (!candidate.album.isNullOrBlank() &&
-                    sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) }) -> 1
-            candidate.workRelationConfirmed && candidate.category != AiCoverCategory.FOREIGN -> 2
-            candidate.workRelationConfirmed -> 3
-            candidate.originalWorkReference || (originalArtist.isNotBlank() &&
-                CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 4
-            candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 4
-            television.containsMatchIn(details) -> 5
-            rare.containsMatchIn(details) -> 6
-            else -> 7
-        }
+        // Accept original-artist priority only with documentary/release proof,
+        // not from a matching uploader channel or an ordinary YouTube title.
+        if (candidate.originalWorkReference &&
+            (candidate.firstPublicationConfirmed || candidate.workRelationConfirmed ||
+                candidate.releaseVerified)) return 0
+        return musicalSourceTier(candidate.sources, !candidate.playbackVideoId.isNullOrBlank())
     }
 
     fun order(
@@ -95,8 +105,10 @@ internal object CoverPriorityOrder {
                     else -> 2
                 } }
                 .thenBy { it.preference }
-                .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
+                // Recorded chart/collector signals can elevate a known singer
+                // within the SAME provenance tier; no guessed fame list.
                 .thenByDescending { it.row.collectorHave ?: 0 }
+                .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.sources.distinct().size }
                 .thenBy { it.index }
         ).map { it.row }
@@ -107,15 +119,13 @@ internal object CoverPriorityOrder {
             row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in catalogue && !it.equals("Discogs", true) })
 
     private fun publicationGroup(row: DiscogsVersionSeed): Int = when {
-        !row.workRelationConfirmed && karaokeChannel.containsMatchIn(row.artist) -> 9
-        row.originalWorkReference && row.workRelationConfirmed -> 0
-        isPublished(row) -> 1
-        row.workRelationConfirmed -> 2
-        row.originalWorkReference -> 3
-        row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in credited } -> 4
-        else -> 5
+        row.originalWorkReference && (row.workRelationConfirmed ||
+            row.discogsVerificationChecked) -> 0
+        else -> musicalSourceTier(row.sourceNames, !row.resolvedVideoId.isNullOrBlank())
     }
 
+    // Only PREPARED, NOT published rows can be reordered. Previously shown
+    // posters remain append-only in all rounds and keep their stable slots.
     val publicationComparator: Comparator<DiscogsVersionSeed> =
         compareBy<DiscogsVersionSeed>(::publicationGroup)
             .thenByDescending { it.collectorHave ?: 0 }
