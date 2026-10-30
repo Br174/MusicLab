@@ -3911,7 +3911,10 @@ internal fun DiscogsDirectVersionBrowser(
                     val seedOriginal = originalArtist()
                     val seed = withContext(Dispatchers.Default) {
                         DiscogsVersionSource.externalSeed(
-                            candidate.copy(durationSeconds = candidate.durationSeconds ?: verified.duration),
+                            candidate.copy(
+                                durationSeconds = candidate.durationSeconds ?: verified.duration,
+                                album = candidate.album ?: verified.album?.name,
+                            ),
                             seedTitle, seedOriginal,
                         ).let {
                             DiscogsVersionSource.markVideoResolved(it, id, verified.title, candidate.playbackVideoSource ?: "YouTube")
@@ -4311,13 +4314,21 @@ internal fun DiscogsDirectVersionBrowser(
                     // Source totals are not verified covers: expose each bottleneck once
                     // per preparation pass, with the work-proof count off Main.
                     val diagnosed = pending.snapshot()
-                    val metadataCachedIds = session.preparedVideoSongs.keys.toSet()
+                    // Snapshot native video metadata on Main before Default.
+                    // Counts must reflect R16 verified video evidence, not R15
+                    // pre-metadata estimates or unmatched catalogue leads.
+                    val cachedDiagnostics = session.preparedVideoSongs.toMap()
+                    val metadataCachedIds = cachedDiagnostics.keys
                     val diagTitle = workTitle()
                     val diagOriginal = originalArtist().ifBlank { lockedArtist }
                     val diagCredits = session.originalResolution.credits.toList()
                     val eligibleInThisRound = withContext(Dispatchers.Default) {
-                        diagnosed.count { CoverLabTurboRoundAdmission.evaluate(it, diagTitle, diagOriginal,
-                            thisRound, referenceCredits = diagCredits).admitted }
+                        diagnosed.count { candidate ->
+                            candidate.playbackVideoId?.let(cachedDiagnostics::get)?.let { video ->
+                                CoverR16FlexibleVideoMatch.evaluate(candidate, diagTitle, diagOriginal,
+                                    thisRound, video, diagCredits).admitted
+                            } == true
+                        }
                     }
                     val haveVideoId = diagnosed.count { !it.playbackVideoId.isNullOrBlank() }
                     val haveMetadata = diagnosed.count { it.playbackVideoId in metadataCachedIds }
@@ -4328,7 +4339,7 @@ internal fun DiscogsDirectVersionBrowser(
                     flushInitial(force = true)
                     val sourceContextKey = "$thisRound|${workTitle()}|${originalArtist().ifBlank { lockedArtist }}"
                     val unresolved = pending.snapshot().any {
-                        pending.eligible(it, thisRound) && !pending.isTwin(it) && true
+                        pending.eligible(it, thisRound) && !pending.isTwin(it)
                     }
                     val trackedContextKeys = session.documentaryContextQueries.keys
                     val sourcesComplete = sourceContextKey in session.completedDocumentaryContexts &&
