@@ -115,8 +115,24 @@ internal object CoverPriorityOrder {
     }
 
     val publicationComparator: Comparator<DiscogsVersionSeed> =
-        compareBy<DiscogsVersionSeed>(::publicationGroup)
-            .thenByDescending { it.collectorHave ?: 0 }
+        if (MusicRankExperimental.enabled(com.metrolist.music.BuildConfig.APPLICATION_ID)) {
+            compareByDescending<DiscogsVersionSeed> { row ->
+                MusicRankExperimental.score(
+                    verifiedRelease = row.discogsVerificationChecked,
+                    documentedWork = row.workRelationConfirmed,
+                    documentedPerformer = row.workRelationConfirmed && row.artist.isNotBlank(),
+                    videoAvailable = !row.resolvedVideoId.isNullOrBlank(),
+                    videoTitleMatched = !row.resolvedVideoTitle.isNullOrBlank() &&
+                        CoverLabTurboRoundAdmission.matchesWorkTitle(
+                            row.trackTitle, row.resolvedVideoTitle.orEmpty(), setOf(row.artist)),
+                    originalPublication = row.originalWorkReference && row.workRelationConfirmed,
+                    credited = row.credits.isNotEmpty(),
+                )
+            }.thenBy { it.trackTitle }.thenBy { it.artist }
+        } else {
+            compareBy<DiscogsVersionSeed>(::publicationGroup)
+                .thenByDescending { it.collectorHave ?: 0 }
+        }
 
     fun originalReference(candidates: List<CoverSourceCandidate>): CoverSourceCandidate? {
         val documented = candidates.filter { candidate ->
