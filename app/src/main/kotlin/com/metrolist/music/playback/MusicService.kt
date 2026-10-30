@@ -1057,9 +1057,9 @@ class MusicService :
                         it[QobuzKennyEndpointKey].orEmpty(),
                         it[QobuzTryptEndpointKey].orEmpty(),
                         it[QobuzJumoEndpointKey].orEmpty(),
-                    ).joinToString("|")
+                    )
                 }.distinctUntilChanged()
-                .collect { settingsSignature ->
+                .collect { values ->
                     if (isFirstQobuzEmit) {
                         isFirstQobuzEmit = false
                         return@collect
@@ -1067,15 +1067,12 @@ class MusicService :
                     // R24: the observer already provides the latest endpoint
                     // fields, so never call dataStore.get() inside the main
                     // collector. Preserve all original source-change reloads.
-                    val values = settingsSignature.split("|", limit = 8)
-                    if (values.size == 8) {
-                        applyQobuzEndpointOverrides(
-                            squid = values[4],
-                            kenny = values[5],
-                            trypt = values[6],
-                            jumo = values[7],
-                        )
-                    }
+                    applyQobuzEndpointOverrides(
+                        squid = values[4],
+                        kenny = values[5],
+                        trypt = values[6],
+                        jumo = values[7],
+                    )
                     val mediaId = player.currentMediaItem?.mediaId ?: return@collect
                     val currentPosition = player.currentPosition
                     val wasPlaying = player.isPlaying
