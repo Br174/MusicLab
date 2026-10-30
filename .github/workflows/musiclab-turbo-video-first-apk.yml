@@ -25,7 +25,7 @@ jobs:
           node scripts/motorlab-active-guard.mjs --self-test
           node scripts/motorlab-active-guard.mjs
       - name: Guard delivered LAB78 results, poster layout and player
-        run: python3 tools/universal-apk-builder/verify-r15-root-cause-scope.py
+        run: python3 tools/universal-apk-builder/verify-turbo-video-first-scope.py
       - name: Native audio and recording identity contracts
         run: node --test cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs cloudflare/music-intelligence/test/turbo-r9-recovery-wiring.test.mjs cloudflare/music-intelligence/test/scudo-r40-class-evidence-real.test.mjs cloudflare/music-intelligence/test/turbo-r14-source-cycle-contract.test.mjs cloudflare/music-intelligence/test/turbo-r15-real-root-cause.test.mjs
       - name: Canonical behavior consistency
