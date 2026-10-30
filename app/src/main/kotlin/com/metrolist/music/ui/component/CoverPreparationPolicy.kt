@@ -37,13 +37,33 @@ internal object CoverPreparationPolicy {
         !diagnostic.note.contains("Escluso dal recupero", true) &&
         !diagnostic.note.contains("Interprete di riferimento necessario", true)
 
+    /** Short retry window PER VIDEO, not a permanent ban on a whole 50-result
+     *  round. The source may fail transiently, and later cycles must retry it.
+     *  This carries no network work of its own. */
+    class MetadataRetry(private val clock: () -> Long = { System.nanoTime() / 1_000_000L }) {
+        private val retryAt = linkedMapOf<String, Long>()
+        fun allowed(videoId: String): Boolean =
+            videoId.isNotBlank() && (retryAt[videoId] ?: 0L) <= clock()
+        fun failed(videoId: String) {
+            if (videoId.isBlank()) return
+            if (retryAt.size >= 500) retryAt.keys.firstOrNull()?.let(retryAt::remove)
+            retryAt[videoId] = clock() + 2_000L
+        }
+        fun succeeded(videoId: String) { retryAt.remove(videoId) }
+        fun clear() { retryAt.clear() }
+    }
+
     /** Scoped to each video ID; pass and audio limits are preserved. */
     fun metadataAttemptAllowed(videoId: String, attemptedThisRound: Boolean): Boolean =
         videoId.isNotBlank() && !attemptedThisRound
 
     fun metadataIds(first: String, ordered: List<String>, cached: Set<String>, protectPlayback: Boolean): List<String> =
-        if (protectPlayback) listOf(first)
-        else (listOf(first) + ordered).distinct().filter { it !in cached }.take(CoverRoundPresentation.FAST_PREFIX)
+        // One YouTube queue HTTP request can verify multiple real IDs. A
+        // bounded 3-ID request during playback uses fewer network calls than
+        // three isolated single-ID attempts. Audio-at-risk still pauses work.
+        (listOf(first) + ordered).distinct()
+            .filter { it !in cached }
+            .take(if (protectPlayback) 3 else CoverRoundPresentation.FAST_PREFIX)
     fun mayRefreshVisible(workerRound: Int, visibleRound: Int): Boolean = workerRound == visibleRound
 
     fun nextDocumentaryContext(

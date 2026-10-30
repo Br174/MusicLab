@@ -1357,5 +1357,44 @@
     "implementationState": "R14_PATCH_PREPARED_CI_PENDING",
     "deviceVerified": false
   }
+,
+  "approvedR15RootCauseRecovery": {
+    "id": "musiclab.cover.r15-root-cause-recovery.20261030",
+    "authority": "Direct user approved radical fix after R14 real phone produced no more covers",
+    "state": "IMPLEMENTING_RED_OBSERVED_FULL_JVM_PENDING",
+    "baseline": "a3f2d6ebea442895eb2fe484bcd751f4f7afb239",
+    "causes": [
+      "COVER.INFO /song/ID replaced by shared ?initial-details or follow-up relation target, producing phantom duplicates",
+      "Per-video failed YouTube metadata marked attempted for whole round and deferred, blocking later cycles",
+      "Metadata queue always single-ID when ordinary audio played and after first five; bounded batching required",
+      "Verified Apple/Spotify/Discogs recording performer credit never counted alongside an independent confirmed work writer, even though both documented facts are available",
+      "Documented singer at END of YouTube title not recognized when uploader/channel differs from performer"
+    ],
+    "protections": {
+      "cycleLimits": [
+        10,
+        20,
+        20
+      ],
+      "cyclePublication": "atomic available verified at presentation deadline",
+      "evidenceByRound": [
+        3,
+        2,
+        2,
+        2,
+        2,
+        1
+      ],
+      "sources": "COVER.INFO priority; MusicBrainz Discogs Apple Spotify LRCLIB Last.fm YouTube active; SecondHandSongs standby",
+      "prohibited": "Karaoke MIDI KAR; no title-only before 6",
+      "player": "no change",
+      "costEur": 0,
+      "release": "isolated signed same family from R14; no main or MADRE"
+    },
+    "redRun": 41001482313,
+    "redTests": "four independent deterministic source-root regressions all failed against exact R14 baseline",
+    "testExpectation": "all same R15 tests GREEN plus full Android, Scudo360 Quality r40, signature, ZIP integrity",
+    "phoneVerified": false
+  }
 
 }

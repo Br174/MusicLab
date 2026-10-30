@@ -58,13 +58,38 @@ internal object CoverLabTurboRoundAdmission {
                     .filter { it.isNotBlank() && it !in setOf("unknown", "anonymous", "anonimo", "various", "traditional") }.toSet()
             val candidateWriters = candidate.credits.filter(::isWriter).map(::names)
             val counted = linkedSetOf<String>()
+            var matchedWorkWriter = false
             referenceCredits.filter(::isWriter).forEach { credit ->
                 val identity = names(credit)
                 if (identity.isNotEmpty() && identity.none { it in counted } &&
                     candidateWriters.any { it.intersect(identity).isNotEmpty() }) {
                     add("writer:${TitleMeaningResolver.canonical(credit.name)}")
                     counted.addAll(identity)
+                    matchedWorkWriter = true
                 }
+            }
+            // A matching writer documents the WORK. An independently
+            // authenticated track listing credits the particular PERFORMER;
+            // those are distinct factual observations. Merely having an
+            // album, uploader title, publication date or fame is NOT proof.
+            val authenticCatalogueTrack = candidate.sources.any { source ->
+                when {
+                    source.equals("Apple/iTunes", true) ->
+                        candidate.sourceUrl?.startsWith("https://music.apple.com/") == true &&
+                            (candidate.sourceUrl?.contains("/song/") == true ||
+                                candidate.sourceUrl?.contains("?i=") == true)
+                    source.equals("Spotify", true) ->
+                        candidate.sourceUrl?.startsWith("https://open.spotify.com/track/") == true
+                    source.equals("Discogs", true) ->
+                        candidate.releaseVerified && candidate.recordingReleaseId != null &&
+                            !candidate.recordingTrackPosition.isNullOrBlank()
+                    else -> false
+                }
+            }
+            if (matchedWorkWriter && authenticCatalogueTrack &&
+                candidate.artist.isNotBlank() &&
+                !candidate.artist.equals("YouTube", true)) {
+                add("catalogue-credited-performance")
             }
             val reference = TitleMeaningResolver.canonical(referenceArtist)
             val text = " " + TitleMeaningResolver.canonical(video) + " "

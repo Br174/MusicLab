@@ -290,6 +290,9 @@ private data class DirectVersionSession(
     var presentationInitialized: Boolean = false,
     var preparedWorkRound: Int = 1,
     val searchedLeadRounds: MutableMap<String, Int> = linkedMapOf(),
+    // R15: transient failures of a specific video must never suppress all
+    // its retries throughout this round or poison unrelated video IDs.
+    val metadataRetryAfter: CoverPreparationPolicy.MetadataRetry = CoverPreparationPolicy.MetadataRetry(),
     val completedDocumentaryContexts: MutableSet<String> = linkedSetOf(),
     val documentaryContextQueries: MutableMap<String, Pair<String, String>> = linkedMapOf(),
     val sourceRetries: CoverPreparationPolicy.SourceRetries = CoverPreparationPolicy.SourceRetries(),
@@ -3552,6 +3555,7 @@ internal fun DiscogsDirectVersionBrowser(
                 session.presentationInitialized = true
                 session.preparedWorkRound = 1
                 session.searchedLeadRounds.clear()
+                session.metadataRetryAfter.clear()
                 session.completedDocumentaryContexts.clear()
                 session.documentaryContextQueries.clear()
                 session.sourceRetries.clear()
@@ -3841,16 +3845,28 @@ internal fun DiscogsDirectVersionBrowser(
                     var metadata = session.preparedVideoSongs[id]
                     // Metadata timeout belongs to the individual video, not all IDs.
                     // Existing round attempts, 20s PassWindow and audio governor still bound work.
-                    if (metadata == null && !CoverPreparationPolicy.metadataAttemptAllowed(
-                            id, session.searchedLeadRounds[CoverPriorityOrder.key(candidate)] == thisRound)) {
-                        pending.defer(candidate); return
+                    if (metadata == null && !session.metadataRetryAfter.allowed(id)) {
+                        // This particular video is cooling briefly; preserve
+                        // it and retry on the next pass without blocking others.
+                        return
                     }
                     var requestedMetadata = false
-                    val orderedIds = if (metadata == null && presentation.status().shown < CoverRoundPresentation.FAST_PREFIX) {
-                        val rows = pending.snapshot().filter { !pending.isTwin(it) &&
-                            CoverLabTurboRoundAdmission.evaluate(it, workTitle(), originalArtist().ifBlank { lockedArtist },
-                                thisRound, referenceCredits = session.originalResolution.credits.toList()).admitted }
+                    // R15: metadata batching must continue beyond the first
+                    // five cards. The old check forced serial network calls
+                    // for cards 6..50, a second independent throughput choke.
+                    val orderedIds = if (metadata == null) {
+                        // Copy queue-owned mutable state on Main, and do
+                        // expensive documentary proof checks on Default only.
+                        val candidates = pending.snapshot().filter {
+                            !pending.isTwin(it) && !it.playbackVideoId.isNullOrBlank()
+                        }
+                        val checked = session.originalResolution.credits.toList()
                         withContext(Dispatchers.Default) {
+                            val rows = candidates.asSequence().filter {
+                                CoverLabTurboRoundAdmission.evaluate(it, previewTitle,
+                                    previewOriginal.ifBlank { lockedArtist }, thisRound,
+                                    referenceCredits = checked).admitted
+                            }.take(16).toList()
                             CoverPriorityOrder.order(rows, previewTitle, previewOriginal, thisRound)
                                 .mapNotNull { it.playbackVideoId?.takeIf(videoIdPattern::matches) }
                         }
@@ -3877,9 +3893,13 @@ internal fun DiscogsDirectVersionBrowser(
                     val verified = metadata?.takeIf { it.id == id && it.title.isNotBlank() }
                         ?: run {
                             if (requestedMetadata) recordSource(CoverSourceDiagnostic("Metadati YouTube", false, 0, "richiesta non completata; candidati conservati"))
-                            session.searchedLeadRounds[CoverPriorityOrder.key(candidate)] = thisRound
-                            pending.defer(candidate); return
+                            session.metadataRetryAfter.failed(id)
+                            // Keep the candidate and all documentary credits.
+                            // Unlike the old round ban, a transient failure
+                            // can recover in the very next cycle/pass.
+                            return
                         }
+                    session.metadataRetryAfter.succeeded(id)
                     if (requestedMetadata) recordSource(CoverSourceDiagnostic("Metadati YouTube", true, 1, "metadati ricevuti"))
                     val verdict = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle(), originalArtist().ifBlank { lockedArtist }, thisRound, verified.title, session.originalResolution.credits.toList())
                     if (!verdict.admitted) {

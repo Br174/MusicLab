@@ -135,7 +135,12 @@ internal object CoverPriorityOrder {
         val artist = TitleMeaningResolver.canonical(lead.artist)
         val bound = CoverLabTurboRoundAdmission.matchesWorkTitle(lead.title, title, setOf(lead.artist)) &&
             (CoverLab71FoundationGate.isOriginalPerformer(raw.artist, lead.artist) ||
-                (artist.isNotBlank() && TitleMeaningResolver.canonical(title).startsWith("$artist ")))
+                // The YouTube channel/uploader may not be the performer.
+                // Artist - Song AND Song - Artist are both common captions;
+                // the exact work-title matcher above must also succeed.
+                (artist.isNotBlank() &&
+                    (TitleMeaningResolver.canonical(title).startsWith("$artist ") ||
+                        TitleMeaningResolver.canonical(title).endsWith(" $artist"))))
         if (!bound) return raw
         // A title/performer match links the WORK. It does not identify a particular
         // catalogue recording, so never copy its release/track coordinates onto a search hit.

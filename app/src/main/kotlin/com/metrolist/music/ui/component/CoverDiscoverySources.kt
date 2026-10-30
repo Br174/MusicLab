@@ -1339,6 +1339,13 @@ internal object CoverDiscoverySources {
         FOLLOW_UP,
     }
 
+    /** The /song/ path ID is the recording identity. Query parameters
+     *  initial-details/follow-up-details identify a RELATED WORK and may be
+     *  identical across dozens of distinct cover recordings. */
+    internal fun coverInfoSongIdentity(url: String): String? =
+        COVER_INFO_SONG_URL.find(url.substringBefore('?').substringBefore('#'))
+            ?.groupValues?.getOrNull(1)
+
     private fun parseCoverInfoDocument(document: org.jsoup.nodes.Document): List<CoverInfoSeed> {
         val seenIds = linkedSetOf<String>()
         return document.select(COVER_INFO_SONG_SELECTOR)
@@ -1346,14 +1353,15 @@ internal object CoverDiscoverySources {
                 val absolute = anchor.absUrl("href").ifBlank { anchor.attr("href") }
                 val pathUrl = absolute.substringBefore('?').substringBefore('#')
                 val match = COVER_INFO_SONG_URL.find(pathUrl) ?: return@mapNotNull null
-                val relationMatch = COVER_INFO_RELATION_TARGET.find(absolute)
                 val relationRole =
                     when {
                         absolute.contains("initial-details=", ignoreCase = true) -> CoverInfoRelationRole.INITIAL
                         absolute.contains("follow-up-details=", ignoreCase = true) -> CoverInfoRelationRole.FOLLOW_UP
                         else -> CoverInfoRelationRole.NONE
                     }
-                val songId = relationMatch?.groupValues?.getOrNull(1).orEmpty().ifBlank { match.groupValues[1] }
+                // NEVER dedupe by ?initial-details=... or ?follow-up-details=...:
+                // those parameters may point to the SAME root for many covers.
+                val songId = match.groupValues[1]
                 if (!seenIds.add(songId)) return@mapNotNull null
 
                 val slugTitle = match.groupValues[2]

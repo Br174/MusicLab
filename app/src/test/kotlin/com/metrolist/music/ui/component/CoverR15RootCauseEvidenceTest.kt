@@ -73,4 +73,25 @@ class CoverR15RootCauseEvidenceTest {
             emptySet(),protectPlayback=true)
         assertEquals(listOf("abc123DEF45","xyz123DEF45","third123ABC"),ids)
     }
+    @Test fun trustedDocumentarySingerInVideoTitleCanBindEvenWhenUploaderIsDifferent() {
+        val lead = CoverSourceCandidate(
+            title="Il mondo", artist="Patrizio Buanne",
+            sources=listOf("COVER.INFO"), workRelationConfirmed=true,
+        )
+        val video = CoverSourceCandidate(
+            title="Il mondo - Patrizio Buanne", artist="Record Label Channel",
+            sources=listOf("YouTube"), playbackVideoId="abc123DEF45",
+            playbackVideoTitle="Il mondo - Patrizio Buanne",
+        )
+        val joined = CoverPriorityOrder.bindVideo(video, lead)
+        assertTrue("the explicitly credited artist must match the verified work",
+            joined.workRelationConfirmed)
+        assertEquals("Patrizio Buanne",joined.artist)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(joined,
+            "Il mondo", "Jimmy Fontana", 1).admitted)
+        val unrelated = video.copy(title="Il mondo - Altra Cantante",
+            playbackVideoTitle="Il mondo - Altra Cantante")
+        assertEquals(unrelated,CoverPriorityOrder.bindVideo(unrelated,lead))
+    }
+
 }
