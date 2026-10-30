@@ -194,7 +194,18 @@ internal class CoverRoundPresentation<T>(
         if (state.windowElapsed && !state.windowPublished && state.prepared.isNotEmpty()) {
             return takeTimedCycle()
         }
-        return take(visibleRound, status().ready)
+        val readyCount = status().ready
+        if (readyCount <= 0) return emptyList()
+        val completedBefore = state.manualWindowSkips
+        val revealed = take(visibleRound, readyCount)
+        if (revealed.isNotEmpty()) {
+            // A full 20-card packet after a short 3-card first cycle
+            // consumes the second cycle even though total shown is only 23.
+            state.manualWindowSkips = maxOf(state.manualWindowSkips, completedBefore + 1)
+            state.windowElapsed = true
+            state.windowPublished = true
+        }
+        return revealed
     }
     fun advance(): List<T> {
         if (!status().green) return emptyList()
