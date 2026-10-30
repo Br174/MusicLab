@@ -1,0 +1,51 @@
+name: MusicRank Independent APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musicrank-independent-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref_name == 'experiment/musicrank-independent-v1-20261030'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-protobuf
+      - name: Android SDK
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+      - name: Compile and test independent application
+        env:
+          METROLIST_APPLICATION_ID: it.verlezza.musiclab.musicrank
+          METROLIST_APP_NAME: MusicLab MusicRank
+          MUSICLAB_VERSION_NAME: 0.1.0-musicrank
+          MUSICLAB_VERSION_CODE: '1'
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --console=plain :app:testFossDebugUnitTest :app:assembleFossDebug
+      - name: Validate APK identity and archive
+        run: |
+          mkdir -p dist/musicrank
+          cp app/build/outputs/apk/foss/debug/*.apk dist/musicrank/MusicLab-MusicRank-v1.apk
+          (cd dist/musicrank && zip -9 MusicLab-MusicRank-v1.zip MusicLab-MusicRank-v1.apk)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-MusicRank-Independent-APK-ZIP
+          path: dist/musicrank/*
+          if-no-files-found: error
+          retention-days: 14
