@@ -1034,9 +1034,15 @@ class MusicService :
         // backend, country, or quality should take effect on the next track
         // boundary without requiring a full app restart — reload the current
         // item so it picks up the new source immediately.
-        // Apply any user-configured endpoint overrides at startup so the first
-        // resolve already uses them.
-        applyQobuzEndpointOverrides()
+        // R24: startupPrefs already contains all endpoints. Do NOT re-enter
+        // DataStore synchronously on Android's main thread during onCreate.
+        // Keep user overrides effective for the very first audio resolution.
+        applyQobuzEndpointOverrides(
+            squid = startupPrefs!![QobuzSquidEndpointKey].orEmpty(),
+            kenny = startupPrefs!![QobuzKennyEndpointKey].orEmpty(),
+            trypt = startupPrefs!![QobuzTryptEndpointKey].orEmpty(),
+            jumo = startupPrefs!![QobuzJumoEndpointKey].orEmpty(),
+        )
 
         var isFirstQobuzEmit = true
         scope.launch {
@@ -1053,14 +1059,23 @@ class MusicService :
                         it[QobuzJumoEndpointKey].orEmpty(),
                     ).joinToString("|")
                 }.distinctUntilChanged()
-                .collect {
+                .collect { settingsSignature ->
                     if (isFirstQobuzEmit) {
                         isFirstQobuzEmit = false
                         return@collect
                     }
-                    // A settings change may have edited an endpoint — re-apply
-                    // before reloading the current stream.
-                    applyQobuzEndpointOverrides()
+                    // R24: the observer already provides the latest endpoint
+                    // fields, so never call dataStore.get() inside the main
+                    // collector. Preserve all original source-change reloads.
+                    val values = settingsSignature.split("|", limit = 8)
+                    if (values.size == 8) {
+                        applyQobuzEndpointOverrides(
+                            squid = values[4],
+                            kenny = values[5],
+                            trypt = values[6],
+                            jumo = values[7],
+                        )
+                    }
                     val mediaId = player.currentMediaItem?.mediaId ?: return@collect
                     val currentPosition = player.currentPosition
                     val wasPlaying = player.isPlaying
@@ -5123,12 +5138,19 @@ class MusicService :
         }
     }
 
-    private fun applyQobuzEndpointOverrides() {
+    // R24: a pure preferences snapshot application. No disk reads or
+    // runBlocking in Service.onCreate or settings collectors.
+    private fun applyQobuzEndpointOverrides(
+        squid: String,
+        kenny: String,
+        trypt: String,
+        jumo: String,
+    ) {
         QobuzAudioProvider.configureEndpoints(
-            squid = dataStore.get(QobuzSquidEndpointKey, ""),
-            kenny = dataStore.get(QobuzKennyEndpointKey, ""),
-            trypt = dataStore.get(QobuzTryptEndpointKey, ""),
-            jumo = dataStore.get(QobuzJumoEndpointKey, ""),
+            squid = squid,
+            kenny = kenny,
+            trypt = trypt,
+            jumo = jumo,
         )
     }
 
