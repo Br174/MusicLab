@@ -1,5 +1,6 @@
 package com.metrolist.music.playback
 
+import androidx.media3.common.Player
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -17,6 +18,35 @@ class PlaybackSprintPolicyTest {
         assertFalse(PlaybackSprintPolicy.canPreload(true,true,false,true,50_000L,40_000L))
         assertFalse(PlaybackSprintPolicy.canPreload(true,true,false,false,39_999L,40_000L))
         assertFalse(PlaybackSprintPolicy.canPreload(false,true,false,false,50_000L,40_000L))
+    }
+
+    @Test fun sameSongIdleMustPrepareButReadyMustNotReprepare() {
+        assertTrue(PlaybackSprintPolicy.shouldPrepareExistingTrack(Player.STATE_IDLE))
+        assertTrue(PlaybackSprintPolicy.shouldPrepareExistingTrack(Player.STATE_ENDED))
+        assertFalse(PlaybackSprintPolicy.shouldPrepareExistingTrack(Player.STATE_BUFFERING))
+        assertFalse(PlaybackSprintPolicy.shouldPrepareExistingTrack(Player.STATE_READY))
+    }
+
+    @Test fun oneWorkerPreloadPrefersDocumentedCoverButRejectsOldOrInvalidId() {
+        val current = "current0001"
+        val validNext = "nextcover01"
+        assertEquals(
+            validNext,
+            PlaybackSprintPolicy.nextPreloadMediaId(true, current, validNext, "queue-track"),
+        )
+        assertEquals(
+            "queue-track",
+            PlaybackSprintPolicy.nextPreloadMediaId(false, current, validNext, "queue-track"),
+        )
+        assertEquals(
+            "queue-track",
+            PlaybackSprintPolicy.nextPreloadMediaId(true, current, current, "queue-track"),
+        )
+        assertEquals(
+            "queue-track",
+            PlaybackSprintPolicy.nextPreloadMediaId(true, current, "not valid!", "queue-track"),
+        )
+        assertNull(PlaybackSprintPolicy.nextPreloadMediaId(true, current, null, current))
     }
 
     @Test fun safeSingleTrackPreloadCanStartWhenReserveIsHealthy() {
