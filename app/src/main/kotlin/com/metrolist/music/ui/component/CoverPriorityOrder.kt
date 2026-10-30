@@ -80,10 +80,12 @@ internal object CoverPriorityOrder {
     private fun group(candidate: CoverSourceCandidate, originalArtist: String, round: Int): Int {
         // Accept original-artist priority only with documentary/release proof,
         // not from a matching uploader channel or an ordinary YouTube title.
-        if (candidate.originalWorkReference &&
-            (candidate.firstPublicationConfirmed || candidate.workRelationConfirmed ||
-                candidate.releaseVerified)) return 0
-        return musicalSourceTier(candidate.sources, !candidate.playbackVideoId.isNullOrBlank())
+        return when {
+            candidate.originalWorkReference && candidate.firstPublicationConfirmed -> 0
+            candidate.originalWorkReference &&
+                (candidate.workRelationConfirmed || candidate.releaseVerified) -> 0
+            else -> musicalSourceTier(candidate.sources, !candidate.playbackVideoId.isNullOrBlank())
+        }
     }
 
     fun order(
