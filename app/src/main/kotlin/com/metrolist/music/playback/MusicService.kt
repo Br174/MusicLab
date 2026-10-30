@@ -5227,6 +5227,7 @@ class MusicService :
                     try {
                         val length = delegate.open(dataSpec)
                         if (observedTapMs > 0L &&
+                            observedTapMs == lab31CoverTapAtMs &&
                             lab31FirstOpenReportedTapMs != observedTapMs
                         ) {
                             lab31FirstOpenReportedTapMs = observedTapMs
@@ -5253,6 +5254,7 @@ class MusicService :
                 override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
                     val count = delegate.read(buffer, offset, length)
                     if (count > 0 && observedTapMs > 0L &&
+                        observedTapMs == lab31CoverTapAtMs &&
                         lab31FirstReadReportedTapMs != observedTapMs
                     ) {
                         lab31FirstReadReportedTapMs = observedTapMs
