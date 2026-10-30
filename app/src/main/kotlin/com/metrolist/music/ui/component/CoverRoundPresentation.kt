@@ -81,8 +81,12 @@ internal class CoverRoundPresentation<T>(
         (round(visibleRound).shown.size >= ROUND_SIZE || round(visibleRound).exhausted)) visibleRound + 1 else visibleRound
 
     fun stage(number: Int, row: T): Boolean {
-        val state = round(number)
         val id = identity(row)
+        // R25: a source callback may finish AFTER the user advances to the
+        // next round. Never trap its verified song in a hidden old round.
+        // Already shown IDs remain immutable to prevent another visible copy.
+        if (number < visibleRound && rounds.values.any { id in it.shown }) return false
+        val state = round(maxOf(number, visibleRound))
         // R25: a verified result arriving just after source exhaustion is
         // not invalid. Retain it in this cycle or carry it to the next round.
         if (id in state.shown) return false

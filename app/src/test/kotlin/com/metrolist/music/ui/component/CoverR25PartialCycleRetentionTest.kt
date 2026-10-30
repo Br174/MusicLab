@@ -93,6 +93,20 @@ class CoverR25PartialCycleRetentionTest {
         assertEquals(4,p.status().shown)
     }
 
+    @Test fun verifiedCallbackFromOldRoundFollowsTheVisibleRoundWithoutDuplicates() {
+        val p = CoverRoundPresentation<String> { it }
+        p.stage(1, "first-verified")
+        p.exhaust(1)
+        assertEquals(listOf("first-verified"), p.reveal())
+        assertTrue(p.status().green)
+        p.advance()
+        assertEquals(2, p.visibleRound)
+        assertTrue(p.stage(1, "late-from-first"))
+        assertEquals(listOf("late-from-first"), p.preparedRows(2))
+        assertFalse(p.stage(1, "first-verified"))
+        assertEquals(listOf("late-from-first"), p.preparedRows(2))
+    }
+
     @Test fun overflowAndPreviousRoundRemainRetainedAcrossGreen() {
         val p=CoverRoundPresentation<String> { it }
         repeat(52) { p.stage(1,"row-$it") }

@@ -33,6 +33,8 @@ test('R25 consumes exactly one numbered cycle per short packet, no premature gre
  assert.match(reveal,/completedBefore \+ 1/);
  const stage=fragment('fun stage(number: Int, row: T): Boolean','fun total(number: Int)');
  assert.doesNotMatch(stage,/if \(state\.exhausted\) return false/);
+ assert.match(stage,/number < visibleRound/);
+ assert.match(stage,/round\\(maxOf\\(number, visibleRound\\)\\)/);
  assert.match(stage,/state\.overflow\[id\] = row/);
  const advance=fragment('fun advance(): List<T>','private fun ready(number: Int)');
  assert.match(advance,/previous\.prepared\.values \+ previous\.overflow\.values/);
