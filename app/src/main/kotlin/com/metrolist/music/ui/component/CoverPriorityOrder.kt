@@ -151,6 +151,34 @@ internal object CoverPriorityOrder {
         )
     }
 
+    /** Reconcile an independently discovered YouTube result with an already
+     *  DOCUMENTED work and the SAME credited performer. This establishes only
+     *  the work link, never the identity of a particular discographic recording.
+     *  Title coincidence alone cannot corroborate a work or an interpreter.
+     */
+    fun bindDocumentedVideo(
+        raw: CoverSourceCandidate, documentaryLeads: List<CoverSourceCandidate>,
+    ): CoverSourceCandidate {
+        if (raw.playbackVideoId.isNullOrBlank()) return raw
+        for (lead in documentaryLeads) {
+            if (!lead.workRelationConfirmed || !lead.sources.any {
+                it.equals("COVER.INFO", true) || it.equals("MusicBrainz", true)
+            }) continue
+            if (CoverLab71FoundationGate.isForbidden(
+                    lead.title, lead.artist, raw.playbackVideoTitle.orEmpty(), raw.artist,
+                )) continue
+            val linked = bindVideo(raw, lead)
+            if (linked !== raw) {
+                // A verified performer+work match does NOT mean the video is the
+                // FIRST publishing of that recording. Only the identical native
+                // video reference can retain the first-publication assertion.
+                return linked.copy(firstPublicationConfirmed =
+                    lead.firstPublicationConfirmed && lead.playbackVideoId == raw.playbackVideoId)
+            }
+        }
+        return raw
+    }
+
     fun mergeEvidence(first: CoverSourceCandidate, second: CoverSourceCandidate): CoverSourceCandidate = merge(first, second)
 
     private fun merge(first: CoverSourceCandidate, second: CoverSourceCandidate): CoverSourceCandidate {

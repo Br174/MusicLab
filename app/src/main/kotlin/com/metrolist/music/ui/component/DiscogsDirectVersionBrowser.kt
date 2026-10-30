@@ -4140,7 +4140,10 @@ internal fun DiscogsDirectVersionBrowser(
                                     val fallback = withTimeoutOrNull(2_500L) { withContext(Dispatchers.IO) { YouTubeWebSearch.search(page.text)?.items } }.orEmpty()
                                     fallback.forEach { video ->
                                         session.preparedVideoSongs[video.id] = video
-                                        val linked = CoverPriorityOrder.bindVideo(fromVideo(video, page.category), page.lead)
+                                        val raw = fromVideo(video, page.category)
+                                        val leadLinked = CoverPriorityOrder.bindVideo(raw, page.lead)
+                                        val linked = if (leadLinked !== raw) leadLinked else
+                                            CoverPriorityOrder.bindDocumentedVideo(raw, pending.snapshot())
                                         if (titleAllowed(linked)) pending.offer(linked)
                                     }
                                     queryWork.defer(page)
@@ -4152,7 +4155,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 videos.forEach { video ->
                                     session.preparedVideoSongs[video.id] = video
                                     val raw = fromVideo(video, page.category, page.songs)
-                                    val linked = CoverPriorityOrder.bindVideo(raw, page.lead)
+                                    val leadLinked = CoverPriorityOrder.bindVideo(raw, page.lead)
+                                    val linked = if (leadLinked !== raw) leadLinked else
+                                        CoverPriorityOrder.bindDocumentedVideo(raw, pending.snapshot())
                                     if (linked !== raw && !CoverLab71FoundationGate.isForbidden(linked.title, video.title)) bound = true
                                     if (titleAllowed(linked)) pending.offer(linked)
                                 }
@@ -4193,6 +4198,21 @@ internal fun DiscogsDirectVersionBrowser(
                                 pending.complete(next); continue
                             }
                             if (next.playbackVideoId.isNullOrBlank()) {
+                                // A documentary page may arrive AFTER an independently
+                                // verified YouTube video. Reconcile the same work and
+                                // performer from the native SongItem cache FIRST.
+                                val cachedMatch = if (next.workRelationConfirmed) {
+                                    session.preparedVideoSongs.values.firstNotNullOfOrNull { song ->
+                                        val raw = fromVideo(song, next.category)
+                                        CoverPriorityOrder.bindDocumentedVideo(raw, listOf(next))
+                                            .takeIf { it !== raw }
+                                    }
+                                } else null
+                                if (cachedMatch != null) {
+                                    pending.offer(cachedMatch)
+                                    pending.lookupComplete(next, linked = true)
+                                    continue
+                                }
                                 if (linkingJob?.isActive == true) { pending.defer(next); continue }
                                 linkingJob = launch {
                                 awaitResources()
