@@ -412,6 +412,10 @@ class MusicService :
     fun setCoverPerformanceLoad(active: Boolean, heavy: Boolean) {
         coverSectionActive = active
         coverHeavyLoad = active && heavy
+        if (!active) {
+            coverNextPreloadId = null
+            coverNextPreloadAnchorId = null
+        }
         Timber.tag(TAG).d(
             "LAB57 COVER LOAD: active=%s heavy=%s effective=%s",
             coverSectionActive,
@@ -591,6 +595,9 @@ class MusicService :
     private var preCacheJob: Job? = null
     private var smartPreloadJob: Job? = null
     private var smartPreloadAnchorMediaId: String? = null
+    // R21: optional verified next Cover ID, consumed by the SAME smart-preload job.
+    private var coverNextPreloadId: String? = null
+    private var coverNextPreloadAnchorId: String? = null
     private var playbackPriorityBurstJob: Job? = null
     @Volatile private var playbackPriorityBurstActive: Boolean = false
     // LAB62 Pollicino: read-only, lightweight audio diagnostics (no network calls).
@@ -602,6 +609,7 @@ class MusicService :
     private val lab31AudioLock = Any()
     private val lab31AudioEvents = java.util.ArrayDeque<String>()
     @Volatile private var lab31CoverTapAtMs = 0L
+    @Volatile private var lab31FirstAudioReportedTapMs = 0L
     @Volatile private var lab31BufferStartedAtMs = 0L
 
     private fun lab31AudioEvent(event: String, detail: String = "") {
@@ -618,6 +626,7 @@ class MusicService :
 
     fun lab31BeginCoverTap() {
         lab31CoverTapAtMs = android.os.SystemClock.elapsedRealtime()
+        lab31FirstAudioReportedTapMs = 0L
         lab31BufferStartedAtMs = 0L
         lab31AudioEvent("COVER_TAP", "player_ready=" + playerInitialized.value)
     }
@@ -1633,6 +1642,38 @@ class MusicService :
             }
         }
         player.addAnalyticsListener(PlaybackStatsListener(false, this@MusicService))
+        // R21: decoder READY alone is not audible playback. Audio position
+        // advancing is a stronger playout indicator; still not proof of volume.
+        // Pure in-memory diagnostics, no network, file, media ID or UI callbacks.
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioPositionAdvancing(
+                eventTime: AnalyticsListener.EventTime,
+                playoutStartSystemTimeMs: Long,
+            ) {
+                val tapMs = lab31CoverTapAtMs
+                if (tapMs > 0L && lab31FirstAudioReportedTapMs != tapMs) {
+                    lab31FirstAudioReportedTapMs = tapMs
+                    lab31AudioEvent(
+                        "AUDIO_POSITION_ADVANCING",
+                        "since_tap_ms=" +
+                            (android.os.SystemClock.elapsedRealtime() - tapMs).coerceAtLeast(0L),
+                    )
+                }
+            }
+
+            override fun onAudioUnderrun(
+                eventTime: AnalyticsListener.EventTime,
+                bufferSize: Int,
+                bufferSizeMs: Long,
+                elapsedSinceLastFeedMs: Long,
+            ) {
+                lab31AudioEvent(
+                    "AUDIO_UNDERRUN",
+                    "buffer_size_ms=" + bufferSizeMs +
+                        " last_feed_ms=" + elapsedSinceLastFeedMs,
+                )
+            }
+        })
 
         // Cleanup handled manually in onDestroy/release
         _playerFlow.value = player
@@ -2353,6 +2394,8 @@ class MusicService :
         smartPreloadJob?.cancel()
         smartPreloadJob = null
         smartPreloadAnchorMediaId = null
+        coverNextPreloadId = null
+        coverNextPreloadAnchorId = null
         preCacheJob?.cancel()
         preCacheJob = null
         sponsorBlockJob?.cancel()
@@ -2402,12 +2445,39 @@ class MusicService :
 
     fun isPlaybackPriorityBurstActive(): Boolean = playbackPriorityBurstActive
 
+    /**
+     * R21: provide the next ALREADY-verified Cover video, never launch a second
+     * resolver or prewarm coroutine. Called on the Media3/player main looper.
+     * An obsolete suggestion cannot cross into the next playing track.
+     */
+    fun setCoverNextPreloadCandidate(nextVideoId: String?) {
+        if (!::player.isInitialized) return
+        val currentId = player.currentMediaItem?.mediaId ?: return
+        val nextId = nextVideoId?.takeIf {
+            it != currentId && it.matches(Regex("[A-Za-z0-9_-]{11}"))
+        }
+        if (coverNextPreloadId == nextId && coverNextPreloadAnchorId == currentId) return
+        coverNextPreloadId = nextId
+        coverNextPreloadAnchorId = currentId
+        smartPreloadJob?.cancel()
+        smartPreloadJob = null
+        smartPreloadAnchorMediaId = null
+        if (!playbackPriorityBurstActive && player.playbackState == Player.STATE_READY) {
+            scheduleSmartPlaybackPreload()
+        }
+    }
+
     fun playNow(item: MediaItem) {
         lab31AudioEvent("PLAY_NOW", "player_state=" + player.playbackState)
         beginPlaybackPriorityBurst("play-now")
 
         if (player.currentMediaItem?.mediaId == item.mediaId) {
             player.seekTo(0)
+            // R21: playWhenReady cannot leave IDLE (including after a source error).
+            // Never re-prepare a genuinely READY player, which would interrupt audio.
+            if (PlaybackSprintPolicy.shouldPrepareExistingTrack(player.playbackState)) {
+                player.prepare()
+            }
             player.playWhenReady = true
             return
         }
@@ -2805,12 +2875,15 @@ class MusicService :
         loudnessDb: Double?,
         perceptualLoudnessDb: Double?,
         preserveCachedIfMissing: Boolean = false,
-    ) = runBlocking(Dispatchers.Main.immediate) {
-        val targetPlayer = playerProvider() ?: return@runBlocking
+    ) {
+        // R21: a resolver runs on IO. Never block it waiting for the main
+        // looper to apply normalisation; guard the current track after dispatch.
+        scope.launch(Dispatchers.Main.immediate) {
+        val targetPlayer = playerProvider() ?: return@launch
         if (playerNormalizationProcessors[targetPlayer] !== processor ||
             targetPlayer.currentMediaItem?.mediaId != mediaId
         ) {
-            return@runBlocking
+            return@launch
         }
 
         val isCurrentPlayer = ::player.isInitialized && targetPlayer === player
@@ -2820,7 +2893,7 @@ class MusicService :
             isCurrentPlayer &&
             cachedNormalizationMediaId == mediaId
         ) {
-            return@runBlocking
+            return@launch
         }
         if (isCurrentPlayer) {
             loudnessSetupGeneration++
@@ -2834,6 +2907,7 @@ class MusicService :
             perceptualLoudnessDb = perceptualLoudnessDb,
             updateCache = isCurrentPlayer,
         )
+        }
     }
 
     private fun setupAudioNormalization() {
@@ -4329,7 +4403,12 @@ class MusicService :
         // ExoPlayer state/timeline must be read on its application looper.
         // Only the actual network/cache prewarm is dispatched to IO.
         smartPreloadJob = scope.launch(Dispatchers.Main.immediate + SilentHandler) {
-            val deadline = System.currentTimeMillis() + SMART_PRELOAD_WAIT_MS
+            // Cover can legitimately take longer than 18s to accumulate the
+            // protected 40s reserve. Allow a bounded, non-blocking window only
+            // when the user has an actual documented next-cover candidate.
+            val deadline = System.currentTimeMillis() +
+                if (coverSectionActive && coverNextPreloadAnchorId == anchorId &&
+                    coverNextPreloadId != null) 45_000L else SMART_PRELOAD_WAIT_MS
 
             while (isActive) {
                 if (player.currentMediaItem?.mediaId != anchorId ||
@@ -4373,7 +4452,19 @@ class MusicService :
                 cursor = next
             }
 
-            for (mediaItem in upcoming.distinctBy { it.mediaId }) {
+            // Do not blindly warm an unrelated queue song when the next Cover
+            // is known. This is selection, NOT a parallel downloader.
+            val chosenId = PlaybackSprintPolicy.nextPreloadMediaId(
+                coverActive = coverSectionActive && coverNextPreloadAnchorId == anchorId,
+                currentMediaId = anchorId,
+                nextCoverVideoId = coverNextPreloadId,
+                queuedMediaId = upcoming.firstOrNull()?.mediaId,
+            )
+            val chosenItem = chosenId?.let { id ->
+                upcoming.firstOrNull { it.mediaId == id }
+                    ?: MediaItem.Builder().setMediaId(id).build()
+            }
+            for (mediaItem in listOfNotNull(chosenItem)) {
                 if (!isActive || player.currentMediaItem?.mediaId != anchorId) return@launch
 
                 // Never compete with a current-song rebuffer.
