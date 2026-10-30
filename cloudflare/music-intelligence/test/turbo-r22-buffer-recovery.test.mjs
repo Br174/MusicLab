@@ -25,7 +25,7 @@ test('R22 refreshes a stuck URL without evicting good cache or producing unbound
  assert.doesNotMatch(lane,/performAggressiveCacheClear/);
  assert.match(lane,/bufferStallRecoveryAttempts\+\+/);
  assert.match(policy,/MAX_BUFFER_STALL_RECOVERIES = 2/);
- assert.match(policy,/BUFFER_STALL_RECOVERY_DELAY_MS = 9_000L/);
+ assert.match(policy,/BUFFER_STALL_RECOVERY_DELAY_MS = 5_000L/);
  assert.match(service,/bufferStallRecoveryAttempts = 0/);
 });
 test('R22 protects audio reserve without modifying search, buffer startup or R21 diagnostic',()=>{
