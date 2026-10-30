@@ -4251,8 +4251,23 @@ internal fun DiscogsDirectVersionBrowser(
                         youtube.join(); linkingJob?.join()
                     }
                     session.roundSourceChecked = true
+                    // Source totals are not verified covers: expose each bottleneck once
+                    // per preparation pass, with the work-proof count off Main.
+                    val diagnosed = pending.snapshot()
+                    val metadataCachedIds = session.preparedVideoSongs.keys.toSet()
+                    val diagTitle = workTitle()
+                    val diagOriginal = originalArtist().ifBlank { lockedArtist }
+                    val diagCredits = session.originalResolution.credits.toList()
+                    val eligibleInThisRound = withContext(Dispatchers.Default) {
+                        diagnosed.count { CoverLabTurboRoundAdmission.evaluate(it, diagTitle, diagOriginal,
+                            thisRound, referenceCredits = diagCredits).admitted }
+                    }
+                    val haveVideoId = diagnosed.count { !it.playbackVideoId.isNullOrBlank() }
+                    val haveMetadata = diagnosed.count { it.playbackVideoId in metadataCachedIds }
                     recordSource(CoverSourceDiagnostic("Coda Cover R2", true, pending.size,
-                        "da preparare ${pending.size} · possibili gemelli in fondo ${pending.twinCount} · pagine video ${queryWork.size}"))
+                        "da preparare ${pending.size} · video collegati $haveVideoId" +
+                        " · metadati disponibili $haveMetadata · ammissibili tornata $eligibleInThisRound" +
+                        " · gemelli in fondo ${pending.twinCount} · pagine video ${queryWork.size}"))
                     flushInitial(force = true)
                     val sourceContextKey = "$thisRound|${workTitle()}|${originalArtist().ifBlank { lockedArtist }}"
                     val unresolved = pending.snapshot().any {

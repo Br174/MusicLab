@@ -1,0 +1,9 @@
+MUSICLAB TURBO LAB79 R12 - VIDEO METADATA THROUGHPUT / 2026-10-30
+Verified base: active-family exact SHA 4a7d24440120e90bda1f95c4ea6f8eb121d04710, Scudo360 r40 already present.
+User clarification: Strict 10+20+20 atomically published, 1-2 verified posters must remain hidden until 10. Earlier partial-ready R12 experiment rejected, CI 40988026748 failed 1/559, no APK published.
+Real device: R10 has only 1-2 genuinely staged after two cycles, though source dialog has 229 candidates, COVER.INFO69, Apple/iTunes97, MusicBrainz11, YouTube video20, YouTube Music20, Discogs100.
+Verified production root: provider-level Metadati YouTube cooldown (10-60s after failed request) short-circuits processing of OTHER video IDs. Existing per-recording round attempt tracking and bounded PassWindow can isolate failure instead.
+Fix: remove cross-ID cooldown veto, retain per-recording one-attempt same-round, 20s network budget, request timeouts, audio governor. Does not bypass YouTube metadata verification.
+Diagnostic improvement: per pass report video-linked count, metadata-available count, and evidence-eligible-for-current-round count separately from broad documentary candidate count.
+Preserve 3/2/1 total work evidences, source relation identity, all category and karaoke exclusions, dedupe, 10+20+20, manual cycle buttons, player/UI, signed applicationId and certificate, main/MADRE/LAST_GOOD.
+New LAB signed versionCode33085 after native Scudo360 and r40 quality gates. Real coverage device validation still necessary; do not claim 50 covers guaranteed.

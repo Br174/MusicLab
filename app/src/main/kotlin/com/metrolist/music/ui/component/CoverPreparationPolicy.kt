@@ -37,6 +37,10 @@ internal object CoverPreparationPolicy {
         !diagnostic.note.contains("Escluso dal recupero", true) &&
         !diagnostic.note.contains("Interprete di riferimento necessario", true)
 
+    /** Scoped to each video ID; pass and audio limits are preserved. */
+    fun metadataAttemptAllowed(videoId: String, attemptedThisRound: Boolean): Boolean =
+        videoId.isNotBlank() && !attemptedThisRound
+
     fun metadataIds(first: String, ordered: List<String>, cached: Set<String>, protectPlayback: Boolean): List<String> =
         if (protectPlayback) listOf(first)
         else (listOf(first) + ordered).distinct().filter { it !in cached }.take(CoverRoundPresentation.FAST_PREFIX)
