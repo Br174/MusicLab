@@ -19,7 +19,7 @@ function existingFile(root,p){return cleanFile(p)&&fs.existsSync(path.resolve(ro
 function javaReports(dir){
   if(!fs.existsSync(dir)) return {tests:0,failures:0,errors:0,skipped:0,files:0};
   const files=fs.readdirSync(dir).filter(x=>/^TEST-.+\.xml$/.test(x));
-  const total={tests:0,failures:0,errors:0,skipped:0,files:files.length,failedFiles:[]};
+  const total={tests:0,failures:0,errors:0,skipped:0,files:files.length,failedFiles:[],classEvidence:[]};
   for(const file of files){
     const xml=fs.readFileSync(path.join(dir,file),'utf8');
     const root=xml.match(/<testsuite\b[^>]*>/);
@@ -29,6 +29,14 @@ function javaReports(dir){
       const m=root[0].match(new RegExp('\\b'+key+'="(\\d+)"'));
       total[key]+=m?Number(m[1]):0;
     }
+    // Exact JUnit class evidence from THIS native run; never infer class
+    // execution from a suite-wide pass or from its filename alone.
+    const name=file.slice('TEST-'.length,-'.xml'.length);
+    const suiteName=root[0].match(/\bname="([^"]+)"/)?.[1];
+    const count=key=>Number(root[0].match(new RegExp('\\b'+key+'="(\\d+)"'))?.[1]||0);
+    const tests=count('tests'),failures=count('failures'),errors=count('errors'),skipped=count('skipped');
+    total.classEvidence.push({name,passed:suiteName===name&&tests>0&&failures===0&&errors===0&&skipped===0,
+      tests,failures,errors,skipped});
   }
   return total;
 }
@@ -106,7 +114,19 @@ export function run(manifest,{root=process.cwd(),level='lab',reportFile=null,spa
         logTail:((child.stdout||'')+'\n'+(child.stderr||'')).slice(-4000)});
     }
     const verdict=evaluate(manifest,report.suites,level);
-    report.contracts=verdict.contracts;report.errors=verdict.errors;
+    // Map every mandatory contract to the real executed JUnit classes
+    // specified in the existing Scudo manifest (no synthetic green).
+    report.contracts=verdict.contracts.map(row=>{
+      const canonical=manifest.contracts.find(c=>c.id===row.id);
+      const executed=report.suites.filter(s=>canonical?.suites?.includes(s.id))
+        .flatMap(s=>s.classEvidence||[]);
+      const classEvidence=(canonical?.junitClasses||[]).map(name=>{
+        const matches=executed.filter(c=>c.name===name);
+        return matches.length===1?matches[0]:{name,passed:false,tests:0,failures:0,errors:0,skipped:0};
+      });
+      return {...row,classEvidence};
+    });
+    report.errors=verdict.errors;
     report.passed=verdict.passed;
     report.requiredCount=verdict.requiredCount;
     report.verifiedCount=verdict.verifiedCount;

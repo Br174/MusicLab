@@ -8,6 +8,8 @@ ALLOWED={
  ROOT+'DiscogsDirectVersionBrowser.kt',
  ROOT+'CoverPreparationPolicy.kt',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverR12VideoThroughputTest.kt',
+ 'scripts/scudo360-gate.mjs',
+ 'cloudflare/music-intelligence/test/scudo-r40-class-evidence-real.test.mjs',
  'tools/universal-apk-builder/verify-r10-cover-scope.py',
  'tools/universal-apk-builder/verify-r12-video-throughput-scope.py',
  'tools/universal-apk-builder/prepare-turbo-r12-video-throughput-env.py',
@@ -43,4 +45,8 @@ assert 'CoverPreparationPolicy.metadataAttemptAllowed(' in after
 for file in ('CoverRoundPresentation.kt','CoverLabTurboRoundAdmission.kt','CoverPriorityOrder.kt','CoverDiscoverySources.kt','CoverOriginalResolver.kt','TitleMeaningResolver.kt'):
     p=ROOT+file
     assert prior(p)==Path(p).read_text(),p
+scudo=Path('scripts/scudo360-gate.mjs').read_text()
+assert "suiteName===name&&tests>0" in scudo
+assert "report.contracts=verdict.contracts.map" in scudo
+assert "classEvidence=(canonical?.junitClasses||[])" in scudo
 print('PASS: R12 exact source 4a7, native engine/player/UI, evidence and 10+20+20 protected')

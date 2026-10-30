@@ -7,3 +7,7 @@ Fix: remove cross-ID cooldown veto, retain per-recording one-attempt same-round,
 Diagnostic improvement: per pass report video-linked count, metadata-available count, and evidence-eligible-for-current-round count separately from broad documentary candidate count.
 Preserve 3/2/1 total work evidences, source relation identity, all category and karaoke exclusions, dedupe, 10+20+20, manual cycle buttons, player/UI, signed applicationId and certificate, main/MADRE/LAST_GOOD.
 New LAB signed versionCode33085 after native Scudo360 and r40 quality gates. Real coverage device validation still necessary; do not claim 50 covers guaranteed.
+
+R40 QUALITY GATE CI failure, signed APK correctly withheld: full 560/560 JVM passed, native Scudo report did NOT contain per-JUnit-class evidence though actual XML classes were produced. r40 requires each P1 class to be physically executed on exact SHA. Causal adapter omission in scripts/scudo360-gate.mjs (suite summary only).
+Fix in SAME native Scudo executor (no duplicate scheduler/tests): parse each fresh TEST-<class>.xml, match testsuite.name to file class, count tests/fail/error/skip, pass only exact match and >0 tests; associate per-class proof with manifest.junitClasses and correct suite ID; missing/mismatch->false. Includes independent Node fixture proving real class success and missing class false.
+Never fabricate class pass or relax r40. Does not modify native MusicLab player/presentation/evidence/candidate engine further.
