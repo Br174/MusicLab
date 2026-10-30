@@ -1,0 +1,7 @@
+MUSICLAB TURBO R16 — USER APPROVED 2026-10-30
+BASE: b35cc61c18daca9d4752fac201dcacf28a35015f (R15 signed tested)
+ISOLATED LAB: lab/musiclab-turbo-r16-flexible-video-metadata-20261030
+DESIRED: Italian title mandatory and ANY two of independent matched artist, album, duration, verified documentary work, official catalogue rendition and original writer corroboration. Foreign adaptations pass through documentary relation and video foreign-title match.
+FIX: Old R15 pre-queue minimum-three gate rejects valid songs without fetching YouTube metadata. R16 does title-only plausibility before queue, then compares actual native SongItem metadata afterward. Avoid counting same singer in title+video artist twice; prohibit video-derived duration from falsely confirming itself. Source metadata is retained while binding. Category priority affects ORDER, not veto. Four bounded search query forms add album/year without giant queries.
+PROTECTED: all originals, MADRE, main, release metadata, signing, package identity, player, UI, Scudo360, old tests, karaoke/MIDI/KAR, twin deduplication, audio, production, Cloud. LAB ONLY, NO AUTO PROMOTION. Never claim real phone quantity improvement based only on passing mocks.
+NEXT: Native R16 tests; JS gate; Scudo full Android JVM; signed APK code 33089 and ZIP; verified certificate and checksums; manual phone quantity experiment R14/R15/R16 if build passes.
