@@ -19,6 +19,21 @@ internal object PlaybackSprintPolicy {
     ): Boolean =
         isPlaying && isReady && !priorityBurst && !coverHeavy && bufferedMs >= requiredReserveMs
 
+    // R22: recovery applies throughout the song, never solely to position <5s.
+    // Two guarded attempts maximum per track prevent endless recovery loops.
+    const val BUFFER_STALL_RECOVERY_DELAY_MS = 9_000L
+    const val MAX_BUFFER_STALL_RECOVERIES = 2
+
+    fun shouldRecoverBufferStall(
+        isBuffering: Boolean,
+        playRequested: Boolean,
+        sameMediaId: Boolean,
+        online: Boolean,
+        recoveryAttempts: Int,
+    ): Boolean =
+        isBuffering && playRequested && sameMediaId && online &&
+            recoveryAttempts < MAX_BUFFER_STALL_RECOVERIES
+
     // R21: an already selected song cannot leave IDLE by playWhenReady alone.
     fun shouldPrepareExistingTrack(playbackState: Int): Boolean =
         playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED
