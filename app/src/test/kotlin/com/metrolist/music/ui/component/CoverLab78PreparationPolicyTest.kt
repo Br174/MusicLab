@@ -42,7 +42,9 @@ class CoverLab78PreparationPolicyTest {
         val ordered = (1..8).map { "video-$it" }
         assertEquals(listOf("video-1", "video-3", "video-4", "video-5", "video-6"),
             CoverPreparationPolicy.metadataIds("video-1", ordered, setOf("video-2"), protectPlayback = false))
-        assertEquals(listOf("video-1"),
+        // One bounded request checks three IDs during normal playback.
+        // The audio governor still pauses work when playback is at risk.
+        assertEquals(listOf("video-1", "video-2", "video-3"),
             CoverPreparationPolicy.metadataIds("video-1", ordered, emptySet(), protectPlayback = true))
     }
 }

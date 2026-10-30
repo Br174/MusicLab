@@ -52,7 +52,10 @@ class CoverR12VideoThroughputTest {
             emptySet(), protectPlayback=false)
         assertEquals("abcdefghijk",batch.first())
         assertTrue(batch.size <= 5)
-        assertEquals(listOf("abcdefghijk"), CoverPreparationPolicy.metadataIds("abcdefghijk",
-            listOf("next1234567"), emptySet(), protectPlayback=true))
+        // A single bounded queue call may include two IDs here; it never
+        // means two independent simultaneous network requests.
+        assertEquals(listOf("abcdefghijk", "next1234567"),
+            CoverPreparationPolicy.metadataIds("abcdefghijk",
+                listOf("next1234567"), emptySet(), protectPlayback=true))
     }
 }

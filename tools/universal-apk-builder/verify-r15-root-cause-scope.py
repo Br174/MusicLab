@@ -13,6 +13,8 @@ ALLOWED={
  ROOT+"CoverPreparationPolicy.kt",
  ROOT+"CoverPriorityOrder.kt",
  "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR15RootCauseEvidenceTest.kt",
+ "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab78PreparationPolicyTest.kt",
+ "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR12VideoThroughputTest.kt",
  "cloudflare/music-intelligence/test/turbo-r15-real-root-cause.test.mjs",
  "behaviors/musiclab-cover.json",
  ".github/workflows/musiclab-r15-root-cause-red.yml",
