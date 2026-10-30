@@ -30,6 +30,22 @@ class CoverR17QualityProgressiveTest {
         assertNotNull(queue.next("Il mondo","Jimmy Fontana",1))
     }
 
+    @Test fun hundredsOfDocumentaryLeadsCannotStarveVideoAfterThreeTurns() {
+        val queue = CoverPriorityOrder.Pending()
+        repeat(15) { n ->
+            queue.offer(c(artist="Documented $n",source="COVER.INFO").copy(
+                playbackVideoId=null,workRelationConfirmed=true))
+        }
+        val ready=c(artist="Ready singer")
+        queue.offer(ready)
+        queue.beginPass()
+        repeat(3) {
+            assertNull(queue.next("Il mondo","Jimmy Fontana",1)?.playbackVideoId)
+        }
+        assertEquals("candidate001",queue.next("Il mondo","Jimmy Fontana",1)?.playbackVideoId)
+        assertEquals(16,queue.size)
+    }
+
     @Test fun karaokeAndWrongItalianTitleRemainForbiddenInEveryRound() {
         for (round in 1..6) {
             assertFalse(CoverLabTurboRoundAdmission.evaluate(

@@ -86,9 +86,14 @@ internal object CoverPriorityOrder {
             Ranked(candidate, index, key(candidate) in delayedKeys,
                 group(candidate, originalArtist, round))
         }.sortedWith(
-            // Avoid hundreds of unlinked catalogue leads starving a ready-to-play video.
+            // Verified documentary leads get one early lookup opportunity.
+            // Non-documentary, unlinked catalogue rows must never starve a ready video.
             compareBy<Ranked> { it.late }
-                .thenBy { it.row.playbackVideoId.isNullOrBlank() }
+                .thenBy { when {
+                    it.row.playbackVideoId.isNullOrBlank() && it.row.workRelationConfirmed -> 0
+                    !it.row.playbackVideoId.isNullOrBlank() -> 1
+                    else -> 2
+                } }
                 .thenBy { it.preference }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
                 .thenByDescending { it.row.collectorHave ?: 0 }
@@ -413,7 +418,19 @@ internal object CoverPriorityOrder {
                 orderContext = context
                 dirty = false
             }
-            val key = orderedKeys.firstOrNull { it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass && (includeTwins || it !in twins) } ?: return null
+            val runnable: (String) -> Boolean = {
+                it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass &&
+                    (includeTwins || it !in twins)
+            }
+            // After three documentary lead lookups in one pass, publish-ready
+            // videos get a turn before more metadata-only leads.
+            val documentaryTried = attempted.count { id ->
+                rows[id]?.let { it.workRelationConfirmed && it.playbackVideoId.isNullOrBlank() } == true
+            }
+            val ready = if (documentaryTried >= 3) orderedKeys.firstOrNull { id ->
+                runnable(id) && !rows.getValue(id).playbackVideoId.isNullOrBlank()
+            } else null
+            val key = ready ?: orderedKeys.firstOrNull(runnable) ?: return null
             attempted += key
             return rows[key]
         }
