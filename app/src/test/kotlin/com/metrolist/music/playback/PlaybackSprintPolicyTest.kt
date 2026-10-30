@@ -50,7 +50,7 @@ class PlaybackSprintPolicyTest {
     }
 
     @Test fun midSongBufferStallIsRecoverableWithBoundedAttempts() {
-        assertEquals(9_000L, PlaybackSprintPolicy.BUFFER_STALL_RECOVERY_DELAY_MS)
+        assertEquals(5_000L, PlaybackSprintPolicy.BUFFER_STALL_RECOVERY_DELAY_MS)
         assertTrue(PlaybackSprintPolicy.shouldRecoverBufferStall(
             isBuffering = true,
             playRequested = true,
