@@ -68,6 +68,10 @@ jobs:
           set +a
           node scripts/scudo360-gate.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-report.json
           echo '[SCUDO360=PASS] Cumulative JVM regression results verified'
+      - name: Scudo360 Quality r40 mandatory before Android signing and publishing
+        env:
+          SCUDO360_R40_PROMOTION: '1'
+        run: node .motorlab/regression/scudo360-quality-r40.mjs .motorlab/scudo360-contracts.json .motorlab/scudo360-report.json .motorlab/scudo360-r40-plan.json .motorlab/scudo360-r40-quality.json
       - name: Preserve Scudo360 failure evidence
         if: always()
         uses: actions/upload-artifact@v4

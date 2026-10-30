@@ -1,0 +1,84 @@
+{
+  "commit": "6b1326745dcee0d5d5068b90efe8b4d274e210b2",
+  "passed": true,
+  "contracts": [
+    {
+      "id": "musiclab.cover.round-continuity",
+      "status": "passed",
+      "classEvidence": [
+        {
+          "name": "com.metrolist.music.ui.component.CoverR10EmptyRoundRecoveryTest",
+          "passed": true,
+          "tests": 4,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "id": "musiclab.cover.documentary-sources",
+      "status": "passed",
+      "classEvidence": [
+        {
+          "name": "com.metrolist.music.ui.component.CoverLab79DocumentarySourcesTest",
+          "passed": true,
+          "tests": 1,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "id": "musiclab.cover.presentation",
+      "status": "passed",
+      "classEvidence": [
+        {
+          "name": "com.metrolist.music.ui.component.CoverLab78PreparationPolicyTest",
+          "passed": true,
+          "tests": 5,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "id": "musiclab.audio.nonblocking",
+      "status": "passed",
+      "classEvidence": [
+        {
+          "name": "com.metrolist.music.playback.audio.AudioProcessorBufferReuseTest",
+          "passed": true,
+          "tests": 3,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "id": "musiclab.cover.dedupe",
+      "status": "passed",
+      "classEvidence": [
+        {
+          "name": "com.metrolist.music.ui.component.Lab45CoverDedupTest",
+          "passed": true,
+          "tests": 5,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0
+        }
+      ]
+    }
+  ],
+  "provenance": {
+    "source": "original-R10-JUnit-XML-and-native-Scudo-report-verified",
+    "runId": 40919743345,
+    "artifactId": 12918301118,
+    "unitReport": "MusicLab-Scudo-r10-JUnit.zip",
+    "classesParsed": 5,
+    "protectedClassTestCases": 18
+  }
+}
