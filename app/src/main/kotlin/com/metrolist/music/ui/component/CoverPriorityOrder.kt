@@ -58,21 +58,20 @@ internal object CoverPriorityOrder {
         val sources = candidate.sources.map { it.lowercase(java.util.Locale.ROOT) }.toSet()
         val details = candidate.title + " " + candidate.playbackVideoTitle.orEmpty() +
             " " + candidate.album.orEmpty()
+        // Editorial priority is soft: no musical candidate is discarded or deferred.
         return when {
-            candidate.releaseVerified || (!candidate.album.isNullOrBlank() && sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) }) -> 0
-            !candidate.workRelationConfirmed && karaokeChannel.containsMatchIn(candidate.artist) -> 6
-            // The verified first-published interpreter precedes other documented
-            // renditions; documented foreign adaptations stay ahead of weak catalogue hints.
-            // This changes ORDER only; it never adds or removes candidates.
-            candidate.originalWorkReference && candidate.firstPublicationConfirmed -> 1
+            candidate.originalWorkReference && candidate.firstPublicationConfirmed -> 0
+            candidate.releaseVerified ||
+                (!candidate.album.isNullOrBlank() &&
+                    sources.any { it in catalogue && (it != "discogs" || candidate.releaseVerified) }) -> 1
             candidate.workRelationConfirmed && candidate.category != AiCoverCategory.FOREIGN -> 2
             candidate.workRelationConfirmed -> 3
             candidate.originalWorkReference || (originalArtist.isNotBlank() &&
                 CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist)) -> 4
             candidate.category != AiCoverCategory.FOREIGN && sources.any { it in credited } -> 4
-            round == 2 && television.containsMatchIn(details) -> 4
-            round >= 3 && rare.containsMatchIn(details) -> 4
-            else -> 5
+            television.containsMatchIn(details) -> 5
+            rare.containsMatchIn(details) -> 6
+            else -> 7
         }
     }
 
@@ -80,22 +79,19 @@ internal object CoverPriorityOrder {
         candidates: List<CoverSourceCandidate>, targetTitle: String,
         originalArtist: String, round: Int, delayedKeys: Set<String> = emptySet(),
     ): List<CoverSourceCandidate> {
-        data class Ranked(val row: CoverSourceCandidate, val index: Int, val late: Boolean,
-            val minimumRound: Int, val preference: Int)
+        data class Ranked(val row: CoverSourceCandidate, val index: Int,
+            val late: Boolean, val preference: Int)
         return candidates.mapIndexed { index, candidate ->
             Ranked(candidate, index, key(candidate) in delayedKeys,
-                CoverLabTurboRoundAdmission.minimumRound(
-                    CoverLabTurboRoundAdmission.facts(candidate, targetTitle, originalArtist)),
                 group(candidate, originalArtist, round))
         }.sortedWith(
-            // Eligible video-linked documentary rows precede unlinked leads;
-            // the old release preference still governs within that group.
             compareBy<Ranked> { it.late }
-                .thenBy { it.minimumRound > round }
-                .thenBy { it.row.playbackVideoId.isNullOrBlank() }
                 .thenBy { it.preference }
+                .thenBy { it.row.playbackVideoId.isNullOrBlank() }
                 .thenBy { it.row.chartPosition ?: Int.MAX_VALUE }
-                .thenByDescending { it.row.collectorHave ?: 0 }.thenBy { it.index }
+                .thenByDescending { it.row.collectorHave ?: 0 }
+                .thenByDescending { it.row.sources.distinct().size }
+                .thenBy { it.index }
         ).map { it.row }
     }
 
@@ -104,10 +100,8 @@ internal object CoverPriorityOrder {
             row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in catalogue && !it.equals("Discogs", true) })
 
     private fun publicationGroup(row: DiscogsVersionSeed): Int = when {
-        isPublished(row) -> 0
-        !row.workRelationConfirmed && karaokeChannel.containsMatchIn(row.artist) -> 6
-        // The same documentary/original precedence must survive poster staging.
-        row.originalWorkReference && row.workRelationConfirmed -> 1
+        row.originalWorkReference && row.workRelationConfirmed -> 0
+        isPublished(row) -> 1
         row.workRelationConfirmed -> 2
         row.originalWorkReference -> 3
         row.sourceNames.any { it.lowercase(java.util.Locale.ROOT) in credited } -> 4
@@ -379,17 +373,16 @@ internal object CoverPriorityOrder {
         private var orderContext = ""
         private var dirty = true
         private val retryAfter = hashMapOf<String, Int>()
-        private val heldUntilRound = hashMapOf<String, Int>()
         private var pass = 0
         fun defer(candidate: CoverSourceCandidate) {
             retryAfter[key(candidate)] = pass + 2
         }
-        fun reconsiderEvidence() { heldUntilRound.clear(); attempted.clear(); revision++; dirty = true }
-        fun deferUntil(candidate: CoverSourceCandidate, round: Int) {
-            heldUntilRound[key(candidate)] = round
-        }
-        fun eligible(candidate: CoverSourceCandidate, round: Int): Boolean =
-            (heldUntilRound[key(candidate)] ?: 1) <= round
+        fun reconsiderEvidence() { attempted.clear(); revision++; dirty = true }
+        // Legacy call sites continue to compile, but no historical evidence gate can run.
+        fun deferUntil(@Suppress("UNUSED_PARAMETER") candidate: CoverSourceCandidate,
+                       @Suppress("UNUSED_PARAMETER") round: Int) = Unit
+        fun eligible(@Suppress("UNUSED_PARAMETER") candidate: CoverSourceCandidate,
+                     @Suppress("UNUSED_PARAMETER") round: Int): Boolean = true
         val size: Int get() = rows.size
         val twinCount: Int get() = rows.keys.count { it in twins }
 
@@ -398,7 +391,7 @@ internal object CoverPriorityOrder {
             if (key in completed) return
             val previous = rows[key]
             rows[key] = previous?.let { merge(it, candidate) } ?: candidate
-            if (previous != rows[key]) { heldUntilRound.remove(key); attempted.remove(key) }
+            if (previous != rows[key]) { attempted.remove(key) }
             revision++
             dirty = true
         }
@@ -417,7 +410,7 @@ internal object CoverPriorityOrder {
                 orderContext = context
                 dirty = false
             }
-            val key = orderedKeys.firstOrNull { (heldUntilRound[it] ?: 1) <= round && it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass && (includeTwins || it !in twins) } ?: return null
+            val key = orderedKeys.firstOrNull { it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass && (includeTwins || it !in twins) } ?: return null
             attempted += key
             return rows[key]
         }
@@ -429,7 +422,6 @@ internal object CoverPriorityOrder {
             completed += key
             twins.remove(key)
             retryAfter.remove(key)
-            heldUntilRound.remove(key)
             linkedLeads.remove(key)
         }
 
@@ -451,7 +443,6 @@ internal object CoverPriorityOrder {
             rows.clear()
             revision++
             retryAfter.clear()
-            heldUntilRound.clear()
             linkedLeads.clear()
             pass = 0
             attempted.clear()

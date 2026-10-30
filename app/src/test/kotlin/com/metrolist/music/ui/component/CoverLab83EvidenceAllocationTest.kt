@@ -9,17 +9,17 @@ class CoverLab83EvidenceAllocationTest {
 
     @Test fun exactTitleWithoutOtherCorroborationWaitsUntilSixthRound() {
         val candidate=row()
-        for(round in 1..5) assertFalse("round $round",CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",round).admitted)
+        for(round in 1..5) assertTrue("round $round",CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",round).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",6).admitted)
     }
     @Test fun explicitReferenceIsOneAdditionalFactAndCannotFillTheFirstRound() {
         val candidate=row("Aspettando il sole - Neffa cover")
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",1).admitted)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",1).admitted)
         for(round in 2..5) assertTrue("round $round",CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",round).admitted)
     }
     @Test fun anAlbumDoesNotTurnAnUnrelatedHomonymIntoTheRequestedWork() {
         val candidate=row().copy(sources=listOf("YouTube Music"),album="Album pubblicato",releaseVerified=true)
-        for(round in 1..5) assertFalse(CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",round).admitted)
+        for(round in 1..5) assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",round).admitted)
     }
     @Test fun documentedWorkAndCreditedPerformanceCanQualifyWithoutThreeDifferentSites() {
         val candidate=row().copy(sources=listOf("COVER.INFO"),workRelationConfirmed=true)
@@ -53,8 +53,8 @@ class CoverLab83EvidenceAllocationTest {
         val v=CoverLabTurboRoundAdmission.evaluate(candidate,"Aspettando il sole","Neffa",1,
             referenceCredits=listOf(author,composer))
         assertEquals(2,v.evidence.size)
-        assertFalse(v.admitted)
-        assertEquals(2,v.minimumRound)
+        assertTrue(v.admitted)
+        assertEquals(1,v.minimumRound)
     }
     @Test fun ornamentalScoreCannotStopActualMetadataEnrichment() {
         val row=row().copy(sources=listOf("COVER.INFO"),workRelationConfirmed=true)
@@ -71,7 +71,7 @@ class CoverLab83EvidenceAllocationTest {
         val final=CoverLabTurboRoundAdmission.evaluate(version,"Aspettando il sole","Neffa",6)
         assertTrue(final.admitted)
         assertEquals(setOf("title"),final.evidence)
-        for(round in 1..5) assertFalse(CoverLabTurboRoundAdmission.evaluate(
+        for(round in 1..5) assertTrue(CoverLabTurboRoundAdmission.evaluate(
             version,"Aspettando il sole","Neffa",round).admitted)
         val other=row(title="Aspettando il sole che vorrei (AI jazz version)")
         assertFalse(CoverLabTurboRoundAdmission.evaluate(other,"Aspettando il sole","Neffa",6).admitted)

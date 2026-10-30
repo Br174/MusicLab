@@ -26,7 +26,7 @@ class CoverR13DocumentaryVideoJoinTest {
     @Test fun documentaryWorkAndIndependentNativeVideoQualifyInFirstRound() {
         val documented = documented("Verified Singer")
         val raw = native("Verified Singer")
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(raw,
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(raw,
             "Il mondo", "Jimmy Fontana", 1).admitted)
         val joined = CoverPriorityOrder.bindDocumentedVideo(raw, listOf(documented))
         assertTrue(joined.workRelationConfirmed)

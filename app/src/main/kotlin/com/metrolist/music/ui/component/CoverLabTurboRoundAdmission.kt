@@ -1,6 +1,6 @@
 package com.metrolist.music.ui.component
 
-/** Distinct work corroborations allocate rounds. Display percentages are cosmetic. */
+/** Available metadata describe quality, never the minimum number of proofs for Cover admission. */
 internal object CoverLabTurboRoundAdmission {
     internal data class Verdict(
         val admitted: Boolean, val confidencePercent: Int,
@@ -99,22 +99,8 @@ internal object CoverLabTurboRoundAdmission {
         }
     }
 
-    fun minimumRound(evidence: Set<String>): Int = when {
-        evidence.size >= 3 -> 1
-        evidence.size >= 2 -> 2
-        else -> 6
-    }
-
-    private fun categoryRound(candidate: CoverSourceCandidate, video: String): Int {
-        if (candidate.releaseVerified || candidate.category == AiCoverCategory.FOREIGN && candidate.workRelationConfirmed) return 1
-        val context = candidate.title + " " + video
-        return when {
-            Regex("(?i)\\b(tv|sanremo|eurovision|x factor|the voice|amici|talent|mashup|remix|ai cover)\\b").containsMatchIn(context) -> 2
-            Regex("(?i)\\b(home studio|bedroom|amateur|street performance|local band|cover band|tribute band)\\b").containsMatchIn(context) -> 3
-            Regex("(?i)\\b(guitar|chitarra|piano|instrumental|strumentale|orchestra|choir|jazz|soul|folk)\\b").containsMatchIn(context) -> 4
-            else -> 1
-        }
-    }
+    // Compatibility with stored history: no candidate is held until a later round.
+    fun minimumRound(@Suppress("UNUSED_PARAMETER") evidence: Set<String>): Int = 1
 
     fun candidate(row: DiscogsVersionSeed): CoverSourceCandidate = CoverSourceCandidate(
         title = row.trackTitle, artist = row.artist, sources = row.sourceNames,
@@ -175,8 +161,10 @@ internal object CoverLabTurboRoundAdmission {
             else -> 5
         }
         val evidence = facts(candidate, targetTitle, originalArtist, metadataTitle, referenceCredits)
-        val minimum = maxOf(minimumRound(evidence), categoryRound(candidate, videoTitle))
-        return Verdict(evidence.isNotEmpty() && round >= minimum, estimate, evidence, minimum,
-            rejected = evidence.isEmpty())
+        // Only work-title identity (or documented foreign adaptation) and the permanent
+        // karaoke/MIDI/KAR exclusion can veto. One clue is enough in every round.
+        val sameWork = requested || (candidate.category == AiCoverCategory.FOREIGN &&
+            relation && recordedTitle)
+        return Verdict(sameWork, estimate, evidence, 1, rejected = !sameWork)
     }
 }

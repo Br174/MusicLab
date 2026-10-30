@@ -24,7 +24,7 @@ class CoverR9EvidenceRecoveryTest {
     @Test fun amateurWithDocumentedWorkStaysInItsCompatibleCategory() {
         val c = candidate().copy(sources = listOf("MusicBrainz"), workRelationConfirmed = true,
             releaseVerified = false, playbackVideoTitle = "Interprete - Il mondo home studio cover")
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(c, "Il mondo", "Jimmy Fontana", 1).admitted)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(c, "Il mondo", "Jimmy Fontana", 1).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(c, "Il mondo", "Jimmy Fontana", 3).admitted)
     }
     @Test fun foreignDocumentaryLeadPrecedesAnUnverifiedCatalogueSummary() {

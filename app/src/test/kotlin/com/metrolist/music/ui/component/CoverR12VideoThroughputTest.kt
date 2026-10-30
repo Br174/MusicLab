@@ -33,8 +33,8 @@ class CoverR12VideoThroughputTest {
         val weak = CoverSourceCandidate(title="Il mondo", artist="Unverified Singer",
             sources=listOf("YouTube"), playbackVideoId="abcdefghijk", playbackVideoTitle="Il mondo")
         val publishedButUnlinked = weak.copy(sources=listOf("Apple/iTunes"), album="Album", releaseVerified=true)
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(weak,"Il mondo","Jimmy Fontana",1).admitted)
-        assertFalse(CoverLabTurboRoundAdmission.evaluate(publishedButUnlinked,"Il mondo","Jimmy Fontana",1).admitted)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(weak,"Il mondo","Jimmy Fontana",1).admitted)
+        assertTrue(CoverLabTurboRoundAdmission.evaluate(publishedButUnlinked,"Il mondo","Jimmy Fontana",1).admitted)
         assertTrue(CoverLabTurboRoundAdmission.evaluate(publishedButUnlinked,"Il mondo","Jimmy Fontana",6).admitted)
     }
 

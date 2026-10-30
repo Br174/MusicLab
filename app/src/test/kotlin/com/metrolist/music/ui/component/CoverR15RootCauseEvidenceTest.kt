@@ -30,7 +30,7 @@ class CoverR15RootCauseEvidenceTest {
         )
         val verdict=CoverLabTurboRoundAdmission.evaluate(candidate,"Il mondo","Jimmy Fontana",1,
             referenceCredits=listOf(credit))
-        assertFalse(verdict.admitted)
+        assertTrue(verdict.admitted)
         assertEquals(2,verdict.evidence.size)
     }
 
@@ -43,7 +43,7 @@ class CoverR15RootCauseEvidenceTest {
         )
         val verdict=CoverLabTurboRoundAdmission.evaluate(candidate,"Il mondo","Jimmy Fontana",1,
             referenceCredits=listOf(credit))
-        assertFalse(verdict.admitted)
+        assertTrue(verdict.admitted)
         assertEquals(setOf("title"),verdict.evidence)
     }
 

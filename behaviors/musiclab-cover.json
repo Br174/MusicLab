@@ -650,7 +650,7 @@
       "owner": "musiclab",
       "scope": "cover",
       "version": 1,
-      "status": "active",
+      "status": "retired",
       "protected": true,
       "behavior": "Latest explicit Bruno clarification: evidence allocates visibility ACROSS rounds, not merely within one packet. Total required evidence INCLUDING TITLE: [3,2,2,2,2,1]. First needs title+2 further evidences; rounds2-5 title+1; sixth title only. Every cycle10+20+20 in the same round has identical requirements. Insufficient evidence defers a candidate to a compatible later round; never discards it globally. Strong late arrivals may appear later when ready. Title-only queries are reserved for round6. The direct YouTube VIDEO path in round6 is autonomous, without new documentary-service searches or waiting for their completion; optional descriptor queries never constrain plain title. Retain the full six category objectives, release preference, COVER.INFO trusted work relationships, language/recording identity rules, duplicate/original caps, packets, fluidity and player. Ignore the explicitly withdrawn immediately preceding stricter sixth-round message. Bruno subsequently approved flexible distinct documented corroborations of any pertinent kind, without a mandatory combination or three-site requirement. Existing COVER.INFO facts remain trusted without redundant proof or fabricated counts. Original identification is separate: use a verified original when available, otherwise continue with available selected-version information; do not make finding the original a new gate.",
       "supplements": [
@@ -675,7 +675,8 @@
       "specPath": ".motorlab/MUSICLAB_COVER_SIX_ROUNDS_APPROVED_SPEC_20261028.txt",
       "auditPath": ".motorlab/COVER_EVIDENCE_MEMORY_AUDIT_20261028.txt",
       "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
-      "deviceVerified": false
+      "deviceVerified": false,
+      "supersededBy": "musiclab.cover.quality-progressive.r17"
     },
     {
       "id": "musiclab.cover.original-resolution-assistance.v1",
@@ -757,9 +758,15 @@
       "implementationState": "NATIVE_CI_VERIFIED_PHONE_PENDING",
       "implementationSourceCommit": "a16ab6a003cc44d2369568ebc1b6d6edc6718d04",
       "deviceVerified": false
+    },
+    {
+      "id": "musiclab.cover.quality-progressive.r17",
+      "status": "active",
+      "authority": "Bruno approval 2026-10-30",
+      "summary": "No numeric evidence thresholds for admission, quality only determines order; preserve exact Italian title, documented foreign adaptations, karaoke/MIDI/KAR exclusion, deduplication, original caps, 10+20+20, same family signing and player."
     }
   ],
-  "canonicalBehaviorRevision": "2026-10-28-original-first-published-performer-multisource-memory-only",
+  "canonicalBehaviorRevision": "r17-quality-progressive",
   "authorityNote": "User-approved durable MUSICLAB COVER foundational behavior contract, recorded in isolated metadata-only GitHub branch. Main/MADRE/production, LAB70 and installed APK are NOT changed. A memory contract is not an implemented tested runtime change; future LAB71 needs separate explicit user approval and negative regression tests. This is GitHub repository persistence, not a claim that ChatGPT account Memory was manually written.",
   "conflictDispositions": [
     {
@@ -910,6 +917,12 @@
       "replacementRule": "musiclab.cover.six-rounds.v1",
       "disposition": "LATEST_USER_APPROVED_SIX_ROUND_SPEC_REPLACEMENT",
       "appEnforcement": "CI_VERIFIED_PHONE_PENDING"
+    },
+    {
+      "oldRule": "musiclab.cover.round-evidence-allocation.v1",
+      "replacementRule": "musiclab.cover.quality-progressive.r17",
+      "disposition": "CONFLICT_REPLACED",
+      "appEnforcement": "LAB_R17_NATIVE_AND_SCUDO_PENDING"
     }
   ],
   "confirmedGoodBaseline": {
@@ -1356,8 +1369,7 @@
     "compatibility": "Explicitly supersedes R9 'partialPacket only true exhaustion, never timer' and earlier all-or-nothing packet minimum; keeps independent per-source network protections, player, look, same signing family, no paid services.",
     "implementationState": "R14_PATCH_PREPARED_CI_PENDING",
     "deviceVerified": false
-  }
-,
+  },
   "approvedR15RootCauseRecovery": {
     "id": "musiclab.cover.r15-root-cause-recovery.20261030",
     "authority": "Direct user approved radical fix after R14 real phone produced no more covers",
@@ -1395,6 +1407,23 @@
     "redTests": "four independent deterministic source-root regressions all failed against exact R14 baseline",
     "testExpectation": "all same R15 tests GREEN plus full Android, Scudo360 Quality r40, signature, ZIP integrity",
     "phoneVerified": false
+  },
+  "approvedR17QualityProgressive": {
+    "id": "musiclab.cover.quality-progressive.r17",
+    "approvedAt": "2026-10-30",
+    "sourceBase": "b35cc61c18daca9d4752fac201dcacf28a35015f",
+    "thresholds": "NONE",
+    "admission": "same requested Italian work title OR documentary foreign adaptation, excluding karaoke/MIDI/KAR",
+    "ranking": "original first publication; verified released recordings; documented credited performers; documented foreign versions; television and rare; weak title-only last",
+    "sixRounds": true,
+    "cycleSizes": [
+      10,
+      20,
+      20
+    ],
+    "oldEvidenceGateRetired": true,
+    "playerChanged": false,
+    "mainOrMadreChanged": false,
+    "deviceVerified": false
   }
-
 }

@@ -32,7 +32,7 @@ class CoverLab71FoundationGateTest {
             val wrong = CoverLabTurboRoundAdmission.evaluate(candidate("Felicità puttana"), "Felicità", "Lucio Dalla", round, "Felicità puttana")
             val original = CoverLabTurboRoundAdmission.evaluate(candidate(), "Felicità", "Lucio Dalla", round, "Felicità")
             assertFalse(wrong.admitted)
-            assertEquals(round >= 2, original.admitted)
+            assertTrue(original.admitted)
             assertTrue(wrong.confidencePercent < original.confidencePercent)
         }
         assertFalse(CoverLab71FoundationGate.matchesRequestedWork(candidate("Felicità - lead journalist"), "Felicità", "Lucio Dalla", "Felicità - lead journalist"))
@@ -47,7 +47,7 @@ class CoverLab71FoundationGateTest {
             assertFalse(CoverLab71FoundationGate.isForbidden(title))
             // R8 superseded the old unconditional round-2 admission. An allowed
             // instrumental still needs the evidence total AND its compatible tier.
-            assertFalse(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 1, title).admitted)
+            assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 1, title).admitted)
             assertTrue(CoverLabTurboRoundAdmission.evaluate(candidate(title = title), "Felicità", "Lucio Dalla", 6, title).admitted)
         }
     }
