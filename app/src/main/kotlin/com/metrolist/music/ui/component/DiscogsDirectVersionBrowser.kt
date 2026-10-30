@@ -3832,7 +3832,12 @@ internal fun DiscogsDirectVersionBrowser(
                         return
                     }
                     var metadata = session.preparedVideoSongs[id]
-                    if (metadata == null && sourceCooling("Metadati YouTube")) { pending.defer(candidate); return }
+                    // Metadata timeout belongs to the individual video, not all IDs.
+                    // Existing round attempts, 20s PassWindow and audio governor still bound work.
+                    if (metadata == null && !CoverPreparationPolicy.metadataAttemptAllowed(
+                            id, session.searchedLeadRounds[CoverPriorityOrder.key(candidate)] == thisRound)) {
+                        pending.defer(candidate); return
+                    }
                     var requestedMetadata = false
                     val orderedIds = if (metadata == null && presentation.status().shown < CoverRoundPresentation.FAST_PREFIX) {
                         val rows = pending.snapshot().filter { !pending.isTwin(it) &&
