@@ -149,9 +149,13 @@ internal object CoverPriorityOrder {
             artist = if (CoverLab71FoundationGate.isOriginalPerformer(raw.artist, lead.artist)) raw.artist else lead.artist,
             category = if (lead.category == AiCoverCategory.FOREIGN) lead.category else raw.category,
             playbackVideoId = raw.playbackVideoId, playbackVideoTitle = title,
-            playbackVideoSource = "YouTube documentario", durationSeconds = raw.durationSeconds,
-            album = raw.album, year = raw.year, releaseVerified = raw.releaseVerified,
-            chartPosition = raw.chartPosition,
+            playbackVideoSource = "YouTube documentario",
+            // Keep independent catalogue metadata. Raw YouTube values must
+            // never masquerade as a second, third or fourth corroboration.
+            durationSeconds = lead.durationSeconds,
+            album = lead.album, year = lead.year ?: raw.year,
+            releaseVerified = raw.releaseVerified,
+            chartPosition = lead.chartPosition ?: raw.chartPosition,
             recordingReleaseId = null, recordingMasterId = null, recordingTrackPosition = null,
         )
     }
