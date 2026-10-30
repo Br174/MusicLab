@@ -78,9 +78,13 @@ internal object CoverR16FlexibleVideoMatch {
             video.album?.name?.let {
                 TitleMeaningResolver.canonical(it) == TitleMeaningResolver.canonical(row.album)
             } == true
-        val durationMatch = fromSource && row.durationSeconds != null &&
-            video.duration != null && row.durationSeconds > 0 && video.duration > 0 &&
-            kotlin.math.abs(row.durationSeconds - video.duration) <= 4
+        // YouTube SongItem belongs to the separate innertube module:
+        // copy nullable public properties locally before Kotlin smart casts.
+        val sourceDuration = row.durationSeconds
+        val youtubeDuration = video.duration
+        val durationMatch = fromSource && sourceDuration != null &&
+            youtubeDuration != null && sourceDuration > 0 && youtubeDuration > 0 &&
+            kotlin.math.abs(sourceDuration - youtubeDuration) <= 4
         val anchored = artistMatch || albumMatch || durationMatch
         return buildSet {
             add("title")
