@@ -14,8 +14,12 @@ class CoverLab80RoundClosureTest {
         now = 7_000
         assertTrue(p.closeIfIdle(1))
         assertFalse(p.exhausted(1))
-        assertTrue(p.reveal().isEmpty())
+        // R25: a timed-out packet of one verified row must be published,
+        // not hidden until ten/twenty arrive or the source is exhausted.
+        assertEquals(listOf("one"), p.reveal())
+        assertEquals(1, p.status().shown)
         assertTrue(p.stage(1, "late-row-retained-by-discovery"))
+        assertEquals(1, p.status().prepared)
     }
 
     @Test fun audioPauseDoesNotConsumeIdleAllowance() {
