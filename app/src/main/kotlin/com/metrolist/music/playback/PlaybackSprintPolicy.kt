@@ -21,7 +21,7 @@ internal object PlaybackSprintPolicy {
 
     // R22: recovery applies throughout the song, never solely to position <5s.
     // Two guarded attempts maximum per track prevent endless recovery loops.
-    const val BUFFER_STALL_RECOVERY_DELAY_MS = 9_000L
+    const val BUFFER_STALL_RECOVERY_DELAY_MS = 5_000L
     const val MAX_BUFFER_STALL_RECOVERIES = 2
 
     fun shouldRecoverBufferStall(
