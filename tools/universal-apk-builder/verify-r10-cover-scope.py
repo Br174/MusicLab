@@ -29,12 +29,6 @@ allowed |= {
  'tools/universal-apk-builder/prepare-turbo-r10-empty-packet-env.py',
  # R11 changes only the already-owned documentary/restore logic and signed update metadata.
  'tools/universal-apk-builder/prepare-turbo-r11-scudo360-regression-env.py',
- 'tools/universal-apk-builder/prepare-turbo-r12-video-throughput-env.py',
- 'tools/universal-apk-builder/verify-r12-video-throughput-scope.py',
- 'app/src/main/kotlin/com/metrolist/music/ui/component/CoverPreparationPolicy.kt',
- 'app/src/test/kotlin/com/metrolist/music/ui/component/CoverR12VideoThroughputTest.kt',
- '.github/workflows/musiclab-turbo-r12-video-throughput-apk.yml',
- '.motorlab/R12_VIDEO_THROUGHPUT_CHECKPOINT_20261030.txt',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverR10EmptyRoundRecoveryTest.kt',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81FinalContinuationTest.kt',
  'app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81SixRoundTest.kt',
