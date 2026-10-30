@@ -308,6 +308,26 @@ internal object CoverDiscoverySources {
                 ai.await(),
             ) + listOfNotNull(deepRound?.await())
 
+        // MusicRank experiment: documentary renditions drive their own video searches.
+        // Video matches remain unverified until the downstream work/performer gate.
+        val musicRankVideoLane = if (MusicRankExperimental.enabled(BuildConfig.APPLICATION_ID) &&
+            mode == DiscogsDirectMode.COVER) {
+            val leads = lanes.flatMap { it.first }.filter { candidate ->
+                candidate.artist.isNotBlank() &&
+                    candidate.sources.any { source ->
+                        source.equals("COVER.INFO", true) ||
+                            source.equals("MusicBrainz", true) ||
+                            source.equals("Discogs", true)
+                    }
+            }.distinctBy { candidate ->
+                canonical(candidate.title) + "|" + canonical(candidate.artist)
+            }.take(24)
+            if (leads.isEmpty()) null else reportResult(sourceLane {
+                discoverMusicRankVideos(leads)
+            })
+        } else null
+        val allLanes = lanes + listOfNotNull(musicRankVideoLane)
+
         val workCredits =
             resolvedMusicBrainz.work
                 ?.credits
@@ -1008,6 +1028,54 @@ internal object CoverDiscoverySources {
                 note = if (candidates.isNotEmpty()) "originali collegati" else "nessun hint / non autenticato",
             )
         }
+    }
+
+    /** Bounded per-rendition discovery; metadata links are hints, not verified recordings. */
+    private suspend fun discoverMusicRankVideos(
+        leads: List<CoverSourceCandidate>,
+    ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> = coroutineScope {
+        val gate = Semaphore(3)
+        val queries = leads.flatMap { lead ->
+            listOf(
+                lead.title.trim() + " " + lead.artist.trim(),
+                lead.artist.trim() + " " + lead.title.trim() + " official",
+            ).map { query -> query to lead }
+        }.distinctBy { (query, _) -> query.lowercase(java.util.Locale.ROOT) }
+        val videos = queries.map { (query, lead) ->
+            async(Dispatchers.IO) {
+                gate.withPermit {
+                    withTimeoutOrNull(4_000L) {
+                        YouTube.search(query, YouTube.SearchFilter.FILTER_VIDEO)
+                            .getOrNull()?.items.orEmpty()
+                            .filterIsInstance<SongItem>()
+                            .take(15)
+                            .mapNotNull { item ->
+                                val id = item.id.trim()
+                                if (!id.matches(Regex("[A-Za-z0-9_-]{11}"))) return@mapNotNull null
+                                // The result is only a candidate; the downstream matcher
+                                // must validate performer and musical work independently.
+                                CoverSourceCandidate(
+                                    title = lead.title,
+                                    artist = lead.artist,
+                                    sources = listOf("MusicRank YouTube candidate"),
+                                    coverUrl = item.thumbnail,
+                                    category = lead.category,
+                                    sourceUrl = item.shareLink,
+                                    playbackVideoId = id,
+                                    playbackVideoTitle = item.title,
+                                    playbackVideoSource = "MusicRank unverified video",
+                                    workRelationConfirmed = false,
+                                    evidenceScore = 1,
+                                )
+                            }
+                    }.orEmpty()
+                }
+            }
+        }.awaitAll().flatten().distinctBy { it.playbackVideoId }
+        videos to CoverSourceDiagnostic(
+            "MusicRank YouTube", true, videos.size,
+            "Video per interprete documentato, da verificare",
+        )
     }
 
     // LAB46: YouTube Music candidate discovery only, never certification.
