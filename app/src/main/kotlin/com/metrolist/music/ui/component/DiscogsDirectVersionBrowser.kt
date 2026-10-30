@@ -222,6 +222,19 @@ private fun directDisplayCategory(seed: DiscogsVersionSeed, modernCover: Boolean
     }
 }
 
+private fun directMatchesCategory(seed: DiscogsVersionSeed, selected: DirectVersionCategory, turboCover: Boolean): Boolean {
+    if (selected == DirectVersionCategory.ALL) return true
+    if (!turboCover) return directDisplayCategory(seed) == selected
+    val tags = CoverFilterIdentity.tags(seed)
+    return when (selected) {
+        DirectVersionCategory.ALL -> true
+        DirectVersionCategory.STUDIO -> CoverFilterTag.STUDIO in tags
+        DirectVersionCategory.LIVE -> CoverFilterTag.LIVE in tags
+        DirectVersionCategory.REMIX -> CoverFilterTag.REMIX in tags
+        DirectVersionCategory.FOREIGN -> CoverFilterTag.FOREIGN in tags
+    }
+}
+
 private fun primaryDiscoverySource(seed: DiscogsVersionSeed): String {
     val preferred =
         listOf(
@@ -6631,20 +6644,21 @@ internal fun DiscogsDirectVersionBrowser(
             .filter(::belongsToFirstCoverSection)
             .filter {
                 !isRejected(it) &&
-                    (category == DirectVersionCategory.ALL || directDisplayCategory(it, modernCover = isTurbo) == category)
+                    directMatchesCategory(it, category, isTurbo)
             }
             .map(::videoCalibratedDisplaySeed)
         else emptyList()
     }
     val visibleTrueCovers = remember(
         mode, isTurbo, loading, unifiedCoverDisplay, visibleLimit, previousRoundRows,
-        publishedOriginalSnapshots, turboStreamProofVersion, if (isTurbo) null else results,
+        publishedOriginalSnapshots, turboStreamProofVersion, category, if (isTurbo) null else results,
     ) {
         if (mode == DiscogsDirectMode.COVER &&
             (!isTurbo || !loading || publishedCoverSnapshots.isNotEmpty() || previousRoundRows.isNotEmpty())) {
             unifiedCoverDisplay
                 .filterNot(::belongsToFirstCoverSection)
                 .filterNot { if (isTurbo) isRejected(it) else isHiddenForCurrentCover(it) }
+                .filter { directMatchesCategory(it, category, isTurbo) }
                 .take(visibleLimit)
                 .map(::videoCalibratedDisplaySeed)
         } else emptyList()
@@ -7149,6 +7163,7 @@ internal fun DiscogsDirectVersionBrowser(
                     DirectCategorySelector(
                         selected = category,
                         twoLine = true,
+                        useTurboTags = isTurbo && mode == DiscogsDirectMode.COVER,
                         // LAB54: raw catalog summaries are NOT cover cards.
                         // The five counters must describe the same membership
                         // actually sent to LazyColumn, never "68 found / 0 shown".
@@ -7227,6 +7242,7 @@ internal fun DiscogsDirectVersionBrowser(
 
                     DirectCategorySelector(
                         selected = category,
+                        useTurboTags = isTurbo && mode == DiscogsDirectMode.COVER,
                         results = if (isTurbo && mode == DiscogsDirectMode.COVER)
                             unifiedCoverDisplay else results,
                         onSelected = { selected ->
@@ -7928,11 +7944,28 @@ private fun DirectCategorySelector(
     results: List<DiscogsVersionSeed>,
     onSelected: (DirectVersionCategory) -> Unit,
     twoLine: Boolean = false,
+    useTurboTags: Boolean = false,
 ) {
-    val studio = results.count { directDisplayCategory(it, modernCover = twoLine) == DirectVersionCategory.STUDIO }
-    val live = results.count { directDisplayCategory(it) == DirectVersionCategory.LIVE }
-    val remix = results.count { directDisplayCategory(it) == DirectVersionCategory.REMIX }
-    val foreign = results.count { directDisplayCategory(it) == DirectVersionCategory.FOREIGN }
+    // Compute from the published in-memory cards, never from provider re-queries.
+    val counts = remember(results, useTurboTags) {
+        if (useTurboTags) {
+            val tags = results.map(CoverFilterIdentity::tags)
+            mapOf(
+                DirectVersionCategory.STUDIO to tags.count { CoverFilterTag.STUDIO in it },
+                DirectVersionCategory.LIVE to tags.count { CoverFilterTag.LIVE in it },
+                DirectVersionCategory.REMIX to tags.count { CoverFilterTag.REMIX in it },
+                DirectVersionCategory.FOREIGN to tags.count { CoverFilterTag.FOREIGN in it },
+            )
+        } else {
+            listOf(DirectVersionCategory.STUDIO, DirectVersionCategory.LIVE,
+                DirectVersionCategory.REMIX, DirectVersionCategory.FOREIGN)
+                .associateWith { selected -> results.count { directDisplayCategory(it) == selected } }
+        }
+    }
+    val studio = counts[DirectVersionCategory.STUDIO] ?: 0
+    val live = counts[DirectVersionCategory.LIVE] ?: 0
+    val remix = counts[DirectVersionCategory.REMIX] ?: 0
+    val foreign = counts[DirectVersionCategory.FOREIGN] ?: 0
     val categories = listOf(
         Triple(DirectVersionCategory.ALL, "Tutto", results.size),
         Triple(DirectVersionCategory.STUDIO, "Studio", studio),
