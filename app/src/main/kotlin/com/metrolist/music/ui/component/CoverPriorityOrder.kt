@@ -80,6 +80,9 @@ internal object CoverPriorityOrder {
     private fun group(candidate: CoverSourceCandidate, originalArtist: String, round: Int): Int {
         // Accept original-artist priority only with documentary/release proof,
         // not from a matching uploader channel or an ordinary YouTube title.
+        // R19 keeps the inherited karaoke negative priority: it is not a
+        // new admission gate, and it must never reward an uploader channel.
+        if (!candidate.workRelationConfirmed && karaokeChannel.containsMatchIn(candidate.artist)) return 9
         return when {
             candidate.originalWorkReference && candidate.firstPublicationConfirmed -> 0
             candidate.originalWorkReference &&

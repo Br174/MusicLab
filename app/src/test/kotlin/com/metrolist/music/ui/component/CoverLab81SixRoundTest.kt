@@ -31,16 +31,16 @@ class CoverLab81SixRoundTest {
         assertTrue(CoverRoundSearchPlan.queries("Soli", 5).any { it.text.contains("radio") })
     }
 
-    @Test fun publishedVersionsPrecedeStrongerWorkEvidenceInEveryRoundWithoutFiltering() {
+    @Test fun documentedCoverInfoPrecedesYoutubeMusicWithoutFiltering() {
         val documented = CoverSourceCandidate(title="Soli", artist="Credited", sources=listOf("COVER.INFO"),
             workRelationConfirmed=true, playbackVideoId="strong00001", playbackVideoTitle="Soli")
         val released = CoverSourceCandidate(title="Soli", artist="Independent", sources=listOf("YouTube Music"),
             album="Published single", releaseVerified=true, playbackVideoId="record00001", playbackVideoTitle="Soli")
         for (round in 1..8) {
             val ordered = CoverPriorityOrder.order(listOf(documented,released),"Soli","",round)
-            // Published recordings rank ahead of weaker leads in every round;
-            // documentary evidence still enriches them without imposing quotas.
-            assertEquals("round $round", released, ordered.first())
+            // R19 approved precedence: COVER.INFO comes before direct YouTube
+            // Music, including a published single, without removing either.
+            assertEquals("round $round", documented, ordered.first())
             assertEquals(setOf(documented,released),ordered.toSet())
             assertEquals(listOf(documented),CoverPriorityOrder.order(listOf(documented),"Soli","",round))
         }

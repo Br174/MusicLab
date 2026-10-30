@@ -96,6 +96,7 @@ class CoverR19SourcePriorityTest {
     @Test fun musicLabAliasNeedsAnAlreadyVerifiedArchivedVideo() {
         val c=candidate("Archivio Cloud","archived001")
         val pending=DiscogsVersionSource.externalSeed(c,"Il mondo","Jimmy Fontana")
+            .copy(videoResolutionChecked=false)
         assertFalse(CoverCardMetadata.sources(pending).contains("MusicLab (archivio)"))
         val verified=pending.copy(resolvedVideoId="archived001",videoResolutionChecked=true)
         assertTrue(CoverCardMetadata.sources(verified).contains("MusicLab (archivio)"))

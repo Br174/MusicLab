@@ -7,6 +7,8 @@ allowed={
 "app/src/main/kotlin/com/metrolist/music/ui/component/CoverPriorityOrder.kt",
 "app/src/main/kotlin/com/metrolist/music/ui/component/CoverCardMetadata.kt",
 "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab77PriorityQueueTest.kt",
+"app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab81SixRoundTest.kt",
+"app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab82PacketPriorityTest.kt",
 "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR19SourcePriorityTest.kt",
 "cloudflare/music-intelligence/test/turbo-r19-soft-source-priority.test.mjs",
 "tools/universal-apk-builder/verify-r19-soft-source-scope.py",

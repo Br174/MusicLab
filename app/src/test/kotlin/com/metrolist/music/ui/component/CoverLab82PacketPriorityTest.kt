@@ -67,8 +67,11 @@ class CoverLab82PacketPriorityTest {
         p.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
         val first=p.takeAutomatic()
         assertEquals(10,first.size)
-        assertEquals("released001",first.first().resolvedVideoId)
-        assertTrue(first.take(3).map{it.resolvedVideoId}.containsAll(listOf("credited001","original001")))
+        // R19: documented COVER.INFO must lead, even before a released
+        // YouTube Music single. Unverified original references stay retained.
+        assertEquals("credited001",first.first().resolvedVideoId)
+        assertEquals("released001",first[1].resolvedVideoId)
+        assertTrue(p.preparedRows(1).any { it.resolvedVideoId == "original001" })
         val later=DiscogsVersionSource.externalSeed(released.copy(playbackVideoId="released002"),"Il mondo")
         rows.drop(8).take(19).forEach{p.stage(1,it)}
         p.stage(1,later)
