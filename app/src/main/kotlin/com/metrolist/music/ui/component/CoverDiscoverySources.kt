@@ -266,9 +266,15 @@ internal object CoverDiscoverySources {
         // Already available in MusicLab, now used in the Turbo discovery fan-out.
         // A missing artist cannot safely anchor ambiguous song titles.
         val secondHandSongs = async(Dispatchers.IO) {
-            if (deepRecovery) {
-                // LAB51: no reliance on a provider that yielded zero covers.
-                // Keep historic LAB45 first-search behavior untouched.
+            if (turbo) {
+                // Latest user requirement: no SecondHandSongs calls in ANY
+                // Turbo round, including the first, while all other sources
+                // continue to contribute independently.
+                Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
+                    "SecondHandSongs", false, 0, "Standby: fonte non interrogata",
+                ))
+            } else if (deepRecovery) {
+                // Legacy non-Turbo behavior is unchanged.
                 Pair(emptyList<CoverSourceCandidate>(), CoverSourceDiagnostic(
                     "SecondHandSongs", false, 0, "Escluso dal recupero approfondito",
                 ))
