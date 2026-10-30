@@ -68,7 +68,10 @@ internal class CoverRoundPresentation<T>(
     fun continueEmptyWindow(): Boolean {
         if (!status().manualContinue) return false
         val current = round(visibleRound)
-        current.manualWindowSkips++
+        // R25: publishing a short cycle already consumes that cycle.
+        // Starting the next one must not skip a *second* cycle. Only a
+        // truly empty elapsed window consumes its cycle on the button.
+        if (!current.windowPublished) current.manualWindowSkips++
         current.windowElapsed = false
         current.windowPublished = false
         current.lastProgress = clock()
@@ -80,7 +83,8 @@ internal class CoverRoundPresentation<T>(
     fun stage(number: Int, row: T): Boolean {
         val state = round(number)
         val id = identity(row)
-        if (state.exhausted) return false
+        // R25: a verified result arriving just after source exhaustion is
+        // not invalid. Retain it in this cycle or carry it to the next round.
         if (id in state.shown) return false
         if (id in state.overflow) { state.overflow[id] = row; return true }
         if (id !in state.prepared && id !in state.overflow &&
@@ -162,8 +166,12 @@ internal class CoverRoundPresentation<T>(
         val limit = (if (state.manualWindowSkips == 0) INITIAL_SIZE else BLOCK_SIZE)
             .coerceAtMost((ROUND_SIZE - state.shown.size).coerceAtLeast(0))
         if (limit <= 0 || state.prepared.isEmpty()) return emptyList()
+        val completedBefore = state.manualWindowSkips
         val published = take(visibleRound, minOf(limit, state.prepared.size))
         if (published.isNotEmpty()) {
+            // A 3-result packet still counts as one completed cycle. Using
+            // visible counts (10/30/50) to count cycles lost partial packets.
+            state.manualWindowSkips = maxOf(state.manualWindowSkips, completedBefore + 1)
             // take() normally restarts the idle clock. Keep the completed
             // window visible so the "next cycle" action remains available.
             state.windowElapsed = true
@@ -179,7 +187,15 @@ internal class CoverRoundPresentation<T>(
     }
     fun takeAutomatic(): List<T> =
         if (round(visibleRound).shown.isEmpty()) takeInitial() else emptyList()
-    fun reveal(): List<T> = take(visibleRound, status().ready)
+    fun reveal(): List<T> {
+        // R25: a tap at the completed-window boundary must publish the
+        // partial verified packet, just like the timer callback does.
+        val state = round(visibleRound)
+        if (state.windowElapsed && !state.windowPublished && state.prepared.isNotEmpty()) {
+            return takeTimedCycle()
+        }
+        return take(visibleRound, status().ready)
+    }
     fun advance(): List<T> {
         if (!status().green) return emptyList()
         visibleRound++
@@ -202,7 +218,14 @@ internal class CoverRoundPresentation<T>(
             INITIAL_SIZE - state.shown.size
             else minOf(BLOCK_SIZE, (ROUND_SIZE - state.shown.size).coerceAtLeast(0))
         val size = state.prepared.size
-        return if (size >= target || state.exhausted) minOf(size, target) else 0
+        // R25: when the 7s cycle has ended, 3 verified videos are READY,
+        // not 'zero waiting for 20'. Late verified rows after three short
+        // cycles stay individually revealable instead of being forgotten.
+        val partialCycleReady = state.windowElapsed && !state.windowPublished
+        val lateAfterThreeCycles = state.manualWindowSkips >= 3
+        return if (size >= target || state.exhausted ||
+            partialCycleReady || lateAfterThreeCycles
+        ) minOf(size, target) else 0
     }
     fun status(): Status {
         val state = round(visibleRound)
@@ -211,15 +234,18 @@ internal class CoverRoundPresentation<T>(
         val retryRequired = finalEmpty && !state.finalChecked && !state.finalContinuation
         val available = ready(visibleRound)
         // Separate three manual display windows from true source exhaustion.
-        val manualGreen = state.windowElapsed && state.manualWindowSkips >= 2 && available == 0
+        val noUnpublished = state.prepared.isEmpty() && state.overflow.isEmpty()
+        // All three 10+20+20 cycles must be consumed. Partial publication
+        // does not promote to the next round or discard later verified rows.
+        val manualGreen = state.windowElapsed && state.manualWindowSkips >= 3 && noUnpublished
         val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE ||
-            (state.exhausted || manualGreen) && available == 0)
+            (state.exhausted || manualGreen) && noUnpublished)
         val manualContinue = !terminal && !retryRequired && !green &&
             !state.exhausted && state.windowElapsed && available == 0
         return Status(state.shown.size, state.prepared.size, available, green,
             if (green) ready(visibleRound + 1) else 0,
             terminal, terminal && rounds.values.all { it.shown.isEmpty() && it.prepared.isEmpty() && it.overflow.isEmpty() },
-            retryRequired, manualContinue, if (manualContinue) state.manualWindowSkips + 2 else 0)
+            retryRequired, manualContinue, if (manualContinue) state.manualWindowSkips + 1 else 0)
     }
     fun needsPreparation(): Boolean {
         val number = preparationRound
