@@ -142,7 +142,8 @@ internal object CoverDiscoverySources {
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
         awaitResources: suspend () -> Unit = {},
     ): CoverSourceOutcome = coroutineScope {
-        val turbo = BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER
+        val turbo = (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" ||
+            MusicRankExperimental.enabled(BuildConfig.APPLICATION_ID)) && mode == DiscogsDirectMode.COVER
         val cleanTitle = title.trim()
         val cleanArtist = originalArtist.trim()
         if (cleanTitle.isBlank()) return@coroutineScope CoverSourceOutcome(emptyList(), emptyList())
@@ -288,7 +289,8 @@ internal object CoverDiscoverySources {
             }
         }
         val deepRound = if (mode == DiscogsDirectMode.COVER && coverRound >= 2 &&
-            BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
+            (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" ||
+                MusicRankExperimental.enabled(BuildConfig.APPLICATION_ID))) {
             async(Dispatchers.IO) {
                 reportResult(sourceLane { discoverYouTubeCoverRound(cleanTitle, coverRound) })
             }
@@ -341,7 +343,7 @@ internal object CoverDiscoverySources {
                 .toSet()
 
         val merged = linkedMapOf<String, CoverSourceCandidate>()
-        lanes.flatMap { it.first }.forEach { candidate ->
+        allLanes.flatMap { it.first }.forEach { candidate ->
             val identity = if (turbo) CoverPriorityOrder.key(candidate) else identity(candidate.title, candidate.artist, candidate.category)
             val previous = merged[identity]
             if (previous == null) {
@@ -382,7 +384,7 @@ internal object CoverDiscoverySources {
         // LAB57: reuse any exact-recording musical publication date learned by
         // another source. Never use a YouTube/social upload date as publication.
         val publicationYearByExactRecording =
-            lanes
+            allLanes
                 .flatMap { it.first }
                 .filter { it.year != null }
                 .groupBy { candidate ->
@@ -534,7 +536,7 @@ internal object CoverDiscoverySources {
 
         val outcome = CoverSourceOutcome(
             candidates = ordered,
-            diagnostics = lanes.map { it.second } + listOf(
+            diagnostics = allLanes.map { it.second } + listOf(
                 // Wikidata's current adapter returns only aliases, not cover
                 // candidates; it must not hold up actual result-producing lanes.
                 CoverSourceDiagnostic("Wikidata", false, 0, "Solo alias; non blocca le cover"),
