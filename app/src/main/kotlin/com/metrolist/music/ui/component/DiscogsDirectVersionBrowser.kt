@@ -3772,6 +3772,13 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                         if (audioBusy() || listState.isScrollInProgress) presentation.pauseIdleClock(thisRound)
                         else presentation.closeIfIdle(thisRound)
+                        // R14: at a real cycle deadline, publish the verified
+                        // remainder together, even when fewer than 10/20 are ready.
+                        // Do not cancel or mark any documentary source exhausted.
+                        if (thisRound == coverRoundNumber && presentation.visibleRound == coverRoundNumber) {
+                            presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
+                            appendVisible(presentation.takeTimedCycle())
+                        }
                         if (thisRound == coverRoundNumber && presentation.exhausted(thisRound)) {
                             presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
                             appendVisible(presentation.takeAutomatic())
@@ -4187,6 +4194,13 @@ internal fun DiscogsDirectVersionBrowser(
                             }
                             if (pending.orderingInput(rankTitle, rankOriginal, thisRound) != null ||
                                 rankTitle != workTitle() || rankOriginal != originalArtist()) continue
+                            // R14: do not consume or defer hundreds of leads
+                            // while one YouTube metadata/link lookup is active.
+                            // Producer lanes keep adding rows in parallel.
+                            if (linkingJob?.isActive == true) {
+                                delay(55L)
+                                continue
+                            }
                             val next = pending.next(rankTitle, rankOriginal, thisRound, includeTwins = allowTwins)
                             if (next == null) {
                                 flushInitial(force = true)

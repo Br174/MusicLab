@@ -1008,6 +1008,7 @@
       20,
       20
     ],
+    "cyclePublicationOverrideR14": "10/20/20 are maximum capacities, not minimum publication thresholds. At each 7-second cycle deadline publish the whole already verified batch together even when smaller (2, 3, ...); full first 10 appear immediately. Sources keep working; user controls continuation.",
     "finalSearch": "Exact work title without descriptors always autonomous; optional descriptor queries may run alongside and never constrain title-only results. Resume reachable pages until user stops or actual exhaustion.",
     "globalReleasePreference": "Prefer available studio/recorded/released versions in EVERY round, never an admission requirement or a reason to block ready flow.",
     "runtimeChanged": true,
@@ -1336,5 +1337,25 @@
       "CoverR9EvidenceRecoveryTest",
       "turbo-r9-recovery-wiring.test.mjs"
     ]
+  },
+  "approvedR14CyclesAndSources": {
+    "id": "musiclab.cover.r14-cycles-and-all-sources.20261030",
+    "authority": "Latest direct user instruction 2026-10-30: all cover-bearing sources, COVER.INFO prioritized, SecondHandSongs standby; partial verified batch at every cycle deadline.",
+    "sourcePriority": "COVER.INFO first preference, never a veto or blocker for Apple/iTunes, Spotify, Discogs, MusicBrainz, LRCLIB, Last.fm, YouTube Music, YouTube, local/cloud archive where enabled.",
+    "secondHandSongs": "STANDBY_NO_REQUEST_IN_TURBO_ALL_ROUNDS",
+    "wikidata": "Alias-only adapter, cannot supply a cover; do not block cover sources.",
+    "cycleCaps": [
+      10,
+      20,
+      20
+    ],
+    "publication": "At every completed presentation window publish verified available rows as one atomic batch, even fewer than the cap. A ready complete first 10 is immediate. Never individually stream each thumbnail as it arrives.",
+    "sourceContinuity": "Timer only ends visible cycle, never cancels documentary source progress or discards candidates.",
+    "retention": "Append-only results; previously presented rows never disappear; no duplicate recordings; 50 limit per round.",
+    "admission": "Existing documentary work evidence thresholds and forbidden content unchanged, no invented identities or recording metadata.",
+    "compatibility": "Explicitly supersedes R9 'partialPacket only true exhaustion, never timer' and earlier all-or-nothing packet minimum; keeps independent per-source network protections, player, look, same signing family, no paid services.",
+    "implementationState": "R14_PATCH_PREPARED_CI_PENDING",
+    "deviceVerified": false
   }
+
 }

@@ -26,6 +26,7 @@ internal class CoverRoundPresentation<T>(
         val overflow = linkedMapOf<String, T>()
         var lastProgress: Long? = null
         var windowElapsed = false
+        var windowPublished = false
         var manualWindowSkips = 0
         var finalChecked = false
         var finalContinuation = false
@@ -46,6 +47,7 @@ internal class CoverRoundPresentation<T>(
         val state = round(number)
         if (!state.exhausted && !state.windowElapsed && state.lastProgress?.let { clock() - it >= 7_000L } == true) {
             state.windowElapsed = true
+            state.windowPublished = false
             return true
         }
         return false
@@ -60,7 +62,7 @@ internal class CoverRoundPresentation<T>(
     fun isFinalChecked(number: Int): Boolean = round(number).finalChecked
     fun verificationPending(number: Int) { finalProgress(number, complete = false, blocked = true) }
     fun retry(number: Int) {
-        round(number).apply { exhausted = false; windowElapsed = false; manualWindowSkips = 0; finalChecked = false; finalContinuation = false; lastProgress = clock() }
+        round(number).apply { exhausted = false; windowElapsed = false; windowPublished = false; manualWindowSkips = 0; finalChecked = false; finalContinuation = false; lastProgress = clock() }
     }
     /** Skip only the display window; source work is never exhausted. */
     fun continueEmptyWindow(): Boolean {
@@ -68,6 +70,7 @@ internal class CoverRoundPresentation<T>(
         val current = round(visibleRound)
         current.manualWindowSkips++
         current.windowElapsed = false
+        current.windowPublished = false
         current.lastProgress = clock()
         return true
     }
@@ -148,6 +151,27 @@ internal class CoverRoundPresentation<T>(
         return selected
     }
 
+    /** A completed cycle publishes the rows already verified, even if its
+     *  cap (10 / 20 / 20) was not filled. A cycle is one atomic publication.
+     *  The user still starts the next cycle manually. Late unverified source
+     *  candidates are NOT converted or discarded by this presentation layer.
+     */
+    fun takeTimedCycle(): List<T> {
+        val state = round(visibleRound)
+        if (!state.windowElapsed || state.windowPublished) return emptyList()
+        val limit = (if (state.manualWindowSkips == 0) INITIAL_SIZE else BLOCK_SIZE)
+            .coerceAtMost((ROUND_SIZE - state.shown.size).coerceAtLeast(0))
+        if (limit <= 0 || state.prepared.isEmpty()) return emptyList()
+        val published = take(visibleRound, minOf(limit, state.prepared.size))
+        if (published.isNotEmpty()) {
+            // take() normally restarts the idle clock. Keep the completed
+            // window visible so the "next cycle" action remains available.
+            state.windowElapsed = true
+            state.windowPublished = true
+        }
+        return published
+    }
+
     fun takeInitial(): List<T> {
         val remaining = (INITIAL_SIZE - round(visibleRound).shown.size).coerceAtLeast(0)
         val state = round(visibleRound)
@@ -174,7 +198,8 @@ internal class CoverRoundPresentation<T>(
 
     private fun ready(number: Int): Int {
         val state = round(number)
-        val target = if (state.shown.size < INITIAL_SIZE) INITIAL_SIZE - state.shown.size
+        val target = if (state.manualWindowSkips == 0 && state.shown.size < INITIAL_SIZE)
+            INITIAL_SIZE - state.shown.size
             else minOf(BLOCK_SIZE, (ROUND_SIZE - state.shown.size).coerceAtLeast(0))
         val size = state.prepared.size
         return if (size >= target || state.exhausted) minOf(size, target) else 0

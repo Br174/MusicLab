@@ -242,7 +242,18 @@ internal object CoverDiscoverySources {
         val spotify = async(Dispatchers.IO) {
             cachedLane("Spotify") { discoverSpotify(cleanTitle, cleanArtist, mode) }
         }
-        // LAB60 Pollicino: Last.fm is disabled for Cover/Originali discovery.
+        // R14: user restored every free, cover-bearing source except
+        // SecondHandSongs. Last.fm has an existing no-key public fallback.
+        // Keep it bounded; never block COVER.INFO's independent lane.
+        val lastFm = async(Dispatchers.IO) {
+            if (turbo) cachedLane("Last.fm") {
+                kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+                    discoverLastFm(cleanTitle, cleanArtist, mode)
+                } ?: (emptyList<CoverSourceCandidate>() to
+                    CoverSourceDiagnostic("Last.fm", false, 0, "tempo esaurito · altra fonte continua"))
+            } else emptyList<CoverSourceCandidate>() to
+                CoverSourceDiagnostic("Last.fm", false, 0, "Disattivato in LAB60")
+        }
         val lrcLib = async(Dispatchers.IO) {
             cachedLane("LRCLIB") { discoverLrcLib(cleanTitle, cleanArtist, mode) }
         }
@@ -287,6 +298,7 @@ internal object CoverDiscoverySources {
                 iTunes.await(),
                 lrcLib.await(),
                 spotify.await(),
+                lastFm.await(),
                 ai.await(),
             ) + listOfNotNull(deepRound?.await())
 
@@ -497,8 +509,9 @@ internal object CoverDiscoverySources {
         val outcome = CoverSourceOutcome(
             candidates = ordered,
             diagnostics = lanes.map { it.second } + listOf(
-                CoverSourceDiagnostic("Last.fm", false, 0, "Disattivato in LAB60"),
-                CoverSourceDiagnostic("Wikidata", false, 0, "Disattivato in LAB60"),
+                // Wikidata's current adapter returns only aliases, not cover
+                // candidates; it must not hold up actual result-producing lanes.
+                CoverSourceDiagnostic("Wikidata", false, 0, "Solo alias; non blocca le cover"),
             ) + identityGateDiagnostic,
             originalYear = originalYear,
             workId = resolvedMusicBrainz.work?.id,
