@@ -249,6 +249,8 @@ internal class CoverRoundPresentation<T>(
         // All three 10+20+20 cycles must be consumed. Partial publication
         // does not promote to the next round or discard later verified rows.
         val manualGreen = state.windowElapsed && state.manualWindowSkips >= 3 && noUnpublished
+        // A full 50-card round may legitimately hold overflow for the next
+        // round; that queued overflow must NOT prevent the green button.
         val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE ||
             (state.exhausted || manualGreen) && noUnpublished)
         val manualContinue = !terminal && !retryRequired && !green &&
