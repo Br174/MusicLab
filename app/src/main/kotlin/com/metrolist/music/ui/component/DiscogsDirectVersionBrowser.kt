@@ -3825,11 +3825,10 @@ internal fun DiscogsDirectVersionBrowser(
                     if (CoverLab71FoundationGate.isForbidden(candidate.title, candidate.artist, candidate.playbackVideoTitle.orEmpty(), candidate.album.orEmpty(), candidate.sourceUrl.orEmpty())) {
                         pending.complete(candidate); return
                     }
-                    val preliminary = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle(),
-                        originalArtist().ifBlank { lockedArtist }, thisRound, referenceCredits = session.originalResolution.credits.toList())
-                    if (preliminary.rejected) { pending.complete(candidate); return }
-                    if (!preliminary.admitted) {
-                        pending.deferUntil(candidate, preliminary.minimumRound); return
+                    // R16: video verification must precede evidence counting.
+                    if (!CoverR16FlexibleVideoMatch.plausible(candidate, workTitle(),
+                            originalArtist().ifBlank { lockedArtist })) {
+                        pending.complete(candidate); return
                     }
                     val history = previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots + presentation.preparedRows()
                     if (history.any { it.resolvedVideoId == id }) { pending.complete(candidate); return }
@@ -3863,9 +3862,8 @@ internal fun DiscogsDirectVersionBrowser(
                         val checked = session.originalResolution.credits.toList()
                         withContext(Dispatchers.Default) {
                             val rows = candidates.asSequence().filter {
-                                CoverLabTurboRoundAdmission.evaluate(it, previewTitle,
-                                    previewOriginal.ifBlank { lockedArtist }, thisRound,
-                                    referenceCredits = checked).admitted
+                                CoverR16FlexibleVideoMatch.plausible(it, previewTitle,
+                                    previewOriginal.ifBlank { lockedArtist })
                             }.take(16).toList()
                             CoverPriorityOrder.order(rows, previewTitle, previewOriginal, thisRound)
                                 .mapNotNull { it.playbackVideoId?.takeIf(videoIdPattern::matches) }
@@ -3901,7 +3899,9 @@ internal fun DiscogsDirectVersionBrowser(
                         }
                     session.metadataRetryAfter.succeeded(id)
                     if (requestedMetadata) recordSource(CoverSourceDiagnostic("Metadati YouTube", true, 1, "metadati ricevuti"))
-                    val verdict = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle(), originalArtist().ifBlank { lockedArtist }, thisRound, verified.title, session.originalResolution.credits.toList())
+                    val verdict = CoverR16FlexibleVideoMatch.evaluate(candidate, workTitle(),
+                        originalArtist().ifBlank { lockedArtist }, thisRound, verified,
+                        session.originalResolution.credits.toList())
                     if (!verdict.admitted) {
                         if (verdict.rejected) pending.complete(candidate)
                         else pending.deferUntil(candidate, verdict.minimumRound)
@@ -3952,7 +3952,7 @@ internal fun DiscogsDirectVersionBrowser(
                     val admitted = seed.copy(
                         roundPosition = previousRoundRows.size + publishedCoverSnapshots.size + 1,
                         originalWorkReference = candidate.originalWorkReference || CoverLab71FoundationGate.isOriginalPerformer(candidate.artist, originalArtist()),
-                        musiclabScore100 = CoverLabTurboRoundAdmission.evaluate(candidate, workTitle(), originalArtist(), thisRound, verified.title).confidencePercent,
+                        musiclabScore100 = verdict.confidencePercent,
                     )
                     if (!presentation.stage(thisRound, admitted)) return
                     val preparedCount = presentation.total(thisRound)
@@ -4263,8 +4263,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 }
                                 val budget = preparation.claim(3_800L)
                                 if (budget <= 0L) { pending.defer(next); return@launch }
-                                val queryText = "${next.artist} ${next.title}"
-                                queryWork.offer(queryText, next.category, lead = next)
+                                CoverR16FlexibleVideoMatch.queries(next).forEach {
+                                    queryWork.offer(it, next.category, lead = next)
+                                }
                                 val sourcePage = queryWork.forLead(next)
                                 if (sourcePage == null) { pending.defer(next); return@launch }
                                 val found = withTimeoutOrNull(budget) { withContext(Dispatchers.IO) {
