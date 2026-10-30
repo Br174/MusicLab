@@ -311,7 +311,7 @@ private const val PLAYBACK_PRIORITY_BURST_MIN_MS = 2_000L
 // decoder threshold (900ms) and maximum Media3 buffer (50s) stay unchanged.
 private const val PLAYBACK_PRIORITY_BURST_MAX_MS = 15_000L
 private const val PLAYBACK_PRIORITY_RELEASE_BUFFER_MS = 12_000L
-private const val COVER_AUDIO_SAFETY_BUFFER_MS = 12_000L
+private const val COVER_AUDIO_SAFETY_BUFFER_MS = 18_000L
 
 /** When the queue has this many or fewer items (or items ahead of current), load more from paginated queues (e.g. Spotify). */
 private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
@@ -586,6 +586,7 @@ class MusicService :
     private var retryCount = 0
     private var initialBufferRecoveryJob: Job? = null
     private var initialBufferRecoveryAttemptedMediaId: String? = null
+    private var bufferStallRecoveryAttempts = 0
     // True only when stopOnError() paused playback purely because of a network outage
     // (waitOnNetworkError exhausting its attempts). Lets triggerRetry() know it's safe —
     // and necessary — to explicitly resume playback once connectivity returns, rather than
@@ -3078,6 +3079,7 @@ class MusicService :
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
         initialBufferRecoveryAttemptedMediaId = null
+        bufferStallRecoveryAttempts = 0
         retryJob?.cancel()
         retryJob = null
         updateInitialBufferRecovery(player.playbackState)
@@ -3359,50 +3361,67 @@ class MusicService :
         updateInitialBufferRecovery(player.playbackState)
     }
 
+    /**
+     * R22 playback-first watchdog. The historical LAB buffer recovery watched
+     * only positions below 5s, leaving stalls later in the song unhandled.
+     * This one watches *every* BUFFERING state, including after a seek/swap.
+     * Only two bounded recoveries per track; never resumes a paused song.
+     * Never drops valid cached audio spans or interrupts a new media item.
+     */
     private fun updateInitialBufferRecovery(
         @Player.State playbackState: Int,
     ) {
         val mediaId = player.currentMediaItem?.mediaId
-        val shouldWatch =
-            playbackState == Player.STATE_BUFFERING &&
-                player.playWhenReady &&
-                player.currentPosition < INITIAL_BUFFER_RECOVERY_POSITION_MS &&
-                mediaId != null &&
-                initialBufferRecoveryAttemptedMediaId != mediaId
-
-        if (!shouldWatch) {
+        val eligible = mediaId != null &&
+            PlaybackSprintPolicy.shouldRecoverBufferStall(
+                isBuffering = playbackState == Player.STATE_BUFFERING,
+                playRequested = player.playWhenReady,
+                sameMediaId = true,
+                online = isNetworkConnected.value,
+                recoveryAttempts = bufferStallRecoveryAttempts,
+            )
+        if (!eligible) {
             initialBufferRecoveryJob?.cancel()
             initialBufferRecoveryJob = null
             return
         }
         if (initialBufferRecoveryJob?.isActive == true) return
 
-        initialBufferRecoveryJob =
-            scope.launch {
-                delay(INITIAL_BUFFER_RECOVERY_DELAY_MS)
-                if (player.playbackState != Player.STATE_BUFFERING ||
-                    !player.playWhenReady ||
-                    player.currentPosition >= INITIAL_BUFFER_RECOVERY_POSITION_MS ||
-                    player.currentMediaItem?.mediaId != mediaId
-                ) {
-                    return@launch
-                }
-
-                initialBufferRecoveryAttemptedMediaId = mediaId
-                val failedStreamClient = songUrlCache.clientName(mediaId)
-                Timber.tag(TAG).w(
-                    "Initial stream stalled, refreshing mediaId=%s client=%s",
-                    mediaId,
-                    failedStreamClient ?: "unknown",
+        val stalledIndex = player.currentMediaItemIndex
+        initialBufferRecoveryJob = scope.launch {
+            delay(PlaybackSprintPolicy.BUFFER_STALL_RECOVERY_DELAY_MS)
+            if (!PlaybackSprintPolicy.shouldRecoverBufferStall(
+                    isBuffering = player.playbackState == Player.STATE_BUFFERING,
+                    playRequested = player.playWhenReady,
+                    sameMediaId = player.currentMediaItem?.mediaId == mediaId &&
+                        player.currentMediaItemIndex == stalledIndex,
+                    online = isNetworkConnected.value,
+                    recoveryAttempts = bufferStallRecoveryAttempts,
                 )
-                performAggressiveCacheClear(mediaId)
-                refreshStreamAndRetry(
-                    mediaId = mediaId,
-                    failedStreamClient = failedStreamClient,
-                    refreshCipherConfig = false,
-                    retryReason = "initial buffer stall",
-                )
-            }
+            ) return@launch
+            // Only refresh the stream URL, not the good cached prefix. Existing
+            // retry checks verify media ID, index, playback intent and position.
+            bufferStallRecoveryAttempts++
+            initialBufferRecoveryAttemptedMediaId = mediaId
+            lab31AudioEvent(
+                "BUFFER_STALL_RECOVERY",
+                "attempt=" + bufferStallRecoveryAttempts +
+                    " position_ms=" + player.currentPosition +
+                    " buffered_ms=" + player.totalBufferedDuration,
+            )
+            Timber.tag("MusicLabR22Audio").w(
+                "Stalled audio auto-recovery attempt=%d at position=%d buffer=%d",
+                bufferStallRecoveryAttempts,
+                player.currentPosition,
+                player.totalBufferedDuration,
+            )
+            refreshStreamAndRetry(
+                mediaId = mediaId!!,
+                failedStreamClient = null,
+                refreshCipherConfig = false,
+                retryReason = "R22 playback buffer stall",
+            )
+        }
     }
 
     override fun onEvents(
@@ -6889,8 +6908,7 @@ class MusicService :
         const val MAX_CONSECUTIVE_ERR = 5
         const val MAX_RETRY_COUNT = 10
 
-        private const val INITIAL_BUFFER_RECOVERY_DELAY_MS = 15_000L
-        private const val INITIAL_BUFFER_RECOVERY_POSITION_MS = 5_000L
+        // R22 watchdog timings and retry budget live in PlaybackSprintPolicy.
         private const val TAG = "MusicService"
         private const val PRECACHE_TAG = "MeldPreCache"
 
