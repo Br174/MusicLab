@@ -142,7 +142,8 @@ internal object CoverDiscoverySources {
         onSourceCompleted: suspend (List<CoverSourceCandidate>, CoverSourceDiagnostic, Int?) -> Unit = { _, _, _ -> },
         awaitResources: suspend () -> Unit = {},
     ): CoverSourceOutcome = coroutineScope {
-        val turbo = BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" && mode == DiscogsDirectMode.COVER
+        val turbo = (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" ||
+            MusicRankExperimental.enabled(BuildConfig.APPLICATION_ID)) && mode == DiscogsDirectMode.COVER
         val cleanTitle = title.trim()
         val cleanArtist = originalArtist.trim()
         if (cleanTitle.isBlank()) return@coroutineScope CoverSourceOutcome(emptyList(), emptyList())
@@ -288,7 +289,8 @@ internal object CoverDiscoverySources {
             }
         }
         val deepRound = if (mode == DiscogsDirectMode.COVER && coverRound >= 2 &&
-            BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01") {
+            (BuildConfig.APPLICATION_ID == "it.verlezza.musiclab.turbo01" ||
+                MusicRankExperimental.enabled(BuildConfig.APPLICATION_ID))) {
             async(Dispatchers.IO) {
                 reportResult(sourceLane { discoverYouTubeCoverRound(cleanTitle, coverRound) })
             }
@@ -308,6 +310,26 @@ internal object CoverDiscoverySources {
                 ai.await(),
             ) + listOfNotNull(deepRound?.await())
 
+        // MusicRank experiment: documentary renditions drive their own video searches.
+        // Video matches remain unverified until the downstream work/performer gate.
+        val musicRankVideoLane = if (MusicRankExperimental.enabled(BuildConfig.APPLICATION_ID) &&
+            mode == DiscogsDirectMode.COVER) {
+            val leads = lanes.flatMap { it.first }.filter { candidate ->
+                candidate.artist.isNotBlank() &&
+                    candidate.sources.any { source ->
+                        source.equals("COVER.INFO", true) ||
+                            source.equals("MusicBrainz", true) ||
+                            source.equals("Discogs", true)
+                    }
+            }.distinctBy { candidate ->
+                canonical(candidate.title) + "|" + canonical(candidate.artist)
+            }.take(24)
+            if (leads.isEmpty()) null else reportResult(sourceLane {
+                discoverMusicRankVideos(leads)
+            })
+        } else null
+        val allLanes = lanes + listOfNotNull(musicRankVideoLane)
+
         val workCredits =
             resolvedMusicBrainz.work
                 ?.credits
@@ -321,7 +343,7 @@ internal object CoverDiscoverySources {
                 .toSet()
 
         val merged = linkedMapOf<String, CoverSourceCandidate>()
-        lanes.flatMap { it.first }.forEach { candidate ->
+        allLanes.flatMap { it.first }.forEach { candidate ->
             val identity = if (turbo) CoverPriorityOrder.key(candidate) else identity(candidate.title, candidate.artist, candidate.category)
             val previous = merged[identity]
             if (previous == null) {
@@ -362,7 +384,7 @@ internal object CoverDiscoverySources {
         // LAB57: reuse any exact-recording musical publication date learned by
         // another source. Never use a YouTube/social upload date as publication.
         val publicationYearByExactRecording =
-            lanes
+            allLanes
                 .flatMap { it.first }
                 .filter { it.year != null }
                 .groupBy { candidate ->
@@ -514,7 +536,7 @@ internal object CoverDiscoverySources {
 
         val outcome = CoverSourceOutcome(
             candidates = ordered,
-            diagnostics = lanes.map { it.second } + listOf(
+            diagnostics = allLanes.map { it.second } + listOf(
                 // Wikidata's current adapter returns only aliases, not cover
                 // candidates; it must not hold up actual result-producing lanes.
                 CoverSourceDiagnostic("Wikidata", false, 0, "Solo alias; non blocca le cover"),
@@ -1008,6 +1030,54 @@ internal object CoverDiscoverySources {
                 note = if (candidates.isNotEmpty()) "originali collegati" else "nessun hint / non autenticato",
             )
         }
+    }
+
+    /** Bounded per-rendition discovery; metadata links are hints, not verified recordings. */
+    private suspend fun discoverMusicRankVideos(
+        leads: List<CoverSourceCandidate>,
+    ): Pair<List<CoverSourceCandidate>, CoverSourceDiagnostic> = coroutineScope {
+        val gate = Semaphore(3)
+        val queries = leads.flatMap { lead ->
+            listOf(
+                lead.title.trim() + " " + lead.artist.trim(),
+                lead.artist.trim() + " " + lead.title.trim() + " official",
+            ).map { query -> query to lead }
+        }.distinctBy { (query, _) -> query.lowercase(java.util.Locale.ROOT) }
+        val videos = queries.map { (query, lead) ->
+            async(Dispatchers.IO) {
+                gate.withPermit {
+                    withTimeoutOrNull(4_000L) {
+                        YouTube.search(query, YouTube.SearchFilter.FILTER_VIDEO)
+                            .getOrNull()?.items.orEmpty()
+                            .filterIsInstance<SongItem>()
+                            .take(15)
+                            .mapNotNull { item ->
+                                val id = item.id.trim()
+                                if (!id.matches(Regex("[A-Za-z0-9_-]{11}"))) return@mapNotNull null
+                                // The result is only a candidate; the downstream matcher
+                                // must validate performer and musical work independently.
+                                CoverSourceCandidate(
+                                    title = lead.title,
+                                    artist = lead.artist,
+                                    sources = listOf("MusicRank YouTube candidate"),
+                                    coverUrl = item.thumbnail,
+                                    category = lead.category,
+                                    sourceUrl = item.shareLink,
+                                    playbackVideoId = id,
+                                    playbackVideoTitle = item.title,
+                                    playbackVideoSource = "MusicRank unverified video",
+                                    workRelationConfirmed = false,
+                                    evidenceScore = 1,
+                                )
+                            }
+                    }.orEmpty()
+                }
+            }
+        }.awaitAll().flatten().distinctBy { it.playbackVideoId }
+        videos to CoverSourceDiagnostic(
+            "MusicRank YouTube", true, videos.size,
+            "Video per interprete documentato, da verificare",
+        )
     }
 
     // LAB46: YouTube Music candidate discovery only, never certification.

@@ -82,6 +82,24 @@ internal object CoverPriorityOrder {
     ): List<CoverSourceCandidate> {
         data class Ranked(val row: CoverSourceCandidate, val index: Int, val late: Boolean,
             val minimumRound: Int, val preference: Int)
+        if (MusicRankExperimental.enabled(com.metrolist.music.BuildConfig.APPLICATION_ID)) {
+            return candidates.withIndex().sortedWith(
+                compareByDescending<IndexedValue<CoverSourceCandidate>> { indexed ->
+                    val item = indexed.value
+                    MusicRankExperimental.score(
+                        verifiedRelease = item.releaseVerified,
+                        documentedWork = item.workRelationConfirmed,
+                        documentedPerformer = item.workRelationConfirmed && item.artist.isNotBlank(),
+                        videoAvailable = !item.playbackVideoId.isNullOrBlank(),
+                        videoTitleMatched = !item.playbackVideoTitle.isNullOrBlank() &&
+                            CoverLabTurboRoundAdmission.matchesWorkTitle(
+                                item.title, item.playbackVideoTitle.orEmpty(), setOf(item.artist)),
+                        originalPublication = item.originalWorkReference && item.firstPublicationConfirmed,
+                        credited = item.credits.isNotEmpty(),
+                    )
+                }.thenBy { it.index }
+            ).map { it.value }
+        }
         return candidates.mapIndexed { index, candidate ->
             Ranked(candidate, index, key(candidate) in delayedKeys,
                 CoverLabTurboRoundAdmission.minimumRound(
@@ -115,8 +133,24 @@ internal object CoverPriorityOrder {
     }
 
     val publicationComparator: Comparator<DiscogsVersionSeed> =
-        compareBy<DiscogsVersionSeed>(::publicationGroup)
-            .thenByDescending { it.collectorHave ?: 0 }
+        if (MusicRankExperimental.enabled(com.metrolist.music.BuildConfig.APPLICATION_ID)) {
+            compareByDescending<DiscogsVersionSeed> { row ->
+                MusicRankExperimental.score(
+                    verifiedRelease = row.discogsVerificationChecked,
+                    documentedWork = row.workRelationConfirmed,
+                    documentedPerformer = row.workRelationConfirmed && row.artist.isNotBlank(),
+                    videoAvailable = !row.resolvedVideoId.isNullOrBlank(),
+                    videoTitleMatched = !row.resolvedVideoTitle.isNullOrBlank() &&
+                        CoverLabTurboRoundAdmission.matchesWorkTitle(
+                            row.trackTitle, row.resolvedVideoTitle.orEmpty(), setOf(row.artist)),
+                    originalPublication = row.originalWorkReference && row.workRelationConfirmed,
+                    credited = row.credits.isNotEmpty(),
+                )
+            }.thenBy { it.trackTitle }.thenBy { it.artist }
+        } else {
+            compareBy<DiscogsVersionSeed>(::publicationGroup)
+                .thenByDescending { it.collectorHave ?: 0 }
+        }
 
     fun originalReference(candidates: List<CoverSourceCandidate>): CoverSourceCandidate? {
         val documented = candidates.filter { candidate ->
