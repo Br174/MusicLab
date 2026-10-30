@@ -1,0 +1,142 @@
+name: MusicLab Turbo LAB79 R25 Partial Cycles Audio APK ZIP
+on:
+  push:
+    branches:
+      - lab/musiclab-turbo-r25-partial-cycles-audio-20261031
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: musiclab-lab79-r25-partial-cycles-audio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: MotorLab automatic active Turbo family and Scudo selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/motorlab-active-guard.mjs --self-test
+          node scripts/motorlab-active-guard.mjs
+      - name: "Guard exact R24 baseline and immutable Cover discovery: R25 partial cycle plus bounded audio retry"
+        run: python3 tools/universal-apk-builder/verify-r25-partial-cycles-audio-scope.py
+      - name: Native audio and recording identity contracts
+        run: node --test cloudflare/music-intelligence/test/turbo-lab49-audio-stability-contract.test.mjs cloudflare/music-intelligence/test/turbo-lab46-recording-identity.test.mjs cloudflare/music-intelligence/test/turbo-r9-recovery-wiring.test.mjs cloudflare/music-intelligence/test/scudo-r40-class-evidence-real.test.mjs cloudflare/music-intelligence/test/turbo-r14-source-cycle-contract.test.mjs cloudflare/music-intelligence/test/turbo-r15-real-root-cause.test.mjs cloudflare/music-intelligence/test/turbo-r17-quality-progressive.test.mjs cloudflare/music-intelligence/test/turbo-r18-category-only.test.mjs cloudflare/music-intelligence/test/turbo-r19-soft-source-priority.test.mjs cloudflare/music-intelligence/test/turbo-r20-player-sprint.test.mjs cloudflare/music-intelligence/test/turbo-r21-audio-continuo.test.mjs cloudflare/music-intelligence/test/turbo-r22-buffer-recovery.test.mjs cloudflare/music-intelligence/test/turbo-r24-qobuz-anr.test.mjs cloudflare/music-intelligence/test/turbo-r25-partial-cycle-audio.test.mjs
+      - name: Canonical behavior consistency
+        run: |
+          python3 - <<'PYGUARD'
+          import json
+          memory=json.load(open('behaviors/musiclab-cover.json'))
+          rules={r['id']:r for r in memory['rules']}
+          assert len(rules)==len(memory['rules'])
+          for disposition in memory['conflictDispositions']:
+              assert rules[disposition['oldRule']]['status']=='retired'
+              assert rules[disposition['replacementRule']]['status']=='active'
+          assert rules['musiclab.cover.six-rounds.v1']['status']=='active'
+          assert memory['approvedNextSpecification']['rounds']==6
+          assert memory['approvedNextSpecification']['cycleSizes']==[10,20,20]
+          r14=memory['approvedR14CyclesAndSources']
+          assert r14['cycleCaps']==[10,20,20]
+          assert r14['secondHandSongs']=='STANDBY_NO_REQUEST_IN_TURBO_ALL_ROUNDS'
+          assert 'maximum capacities' in memory['approvedNextSpecification']['cyclePublicationOverrideR14']
+          assert rules['musiclab.cover.round-evidence-allocation.v1']['status']=='retired'
+          assert rules['musiclab.cover.quality-progressive.r17']['status']=='active'
+          assert memory['approvedR17QualityProgressive']['thresholds']=='NONE'
+          assert memory['approvedR15RootCauseRecovery']['redRun']==41001482313
+          PYGUARD
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Prepare same-family Android 33097
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-r25-partial-cycles-audio-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33097"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+      - name: Scudo360 mandatory full JVM regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source uab-project.env
+          set +a
+          node scripts/scudo360-gate.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-report.json
+          echo '[SCUDO360=PASS] Cumulative JVM regression results verified'
+      - name: Scudo360 Quality r40 mandatory before Android signing and publishing
+        env:
+          SCUDO360_R40_PROMOTION: '1'
+        run: node .motorlab/regression/scudo360-quality-r40.mjs .motorlab/scudo360-contracts.json .motorlab/scudo360-report.json .motorlab/scudo360-r40-plan.json .motorlab/scudo360-r40-quality.json
+      - name: Preserve Scudo360 failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scudo360-musiclab-regression-report
+          path: |
+            .motorlab/scudo360-report.json
+            app/build/test-results/testFossDebugUnitTest/*.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Build signed LAB79 APK ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Verify Android package, signing certificate and ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-25.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-25-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          python3 - <<'PY'
+          import hashlib, zipfile
+          from pathlib import Path
+          apk=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-25.apk')
+          archive=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-25-APK.zip')
+          digest=lambda data: hashlib.sha256(data).hexdigest()
+          with zipfile.ZipFile(archive) as z:
+              names=[n for n in z.namelist() if n.lower().endswith('.apk')]
+              assert len(names)==1, names
+              assert digest(z.read(names[0]))==digest(apk.read_bytes()), 'ZIP APK differs from signed standalone APK'
+          Path('dist/uab/SHA256SUMS.txt').write_text(''.join(digest(p.read_bytes())+'  '+p.name+'\n' for p in (apk,archive)))
+          PY
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33097'"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
+          CERT="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = '9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749'
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+      - name: Publish installable APK and ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-LAB79-Revisione-25-Partial-Cycles-Audio-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-25.apk
+            dist/uab/MusicLab-Turbo-LAB79-Revisione-25-APK.zip
+            dist/uab/BUILD_SHA.txt
+            dist/uab/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      # R25 is partial-cycle and bounded recovery LAB from signed R24; no Cover discovery, rankings, filters, admission or R19 order changes. CANDIDATA02 immutable.
