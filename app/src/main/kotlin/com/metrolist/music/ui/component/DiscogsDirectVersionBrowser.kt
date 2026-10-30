@@ -3377,6 +3377,24 @@ internal fun DiscogsDirectVersionBrowser(
                 ),
             )
         }
+        // R21: select just the next already-verified, visible Cover video for
+        // the EXISTING MusicService preload worker. No new search, admission,
+        // network probe or change to the Cover results/filters/order.
+        if (isTurbo && mode == DiscogsDirectMode.COVER &&
+            connection.service.isPlayerReady.value
+        ) {
+            val swipeCandidates = publishedCoverSnapshots
+                .filterNot(::isOriginalPerformerVersion)
+                .filterNot(::isHiddenForCurrentCover)
+                .filter(::hasPublishableVideo)
+            val swipePosition = swipeCandidates.indexOfFirst {
+                it.fingerprint == selectedFingerprint
+            }
+            val nextVerifiedId = swipeCandidates
+                .getOrNull(swipePosition.takeIf { it >= 0 }?.plus(1) ?: -1)
+                ?.resolvedVideoId
+            connection.service.setCoverNextPreloadCandidate(nextVerifiedId)
+        }
         // Swipe navigation is exclusive to COVER performer rows, not the
         // original performer, the standalone player, or another app screen.
         if (mode == DiscogsDirectMode.COVER && !isOriginalPerformerVersion(selectedSeed)) {
