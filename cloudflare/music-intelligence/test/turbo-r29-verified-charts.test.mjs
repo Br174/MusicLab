@@ -21,7 +21,7 @@ test('R29 real Last.fm geo and global chart, no synthetic playlist rank or hardc
  assert.match(last,/track.stringValue\("name"\)/);
  assert.match(last,/toptracks/);
  assert.match(chart,/LastFM.topTracksByRegion\(country\)/);
- assert.match(chart,/if \(LastFM.isInitialized\(\)\)/);
+ assert.match(chart,/if \\(LastFM.hasChartApiKey\\(\\)\\)/);
  assert.doesNotMatch(chart,/Spotify\.playlistTracks\(/);
 });
 test('R29 actual regional YouTube charts, isolated locale and no production player edits',()=>{

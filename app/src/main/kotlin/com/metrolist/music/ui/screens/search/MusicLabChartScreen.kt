@@ -27,6 +27,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.metrolist.music.BuildConfig
+import com.metrolist.music.constants.LastFMApiKeyKey
+import com.metrolist.music.constants.LastFMSecretKey
+import com.metrolist.music.utils.dataStore
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,16 +90,26 @@ internal object MusicLabChartsRepository {
         val country = MusicLabSearchExploreCatalog.lastFmCountry(chart)
         val iso = MusicLabSearchExploreCatalog.countryCode(chart)
 
-        if (LastFM.isInitialized()) {
-            val top = withTimeoutOrNull(5_000L) {
-                LastFM.topTracksByRegion(country).getOrNull()
+        // R30: the geo/global chart endpoints need only the API Key.
+        // Account login/scrobbling still use LastFM.isInitialized() with the
+        // Shared Secret; don't incorrectly gate chart access on both fields.
+        var lastFmDiagnostic = "API Key Last.fm non configurata"
+        if (LastFM.hasChartApiKey()) {
+            val result = withTimeoutOrNull(5_000L) {
+                LastFM.topTracksByRegion(country)
             }
+            val top = result?.getOrNull()
             if (!top.isNullOrEmpty()) return@runCatching MusicLabChartResult(
-                source = "Last.fm · settimana precedente",
+                source = "Last.fm · brani popolari per Paese",
                 tracks = top.take(50).map {
                     MusicLabChartTrack(it.rank, it.title, it.artist)
                 },
             )
+            lastFmDiagnostic = when {
+                result == null -> "Last.fm non ha risposto entro 5 secondi"
+                result.isFailure -> "Last.fm ha respinto o non ha restituito i dati richiesti"
+                else -> "Last.fm ha restituito una classifica vuota"
+            }
         }
 
         // Chart localization is per-request, not global playback locale.
@@ -119,8 +135,8 @@ internal object MusicLabChartsRepository {
                 },
             )
         }
-        error("Classifica non disponibile: nessuna fonte verificata per ${chart.title}. " +
-            "Configura una chiave Last.fm nelle impostazioni, oppure riprova più tardi.")
+        error("Classifica non disponibile per ${chart.title}. " +
+            lastFmDiagnostic + ". Anche YouTube Music non ha restituito una classifica verificata.")
     }
 }
 
@@ -131,6 +147,7 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
         (MusicLabSearchExploreCatalog.featured + MusicLabSearchExploreCatalog.countries)
             .firstOrNull { it.title == title }
     }
+    val context = LocalContext.current
     val player = LocalPlayerConnection.current
     val scope = rememberCoroutineScope()
     var isLoading by remember(title) { mutableStateOf(true) }
@@ -142,9 +159,26 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
         isLoading = true
         loadError = null
         chartResult = null
-        if (chart == null) loadError = "Classifica sconosciuta"
-        else MusicLabChartsRepository.load(chart).onSuccess { chartResult = it }
-            .onFailure { loadError = it.message }
+        if (chart == null) {
+            loadError = "Classifica sconosciuta"
+        } else {
+            // R30: bind the chart loader to the EXACT same locally stored keys
+            // shown under Account > Last.fm + Discogs. Never log/send secrets.
+            // Read at chart-opening time to include credentials saved after
+            // application startup; no logout, reinstall or manual re-entry.
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val saved = context.dataStore.data.first()
+                    val apiKey = saved[LastFMApiKeyKey].orEmpty().trim()
+                        .ifBlank { BuildConfig.LASTFM_API_KEY }
+                    val secret = saved[LastFMSecretKey].orEmpty().trim()
+                        .ifBlank { BuildConfig.LASTFM_SECRET }
+                    LastFM.initialize(apiKey = apiKey, secret = secret)
+                    MusicLabChartsRepository.load(chart).getOrThrow()
+                }
+            }.onSuccess { chartResult = it }
+                .onFailure { loadError = it.message ?: "Classifica non accessibile" }
+        }
         isLoading = false
     }
 

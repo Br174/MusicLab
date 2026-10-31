@@ -218,6 +218,13 @@ object LastFM {
     fun isInitialized(): Boolean = API_KEY.isNotEmpty() && SECRET.isNotEmpty()
 
     /**
+     * R30: public chart read needs an API key, not the Shared Secret used by
+     * signed/scrobbling endpoints. Keep isInitialized() for those auth flows.
+     * The key is loaded from the user's existing DataStore preference.
+     */
+    fun hasChartApiKey(): Boolean = API_KEY.isNotBlank()
+
+    /**
      * R29 non-commercial chart directory. Existing Last.fm API key is supplied
      * by MusicLab settings/BuildConfig; never ship another secret or authenticate
      * a user here. Ranks and artist names are Last.fm data, not Spotify data.

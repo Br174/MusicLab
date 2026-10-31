@@ -6,6 +6,20 @@ import org.junit.Test
 
 class LastFMResponseTest {
 
+    @org.junit.Test fun chartReadRequiresOnlySavedApiKeyNotSharedSecret() {
+        try {
+            com.metrolist.lastfm.LastFM.initialize(apiKey = "sample-chart-api-key", secret = "")
+            org.junit.Assert.assertTrue(com.metrolist.lastfm.LastFM.hasChartApiKey())
+            org.junit.Assert.assertFalse(com.metrolist.lastfm.LastFM.isInitialized())
+            com.metrolist.lastfm.LastFM.initialize(apiKey = "", secret = "sample-secret")
+            org.junit.Assert.assertFalse(com.metrolist.lastfm.LastFM.hasChartApiKey())
+        } finally {
+            com.metrolist.lastfm.LastFM.initialize(apiKey = "", secret = "")
+        }
+    }
+
+
+
     @Test
     fun `accepted scrobble response is successful`() {
         LastFM.validateLastFmResponse(
