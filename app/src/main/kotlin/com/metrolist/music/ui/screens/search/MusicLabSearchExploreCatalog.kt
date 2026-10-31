@@ -155,7 +155,7 @@ internal object MusicLabSearchExploreCatalog {
     }
 
     fun lastFmCountry(chart: ExploreChart): String? =
-        if (chart.title.contains("Globale", ignoreCase = true)) null
+        if (chart.title == "Top 50 Globale" || chart.title == "Brani preferiti globali") null
         else if (chart.title == "Brani preferiti Italia") "Italy"
         else chart.spotifySearch.removePrefix("Top 50 - ").trim()
 
