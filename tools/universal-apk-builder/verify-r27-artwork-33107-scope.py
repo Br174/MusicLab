@@ -12,6 +12,7 @@ paths = {
     "tools/universal-apk-builder/prepare-turbo-r27-artwork-33107-env.py",
     "tools/universal-apk-builder/verify-r27-artwork-33107-scope.py",
     "cloudflare/music-intelligence/test/turbo-r27-artwork-coverage-playback.test.mjs",
+    "cloudflare/music-intelligence/test/turbo-r29-verified-charts.test.mjs",
 }
 subprocess.run(["git", "merge-base", "--is-ancestor", BASE, "HEAD"], check=True)
 changed = set(subprocess.check_output(
