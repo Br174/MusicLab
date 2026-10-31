@@ -1,0 +1,116 @@
+name: MusicLab R26 Charts Artwork MiniPlayer Insets APK ZIP
+on:
+  push:
+    branches:
+      - lab/musiclab-r26-chart-artwork-player-insets-33106-20261031
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: musiclab-r26-chart-artwork-33106-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: MotorLab active update-family guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/motorlab-active-guard.mjs --self-test
+          node scripts/motorlab-active-guard.mjs
+      - name: R25 source scope and immutable player
+        run: python3 tools/universal-apk-builder/verify-r26-chart-artwork-33106-scope.py
+      - name: Spotify and YouTube Music filtering and regression contracts
+        run: |
+          node --test cloudflare/music-intelligence/test/turbo-r25-library-spotify-first.test.mjs cloudflare/music-intelligence/test/turbo-r25-partial-cycle-audio.test.mjs cloudflare/music-intelligence/test/turbo-r28-search-explore.test.mjs cloudflare/music-intelligence/test/turbo-r29-verified-charts.test.mjs cloudflare/music-intelligence/test/turbo-r30-lastfm-credentials.test.mjs cloudflare/music-intelligence/test/turbo-r31-chart-artwork.test.mjs cloudflare/music-intelligence/test/turbo-r26-chart-artwork-insets.test.mjs cloudflare/music-intelligence/test/turbo-r25-spotify-first-charts-restored.test.mjs cloudflare/music-intelligence/test/turbo-r24-qobuz-anr.test.mjs cloudflare/music-intelligence/test/scudo-r40-class-evidence-real.test.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Prepare Android 33106 same signature and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-r26-chart-artwork-33106-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33106"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+      - name: Scudo360 full JVM regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source uab-project.env
+          set +a
+          node scripts/scudo360-gate.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-report.json
+          echo '[SCUDO360=PASS] All mandatory JVM regressions'
+      - name: Scudo360 Quality r40 gate
+        env:
+          SCUDO360_R40_PROMOTION: '1'
+        run: node .motorlab/regression/scudo360-quality-r40.mjs .motorlab/scudo360-contracts.json .motorlab/scudo360-report.json .motorlab/scudo360-r40-plan.json .motorlab/scudo360-r40-quality.json
+      - name: Preserve Scudo360 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scudo360-musiclab-library-spotify-first
+          path: |
+            .motorlab/scudo360-report.json
+            app/build/test-results/testFossDebugUnitTest/*.xml
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Build signed MusicLab APK and ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Validate APK package version signature and ZIP integrity
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-26-Classifiche-Copertine.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-26-Classifiche-Copertine-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33105'"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
+          CERT="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = '9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749'
+          python3 - <<'PY'
+          import zipfile,hashlib
+          from pathlib import Path
+          a=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-26-Classifiche-Copertine.apk')
+          z=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-26-Classifiche-Copertine-APK.zip')
+          with zipfile.ZipFile(z) as arc:
+              items=[x for x in arc.namelist() if x.lower().endswith('.apk')]
+              assert len(items)==1
+              assert hashlib.sha256(arc.read(items[0])).digest()==hashlib.sha256(a.read_bytes()).digest()
+          Path('dist/uab/BUILD_SHA.txt').write_text('BUILD_SHA='+'verified'+'\n')
+          PY
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+      - name: Publish separate APK and ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-R26-Classifiche-Copertine-33106-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-26-Classifiche-Copertine.apk
+            dist/uab/MusicLab-Turbo-LAB79-Revisione-26-Classifiche-Copertine-APK.zip
+            dist/uab/BUILD_SHA.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
