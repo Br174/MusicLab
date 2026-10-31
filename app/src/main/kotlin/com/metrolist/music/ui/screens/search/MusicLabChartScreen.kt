@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,9 +49,11 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.lastfm.LastFM
+import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.playback.CoverPlaybackMemory
 import com.metrolist.music.playback.queues.YouTubeQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -149,6 +155,11 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
     }
     val context = LocalContext.current
     val player = LocalPlayerConnection.current
+    // Reuse the exact artwork pinned by the currently visible mini-player.
+    val playingMetadata = player?.mediaMetadata?.collectAsState()?.value
+        ?.let { CoverPlaybackMemory.stablePlayerMetadata(context, it) }
+    val miniPlayerBottomInset = LocalPlayerAwareWindowInsets.current
+        .only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
     val scope = rememberCoroutineScope()
     var isLoading by remember(title) { mutableStateOf(true) }
     var chartResult by remember(title) { mutableStateOf<MusicLabChartResult?>(null) }
@@ -194,7 +205,8 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
         )
     }) { insets ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(insets),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
+                top = 12.dp, bottom = miniPlayerBottomInset + 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (isLoading) item(key = "loading") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -212,13 +224,6 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                 }
             }
             chartResult?.let { result ->
-                item(key = "source") {
-                    Column {
-                        Text(result.source, fontWeight = FontWeight.Bold)
-                        Text("${result.tracks.size} brani · ordine originale della fonte",
-                            style = MaterialTheme.typography.bodySmall)
-                    }
-                }
                 items(result.tracks, key = { "chart_${it.rank}_${it.title}_${it.artist}" }) { track ->
                     Row(modifier = Modifier.fillMaxWidth().clickable {
                         if (resolvingSong != null) return@clickable
@@ -255,7 +260,13 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                     }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MusicLabChartArtwork(track)
+                        MusicLabChartArtwork(
+                            track,
+                            nowPlayingArtwork = playingMetadata?.takeIf { current ->
+                                MusicLabChartArtworkResolver.matchesPlayer(
+                                    track, current.title, current.artists.map { it.name })
+                            }?.thumbnailUrl,
+                        )
                         Column(modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(track.title, fontWeight = FontWeight.SemiBold, maxLines = 2)
