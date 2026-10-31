@@ -11,6 +11,7 @@ paths={
 "tools/universal-apk-builder/prepare-turbo-r26-chart-artwork-33106-env.py",
 "tools/universal-apk-builder/verify-r26-chart-artwork-33106-scope.py",
 "cloudflare/music-intelligence/test/turbo-r26-chart-artwork-insets.test.mjs",
+"cloudflare/music-intelligence/test/turbo-r31-chart-artwork.test.mjs",
 }
 subprocess.run(["git","merge-base","--is-ancestor",BASE,"HEAD"],check=True)
 changes=set(subprocess.check_output(["git","diff","--name-only",BASE,"HEAD"],text=True).splitlines())
