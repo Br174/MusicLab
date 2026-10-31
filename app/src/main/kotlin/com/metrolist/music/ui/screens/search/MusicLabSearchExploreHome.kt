@@ -96,7 +96,7 @@ internal fun MusicLabSearchExploreHome(
             item(key = "explore_all_countries") {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     ExploreHeading("Classifiche per Paese")
-                    Text("Playlist ufficiali Spotify quando disponibili",
+                    Text("Fonte verificata per ogni Paese: Last.fm o YouTube Music",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall)
                 }
@@ -190,7 +190,7 @@ private fun ExploreChartTile(chart: ExploreChart, modifier: Modifier,
             fontWeight = FontWeight.SemiBold, maxLines = 2,
             overflow = TextOverflow.Ellipsis)
         if (!compact || isLoading) {
-            Text(if (isLoading) "Verifica Spotify..." else "Spotify",
+            Text(if (isLoading) "Apertura..." else "Classifiche",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall)
         }

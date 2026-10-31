@@ -11,6 +11,7 @@ allowed={
 "app/src/main/kotlin/com/metrolist/music/ui/screens/NavigationBuilder.kt",
 "app/src/test/kotlin/com/metrolist/music/ui/screens/search/MusicLabSearchExploreCatalogTest.kt",
 "cloudflare/music-intelligence/test/turbo-r29-verified-charts.test.mjs",
+"cloudflare/music-intelligence/test/turbo-r28-search-explore.test.mjs",
 "tools/universal-apk-builder/prepare-turbo-r29-verified-charts-env.py",
 "tools/universal-apk-builder/verify-r29-verified-charts-scope.py",
 ".github/workflows/musiclab-turbo-r29-verified-charts-apk.yml",

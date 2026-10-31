@@ -23,12 +23,11 @@ test('R28 two functional discovery tabs and complete country catalog',()=>{
  assert.match(catalog,/Country\("Stati Uniti"/);
  assert.match(home,/LazyColumn\(/);
 });
-test('R28 official identity gate, access limits, and no speculative playlist IDs',()=>{
+test('R29 supersedes R28 external Spotify chart open while preserving real-source validation',()=>{
  assert.match(catalog,/playlist\.owner\?\.id\?\.equals\("spotify"/);
  assert.match(catalog,/playlist\.name\.trim\(\)\.equals\(chart\.spotifySearch/);
- assert.match(home,/Spotify\.search\(chart\.spotifySearch/);
- assert.match(home,/if \(Spotify\.accessToken\.isNullOrBlank\(\)\)/);
- assert.match(home,/open\.spotify\.com\/search/);
- assert.match(home,/Spotify\.accessToken/);
+ assert.match(home,/navController.navigate\("musiclab_chart\/" \+ Uri.encode\(chart.title\)\)/);
+ assert.doesNotMatch(home,/Intent\.ACTION_VIEW/);
+ assert.doesNotMatch(home,/Spotify\.search\(chart\.spotifySearch/);
  assert.doesNotMatch(home,/LaunchedEffect\(/);
 });
