@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 const root = 'app/src/main/kotlin/com/metrolist/music/';
 const home=readFileSync(root+'ui/screens/search/MusicLabSearchExploreHome.kt','utf8');
 const chart=readFileSync(root+'ui/screens/search/MusicLabChartScreen.kt','utf8');
+const artwork=readFileSync(root+'ui/screens/search/MusicLabChartArtwork.kt','utf8');
 const catalog=readFileSync(root+'ui/screens/search/MusicLabSearchExploreCatalog.kt','utf8');
 const last=readFileSync('app/src/main/kotlin/com/metrolist/lastfm/LastFM.kt','utf8');
 const yt=readFileSync('innertube/src/main/kotlin/com/metrolist/innertube/YouTube.kt','utf8');
@@ -31,7 +32,9 @@ test('R29 actual regional YouTube charts, isolated locale and no production play
  assert.match(chart,/YouTube.getChartsPage\(countryCode = iso\)/);
  assert.match(chart,/section.title.contains\("Top songs"/);
  assert.match(chart,/youtubeCountries/);
- assert.match(chart,/YouTube.searchSummary\(words, incognito = true\)/);
+ assert.match(chart,/MusicLabChartArtworkResolver.resolveSong\(context, track\)/);
+ assert.match(artwork,/YouTube.searchSummary\(query, incognito = true\)/);
+ assert.match(artwork,/sameRecordingLabel\(track.title, track.artist, it\)/);
 });
 test('R29 no false global territory, country fallback bounded',()=>{
  assert.match(catalog,/if \(chart.title == "Top 50 Globale" \|\| chart.title == "Brani preferiti globali"\) return null/);
