@@ -6,6 +6,10 @@ allowed={
     "app/src/main/kotlin/com/metrolist/music/ui/component/CoverRoundPresentation.kt",
     "app/src/main/kotlin/com/metrolist/music/playback/PlaybackSprintPolicy.kt",
     "app/src/test/kotlin/com/metrolist/music/ui/component/CoverLab80RoundClosureTest.kt",
+    # R9/R10 expectations are updated to test R25's non-destructive
+    # publication of partial results rather than asserting invisibility.
+    "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR9BackgroundRecoveryTest.kt",
+    "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR10EmptyRoundRecoveryTest.kt",
     "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR25PartialCycleRetentionTest.kt",
     "app/src/test/kotlin/com/metrolist/music/playback/PlaybackSprintPolicyTest.kt",
     "cloudflare/music-intelligence/test/turbo-r22-buffer-recovery.test.mjs",
