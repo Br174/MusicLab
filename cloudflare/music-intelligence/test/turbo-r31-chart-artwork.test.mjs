@@ -15,7 +15,7 @@ test('R31 Last.fm geographic and world chart parse the documented tracks JSON ob
  assert.match(last,/track\["image"\]/);
 });
 test('R31 display uses image-left song title and artist without triangle',()=>{
- assert.match(charts,/MusicLabChartArtwork\(track\)/);
+ assert.match(charts,/MusicLabChartArtwork\(\s*track/);
  assert.match(charts,/Text\(track\.title/);
  assert.match(charts,/Text\(track\.artist/);
  assert.doesNotMatch(charts,/else "▶"/);
