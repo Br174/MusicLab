@@ -231,23 +231,15 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                         scope.launch {
                             try {
                                 val id = track.youtubeId
-                                val song: SongItem? = if (id != null) null else withContext(Dispatchers.IO) {
-                                    val words = ("${track.artist} ${track.title}").trim()
-                                    val matches = YouTube.searchSummary(words, incognito = true)
-                                        .getOrNull()?.summaries?.flatMap { it.items }
-                                        ?.filterIsInstance<SongItem>().orEmpty()
-                                    val targetTitle = track.title.lowercase(Locale.ROOT)
-                                        .replace(Regex("[^\\p{L}\\p{N}]"), "")
-                                    matches.firstOrNull { candidate ->
-                                        candidate.title.lowercase(Locale.ROOT)
-                                            .replace(Regex("[^\\p{L}\\p{N}]"), "") == targetTitle &&
-                                            candidate.artists.any { artist ->
-                                                artist.name.contains(track.artist, ignoreCase = true) ||
-                                                    track.artist.contains(artist.name, ignoreCase = true)
-                                            }
+                                val savedId = if (id == null)
+                                    MusicLabChartArtworkResolver.rememberedVideoId(context, track)
+                                    else null
+                                // Same per-song resolver for artwork and playback.
+                                val song: SongItem? = if (id != null || savedId != null) null
+                                    else withContext(Dispatchers.IO) {
+                                        MusicLabChartArtworkResolver.resolveSong(context, track)
                                     }
-                                }
-                                val ytId = id ?: song?.id
+                                val ytId = id ?: savedId ?: song?.id
                                 if (ytId != null) {
                                     player?.playQueue(YouTubeQueue(
                                         endpoint = WatchEndpoint(videoId = ytId),
