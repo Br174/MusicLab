@@ -119,7 +119,7 @@ jobs:
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
           BADGING="$("$AAPT" dump badging "$APK")"
           printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
-          printf '%s\n' "$BADGING" | grep -F "versionCode='33097'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33098'"
           "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
           grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
           CERT="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
