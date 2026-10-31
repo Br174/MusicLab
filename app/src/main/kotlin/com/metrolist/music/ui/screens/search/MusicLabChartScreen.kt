@@ -102,7 +102,7 @@ internal object MusicLabChartsRepository {
             if (!top.isNullOrEmpty()) return@runCatching MusicLabChartResult(
                 source = "Last.fm · brani popolari per Paese",
                 tracks = top.take(50).map {
-                    MusicLabChartTrack(it.rank, it.title, it.artist)
+                    MusicLabChartTrack(it.rank, it.title, it.artist, artwork = it.artwork)
                 },
             )
             lastFmDiagnostic = when {
@@ -255,17 +255,16 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                     }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("${track.rank}", modifier = Modifier.size(28.dp),
-                            fontWeight = FontWeight.Bold)
-                        if (track.artwork != null) {
-                            AsyncImage(model = track.artwork, contentDescription = null,
-                                modifier = Modifier.size(48.dp))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
+                        MusicLabChartArtwork(track)
+                        Column(modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(track.title, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                            Text(track.artist, style = MaterialTheme.typography.bodySmall)
+                            Text(track.artist, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
-                        Text(if (resolvingSong == "${track.rank}") "..." else "▶")
+                        Text("#${track.rank}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

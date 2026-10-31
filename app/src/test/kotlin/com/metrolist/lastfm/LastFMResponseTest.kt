@@ -20,6 +20,49 @@ class LastFMResponseTest {
 
 
 
+
+    @Test
+    fun `geo chart uses tracks envelope and retains ordered songs and artwork`() {
+        val response = """
+            {"tracks":{"track":[
+                {"name":"Primo brano","artist":{"name":"Artista A"},
+                 "@attr":{"rank":"1"},"image":[
+                 {"#text":"","size":"medium"},
+                 {"#text":"https://lastfm.example/art1.jpg","size":"large"}]},
+                {"name":"Secondo brano","artist":{"name":"Artista B"},
+                 "@attr":{"rank":"2"}}
+            ],"@attr":{"country":"Italy"}}}
+        """.trimIndent()
+        val tracks = LastFM.parseRankedTopTracks(response)
+        assertEquals(2, tracks.size)
+        assertEquals("Primo brano", tracks[0].title)
+        assertEquals("Artista A", tracks[0].artist)
+        assertEquals(1, tracks[0].rank)
+        assertEquals("https://lastfm.example/art1.jpg", tracks[0].artwork)
+        assertEquals("Secondo brano", tracks[1].title)
+        assertEquals(2, tracks[1].rank)
+    }
+
+    @Test
+    fun `global chart and single-track geographic responses are supported`() {
+        val global = """{"tracks":{"track":[{"name":"Global song",
+            "artist":{"name":"Global artist"}}]}}"""
+        assertEquals("Global song", LastFM.parseRankedTopTracks(global).single().title)
+        val single = """{"tracks":{"track":{"name":"Only song",
+            "artist":{"name":"Only artist"},"@attr":{"rank":"4"}}}}"""
+        assertEquals(4, LastFM.parseRankedTopTracks(single).single().rank)
+    }
+
+    @Test
+    fun `missing or wrong envelope is reported as real parsing error`() {
+        try {
+            LastFM.parseRankedTopTracks("""{"toptracks":{"track":[]}}""")
+            fail("Must not accept artist toptracks as geo chart")
+        } catch (e: LastFM.LastFmException) {
+            assertEquals(-1, e.code)
+        }
+    }
+
     @Test
     fun `accepted scrobble response is successful`() {
         LastFM.validateLastFmResponse(

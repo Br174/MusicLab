@@ -229,7 +229,58 @@ object LastFM {
      * by MusicLab settings/BuildConfig; never ship another secret or authenticate
      * a user here. Ranks and artist names are Last.fm data, not Spotify data.
      */
-    data class RankedTopTrack(val rank: Int, val title: String, val artist: String)
+    data class RankedTopTrack(
+        val rank: Int,
+        val title: String,
+        val artist: String,
+        val artwork: String? = null,
+    )
+
+    /**
+     * Last.fm geo.getTopTracks returns {"tracks":{"track":[...]}} and
+     * chart.getTopTracks uses the same "tracks" envelope. Do not confuse it
+     * with artist.getTopTracks, which returns "toptracks".
+     *
+     * Accept an array OR a single-track object; keep native chart rank and
+     * source artwork. No generated titles, no fabricated chart positions.
+     */
+    internal fun parseRankedTopTracks(responseText: String): List<RankedTopTrack> {
+        val root = json.parseToJsonElement(responseText).jsonObject
+        val parent = root["tracks"]?.jsonObject
+            ?: throw LastFmException(-1, "Last.fm: contenitore tracks assente")
+        val raw = parent["track"]?.asIterable().orEmpty()
+        val tracks = raw.mapIndexedNotNull { index, item ->
+            val track = item.jsonObjectOrNull() ?: return@mapIndexedNotNull null
+            val title = track.stringValue("name")?.trim().orEmpty()
+            val artistValue = track["artist"]
+            val artist = when (artistValue) {
+                is JsonObject -> artistValue.stringValue("name")?.trim().orEmpty()
+                is JsonPrimitive -> artistValue.contentOrNull?.trim().orEmpty()
+                else -> ""
+            }
+            if (title.isEmpty() || artist.isEmpty()) return@mapIndexedNotNull null
+            val rank = track["@attr"]?.jsonObjectOrNull()?.intValue("rank")
+                ?: track.intValue("rank") ?: index + 1
+            val artwork = track["image"]?.asIterable()
+                ?.mapNotNull { element ->
+                    val obj = element.jsonObjectOrNull() ?: return@mapNotNull null
+                    val url = obj.stringValue("#text")?.trim()
+                    val size = obj.stringValue("size")?.lowercase()
+                    if (url.isNullOrBlank() || !url.startsWith("https://")) null
+                    else Pair(size, url)
+                }
+                ?.let { images ->
+                    listOf("extralarge", "mega", "large", "medium", "small")
+                        .firstNotNullOfOrNull { preferred ->
+                            images.firstOrNull { it.first == preferred }?.second
+                        } ?: images.firstOrNull()?.second
+                }
+            RankedTopTrack(rank, title, artist, artwork)
+        }.distinctBy { it.artist.lowercase(java.util.Locale.ROOT) + "|" +
+            it.title.lowercase(java.util.Locale.ROOT) }
+        if (tracks.isEmpty()) throw LastFmException(404, "Last.fm: classifica senza brani validi")
+        return tracks
+    }
 
     suspend fun topTracksByRegion(countryName: String?): Result<List<RankedTopTrack>> = runCatching {
         val key = API_KEY.takeIf(String::isNotBlank)
@@ -245,20 +296,7 @@ object LastFM {
         }
         val responseText = response.bodyAsText()
         validateLastFmResponse(method, responseText, response.status.value)
-        val root = json.parseToJsonElement(responseText).jsonObject
-        val listing = root[if (countryName == null) "tracks" else "toptracks"]
-            ?.jsonObject?.get("track")?.jsonArray.orEmpty()
-        val results = listing.mapIndexedNotNull { index, element ->
-            val track = runCatching { element.jsonObject }.getOrNull() ?: return@mapIndexedNotNull null
-            val title = track.stringValue("name")?.trim().orEmpty()
-            val artist = track["artist"]?.let { value ->
-                runCatching { value.jsonObject.stringValue("name") }.getOrNull()
-            }?.trim().orEmpty()
-            if (title.isBlank() || artist.isBlank()) null
-            else RankedTopTrack(index + 1, title, artist)
-        }.distinctBy { it.artist.lowercase() + "|" + it.title.lowercase() }
-        if (results.isEmpty()) throw LastFmException(404, "Nessuna classifica Last.fm disponibile")
-        results
+        parseRankedTopTracks(responseText)
     }
 
 
