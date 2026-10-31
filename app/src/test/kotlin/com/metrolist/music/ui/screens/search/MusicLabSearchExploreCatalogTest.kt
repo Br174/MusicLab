@@ -40,6 +40,18 @@ class MusicLabSearchExploreCatalogTest {
             MusicLabSearchExploreCatalog.officialMatch(listOf(spoof, officialWrong, official), chart))
     }
 
+    @Test fun regionalChartsMapToRealIsoAndNeverSwapGlobalOrUs() {
+        val charts = MusicLabSearchExploreCatalog
+        fun find(title: String) = (charts.featured + charts.countries).first { it.title == title }
+        assertEquals("IT", charts.countryCode(find("Top 50 Italia")))
+        assertEquals("FR", charts.countryCode(find("Top 50 Francia")))
+        assertEquals("US", charts.countryCode(find("Top 50 Stati Uniti")))
+        assertNull(charts.countryCode(find("Top 50 Globale")))
+        assertEquals("Italy", charts.lastFmCountry(find("Brani preferiti Italia")))
+        assertNull(charts.lastFmCountry(find("Brani preferiti globali")))
+        assertEquals(72, charts.countries.size)
+    }
+
     @Test fun genresAreDistinctAndSearchableNotFakePlaylists() {
         val genres = MusicLabSearchExploreCatalog.genres
         assertTrue(genres.size >= 10)

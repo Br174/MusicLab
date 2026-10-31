@@ -53,6 +53,7 @@ import com.metrolist.music.ui.screens.recognition.RecognitionHistoryScreen
 import com.metrolist.music.ui.screens.recognition.RecognitionScreen
 import com.metrolist.music.ui.screens.search.OnlineSearchResult
 import com.metrolist.music.ui.screens.search.SearchScreen
+import com.metrolist.music.ui.screens.search.MusicLabChartScreen
 import com.metrolist.music.ui.screens.settings.AboutScreen
 import com.metrolist.music.ui.screens.settings.AiSettings
 import com.metrolist.music.ui.screens.settings.AndroidAutoSettings
@@ -132,6 +133,17 @@ fun NavGraphBuilder.navigationBuilder(
         SearchScreen(
             pureBlack = pureBlack,
             savedStateHandle = backStackEntry.savedStateHandle
+        )
+    }
+
+    // R29 in-app charts. No external Spotify navigation from chart tiles.
+    composable(
+        route = "musiclab_chart/{chartTitle}",
+        arguments = listOf(navArgument("chartTitle") { type = NavType.StringType }),
+    ) { entry ->
+        MusicLabChartScreen(
+            navController = navController,
+            title = entry.arguments?.getString("chartTitle").orEmpty(),
         )
     }
 

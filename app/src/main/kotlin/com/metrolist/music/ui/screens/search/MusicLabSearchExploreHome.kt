@@ -62,55 +62,10 @@ internal fun MusicLabSearchExploreHome(
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var openingChart by remember { mutableStateOf<String?>(null) }
 
-    fun openSpotifyUrl(url: String) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (_: Exception) {
-            Toast.makeText(context, "Impossibile aprire Spotify sul dispositivo", Toast.LENGTH_SHORT).show()
-        }
-    }
-
+    // R29: All charts navigate internally, including previously unsupported
+    // country cards. No automatic Spotify intent, guessed ID or silent redirect.
     fun openChart(chart: ExploreChart) {
-        if (openingChart != null) return
-        val confirmedId = chart.confirmedSpotifyId
-        if (confirmedId != null) {
-            if (!Spotify.accessToken.isNullOrBlank()) {
-                navController.navigate("spotify_playlist/" + confirmedId)
-            } else {
-                openSpotifyUrl("https://open.spotify.com/playlist/" + confirmedId)
-            }
-            return
-        }
-        // Verify exact title AND official Spotify ownership. No bulk chart
-        // downloads, no arbitrary playlist matches, no UI-thread networking.
-        if (Spotify.accessToken.isNullOrBlank()) {
-            openSpotifyUrl("https://open.spotify.com/search/" +
-                Uri.encode(chart.spotifySearch) + "/playlists")
-            return
-        }
-        openingChart = chart.title
-        scope.launch {
-            try {
-                val match = withContext(Dispatchers.IO) {
-                    MusicLabSearchExploreCatalog.officialMatch(
-                        Spotify.search(chart.spotifySearch, types = listOf("playlist"),
-                            limit = 10).getOrNull()?.playlists?.items.orEmpty(), chart)
-                }
-                if (match != null) {
-                    navController.navigate("spotify_playlist/" + match.id)
-                } else {
-                    Toast.makeText(context, "Playlist ufficiale non verificata: apro la ricerca Spotify",
-                        Toast.LENGTH_SHORT).show()
-                    openSpotifyUrl("https://open.spotify.com/search/" +
-                        Uri.encode(chart.spotifySearch) + "/playlists")
-                }
-            } catch (_: Exception) {
-                openSpotifyUrl("https://open.spotify.com/search/" +
-                    Uri.encode(chart.spotifySearch) + "/playlists")
-            } finally {
-                openingChart = null
-            }
-        }
+        navController.navigate("musiclab_chart/" + Uri.encode(chart.title))
     }
 
     LazyColumn(

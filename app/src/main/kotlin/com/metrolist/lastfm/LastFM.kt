@@ -217,6 +217,44 @@ object LastFM {
 
     fun isInitialized(): Boolean = API_KEY.isNotEmpty() && SECRET.isNotEmpty()
 
+    /**
+     * R29 non-commercial chart directory. Existing Last.fm API key is supplied
+     * by MusicLab settings/BuildConfig; never ship another secret or authenticate
+     * a user here. Ranks and artist names are Last.fm data, not Spotify data.
+     */
+    data class RankedTopTrack(val rank: Int, val title: String, val artist: String)
+
+    suspend fun topTracksByRegion(countryName: String?): Result<List<RankedTopTrack>> = runCatching {
+        val key = API_KEY.takeIf(String::isNotBlank)
+            ?: throw LastFmException(401, "Last.fm API key non configurata")
+        val method = if (countryName == null) "chart.gettoptracks" else "geo.gettoptracks"
+        val response = client.get {
+            parameter("method", method)
+            parameter("api_key", key)
+            countryName?.let { parameter("country", it) }
+            parameter("limit", "50")
+            parameter("page", "1")
+            parameter("format", "json")
+        }
+        val responseText = response.bodyAsText()
+        validateLastFmResponse(method, responseText, response.status.value)
+        val root = json.parseToJsonElement(responseText).jsonObject
+        val listing = root[if (countryName == null) "tracks" else "toptracks"]
+            ?.jsonObject?.get("track")?.jsonArray.orEmpty()
+        val results = listing.mapIndexedNotNull { index, element ->
+            val track = runCatching { element.jsonObject }.getOrNull() ?: return@mapIndexedNotNull null
+            val title = track.stringValue("name")?.trim().orEmpty()
+            val artist = track["artist"]?.let { value ->
+                runCatching { value.jsonObject.stringValue("name") }.getOrNull()
+            }?.trim().orEmpty()
+            if (title.isBlank() || artist.isBlank()) null
+            else RankedTopTrack(index + 1, title, artist)
+        }.distinctBy { it.artist.lowercase() + "|" + it.title.lowercase() }
+        if (results.isEmpty()) throw LastFmException(404, "Nessuna classifica Last.fm disponibile")
+        results
+    }
+
+
     internal fun validateLastFmResponse(
         method: String,
         responseText: String,

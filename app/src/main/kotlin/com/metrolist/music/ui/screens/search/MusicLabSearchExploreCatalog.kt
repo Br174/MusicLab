@@ -131,6 +131,34 @@ internal object MusicLabSearchExploreCatalog {
         ExploreGenre("Folk", "musica folk", 0xFF9D8866.toInt()),
     )
 
+
+    /**
+     * R29: ISO country mapping is independent of colored display cards.
+     * A 72-card catalog is navigable, but a country never inherits another
+     * country's chart when its own source is unavailable.
+     */
+    fun countryCode(chart: ExploreChart): String? {
+        if (chart.title == "Top 50 Globale" || chart.title == "Brani preferiti globali") return null
+        val name = if (chart.title == "Brani preferiti Italia") "Italy" else
+            chart.spotifySearch.removePrefix("Top 50 - ").trim()
+        val aliases = mapOf(
+            "USA" to "US", "United Kingdom" to "GB",
+            "South Korea" to "KR", "Czech Republic" to "CZ",
+            "United Arab Emirates" to "AE", "Vietnam" to "VN",
+            "Hong Kong" to "HK", "Taiwan" to "TW"
+        )
+        aliases[name]?.let { return it }
+        return java.util.Locale.getISOCountries().firstOrNull { code ->
+            java.util.Locale("", code).getDisplayCountry(java.util.Locale.ENGLISH)
+                .equals(name, ignoreCase = true)
+        }
+    }
+
+    fun lastFmCountry(chart: ExploreChart): String? =
+        if (chart.title.contains("Globale", ignoreCase = true)) null
+        else if (chart.title == "Brani preferiti Italia") "Italy"
+        else chart.spotifySearch.removePrefix("Top 50 - ").trim()
+
     /** Do not mistake user-made lookalike charts for official Spotify data. */
     fun officialMatch(candidates: List<SpotifyPlaylist>, chart: ExploreChart): SpotifyPlaylist? =
         candidates.firstOrNull { playlist ->
