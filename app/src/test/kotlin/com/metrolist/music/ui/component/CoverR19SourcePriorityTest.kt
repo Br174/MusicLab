@@ -73,7 +73,11 @@ class CoverR19SourcePriorityTest {
         pending.offer(candidate("YouTube","ready00001"))
         pending.beginPass()
         repeat(3){assertNull(pending.next("Il mondo","Jimmy Fontana",1)?.playbackVideoId)}
-        assertEquals("ready00001",pending.next("Il mondo","Jimmy Fontana",1)?.playbackVideoId)
+        // R27: the old video-ready override must NOT elevate YouTube.
+        assertNull(pending.next("Il mondo","Jimmy Fontana",1)?.playbackVideoId)
+        // The existing bounded source-window fallback may still serve it.
+        assertEquals("ready00001",pending.next("Il mondo","Jimmy Fontana",1,
+            allowYoutubeFallback = true)?.playbackVideoId)
         assertEquals(13,pending.size)
     }
 

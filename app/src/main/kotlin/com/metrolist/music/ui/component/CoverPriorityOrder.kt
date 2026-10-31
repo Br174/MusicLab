@@ -71,6 +71,24 @@ internal object CoverPriorityOrder {
         return 4
     }
 
+    // R27: video hosting is independent of provenance. Only independently
+    // discovered YouTube/YouTube Music gets the last-resort scheduling tier.
+    fun isIndependentYoutubeSource(names: List<String>, hasVideoId: Boolean): Boolean {
+        val tier = musicalSourceTier(names, hasVideoId)
+        return tier == 5 || tier == 7
+    }
+
+    // Keep the first 10-card packet open for its existing 7-second source
+    // window if independently discovered YouTube would otherwise lock early
+    // slots. This never rejects, deletes, retries or changes a round. At the
+    // deadline (or when sources finish) every prepared YouTube row is eligible.
+    fun reserveYoutubeUntilFirstSourceWindow(
+        prepared: List<DiscogsVersionSeed>, elapsedMs: Long,
+        sourceWorkStillActive: Boolean,
+    ): Boolean = sourceWorkStillActive && elapsedMs < 7_000L &&
+        prepared.sortedWith(publicationComparator)
+            .take(10).any { isIndependentYoutubeSource(it.sourceNames, !it.resolvedVideoId.isNullOrBlank()) }
+
     fun key(candidate: CoverSourceCandidate): String =
         candidate.playbackVideoId?.takeIf(String::isNotBlank)?.let { "video:$it" }
             ?: listOf(
@@ -430,7 +448,10 @@ internal object CoverPriorityOrder {
             dirty = true
         }
 
-        fun next(title: String, original: String, round: Int, includeTwins: Boolean = true): CoverSourceCandidate? {
+        fun next(
+            title: String, original: String, round: Int, includeTwins: Boolean = true,
+            allowYoutubeFallback: Boolean = false,
+        ): CoverSourceCandidate? {
             val context = "$title|$original|$round"
             if (dirty || context != orderContext) {
                 orderedKeys = order(rows.values.toList(), title, original, round, twins).map(::key)
@@ -441,13 +462,19 @@ internal object CoverPriorityOrder {
                 it in rows && it !in attempted && (retryAfter[it] ?: 0) <= pass &&
                     (includeTwins || it !in twins)
             }
-            // After three documentary lead lookups in one pass, publish-ready
-            // videos get a turn before more metadata-only leads.
+            // R27 replaces R19's unconditional "first ready video" bypass.
+            // Only accredited music sources can overtake unresolved documentary
+            // leads by readiness. YouTube Music / YouTube may be selected through
+            // the bounded 7s fallback, or in their natural queue position when
+            // no higher-priority runnable source exists. Nothing is removed.
             val documentaryTried = attempted.count { id ->
                 rows[id]?.let { it.workRelationConfirmed && it.playbackVideoId.isNullOrBlank() } == true
             }
             val ready = if (documentaryTried >= 3) orderedKeys.firstOrNull { id ->
-                runnable(id) && !rows.getValue(id).playbackVideoId.isNullOrBlank()
+                val row = rows.getValue(id)
+                runnable(id) && !row.playbackVideoId.isNullOrBlank() &&
+                    (allowYoutubeFallback ||
+                        !isIndependentYoutubeSource(row.sources, hasVideoId = true))
             } else null
             val key = ready ?: orderedKeys.firstOrNull(runnable) ?: return null
             attempted += key

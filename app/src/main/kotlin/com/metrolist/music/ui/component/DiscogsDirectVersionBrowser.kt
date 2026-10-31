@@ -3835,6 +3835,21 @@ internal fun DiscogsDirectVersionBrowser(
                 }
                 fun flushInitial(force: Boolean = false) {
                     val state = presentation.status()
+                    // R27: publishing YouTube merely because it arrived first
+                    // freezes its position. Give already-running accredited
+                    // sources the current first-cycle source window (max 7s).
+                    // When it expires, publish EVERY valid YouTube row normally.
+                    val sourceWindowActive = sourceDiscoveryLoading &&
+                        !presentation.exhausted(thisRound)
+                    if (state.shown == 0 &&
+                        CoverPriorityOrder.reserveYoutubeUntilFirstSourceWindow(
+                            presentation.preparedRows(thisRound),
+                            SystemClock.elapsedRealtime() - preparationStartedAt,
+                            sourceWindowActive,
+                        )) {
+                        syncPresentation()
+                        return
+                    }
                     if (state.shown < CoverRoundPresentation.INITIAL_SIZE &&
                         (state.shown < CoverRoundPresentation.FAST_PREFIX || state.prepared >= 5 || force)) {
                         presentation.prioritizePreparedWith(CoverPriorityOrder.publicationComparator)
@@ -4262,7 +4277,9 @@ internal fun DiscogsDirectVersionBrowser(
                                 delay(55L)
                                 continue
                             }
-                            val next = pending.next(rankTitle, rankOriginal, thisRound, includeTwins = allowTwins)
+                            val next = pending.next(rankTitle, rankOriginal, thisRound,
+                                includeTwins = allowTwins,
+                                allowYoutubeFallback = SystemClock.elapsedRealtime() - preparationStartedAt >= 7_000L)
                             if (next == null) {
                                 flushInitial(force = true)
                                 if (producersDone) break
