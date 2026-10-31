@@ -34,8 +34,13 @@ class CoverR10EmptyRoundRecoveryTest {
         repeat(7) { p.stage(1, "candidate$it") }
         time = 7_000
         assertTrue(p.closeIfIdle(1))
+        // R25: a partial packet is already READY, never invisible.
+        assertEquals(7, p.status().ready)
+        assertFalse(p.status().manualContinue)
+        assertEquals(7, p.takeTimedCycle().size)
+        assertEquals(7, p.status().shown)
+        assertEquals(0, p.status().prepared)
         assertTrue(p.status().manualContinue)
-        assertEquals(7, p.status().prepared)
         assertTrue(p.continueEmptyWindow())
         time = 14_000
         p.closeIfIdle(1)
@@ -44,7 +49,9 @@ class CoverR10EmptyRoundRecoveryTest {
         p.closeIfIdle(1)
         assertTrue(p.status().green)
         p.advance()
-        assertEquals(7, p.total(2))
+        // All 7 are visible in the first round, not hidden as round-two data.
+        assertEquals(7, p.total(1))
+        assertEquals(0, p.total(2))
         assertFalse(p.exhausted(1))
     }
 

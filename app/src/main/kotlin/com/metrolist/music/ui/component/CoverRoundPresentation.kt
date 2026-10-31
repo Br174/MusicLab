@@ -252,7 +252,10 @@ internal class CoverRoundPresentation<T>(
         val noUnpublished = state.prepared.isEmpty() && state.overflow.isEmpty()
         // All three 10+20+20 cycles must be consumed. Partial publication
         // does not promote to the next round or discard later verified rows.
-        val manualGreen = state.windowElapsed && state.manualWindowSkips >= 3 && noUnpublished
+        val manualGreen = noUnpublished && (
+            state.manualWindowSkips >= 3 ||
+                (state.manualWindowSkips == 2 && state.windowElapsed && !state.windowPublished)
+            )
         // A full 50-card round may legitimately hold overflow for the next
         // round; that queued overflow must NOT prevent the green button.
         val green = !terminal && !retryRequired && (state.shown.size >= ROUND_SIZE ||
@@ -262,7 +265,8 @@ internal class CoverRoundPresentation<T>(
         return Status(state.shown.size, state.prepared.size, available, green,
             if (green) ready(visibleRound + 1) else 0,
             terminal, terminal && rounds.values.all { it.shown.isEmpty() && it.prepared.isEmpty() && it.overflow.isEmpty() },
-            retryRequired, manualContinue, if (manualContinue) state.manualWindowSkips + 1 else 0)
+            retryRequired, manualContinue, if (manualContinue)
+                state.manualWindowSkips + if (state.windowPublished) 1 else 2 else 0)
     }
     fun needsPreparation(): Boolean {
         val number = preparationRound

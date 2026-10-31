@@ -38,7 +38,8 @@ class CoverR9BackgroundRecoveryTest {
         p.stage(1, "row")
         now = 7_000
         assertTrue(p.closeIfIdle(1))
-        assertEquals(0, p.status().ready)
+        // R25: deadline makes even one verified cover ready to publish.
+        assertEquals(1, p.status().ready)
         assertFalse(p.exhausted(1))
     }
 }
