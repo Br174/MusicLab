@@ -1934,10 +1934,16 @@ object YouTube {
             }
         }
 
-    suspend fun getChartsPage(continuation: String? = null): Result<ChartsPage> =
+    suspend fun getChartsPage(continuation: String? = null, countryCode: String? = null): Result<ChartsPage> =
         runCatching {
+            // R29: a dedicated anonymous client per requested country avoids
+            // changing the global YouTube locale used by playback and search.
+            val chartClient = if (countryCode.isNullOrBlank()) innerTube else
+                InnerTube().apply {
+                    locale = YouTubeLocale(gl = countryCode.uppercase(java.util.Locale.ROOT), hl = "en")
+                }
             val response =
-                innerTube
+                chartClient
                     .browse(
                         client = WEB_REMIX,
                         browseId = "FEmusic_charts",

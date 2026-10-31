@@ -93,16 +93,8 @@ fun SearchScreen(
     val scrollToTopCount by savedStateHandle.getStateFlow("scrollToTopCount", 0).collectAsStateWithLifecycle(initialValue = 0)
 
     var lastHandledCount by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        if (!isPlayerExpanded) {
-            kotlinx.coroutines.delay(100)
-            try {
-                focusRequester.requestFocus()
-                keyboardController?.show()
-            } catch (e: Exception) {
-            }
-        }
-    }
+    // R28: empty-query discovery is visible immediately. Focusing the field
+    // explicitly still opens the normal keyboard and original search flow.
     LaunchedEffect(scrollToTopCount) {
         if (scrollToTopCount > lastHandledCount) {
             lastHandledCount = scrollToTopCount
@@ -296,7 +288,12 @@ fun SearchScreen(
                 }
 
                 SearchSource.ONLINE -> {
-                    OnlineSearchScreen(
+                    if (query.text.isBlank()) {
+                        MusicLabSearchExploreHome(
+                            navController = navController,
+                            pureBlack = pureBlack,
+                        )
+                    } else OnlineSearchScreen(
                         query = query.text,
                         onQueryChange = { query = it },
                         onSearch = onSearchFromSuggestion,
