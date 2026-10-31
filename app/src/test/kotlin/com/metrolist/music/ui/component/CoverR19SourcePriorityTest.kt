@@ -18,7 +18,7 @@ class CoverR19SourcePriorityTest {
         chartPosition = chart, collectorHave = collectors,
     )
 
-    @Test fun originalThenCoverInfoThenMusicServicesThenMusicLabThenMusicAndLastYoutube() {
+    @Test fun originalThenCoverInfoThenAccreditedWithMusicLabThenMusicAndYoutube() {
         val rows = listOf(
             candidate("YouTube","youtube001"),
             candidate("YouTube Music","ytmusic001"),
@@ -36,8 +36,10 @@ class CoverR19SourcePriorityTest {
             assertEquals(rows.toSet(),sorted.toSet())
             assertEquals("original01",sorted.first().playbackVideoId)
             assertEquals("coverinfo1",sorted[1].playbackVideoId)
-            assertTrue(sorted.indexOfFirst{it.playbackVideoId=="spotify001"} <
-                sorted.indexOfFirst{it.playbackVideoId=="local00001"})
+            assertTrue(listOf("spotify001", "discogs001", "brainz0001", "itunes0001", "local00001").all { id ->
+                sorted.indexOfFirst { it.playbackVideoId == id } <
+                    sorted.indexOfFirst { it.playbackVideoId == "ytmusic001" }
+            })
             assertTrue(sorted.indexOfFirst{it.playbackVideoId=="local00001"} <
                 sorted.indexOfFirst{it.playbackVideoId=="ytmusic001"})
             assertEquals("youtube001",sorted.last().playbackVideoId)

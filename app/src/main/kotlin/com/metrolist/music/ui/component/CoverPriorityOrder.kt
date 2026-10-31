@@ -49,24 +49,26 @@ internal object CoverPriorityOrder {
         """(?i)\b(rare|guitar|chitarra|instrumental|strumentale|cover band|piano|orchestra)\b"""
     )
 
+    // R26: source priority is only a sorting rule, never an entry/round gate.
+    // A YouTube-hosted video retains the rank of its verified music source.
     private fun musicalSourceTier(names: List<String>, hasVideoId: Boolean): Int {
         val sources = names.map { it.trim().lowercase(java.util.Locale.ROOT) }
-        // A YouTube video linked to COVER.INFO retains documentary priority.
         if (sources.any { it == "cover.info" }) return 1
         if (sources.any { it == "discogs" || it == "musicbrainz" ||
-                it == "apple/itunes" || it == "apple music" ||
-                it == "itunes" || it == "spotify" }) return 2
-        if (sources.any { it == "last.fm" || it == "lrclib" ||
-                it == "soundcloud" || it == "musicbed" || it == "soundstripe" }) return 3
-        // Reuse existing MusicLab archival references, not a fabricated
-        // provider or a new network request. The normal video verifier still runs.
-        if (hasVideoId && sources.any { it == "archivio cloud" ||
-                it == "musiclab interno" || it == "musiclab" }) return 4
+                it == "spotify" || it == "apple/itunes" || it == "apple music" ||
+                it == "itunes" || it == "soundcloud" || it == "musicbed" ||
+                it == "soundstripe" || it == "last.fm" || it == "lrclib" ||
+                it == "wikidata" || it == "secondhandsongs" ||
+                it == "whosampled" || it == "musiclab" ||
+                it == "musiclab interno" }) return 2
+        // MusicLab archived bindings are high-priority when an existing video
+        // ID is linked. The usual player/video verifier remains responsible.
+        if (hasVideoId && sources.any { it == "archivio cloud" }) return 2
         if (sources.any { it == "youtube music" }) return 5
-        // Other/unknown candidates remain available, ahead of plain YouTube.
         if (sources.any { it == "youtube" || it.startsWith("youtube discovery") ||
                 it.startsWith("youtube/") || it.startsWith("youtube candidate") }) return 7
-        return 6
+        // All other sources stay eligible, before standalone YouTube Music.
+        return 4
     }
 
     fun key(candidate: CoverSourceCandidate): String =
@@ -104,12 +106,14 @@ internal object CoverPriorityOrder {
             // Verified documentary leads get one early lookup opportunity.
             // Non-documentary, unlinked catalogue rows must never starve a ready video.
             compareBy<Ranked> { it.late }
+                // Source ranking precedes readiness only among available
+                // candidates. No candidate is rejected or held by its source.
+                .thenBy { it.preference }
                 .thenBy { when {
                     it.row.playbackVideoId.isNullOrBlank() && it.row.workRelationConfirmed -> 0
                     !it.row.playbackVideoId.isNullOrBlank() -> 1
                     else -> 2
                 } }
-                .thenBy { it.preference }
                 // Recorded chart/collector signals can elevate a known singer
                 // within the SAME provenance tier; no guessed fame list.
                 .thenByDescending { it.row.collectorHave ?: 0 }

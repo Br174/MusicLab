@@ -236,20 +236,18 @@ private fun directMatchesCategory(seed: DiscogsVersionSeed, selected: DirectVers
 }
 
 private fun primaryDiscoverySource(seed: DiscogsVersionSeed): String {
-    val preferred =
-        listOf(
-            "Discogs",
-            "COVER.INFO",
-            "Spotify",
-            "Apple/iTunes",
-            "Last.fm",
-            "MusicBrainz",
-            "LRCLIB",
-            "Wikidata",
-            "Archivio Cloud",
-        )
+    // YouTube is the host, not the documentary source for a credited cover.
+    if (seed.sourceNames.any { it.equals("COVER.INFO", true) }) return "COVER.INFO"
+    if (seed.videoResolutionChecked && !seed.resolvedVideoId.isNullOrBlank() &&
+        seed.sourceNames.any { it.equals("Archivio Cloud", true) ||
+            it.equals("MusicLab", true) || it.equals("MusicLab interno", true) }) return "MusicLab"
+    val preferred = listOf(
+        "Discogs", "MusicBrainz", "Spotify", "Apple/iTunes", "Apple Music",
+        "SoundCloud", "Musicbed", "Soundstripe", "Last.fm",
+        "LRCLIB", "Wikidata", "YouTube Music", "YouTube",
+    )
     return preferred.firstOrNull { wanted ->
-        seed.sourceNames.any { source -> source.contains(wanted, ignoreCase = true) }
+        seed.sourceNames.any { it.equals(wanted, true) }
     } ?: seed.sourceNames.firstOrNull()?.takeIf(String::isNotBlank) ?: "MusicLab"
 }
 
