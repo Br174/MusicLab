@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.metrolist.music.LocalNavController
@@ -31,21 +33,49 @@ fun LibraryScreen() {
     var filterType by rememberEnumPreference(ChipSortTypeKey, LibraryFilter.LIBRARY)
     var libraryViewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.GRID)
     var playlistViewType by rememberEnumPreference(PlaylistViewTypeKey, LibraryViewType.GRID)
+    var playlistSource by rememberSaveable { mutableStateOf(PlaylistSourceFilter.ALL) }
 
     val filterContent = @Composable {
         Row {
             ChipsRow(
                 chips = listOf(
-                    LibraryFilter.PLAYLISTS to stringResource(R.string.filter_playlists),
-                    LibraryFilter.SONGS to stringResource(R.string.filter_songs),
-                    LibraryFilter.ALBUMS to stringResource(R.string.filter_albums),
-                    LibraryFilter.ARTISTS to stringResource(R.string.filter_artists),
-                    LibraryFilter.PODCASTS to stringResource(R.string.filter_podcasts),
-                    LibraryFilter.LOCAL_FILES to stringResource(R.string.filter_local_files),
+                    "PLAYLISTS" to stringResource(R.string.filter_playlists),
+                    "SPOTIFY" to "Spotify",
+                    "YOUTUBE_MUSIC" to "YouTube Music",
+                    LibraryFilter.SONGS.name to stringResource(R.string.filter_songs),
+                    LibraryFilter.ALBUMS.name to stringResource(R.string.filter_albums),
+                    LibraryFilter.ARTISTS.name to stringResource(R.string.filter_artists),
+                    LibraryFilter.PODCASTS.name to stringResource(R.string.filter_podcasts),
+                    LibraryFilter.LOCAL_FILES.name to stringResource(R.string.filter_local_files),
                 ),
-                currentValue = filterType,
-                onValueUpdate = {
-                    filterType = if (filterType == it) LibraryFilter.LIBRARY else it
+                currentValue = if (filterType == LibraryFilter.PLAYLISTS) {
+                    when (playlistSource) {
+                        PlaylistSourceFilter.ALL -> "PLAYLISTS"
+                        PlaylistSourceFilter.SPOTIFY -> "SPOTIFY"
+                        PlaylistSourceFilter.YOUTUBE_MUSIC -> "YOUTUBE_MUSIC"
+                    }
+                } else filterType.name,
+                onValueUpdate = { selected ->
+                    when (selected) {
+                        "PLAYLISTS", "SPOTIFY", "YOUTUBE_MUSIC" -> {
+                            val newSource = when (selected) {
+                                "SPOTIFY" -> PlaylistSourceFilter.SPOTIFY
+                                "YOUTUBE_MUSIC" -> PlaylistSourceFilter.YOUTUBE_MUSIC
+                                else -> PlaylistSourceFilter.ALL
+                            }
+                            if (filterType == LibraryFilter.PLAYLISTS && playlistSource == newSource) {
+                                filterType = LibraryFilter.LIBRARY
+                            } else {
+                                playlistSource = newSource
+                                filterType = LibraryFilter.PLAYLISTS
+                            }
+                        }
+                        else -> {
+                            val next = LibraryFilter.valueOf(selected)
+                            filterType = if (filterType == next) LibraryFilter.LIBRARY else next
+                            playlistSource = PlaylistSourceFilter.ALL
+                        }
+                    }
                 },
                 modifier = Modifier.weight(1f),
             )
@@ -65,6 +95,7 @@ fun LibraryScreen() {
                 filterContent = filterContent,
                 viewType = playlistViewType,
                 onViewTypeChange = { playlistViewType = it },
+                sourceFilter = playlistSource,
             )
             LibraryFilter.SONGS -> LibrarySongsScreen(
                 navController,

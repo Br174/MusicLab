@@ -115,6 +115,7 @@ fun LibraryPlaylistsScreen(
     onViewTypeChange: (LibraryViewType) -> Unit,
     viewModel: LibraryPlaylistsViewModel = hiltViewModel(),
     spotifyViewModel: SpotifyViewModel = hiltViewModel(),
+    sourceFilter: PlaylistSourceFilter = PlaylistSourceFilter.ALL,
     initialTextFieldValue: String? = null,
     allowSyncing: Boolean = true,
 ) {
@@ -138,15 +139,15 @@ fun LibraryPlaylistsScreen(
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     val searchQuery by viewModel.searchQuery.collectAsState()
     val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
-    val filteredPlaylists = remember(playlists, normalizedQuery) {
-        if (normalizedQuery.isBlank()) {
-            playlists
-        } else {
-            playlists.filter { playlist ->
-                matchesNormalizedQuery(normalizedQuery, playlist.playlist.name)
-            }
+    // Filter only the visible projection. The database is never mutated.
+    val filteredPlaylists = remember(playlists, normalizedQuery, sourceFilter) {
+        playlists.filter { playlist ->
+            PlaylistSourcePolicy.acceptsSavedPlaylist(
+                sourceFilter, playlist.playlist.browseId, playlist.playlist.isLocal
+            ) && matchesNormalizedQuery(normalizedQuery, playlist.playlist.name)
         }
     }
+    val showSpotifyEntries = PlaylistSourcePolicy.showsSpotify(sourceFilter)
 
     val topSize by viewModel.topValue.collectAsState(initial = 50)
 
@@ -226,12 +227,12 @@ fun LibraryPlaylistsScreen(
     val (showTop) = rememberPreference(ShowTopPlaylistKey, true)
     val (showUploaded) = rememberPreference(ShowUploadedPlaylistKey, true)
     val (showCached) = rememberPreference(ShowCachedPlaylistKey, true)
-    val showLikedPlaylist = showLiked && !hideYtmLiked && matchesNormalizedQuery(normalizedQuery, likedPlaylist.playlist.name)
-    val showDownloadedPlaylist =
+    val showLikedPlaylist = PlaylistSourcePolicy.showsYouTubeLiked(sourceFilter) && showLiked && !hideYtmLiked && matchesNormalizedQuery(normalizedQuery, likedPlaylist.playlist.name)
+    val showDownloadedPlaylist = PlaylistSourcePolicy.showsAutomatic(sourceFilter) &&
         showDownloaded && matchesNormalizedQuery(normalizedQuery, downloadPlaylist.playlist.name)
-    val showCachedPlaylists = showCached && matchesNormalizedQuery(normalizedQuery, cachedPlaylist.playlist.name)
-    val showTopPlaylists = showTop && matchesNormalizedQuery(normalizedQuery, topPlaylist.playlist.name)
-    val showUploadedPlaylists =
+    val showCachedPlaylists = PlaylistSourcePolicy.showsAutomatic(sourceFilter) && showCached && matchesNormalizedQuery(normalizedQuery, cachedPlaylist.playlist.name)
+    val showTopPlaylists = PlaylistSourcePolicy.showsAutomatic(sourceFilter) && showTop && matchesNormalizedQuery(normalizedQuery, topPlaylist.playlist.name)
+    val showUploadedPlaylists = PlaylistSourcePolicy.showsAutomatic(sourceFilter) &&
         showUploaded && matchesNormalizedQuery(normalizedQuery, uploadedPlaylist.playlist.name)
 
     val visibleResults = remember(
@@ -309,6 +310,9 @@ fun LibraryPlaylistsScreen(
         }
     }
 
+    val spotifyHasVisibleContent = showSpotifyEntries && isSpotifyActive &&
+        (spotifyPlaylists.isNotEmpty() || spotifyFolders.isNotEmpty() || spotifyLikedSongsTotal > 0)
+    val showEmptyPlaceholder = visibleResults.isEmpty() && !spotifyHasVisibleContent
     val lazyListState = rememberLazyListState()
     val lazyGridState = rememberLazyGridState()
 
@@ -452,49 +456,8 @@ fun LibraryPlaylistsScreen(
                         headerContent()
                     }
 
-                    if (visibleResults.isEmpty()) {
-                        item(key = "empty_placeholder") {
-                            if (searchQuery.isNotBlank()) {
-                                LibrarySearchEmptyPlaceholder(modifier = Modifier.animateItem())
-                            } else {
-                                LibrarySearchEmptyPlaceholder(
-                                    modifier = Modifier.animateItem(),
-                                    icon = R.drawable.playlist_play,
-                                    text = stringResource(R.string.library_playlist_empty),
-                                )
-                            }
-                        }
-                    }
-
-                    items(
-                        items = visibleResults,
-                        key = { it.key },
-                        contentType = { CONTENT_TYPE_PLAYLIST },
-                    ) { item ->
-                        if (item.autoPlaylist) {
-                            PlaylistListItem(
-                                playlist = item.playlist,
-                                autoPlaylist = true,
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            item.route?.let(navController::navigate)
-                                        }
-                                        .animateItem(),
-                            )
-                        } else {
-                            LibraryPlaylistListItem(
-                                menuState = menuState,
-                                coroutineScope = coroutineScope,
-                                playlist = item.playlist,
-                                modifier = Modifier.animateItem(),
-                            )
-                        }
-                    }
-
                     // Spotify session expired banner
-                    if (needsSpotifyReLogin) {
+                    if (showSpotifyEntries && needsSpotifyReLogin) {
                         item(key = "spotify_relogin_banner") {
                             androidx.compose.material3.Card(
                                 modifier = Modifier
@@ -538,7 +501,7 @@ fun LibraryPlaylistsScreen(
                     }
 
                     // Spotify playlists failed to load banner
-                    if (isSpotifyActive && !needsSpotifyReLogin && isUsingFallback && spotifyPlaylists.isEmpty()) {
+                    if (showSpotifyEntries && isSpotifyActive && !needsSpotifyReLogin && isUsingFallback && spotifyPlaylists.isEmpty()) {
                         item(key = "spotify_load_error_banner") {
                             androidx.compose.material3.Card(
                                 modifier = Modifier
@@ -580,7 +543,7 @@ fun LibraryPlaylistsScreen(
                     }
 
                     // Spotify Liked Songs as a special playlist entry
-                    if (isSpotifyActive && spotifyLikedSongsTotal > 0) {
+                    if (showSpotifyEntries && isSpotifyActive && spotifyLikedSongsTotal > 0) {
                         item(key = "spotify_liked_songs") {
                             val likedSongsName = stringResource(R.string.spotify_liked_songs)
                             PlaylistListItem(
@@ -621,7 +584,7 @@ fun LibraryPlaylistsScreen(
                     // organization. Tapping a folder opens its contents in a dedicated
                     // screen instead of inlining them here, so the root view stays
                     // close to what the user sees on Spotify itself (issue #78).
-                    if (isSpotifyActive && spotifyFolders.isNotEmpty()) {
+                    if (showSpotifyEntries && isSpotifyActive && spotifyFolders.isNotEmpty()) {
                         items(
                             items = spotifyFolders,
                             key = { "spotify_folder_${it.uri}" },
@@ -642,7 +605,7 @@ fun LibraryPlaylistsScreen(
                     }
 
                     // Spotify playlists rendered as regular playlist items
-                    if (isSpotifyActive && spotifyPlaylists.isNotEmpty()) {
+                    if (showSpotifyEntries && isSpotifyActive && spotifyPlaylists.isNotEmpty()) {
                         items(
                             items = spotifyPlaylists,
                             key = { "spotify_${it.id}" },
@@ -680,7 +643,48 @@ fun LibraryPlaylistsScreen(
                                     .animateItem(),
                             )
                         }
+                    }                    if (showEmptyPlaceholder) {
+                        item(key = "empty_placeholder") {
+                            if (searchQuery.isNotBlank()) {
+                                LibrarySearchEmptyPlaceholder(modifier = Modifier.animateItem())
+                            } else {
+                                LibrarySearchEmptyPlaceholder(
+                                    modifier = Modifier.animateItem(),
+                                    icon = R.drawable.playlist_play,
+                                    text = stringResource(R.string.library_playlist_empty),
+                                )
+                            }
+                        }
                     }
+
+                    items(
+                        items = visibleResults,
+                        key = { it.key },
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) { item ->
+                        if (item.autoPlaylist) {
+                            PlaylistListItem(
+                                playlist = item.playlist,
+                                autoPlaylist = true,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            item.route?.let(navController::navigate)
+                                        }
+                                        .animateItem(),
+                            )
+                        } else {
+                            LibraryPlaylistListItem(
+                                menuState = menuState,
+                                coroutineScope = coroutineScope,
+                                playlist = item.playlist,
+                                modifier = Modifier.animateItem(),
+                            )
+                        }
+                    }
+
+
                 }
 
                 HideOnScrollFAB(
@@ -717,52 +721,8 @@ fun LibraryPlaylistsScreen(
                         headerContent()
                     }
 
-                    if (visibleResults.isEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            if (searchQuery.isNotBlank()) {
-                                LibrarySearchEmptyPlaceholder(modifier = Modifier.animateItem())
-                            } else {
-                                LibrarySearchEmptyPlaceholder(
-                                    modifier = Modifier.animateItem(),
-                                    icon = R.drawable.playlist_play,
-                                    text = stringResource(R.string.library_playlist_empty),
-                                )
-                            }
-                        }
-                    }
-
-                    items(
-                        items = visibleResults,
-                        key = { it.key },
-                        contentType = { CONTENT_TYPE_PLAYLIST },
-                    ) { item ->
-                        if (item.autoPlaylist) {
-                            PlaylistGridItem(
-                                playlist = item.playlist,
-                                fillMaxWidth = true,
-                                autoPlaylist = true,
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .combinedClickable(
-                                            onClick = {
-                                                item.route?.let(navController::navigate)
-                                            },
-                                        )
-                                        .animateItem(),
-                            )
-                        } else {
-                            LibraryPlaylistGridItem(
-                                menuState = menuState,
-                                coroutineScope = coroutineScope,
-                                playlist = item.playlist,
-                                modifier = Modifier.animateItem(),
-                            )
-                        }
-                    }
-
                     // Spotify playlists failed to load banner (grid)
-                    if (isSpotifyActive && !needsSpotifyReLogin && isUsingFallback && spotifyPlaylists.isEmpty()) {
+                    if (showSpotifyEntries && isSpotifyActive && !needsSpotifyReLogin && isUsingFallback && spotifyPlaylists.isEmpty()) {
                         item(
                             key = "spotify_load_error_banner",
                             span = { GridItemSpan(maxLineSpan) },
@@ -807,7 +767,7 @@ fun LibraryPlaylistsScreen(
                     }
 
                     // Spotify Liked Songs as a special playlist entry (grid)
-                    if (isSpotifyActive && spotifyLikedSongsTotal > 0) {
+                    if (showSpotifyEntries && isSpotifyActive && spotifyLikedSongsTotal > 0) {
                         item(key = "spotify_liked_songs") {
                             val likedSongsName = stringResource(R.string.spotify_liked_songs)
                             PlaylistGridItem(
@@ -846,7 +806,7 @@ fun LibraryPlaylistsScreen(
                     }
 
                     // Spotify folders rendered above playlists in grid view
-                    if (isSpotifyActive && spotifyFolders.isNotEmpty()) {
+                    if (showSpotifyEntries && isSpotifyActive && spotifyFolders.isNotEmpty()) {
                         items(
                             items = spotifyFolders,
                             key = { "spotify_folder_${it.uri}" },
@@ -868,7 +828,7 @@ fun LibraryPlaylistsScreen(
                     }
 
                     // Spotify playlists in grid view
-                    if (isSpotifyActive && spotifyPlaylists.isNotEmpty()) {
+                    if (showSpotifyEntries && isSpotifyActive && spotifyPlaylists.isNotEmpty()) {
                         items(
                             items = spotifyPlaylists,
                             key = { "spotify_${it.id}" },
@@ -907,7 +867,51 @@ fun LibraryPlaylistsScreen(
                                     .animateItem(),
                             )
                         }
+                    }                    if (showEmptyPlaceholder) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            if (searchQuery.isNotBlank()) {
+                                LibrarySearchEmptyPlaceholder(modifier = Modifier.animateItem())
+                            } else {
+                                LibrarySearchEmptyPlaceholder(
+                                    modifier = Modifier.animateItem(),
+                                    icon = R.drawable.playlist_play,
+                                    text = stringResource(R.string.library_playlist_empty),
+                                )
+                            }
+                        }
                     }
+
+                    items(
+                        items = visibleResults,
+                        key = { it.key },
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) { item ->
+                        if (item.autoPlaylist) {
+                            PlaylistGridItem(
+                                playlist = item.playlist,
+                                fillMaxWidth = true,
+                                autoPlaylist = true,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .combinedClickable(
+                                            onClick = {
+                                                item.route?.let(navController::navigate)
+                                            },
+                                        )
+                                        .animateItem(),
+                            )
+                        } else {
+                            LibraryPlaylistGridItem(
+                                menuState = menuState,
+                                coroutineScope = coroutineScope,
+                                playlist = item.playlist,
+                                modifier = Modifier.animateItem(),
+                            )
+                        }
+                    }
+
+
                 }
 
                 HideOnScrollFAB(
