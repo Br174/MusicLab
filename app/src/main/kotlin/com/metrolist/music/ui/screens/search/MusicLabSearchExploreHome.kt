@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -40,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.spotify.Spotify
 import kotlinx.coroutines.Dispatchers
@@ -68,10 +72,13 @@ internal fun MusicLabSearchExploreHome(
         navController.navigate("musiclab_chart/" + Uri.encode(chart.title))
     }
 
+    val miniPlayerBottomInset = LocalPlayerAwareWindowInsets.current
+        .only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(
             if (pureBlack) Color.Black else MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = miniPlayerBottomInset + 16.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp),
     ) {
         item(key = "explore_tabs") {
