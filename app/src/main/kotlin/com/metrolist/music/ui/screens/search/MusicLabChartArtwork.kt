@@ -89,9 +89,9 @@ internal object MusicLabChartArtworkResolver {
         // Some official uploads show a label/channel instead of the performer.
         val artistInTitle = norm(song.title).contains(artist) && artist.length >= 4
         if (!artistMatches && !artistInTitle) return 0
-        val versionPenalty = if (Regex("\\b(karaoke|instrumental|cover|reaction|tutorial)\\b")
-                .containsMatchIn(norm(song.title))) 4 else 0
-        return title + (if (artistMatches) 4 else 1) - versionPenalty
+        if (Regex("\\b(karaoke|instrumental|cover|reaction|tutorial)\\b")
+                .containsMatchIn(norm(song.title))) return 0
+        return title + (if (artistMatches) 4 else 1)
     }
 
     fun sameRecordingLabel(title: String, artist: String, candidate: SongItem): Boolean =
@@ -152,25 +152,27 @@ internal object MusicLabChartArtworkResolver {
             )
             var best: SongItem? = null
             for (query in queries) {
-                val songs = withTimeoutOrNull(5_000L) {
+                val songs = withTimeoutOrNull(3500L) {
                     withContext(Dispatchers.IO) {
                         YouTube.searchSummary(query, incognito = true).getOrNull()
                             ?.summaries?.flatMap { it.items }?.filterIsInstance<SongItem>()
                             .orEmpty()
                     }
                 }.orEmpty()
-                best = songs.maxByOrNull { score(track, it) }?.takeIf { score(track, it) >= 5 }
+                val verified = songs.filter { sameRecordingLabel(track.title, track.artist, it) }
+                best = verified.maxByOrNull { score(track, it) }?.takeIf { score(track, it) >= 5 }
                 if (best != null) break
             }
             if (best == null) {
-                val songs = withTimeoutOrNull(5_000L) {
+                val songs = withTimeoutOrNull(5000L) {
                     withContext(Dispatchers.IO) {
                         YouTube.search(track.title + " " + track.artist,
                             YouTube.SearchFilter.FILTER_SONG).getOrNull()
                             ?.items?.filterIsInstance<SongItem>().orEmpty()
                     }
                 }.orEmpty()
-                best = songs.maxByOrNull { score(track, it) }?.takeIf { score(track, it) >= 5 }
+                val verified = songs.filter { sameRecordingLabel(track.title, track.artist, it) }
+                best = verified.maxByOrNull { score(track, it) }?.takeIf { score(track, it) >= 5 }
             }
             if (best == null) retryAfter[id] = System.currentTimeMillis() + 20_000L
             else rememberSong(context, track, best)
