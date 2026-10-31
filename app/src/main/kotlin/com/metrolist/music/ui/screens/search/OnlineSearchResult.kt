@@ -244,6 +244,14 @@ fun OnlineSearchResult(
         }
     }
 
+    // The curated genre shortcuts need song-specific artwork fallback,
+    // without changing ordinary searches, rankings or playback behavior.
+    val isMusicLabGenreQuery = remember(decodedQuery) {
+        MusicLabSearchExploreCatalog.genres.any { genre ->
+            genre.search.equals(decodedQuery, ignoreCase = true)
+        }
+    }
+
     val ytItemContent: @Composable LazyItemScope.(YTItem) -> Unit = { item: YTItem ->
         val longClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -297,6 +305,7 @@ fun OnlineSearchResult(
         }
         YouTubeListItem(
             item = item,
+            resolveGenreArtwork = isMusicLabGenreQuery,
             isActive =
                 when (item) {
                     is SongItem -> mediaMetadata?.id == item.id
