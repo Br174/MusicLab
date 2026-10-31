@@ -30,7 +30,7 @@ class CoverR17QualityProgressiveTest {
         assertNotNull(queue.next("Il mondo","Jimmy Fontana",1))
     }
 
-    @Test fun hundredsOfDocumentaryLeadsCannotStarveVideoAfterThreeTurns() {
+    @Test fun documentaryLeadsCannotStarveYoutubeAfterTheBoundedFallback() {
         val queue = CoverPriorityOrder.Pending()
         repeat(15) { n ->
             queue.offer(c(artist="Documented $n",source="COVER.INFO").copy(
@@ -42,7 +42,13 @@ class CoverR17QualityProgressiveTest {
         repeat(3) {
             assertNull(queue.next("Il mondo","Jimmy Fontana",1)?.playbackVideoId)
         }
-        assertEquals("candidate001",queue.next("Il mondo","Jimmy Fontana",1)?.playbackVideoId)
+        // R27: the fourth documentary lead still goes first; old unconditional
+        // YouTube fast-pass is retired without removing any result.
+        assertNull(queue.next("Il mondo","Jimmy Fontana",1)?.playbackVideoId)
+        // At the existing bounded source-window deadline the original R17
+        // anti-starvation guarantee remains fully active.
+        assertEquals("candidate001",queue.next("Il mondo","Jimmy Fontana",1,
+            allowYoutubeFallback = true)?.playbackVideoId)
         assertEquals(16,queue.size)
     }
 

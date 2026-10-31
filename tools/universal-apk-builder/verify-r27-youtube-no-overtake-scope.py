@@ -5,6 +5,7 @@ BASE="f5aadae569e526fa8203bd60bdfc1c5d58ede5c1"
 allowed={
  "app/src/main/kotlin/com/metrolist/music/ui/component/CoverPriorityOrder.kt",
  "app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt",
+ "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR17QualityProgressiveTest.kt",
  "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR19SourcePriorityTest.kt",
  "app/src/test/kotlin/com/metrolist/music/ui/component/CoverR27YoutubeNoOvertakeTest.kt",
  "cloudflare/music-intelligence/test/turbo-r27-youtube-no-overtake.test.mjs",
