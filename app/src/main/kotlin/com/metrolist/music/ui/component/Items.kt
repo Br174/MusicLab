@@ -1187,6 +1187,7 @@ fun YouTubeListItem(
     isActive: Boolean = false,
     isPlaying: Boolean = false,
     isSwipeable: Boolean = true,
+    resolveGenreArtwork: Boolean = false,
     trailingContent: @Composable RowScope.() -> Unit = {},
     badges: @Composable RowScope.() -> Unit = {
         val database = LocalDatabase.current
@@ -1264,15 +1265,26 @@ fun YouTubeListItem(
             },
             badges = badges,
             thumbnailContent = {
-                ItemThumbnail(
-                    thumbnailUrl = item.thumbnail,
-                    albumIndex = albumIndex,
-                    isSelected = isSelected,
-                    isActive = isActive,
-                    isPlaying = isPlaying,
-                    shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
-                    modifier = Modifier.size(currentListThumbnailSize())
-                )
+                if (resolveGenreArtwork && item is SongItem && item.artists.isNotEmpty()) {
+                    com.metrolist.music.ui.screens.search.MusicLabChartArtwork(
+                        com.metrolist.music.ui.screens.search.MusicLabChartTrack(
+                            rank = 0,
+                            title = item.title,
+                            artist = item.artists.first().name,
+                            artwork = item.thumbnail,
+                        ),
+                    )
+                } else {
+                    ItemThumbnail(
+                        thumbnailUrl = item.thumbnail,
+                        albumIndex = albumIndex,
+                        isSelected = isSelected,
+                        isActive = isActive,
+                        isPlaying = isPlaying,
+                        shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
+                        modifier = Modifier.size(currentListThumbnailSize())
+                    )
+                }
             },
             trailingContent = trailingContent,
             modifier = modifier,
