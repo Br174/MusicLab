@@ -209,8 +209,7 @@ internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: 
         initialValue = track.artwork,
         key1 = track,
         key2 = nowPlayingArtwork,
-        key3 = sourceFailed,
-        key4 = rejectedUrl,
+        key3 = Pair(sourceFailed, rejectedUrl),
     ) {
         // Seed the song-specific persistent store without binding the artwork
         // on screen to whichever item the player happens to be playing.
@@ -228,13 +227,14 @@ internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: 
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
-        if (!image.isNullOrBlank() && image != rejectedUrl) {
+        val shownImage = image
+        if (!shownImage.isNullOrBlank() && shownImage != rejectedUrl) {
             AsyncImage(
-                model = image, contentDescription = "Copertina: " + track.title,
+                model = shownImage, contentDescription = "Copertina: " + track.title,
                 modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)),
                 contentScale = ContentScale.Crop,
                 onError = {
-                    val failed = image
+                    val failed = shownImage
                     rejectedUrl = failed
                     MusicLabChartArtworkResolver.forgetBrokenArtwork(context, track, failed)
                     if (failed == track.artwork) sourceFailed = true
