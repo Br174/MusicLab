@@ -9,10 +9,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,7 +38,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 internal object MusicLabChartArtworkResolver {
     private val cache = ConcurrentHashMap<String, String>()
-    private val unavailable = ConcurrentHashMap.newKeySet<String>()
+    // Temporary misses are retried later, not treated as permanent absence.
+    private val retryAfter = ConcurrentHashMap<String, Long>()
     private val gate = Semaphore(3)
 
     private fun key(title: String, artist: String): String =
@@ -53,15 +58,29 @@ internal object MusicLabChartArtworkResolver {
         }
     }
 
-    suspend fun resolve(track: MusicLabChartTrack): String? {
-        track.artwork?.takeIf { it.startsWith("https://") }?.let { return it }
+    /** Reuse the mini-player cover only for the same title and performer. */
+    fun matchesPlayer(track: MusicLabChartTrack, title: String, artists: List<String>): Boolean {
+        fun norm(value: String) = value.lowercase(Locale.ROOT)
+            .replace(Regex("[^\\p{L}\\p{N}]"), "")
+        val wantedArtist = norm(track.artist)
+        return norm(track.title) == norm(title) && wantedArtist.isNotEmpty() &&
+            artists.any { artist ->
+                val name = norm(artist)
+                name.isNotEmpty() && (name.contains(wantedArtist) || wantedArtist.contains(name))
+            }
+    }
+
+    suspend fun resolve(track: MusicLabChartTrack, ignoreSourceArtwork: Boolean = false): String? {
+        if (!ignoreSourceArtwork) {
+            track.artwork?.takeIf { it.startsWith("https://") }?.let { return it }
+        }
         val id = key(track.title, track.artist)
         cache[id]?.let { return it }
-        if (id in unavailable) return null
+        if ((retryAfter[id] ?: 0L) > System.currentTimeMillis()) return null
 
         return gate.withPermit {
             cache[id]?.let { return@withPermit it }
-            if (id in unavailable) return@withPermit null
+            if ((retryAfter[id] ?: 0L) > System.currentTimeMillis()) return@withPermit null
             val art = withTimeoutOrNull(3500L) {
                 withContext(Dispatchers.IO) {
                     YouTube.searchSummary("${track.artist} ${track.title}", incognito = true)
@@ -71,27 +90,54 @@ internal object MusicLabChartArtworkResolver {
                         ?.thumbnail?.takeIf { it.startsWith("https://") }
                 }
             }
-            if (art.isNullOrBlank()) unavailable.add(id) else cache[id] = art
-            art
+            val fallback = if (art.isNullOrBlank()) withTimeoutOrNull(5000L) {
+                withContext(Dispatchers.IO) {
+                    YouTube.searchSummary("${track.title} ${track.artist} official audio", incognito = true)
+                        .getOrNull()?.summaries?.flatMap { it.items }
+                        ?.filterIsInstance<SongItem>()
+                        ?.firstOrNull { sameRecordingLabel(track.title, track.artist, it) }
+                        ?.thumbnail?.takeIf { it.startsWith("https://") }
+                }
+            } else null
+            val result = art ?: fallback
+            if (result.isNullOrBlank()) {
+                retryAfter[id] = System.currentTimeMillis() + 20_000L
+            } else {
+                cache[id] = result
+                retryAfter.remove(id)
+            }
+            result
         }
     }
 }
 
 @Composable
-internal fun MusicLabChartArtwork(track: MusicLabChartTrack) {
-    val image by produceState<String?>(initialValue = track.artwork,
-        key1 = track.title, key2 = track.artist, key3 = track.artwork) {
-        value = MusicLabChartArtworkResolver.resolve(track)
+internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: String? = null) {
+    var sourceFailed by remember(track.title, track.artist, track.artwork) { mutableStateOf(false) }
+    var rejectedUrl by remember(track.title, track.artist) { mutableStateOf<String?>(null) }
+    val image by produceState<String?>(
+        initialValue = nowPlayingArtwork ?: track.artwork,
+        key1 = track,
+        key2 = nowPlayingArtwork,
+        key3 = sourceFailed,
+    ) {
+        value = nowPlayingArtwork?.takeIf { it.startsWith("https://") }
+            ?: MusicLabChartArtworkResolver.resolve(track, ignoreSourceArtwork = sourceFailed)
     }
     Box(
         modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
-        if (!image.isNullOrBlank()) {
+        if (!image.isNullOrBlank() && image != rejectedUrl) {
             AsyncImage(
                 model = image, contentDescription = "Copertina: ${track.title}",
                 modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)),
+                contentScale = ContentScale.Crop,
+                onError = {
+                    rejectedUrl = image
+                    if (!sourceFailed && image == track.artwork) sourceFailed = true
+                },
             )
         } else {
             Text("♫", color = MaterialTheme.colorScheme.onSurfaceVariant,
