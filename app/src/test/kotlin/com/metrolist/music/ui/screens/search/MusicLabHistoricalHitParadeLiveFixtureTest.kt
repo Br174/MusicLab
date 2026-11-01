@@ -64,12 +64,21 @@ class MusicLabHistoricalHitParadeLiveFixtureTest {
         assertEquals("Ciro Sebastianelli", archive1980.first { it.rank == 50 }.artist)
     }
 
-    @Test fun actual1959Top50() = verify("1959", 40, "Arrivederci", "Marino Barreto jr")
-    @Test fun actual1980Top50() = verify("1980", 40, "Luna", "Gianni Togni")
-    @Test fun preserveActual1981Top10() = verify("1981", 8, "Enola Gay", "OMD")
-    @Test fun preserveActual1984Top10() = verify("1984", 8, "Self control", "Raf")
-    @Test fun preserveActual1995Top20() = verify("1995", 18, "Hideaway", "De'Lacy")
-    @Test fun actual2017Top200() = verify("2017", 180, "Voglio ballare con te", "Baby K feat. Andres Dvicio")
-    @Test fun actual2020Top200() = verify("2020", 180, "Karaoke", "Boomdabash & Alessandra Amoroso")
-    @Test fun actual2026Top200() = verify("2026", 180, "Dai dai", "Shakira & Burna Boy")
+    @Test fun actual1959Top50() = verify("1959", 50, "Arrivederci", "Marino Barreto jr")
+    @Test fun actual1980Top50() = verify("1980", 50, "Luna", "Gianni Togni")
+    @Test fun preserveActual1981Top10() = verify("1981", 10, "Enola Gay", "OMD")
+    @Test fun preserveActual1984Top10() = verify("1984", 10, "Self control", "Raf")
+    @Test fun preserveActual1995Top20() = verify("1995", 20, "Hideaway", "De'Lacy")
+    @Test fun actual2017Top200() = verify("2017", 200, "Voglio ballare con te", "Baby K feat. Andres Dvicio")
+    @Test fun actual2020Top200() = verify("2020", 200, "Karaoke", "Boomdabash & Alessandra Amoroso")
+    @Test fun legitimateNumericBand883MustNotBeFiltered() {
+        val path = "hitparade/live-2026.html"
+        val html = requireNotNull(javaClass.classLoader?.getResourceAsStream(path))
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val songs = MusicLabHistoricalHitParade.parseSongs(html)
+        assertEquals("Come mai", songs.first { it.rank == 157 }.title)
+        assertEquals("883", songs.first { it.rank == 157 }.artist)
+    }
+
+    @Test fun actual2026Top200() = verify("2026", 200, "Dai dai", "Shakira & Burna Boy")
 }
