@@ -119,6 +119,7 @@ internal object DiscogsClient {
         country: String?,
         page: Int = 1,
         perPage: Int = 100,
+        trackTitle: String? = null,
     ): Result<DiscogsCompilationPage> = withContext(Dispatchers.IO) {
         runCatching {
             val url = "$API_BASE/database/search".toHttpUrl().newBuilder()
@@ -128,6 +129,7 @@ internal object DiscogsClient {
                 .addQueryParameter("per_page", perPage.coerceIn(1, 100).toString())
                 .apply {
                     query.trim().takeIf(String::isNotBlank)?.let { addQueryParameter("q", it) }
+                    trackTitle?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("track", it) }
                     year?.let { addQueryParameter("year", it.toString()) }
                     genre?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("genre", it) }
                     style?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("style", it) }
