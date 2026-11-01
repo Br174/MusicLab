@@ -47,7 +47,8 @@ historical="app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHi
 old=subprocess.check_output(["git","show",BASE+":"+historical],text=True)
 new=Path(historical).read_text()
 marker="@OptIn(ExperimentalMaterial3Api::class)"
-assert old.split(marker)[0]==new.split(marker)[0],(
+start="internal data class HistoricalHit("
+assert old[old.index(start):old.index(marker)]==new[new.index(start):new.index(marker)],(
   "STOP: Hit Parade HTML/weekly historic chart loader was modified")
 assert "MusicLabFastHitArtwork(MusicLabChartTrack(" in new
 assert "MusicLabFastPath.find(song.title, song.artist)" in new
