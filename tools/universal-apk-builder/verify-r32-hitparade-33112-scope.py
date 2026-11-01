@@ -10,6 +10,7 @@ expected={
  "app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHistoricalHitParade.kt",
  "app/src/test/kotlin/com/metrolist/music/ui/screens/search/MusicLabHistoricalHitParadeLiveFixtureTest.kt",
  "tools/universal-apk-builder/prepare-turbo-r32-hitparade-33112-env.py",
+ "scripts/motorlab-active-guard.mjs",
  "tools/universal-apk-builder/verify-r32-hitparade-33112-scope.py",
  ".github/workflows/musiclab-r32-hitparade-33112-apk.yml",
 } | fixtures | indices
@@ -38,5 +39,8 @@ for marker in ["actual1959Top50","actual1980Top50","preserveActual1981Top10","pr
  assert marker in test, "Missing R32 contract "+marker
 for p in fixtures|indices:
  assert Path(p).stat().st_size>200, "Missing real-world fixture "+p
+guard=Path("scripts/motorlab-active-guard.mjs").read_text()
+for keyword in ("maxBuffer:16*1024*1024", "'{status:.status}'", "'{object:{sha:.object.sha}}'", "WRONG_FAMILY", "ACTIVE_FAMILY_BLOCKED"):
+ assert keyword in guard, "Active signed-family provenance guard weakened: "+keyword
 subprocess.run(["git","diff","--check",BASE,"HEAD"],check=True)
 print("[MUSICLAB R32] Immutable other screens/player and 13 real-world fixtures verified")
