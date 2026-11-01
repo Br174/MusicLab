@@ -54,11 +54,11 @@ class MusicLabHistoricalHitParadeTest {
     fun modernTop200UsesLinkedTitleAndSeparatePerformerNotStatistics() {
         val modern = """
             <ul>
-              <li><h5>1</h5>3<a href="https://www.youtube.com/watch?v=abc">Il filo rosso</a>
+              <li><p><h5>1</h5></p>3<a href="https://www.youtube.com/watch?v=abc">Il filo rosso</a>
                 <p>Alfa</p><p>Artist First</p>
                 <p><b>P:100,00% | MAX: 1 | NS: 10</b></p>
               </li>
-              <li><h5>2</h5>11<a href="https://www.youtube.com/watch?v=def">Last Christmas</a>
+              <li><p><h5>2</h5></p>11<a href="https://www.youtube.com/watch?v=def">Last Christmas</a>
                 <p>Wham!</p><p>Sony</p>
                 <p><b>P:97,13% | MAX: 2 | NS: 7</b></p>
               </li>
@@ -145,6 +145,117 @@ class MusicLabHistoricalHitParadeTest {
         assertEquals("Renato Zero", songs[0].artist)
         assertEquals("Upside down", songs[1].title)
         assertEquals("Diana Ross", songs[1].artist)
+    }
+
+
+    @Test
+    fun top50From1959SeparatesTitleAndArtistIncludingBsideAndMovement() {
+        val html = """
+        <ul>
+          <li><p><h5>1</h5></p>ArrivederciMarino Barreto jr
+              <p>(Umberto Bindi)</p>
+              <p><b>P:100% | MAX: 1 | NS: 13 | Pre: 1</b></p>
+              <p>Philips - Tracklist: <b>Arrivederci \ Angeli negri</b></p></li>
+          <li><p><h5>3</h5></p>Guarda che lunaFred Buscaglione
+              <p>(Walter Malgoni)</p>
+              <p><b>P:59% | MAX: 3 | NS: 16 | Pre: 3</b></p>
+              <p>Cetra - Tracklist: <b>Pity Pity \ Guarda che luna | Guarda che luna \ Strade</b></p></li>
+        </ul>
+        """.trimIndent()
+        val songs = MusicLabHistoricalHitParade.parseSongs(html)
+        assertEquals(2, songs.size)
+        assertEquals("Arrivederci", songs[0].title)
+        assertEquals("Marino Barreto jr", songs[0].artist)
+        assertEquals("Guarda che luna", songs[1].title)
+        assertEquals("Fred Buscaglione", songs[1].artist)
+    }
+
+    @Test
+    fun top10From1981And1982UsesOrderedListEvenWithoutSpacing() {
+        val html = """
+        <b>HitParadeItalia - Top10 del 08 Agosto 1981</b>
+        <ol>
+          <li>Enola Gay-OMD</li>
+          <li>(Out here)On my own-Nikka Costa</li>
+          <li>Donatella - Rettore</li>
+        </ol>
+        """.trimIndent()
+        val hits = MusicLabHistoricalHitParade.parseSongs(html)
+        assertEquals(3, hits.size)
+        assertEquals("Enola Gay", hits[0].title)
+        assertEquals("OMD", hits[0].artist)
+        assertEquals("(Out here)On my own", hits[1].title)
+        assertEquals("Nikka Costa", hits[1].artist)
+        assertEquals("Donatella", hits[2].title)
+    }
+
+    @Test
+    fun top10From1983And1984UsesPlainBreakSeparatedLines() {
+        val html = """
+          <p>HitParadeItalia - Top10 del 04 Agosto 1984<br>
+          Self control - Raf<br>
+          Fotoromanza - Gianna Nannini<br>
+          Against All Odds - Phil Collins<br>
+          I treni di Tozeur - Alice &amp; Franco Battiato<br>
+          Big in Japan - Alphaville</p>
+        """.trimIndent()
+        val hits = MusicLabHistoricalHitParade.parseSongs(html)
+        assertEquals(5, hits.size)
+        assertEquals("Self control", hits[0].title)
+        assertEquals("Raf", hits[0].artist)
+        assertEquals("I treni di Tozeur", hits[3].title)
+        assertEquals("Alice & Franco Battiato", hits[3].artist)
+    }
+
+    @Test
+    fun top200From2017UsesHeaderIndicesNotWeeklyMovementCounts() {
+        val html = """
+          <table><tr><td>#</td><td>#-1</td><td>n.s.</td><td>Peak</td>
+          <td>Titolo</td><td>Interprete</td><td>Etichetta</td><td>NTE</td>
+          <td>S</td><td>A</td><td>D</td></tr>
+          <tr><td>1</td><td>2</td><td>9</td><td>1</td>
+          <td>Voglio ballare con te</td><td>Baby K feat. Andres Dvicio</td>
+          <td>Sony</td><td>31.132</td><td>79%</td><td>9%</td><td>12%</td></tr>
+          <tr><td>2</td><td>1</td><td>16</td><td>1</td>
+          <td>Senza pagare</td><td>J-Ax &amp; Fedez vs. T-Pain</td>
+          <td>Sony</td><td>30.251</td><td>79%</td><td>11%</td><td>10%</td></tr>
+          </table>
+        """.trimIndent()
+        val hits = MusicLabHistoricalHitParade.parseSongs(html)
+        assertEquals(2, hits.size)
+        assertEquals("Voglio ballare con te", hits[0].title)
+        assertEquals("Baby K feat. Andres Dvicio", hits[0].artist)
+        assertEquals("9", hits[0].weeks)
+        assertEquals("1", hits[0].peak)
+        assertEquals("2", hits[0].previous)
+        assertEquals("Senza pagare", hits[1].title)
+    }
+
+    @Test
+    fun modernTop200From2026RemovesOnlyMovementAndReadsSingerParagraph() {
+        val html = """
+          <ul><li><p><h5>1</h5></p>Dai dai
+          <p>Shakira &amp; Burna Boy</p><p>Sony</p>
+          <p><b>P:100,00% | MAX: 1 | NS: 10</b></p></li>
+          <li><p><h5>3</h5></p>1Sorry scusa lo siento
+          <p>Pinguini Tattici Nucleari</p><p>Sony</p>
+          <p><b>P:95,96% | MAX: 2 | NS: 11</b></p></li></ul>
+        """.trimIndent()
+        val hits = MusicLabHistoricalHitParade.parseSongs(html)
+        assertEquals(2, hits.size)
+        assertEquals("Dai dai", hits[0].title)
+        assertEquals("Shakira & Burna Boy", hits[0].artist)
+        assertEquals("Sorry scusa lo siento", hits[1].title)
+        assertEquals("Pinguini Tattici Nucleari", hits[1].artist)
+    }
+
+    @Test
+    fun numericMetadataCannotBecomeTitleAndSinger() {
+        val fake = """
+           <ul><li><p><h5>1</h5></p>9<p>1</p>
+           <p><b>P:100% | MAX:1</b></p></li></ul>
+        """.trimIndent()
+        assertTrue(MusicLabHistoricalHitParade.parseSongs(fake).isEmpty())
     }
 
     @Test
