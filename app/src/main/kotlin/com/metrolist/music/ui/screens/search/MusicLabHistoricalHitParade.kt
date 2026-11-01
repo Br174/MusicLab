@@ -156,6 +156,22 @@ internal object MusicLabHistoricalHitParade {
         return result.toString().replace('\u00a0', ' ').trim()
     }
 
+    /** Top10 1983-84 is sometimes plain newline text, with no row elements. */
+    private fun parseOriginalPlainTop10(html: String): List<HistoricalHit> {
+        val top10 = Regex("(?i)HitParadeItalia\\s*-\\s*Top\\s*10")
+        val para = Regex("(?is)<p\\b[^>]*>(.*?)</p>").findAll(html)
+            .firstOrNull { top10.containsMatchIn(it.groupValues[1]) }
+            ?.groupValues?.get(1) ?: return emptyList()
+        val lines = para.replace(Regex("(?i)<br\\s*/?>"), "\n")
+            .split(Regex("\\r?\\n")).map {
+                Jsoup.parseBodyFragment(it).text().trim()
+            }.filter { it.isNotBlank() && !top10.containsMatchIn(it) }
+        return lines.mapNotNull { splitOldTop10(it) }.take(10)
+            .mapIndexed { index, pair ->
+                HistoricalHit(index + 1, pair.first, pair.second, null, null, null)
+            }
+    }
+
     /**
      * Parse the original weekly markup rather than a repaired DOM: the source
      * uses invalid <p><h5> and unclosed <li> nodes, which are reparented by
@@ -280,6 +296,8 @@ internal object MusicLabHistoricalHitParade {
 
     /** Each supported source layout has a different structured parser. */
     internal fun parseSongs(html: String): List<HistoricalHit> {
+        val plainTop10 = parseOriginalPlainTop10(html)
+        if (plainTop10.isNotEmpty()) return plainTop10
         // First use the source layout. Malformed legacy HTML may be
         // reparented unpredictably by DOM parsers, hiding actual track fields.
         val ranked = parseOriginalListSource(html)
