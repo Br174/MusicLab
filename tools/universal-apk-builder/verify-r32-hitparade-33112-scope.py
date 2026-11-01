@@ -42,5 +42,8 @@ for p in fixtures|indices:
 guard=Path("scripts/motorlab-active-guard.mjs").read_text()
 for keyword in ("maxBuffer:16*1024*1024", "'{status:.status}'", "'{object:{sha:.object.sha}}'", "WRONG_FAMILY", "ACTIVE_FAMILY_BLOCKED"):
  assert keyword in guard, "Active signed-family provenance guard weakened: "+keyword
-subprocess.run(["git","diff","--check",BASE,"HEAD"],check=True)
+# Preserve downloaded historical HTML byte-for-byte. Only authored
+# source and configuration paths are checked for accidental whitespace.
+code_paths=sorted(expected - fixtures - indices)
+subprocess.run(["git","diff","--check",BASE,"HEAD","--",*code_paths],check=True)
 print("[MUSICLAB R32] Immutable other screens/player and 13 real-world fixtures verified")
