@@ -66,6 +66,24 @@ class PlaybackSprintPolicyTest {
         assertFalse(PlaybackSprintPolicy.shouldRecoverBufferStall(true, true, true, false, 0))
     }
 
+    @Test fun recoverableNetworkAndDecoderErrorsMustKeepHealthyCachedAudio() {
+        assertFalse(PlaybackSprintPolicy.shouldPurgeCachedAudio(false, false))
+        assertTrue(PlaybackSprintPolicy.shouldPurgeCachedAudio(true, false))
+        assertTrue(PlaybackSprintPolicy.shouldPurgeCachedAudio(false, true))
+        assertTrue(PlaybackSprintPolicy.shouldPurgeCachedAudio(true, true))
+    }
+
+    @Test fun optionalNetworkHelpersCannotRunDuringLowBufferOrPausedMusic() {
+        assertFalse(PlaybackSprintPolicy.canRunOptionalBackgroundAudioWork(
+            isReady = false, wantsPlayback = true, bufferedMs = 60_000, minimumReserveMs = 18_000))
+        assertFalse(PlaybackSprintPolicy.canRunOptionalBackgroundAudioWork(
+            isReady = true, wantsPlayback = false, bufferedMs = 60_000, minimumReserveMs = 18_000))
+        assertFalse(PlaybackSprintPolicy.canRunOptionalBackgroundAudioWork(
+            isReady = true, wantsPlayback = true, bufferedMs = 17_999, minimumReserveMs = 18_000))
+        assertTrue(PlaybackSprintPolicy.canRunOptionalBackgroundAudioWork(
+            isReady = true, wantsPlayback = true, bufferedMs = 18_000, minimumReserveMs = 18_000))
+    }
+
     @Test fun safeSingleTrackPreloadCanStartWhenReserveIsHealthy() {
         assertTrue(PlaybackSprintPolicy.canPreload(true,true,false,false,40_000L,40_000L))
         assertTrue(PlaybackSprintPolicy.canPreload(true,true,false,false,30_000L,30_000L))

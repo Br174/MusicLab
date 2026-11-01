@@ -53,6 +53,8 @@ test('R25 safeguards audio recovery without changing identity, cache or Cover en
  assert.match(player,/retryReason = "R22 playback buffer stall"/);
  assert.match(player,/private fun applyQobuzEndpointOverrides\(/);
  assert.match(player,/cachedEnableSongCache/);
- assert.match(player,/PLAYBACK_START_BUFFER_MS = 900/);
- assert.match(player,/PLAYBACK_REBUFFER_MS = 6_000/);
+ assert.match(player,/PLAYBACK_START_BUFFER_MS = 1_600/);
+ assert.match(player,/PLAYBACK_REBUFFER_MS = 8_000/);
+ assert.match(policy,/shouldPurgeCachedAudio/);
+ assert.match(policy,/canRunOptionalBackgroundAudioWork/);
 });
