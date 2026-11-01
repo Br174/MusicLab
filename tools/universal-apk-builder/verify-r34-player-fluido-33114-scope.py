@@ -8,6 +8,7 @@ EXPECTED={
  "app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt",
  "app/src/main/kotlin/com/metrolist/music/playback/PlaybackSprintPolicy.kt",
  "app/src/test/kotlin/com/metrolist/music/playback/PlaybackSprintPolicyTest.kt",
+ "cloudflare/music-intelligence/test/turbo-r25-partial-cycle-audio.test.mjs",
  "tools/universal-apk-builder/prepare-turbo-r34-player-fluido-33114-env.py",
  "tools/universal-apk-builder/verify-r34-player-fluido-33114-scope.py",
  ".github/workflows/musiclab-r34-player-fluido-33114-apk.yml",
