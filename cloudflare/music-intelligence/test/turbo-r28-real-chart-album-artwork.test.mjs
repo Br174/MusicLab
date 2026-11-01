@@ -19,7 +19,8 @@ test('R28 each chart row independently retrieves verified artist/title album art
   assert.match(artwork,/private fun matchingCatalogueTrack\(/);
   assert.match(artwork,/titleScore\(wantTitle, candidateTitle\) < 5/);
   assert.match(artwork,/Spotify\.search\(/);
-  assert.match(artwork,/candidate\.album/);
+  assert.match(artwork,/found\.firstOrNull/);
+  assert.match(artwork,/\?\.album\?\.images/);
 });
 test('R28 no-login Apple Music catalogue fallback is bounded, validated and off main',()=>{
   assert.match(artwork,/https:\/\/itunes\.apple\.com\/search\?term=/);
