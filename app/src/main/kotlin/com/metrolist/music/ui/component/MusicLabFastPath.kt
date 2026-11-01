@@ -44,7 +44,7 @@ import kotlinx.coroutines.sync.withPermit
  */
 internal object MusicLabFastPath {
     private val worker = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val gate = Semaphore(4)
+    private val gate = Semaphore(MusicLabFastPathPolicy.SEARCH_PARALLELISM)
     private val pages = ConcurrentHashMap<String, List<SongItem>>()
     private val flights = ConcurrentHashMap<String, Deferred<List<SongItem>>>()
 
