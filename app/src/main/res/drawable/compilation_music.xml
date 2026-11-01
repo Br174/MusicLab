@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- Original MusicLab icon: two discs behind a musical collection folder. -->
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="3.3"
+        android:pathData="M28,10 a11,11 0,1 0,0 22 a11,11 0,1 0,0 -22 M43,11 a10,10 0,1 0,0 20 a10,10 0,1 0,0 -20"/>
+    <path android:fillColor="#FF3B3D46" android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.5" android:strokeLineJoin="round"
+        android:pathData="M8,27 L8,51 Q8,56 13,56 L52,56 Q57,56 57,51 L57,31 Q57,26 52,26 L34,26 L28,21 L13,21 Q8,21 8,27 Z"/>
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="3.5"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M35,31 L35,45 M35,31 L43,29 M35,45 C31,42 28,47 31,49 C35,52 38,46 35,45"/>
+</vector>
