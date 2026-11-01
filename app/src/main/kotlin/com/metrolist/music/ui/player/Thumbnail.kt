@@ -8,6 +8,7 @@ package com.metrolist.music.ui.player
 import com.metrolist.music.ui.component.CoverSwipeBridge
 
 import com.metrolist.music.playback.CoverPlaybackMemory
+import com.metrolist.music.playback.PlaybackSprintPolicy
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -316,8 +317,10 @@ fun Thumbnail(
                         if (released != null && horizontalSwipe && isPlayerExpanded()) {
                             val dx = released.position.x - startX
                             val dy = released.position.y - startY
-                            if (abs(dx) > touchSlop * 4 && abs(dx) > abs(dy)) {
-                                val direction = if (dx < 0f) 1 else -1
+                            val direction = PlaybackSprintPolicy.committedSwipeDirection(
+                                dx, dy, touchSlop * 4
+                            )
+                            if (direction != 0) {
                                 val handledByCover = CoverSwipeBridge.trySwipe(
                                     nativeMediaMetadata?.id.orEmpty(), direction
                                 )
