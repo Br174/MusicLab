@@ -1,0 +1,47 @@
+name: MusicLab R33 Hit Parade End-to-End HTTP Test
+on:
+  push:
+    branches:
+      - lab/musiclab-r33-hitparade-http-path-33113-20261101
+    paths:
+      - app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHistoricalHitParade.kt
+      - app/src/test/kotlin/com/metrolist/music/ui/screens/search/MusicLabHitParadeRealHttpTest.kt
+      - .github/workflows/musiclab-r33-hitparade-live-http-test.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Prepare FOSS Android test environment, no APK
+        run: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-r32-hitparade-33112-env.py
+          chmod +x gradlew
+      - name: Test REAL HTTP loading via production Kotlin code
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source uab-project.env
+          set +a
+          ./gradlew :app:testFossDebugUnitTest --tests "com.metrolist.music.ui.screens.search.MusicLabHitParadeRealHttpTest" --no-daemon --stacktrace
+      - name: Upload live HTTP JUnit evidence on failure or success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: musiclab-r33-live-http-test-xml
+          path: app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.screens.search.MusicLabHitParadeRealHttpTest.xml
+          retention-days: 7
+          if-no-files-found: warn
