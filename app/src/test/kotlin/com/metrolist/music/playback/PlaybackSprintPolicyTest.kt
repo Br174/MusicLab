@@ -66,6 +66,21 @@ class PlaybackSprintPolicyTest {
         assertFalse(PlaybackSprintPolicy.shouldRecoverBufferStall(true, true, true, false, 0))
     }
 
+    @Test fun latestTapWinsWhenOldQueueMetadataReturnsLate() {
+        assertTrue(PlaybackSprintPolicy.isLatestQueueRequest(41, 41))
+        assertFalse(PlaybackSprintPolicy.isLatestQueueRequest(40, 41))
+        assertFalse(PlaybackSprintPolicy.isLatestQueueRequest(39, 41))
+        assertTrue(PlaybackSprintPolicy.isLatestQueueRequest(42, 42))
+    }
+
+    @Test fun thumbnailSwipeMustBeHorizontalDeliberateAndSingleDirection() {
+        assertEquals(0, PlaybackSprintPolicy.committedSwipeDirection(2f, 0f, 20f))
+        assertEquals(0, PlaybackSprintPolicy.committedSwipeDirection(70f, 90f, 20f))
+        assertEquals(1, PlaybackSprintPolicy.committedSwipeDirection(-80f, 3f, 20f))
+        assertEquals(-1, PlaybackSprintPolicy.committedSwipeDirection(80f, 3f, 20f))
+        assertEquals(0, PlaybackSprintPolicy.committedSwipeDirection(20f, 0f, 20f))
+    }
+
     @Test fun recoverableNetworkAndDecoderErrorsMustKeepHealthyCachedAudio() {
         assertFalse(PlaybackSprintPolicy.shouldPurgeCachedAudio(false, false))
         assertTrue(PlaybackSprintPolicy.shouldPurgeCachedAudio(true, false))
