@@ -34,6 +34,19 @@ internal object PlaybackSprintPolicy {
         isBuffering && playRequested && sameMediaId && online &&
             recoveryAttempts < MAX_BUFFER_STALL_RECOVERIES
 
+    // R34: network timeouts, decoder resets and expired URLs must not destroy
+    // the healthy cached audio prefix. Purge only confirmed damaged cache/ranges.
+    fun shouldPurgeCachedAudio(fileMissing: Boolean, invalidRange: Boolean): Boolean =
+        fileMissing || invalidRange
+
+    // Optional network work must never compete with the current song's short reserve.
+    fun canRunOptionalBackgroundAudioWork(
+        isReady: Boolean,
+        wantsPlayback: Boolean,
+        bufferedMs: Long,
+        minimumReserveMs: Long,
+    ): Boolean = isReady && wantsPlayback && bufferedMs >= minimumReserveMs
+
     // R21: an already selected song cannot leave IDLE by playWhenReady alone.
     fun shouldPrepareExistingTrack(playbackState: Int): Boolean =
         playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED
