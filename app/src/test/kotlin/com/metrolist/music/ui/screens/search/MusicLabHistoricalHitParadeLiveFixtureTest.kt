@@ -49,6 +49,21 @@ class MusicLabHistoricalHitParadeLiveFixtureTest {
     @Test fun actualIndex2017() = verifyIndex(2017, 48, "hp170805.htm")
     @Test fun actualIndex2026() = verifyIndex(2026, 40, "hps20260801.html")
 
+    @Test fun realReentryMarkerMustNotLose1959Or1980Tracks() {
+        fun songs(year: String): List<HistoricalHit> {
+            val path = "hitparade/live-$year.html"
+            val html = requireNotNull(javaClass.classLoader?.getResourceAsStream(path))
+                .bufferedReader(Charsets.UTF_8).use { it.readText() }
+            return MusicLabHistoricalHitParade.parseSongs(html)
+        }
+        val archive1959 = songs("1959")
+        assertEquals("Buondì", archive1959.first { it.rank == 21 }.title)
+        assertEquals("Betty Curtis", archive1959.first { it.rank == 21 }.artist)
+        val archive1980 = songs("1980")
+        assertEquals("Marta, Marta", archive1980.first { it.rank == 50 }.title)
+        assertEquals("Ciro Sebastianelli", archive1980.first { it.rank == 50 }.artist)
+    }
+
     @Test fun actual1959Top50() = verify("1959", 40, "Arrivederci", "Marino Barreto jr")
     @Test fun actual1980Top50() = verify("1980", 40, "Luna", "Gianni Togni")
     @Test fun preserveActual1981Top10() = verify("1981", 8, "Enola Gay", "OMD")
