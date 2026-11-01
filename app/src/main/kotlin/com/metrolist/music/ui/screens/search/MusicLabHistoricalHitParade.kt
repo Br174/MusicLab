@@ -231,7 +231,13 @@ internal object MusicLabHistoricalHitParade {
             val rank = row.selectFirst("h5")?.text()?.trim()?.toIntOrNull()
                 ?: return@mapNotNull null
             if (rank !in 1..200) return@mapNotNull null
-            val heading = chartHeading(row)
+            // Jsoup places the chart headline directly on the <li> itself for
+            // 1959-1980 and 2018+; walking children from <h5> can lose it
+            // when the heading element is hoisted out of its malformed <p>.
+            // Keep the linked-headline fallback for other historical variants.
+            val ownHeading = row.ownText().replace('\u00a0', ' ').trim()
+            val heading = if (ownHeading.any(Char::isLetter)) ownHeading
+                else chartHeading(row)
             val trackList = row.select("p").firstOrNull {
                 it.text().contains("Tracklist:", ignoreCase = true)
             }?.selectFirst("b")?.text().orEmpty()
