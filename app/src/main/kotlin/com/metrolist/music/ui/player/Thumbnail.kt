@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -99,6 +100,7 @@ import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.innertube.utils.parseCookieString
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -254,6 +256,7 @@ fun Thumbnail(
     
     // Grid state
     val thumbnailLazyGridState = rememberLazyGridState()
+    val scrollScope = rememberCoroutineScope()
     
     // R35: the committed Media3 queue index is the sole source of truth.
     // A plain player.currentMediaItemIndex read is not observable by Compose.
@@ -330,6 +333,16 @@ fun Thumbnail(
                                     }
                                 }
                             }
+                        }
+                        // The LazyGrid may visually settle on a neighbor even
+                        // when no audio command is accepted. Recenter against
+                        // the actual Media3 transition, never optimistic graphics.
+                        scrollScope.launch {
+                            delay(180L)
+                            val committed = getMediaItems(
+                                playerConnection.player, swipeThumbnail
+                            ).currentIndex
+                            if (committed >= 0) thumbnailLazyGridState.scrollToItem(committed)
                         }
                         tracking = false
                         horizontalSwipe = false
