@@ -70,8 +70,11 @@ internal object MusicLabHistoricalHitParade {
     private const val BASE = "https://www.hitparadeitalia.it/hp_weeks"
     private val modernLink = Regex("^$BASE/(\\d{4})/hps(\\d{8})\\.html$", RegexOption.IGNORE_CASE)
     private val classicLink = Regex("^$BASE/(\\d{2})/hp(\\d{6})\\.htm$", RegexOption.IGNORE_CASE)
+    // The full Top50/Top200 HTML transfer is larger than the classic tiny .htm pages.
     private val client = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS).readTimeout(9, TimeUnit.SECONDS).build()
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(35, TimeUnit.SECONDS).build()
     private val dateFormat = SimpleDateFormat("yyyyMMdd", Locale.ROOT).apply { isLenient = false }
 
     /** The site's 1981-2017 years use hpw_YEAR.htm, not YEAR/index.html. */
@@ -304,6 +307,31 @@ internal object MusicLabHistoricalHitParade {
 
     /** Each supported source layout has a different structured parser. */
     internal fun parseSongs(html: String): List<HistoricalHit> {
+        // REAL first-party HTML (1959-1980 and 2018+). The browser-extracted
+        // fixtures flatten these structured divs into an unrelated legacy
+        // <p><h5> layout, which had concealed the production regression.
+        // Read the current site's dedicated title and artist elements first.
+        val actualPage = Jsoup.parse(html)
+        val realRows = actualPage.select("li").mapNotNull { entry ->
+            val titleNode = entry.selectFirst(".brano-dettagli-titolo")
+                ?: return@mapNotNull null
+            val artistNode = entry.selectFirst(".brano-dettagli-artista")
+                ?: return@mapNotNull null
+            val rank = entry.selectFirst(".rank h5")?.text()?.trim()?.toIntOrNull()
+                ?: return@mapNotNull null
+            if (rank !in 1..200) return@mapNotNull null
+            val title = titleNode.text().trim()
+            val artist = artistNode.text().trim()
+            if (!validSong(title, artist)) return@mapNotNull null
+            val statistics = entry.selectFirst(".brano-dettagli-pesi")?.text().orEmpty()
+            fun field(label: String): String? =
+                Regex("\\b$label:\\s*([^|\\s]+)", RegexOption.IGNORE_CASE)
+                    .find(statistics)?.groupValues?.get(1)
+            HistoricalHit(rank, title, artist, field("MAX"), field("NS"), field("Pre"))
+        }.distinctBy { it.rank }.sortedBy { it.rank }
+        if (realRows.isNotEmpty()) return realRows
+
+        // Keep the functioning old 1981-2017 Top10 and table readers.
         val plainTop10 = parseOriginalPlainTop10(html)
         if (plainTop10.isNotEmpty()) return plainTop10
         // First use the source layout. Malformed legacy HTML may be
@@ -437,27 +465,90 @@ internal object MusicLabHistoricalHitParade {
         }.distinctBy { it.rank }.sortedBy { it.rank }
     }
 
+    /** Deterministic week link used only by first-party hps archives. */
+    internal fun directWeekUrl(day: Calendar): String {
+        val year = day.get(Calendar.YEAR)
+        require(year in 1959..1980 || year >= 2018) {
+            "Classic 1981-2017 archives must use their original index"
+        }
+        val saturday = saturdayOf(day)
+        val key = synchronized(dateFormat) { dateFormat.format(saturday.time) }
+        return "$BASE/$year/hps$key.html"
+    }
+
+    /** Never invent song rows; retry the same original URL with a browser UA. */
+    private fun readChart(url: String): List<HistoricalHit> {
+        val firstBody = runCatching { download(url) }
+        val first = firstBody.mapCatching { parseSongs(it) }
+        val songs = first.getOrNull().orEmpty()
+        if (songs.isNotEmpty()) return songs
+        // Diagnostic evidence on failed FIRST-PARTY page fetch only. No
+        // account information, credentials, history or device data is logged.
+        val body = firstBody.getOrNull().orEmpty()
+        System.err.println("[HPI_HTTP_DIAG] file=" + url.substringAfterLast('/') +
+            " chars=" + body.length + " h5=" + Regex("<h5", RegexOption.IGNORE_CASE).findAll(body).count() +
+            " first=" + body.take(140).replace('\n', ' ') +
+            " error=" + (first.exceptionOrNull()?.javaClass?.simpleName ?: "empty_parser"))
+        val second = runCatching { parseSongs(download(url, browserFallback = true)) }
+        return second.getOrNull()?.takeIf { it.isNotEmpty() }
+            ?: throw IllegalStateException(
+                "Nessun brano leggibile da ${url.substringAfterLast('/')}: " +
+                    (second.exceptionOrNull()?.message ?: first.exceptionOrNull()?.message
+                        ?: "risposta vuota o formato inatteso"))
+    }
+
     suspend fun load(day: Calendar): HistoricalChart = withContext(Dispatchers.IO) {
         val year = day.get(Calendar.YEAR)
         require(year in 1959..Calendar.getInstance().get(Calendar.YEAR)) {
             "L'archivio settimanale inizia nel 1959"
         }
-        val index = indexUrl(year)
-        var weeks = weeksFromIndex(download(index), year)
-        if (weeks.isEmpty()) weeks = weeksFromIndex(download(index, browserFallback = true), year)
-        if (weeks.isEmpty()) error("Nessuna settimana riconosciuta nell'archivio " + year)
-        val target = saturdayOf(day).timeInMillis
-        val selectedWeek = weeks.lastOrNull { it.millis <= target } ?: weeks.first()
-        var tracks = parseSongs(download(selectedWeek.url))
-        if (tracks.isEmpty()) {
-            // Some source templates vary by HTTP user agent. Read once more as
-            // a normal mobile browser, never manufacture missing chart rows.
-            tracks = parseSongs(download(selectedWeek.url, browserFallback = true))
+
+        // Keep the functioning 1981-2017 classic .htm route unchanged.
+        if (year in 1981..2017) {
+            val weeks = weeksFromIndex(download(indexUrl(year)), year)
+            if (weeks.isEmpty()) error("Nessuna settimana pubblicata per l'anno " + year)
+            val target = saturdayOf(day).timeInMillis
+            val selected = weeks.lastOrNull { it.millis <= target } ?: weeks.first()
+            return@withContext HistoricalChart(selected, readChart(selected.url))
         }
-        if (tracks.isEmpty()) error("Dati non leggibili per la settimana " +
-            selectedWeek.url.substringAfterLast('/'))
-        HistoricalChart(selectedWeek, tracks)
+
+        // Try exact public week without depending on the large year index.
+        val saturday = saturdayOf(day)
+        val candidateUrl = directWeekUrl(day)
+        val direct = runCatching { readChart(candidateUrl) }
+        direct.getOrNull()?.let { songs ->
+            return@withContext HistoricalChart(HistoricalWeek(saturday.timeInMillis, candidateUrl), songs)
+        }
+
+        // Missing current week (unpublished Saturday) or an archival gap:
+        // select a truly published week, never synthesize any chart data.
+        val index = indexUrl(year)
+        val indexText = runCatching { download(index) }
+            .getOrElse { download(index, browserFallback = true) }
+        var weeks = weeksFromIndex(indexText, year)
+        if (weeks.isEmpty()) {
+            weeks = weeksFromIndex(download(index, browserFallback = true), year)
+        }
+        if (weeks.isEmpty()) {
+            throw IllegalStateException("Nessuna settimana riconosciuta nell'indice " + year +
+                "; tentativo diretto: " + (direct.exceptionOrNull()?.message ?: candidateUrl))
+        }
+        val target = saturday.timeInMillis
+        val ordered = weeks.filter { it.millis <= target }.asReversed() +
+            weeks.filter { it.millis > target }
+        var lastFailure: Throwable? = direct.exceptionOrNull()
+        for (week in ordered.take(4)) {
+            val found = runCatching { readChart(week.url) }
+            if (found.isSuccess) {
+                return@withContext HistoricalChart(week, found.getOrThrow())
+            }
+            lastFailure = found.exceptionOrNull()
+        }
+        throw IllegalStateException(
+            "Classifica non caricata ($year): " +
+                (lastFailure?.message ?: "nessuna settimana pubblicata leggibile"))
     }
+
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
