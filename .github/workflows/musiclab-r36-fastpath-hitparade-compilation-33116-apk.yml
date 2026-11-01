@@ -128,9 +128,9 @@ jobs:
           import fs from 'node:fs';
           const path = 'app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.MusicLabFastPathPolicyTest.xml';
           const xml = fs.readFileSync(path, 'utf8');
-          const suite = xml.match(/<testsuite\\b[^>]*>/)?.[0];
+          const suite = xml.match(/<testsuite\b[^>]*>/)?.[0];
           if (!suite) throw new Error('Missing R36 FastPath native tests');
-          const n = key => Number(suite.match(new RegExp(key + '="(\\\\d+)"'))?.[1] ?? -1);
+          const n = key => Number(suite.match(new RegExp(key + '="(\\d+)"'))?.[1] ?? -1);
           const result = { tests:n('tests'), failures:n('failures'), errors:n('errors'), skipped:n('skipped') };
           if (result.tests < 4 || result.failures !== 0 || result.errors !== 0 || result.skipped !== 0)
             throw new Error('R36 FastPath tests failed: '+JSON.stringify(result));
