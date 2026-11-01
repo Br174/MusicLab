@@ -78,7 +78,7 @@ jobs:
           const attr = key => Number(suite.match(new RegExp(key + '="(\\d+)"'))?.[1] ?? -1);
           const tests = attr('tests'), failures = attr('failures'),
             errors = attr('errors'), skipped = attr('skipped');
-          if (tests < 14 || failures !== 0 || errors !== 0 || skipped !== 0) {
+          if (tests < 15 || failures !== 0 || errors !== 0 || skipped !== 0) {
             throw new Error('Real-source pages failed: ' + JSON.stringify({tests,failures,errors,skipped}));
           }
           console.log('Real-source weekly and chart regression fixtures:', tests, 'passed');
