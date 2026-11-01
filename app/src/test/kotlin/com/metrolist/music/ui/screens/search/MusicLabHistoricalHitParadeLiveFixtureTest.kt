@@ -17,8 +17,9 @@ class MusicLabHistoricalHitParadeLiveFixtureTest {
         }
         val html = input.bufferedReader(Charsets.UTF_8).use { it.readText() }
         val result = MusicLabHistoricalHitParade.parseSongs(html)
-        assertTrue("$year parsed only ${result.size} real tracks; expected at least $minimum",
-            result.size >= minimum)
+        assertEquals("$year chart must not lose published ranks", minimum, result.size)
+        assertEquals("$year ranks must be complete and consecutive",
+            (1..minimum).toList(), result.map { it.rank })
         assertEquals("$year first rank", 1, result.first().rank)
         assertEquals("$year top song", title, result.first().title)
         assertEquals("$year top performer", artist, result.first().artist)
