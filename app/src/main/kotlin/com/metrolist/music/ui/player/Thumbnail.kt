@@ -255,22 +255,18 @@ fun Thumbnail(
     // Grid state
     val thumbnailLazyGridState = rememberLazyGridState()
     
-    // Calculate media items data - memoized
-    val mediaItemsData by remember(
-        playerConnection.player.currentMediaItemIndex,
-        playerConnection.player.shuffleModeEnabled,
-        swipeThumbnail,
-        mediaMetadata
+    // R35: the committed Media3 queue index is the sole source of truth.
+    // A plain player.currentMediaItemIndex read is not observable by Compose.
+    val committedQueueIndex by playerConnection.currentMediaItemIndex.collectAsState()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+    val mediaItemsData = remember(
+        committedQueueIndex, shuffleModeEnabled, swipeThumbnail, nativeMediaMetadata?.id
     ) {
-        derivedStateOf {
-            getMediaItems(playerConnection.player, swipeThumbnail)
-        }
+        getMediaItems(playerConnection.player, swipeThumbnail)
     }
-    
     val mediaItems = mediaItemsData.items
     val currentMediaIndex = mediaItemsData.currentIndex
 
-    // Snap behavior - created once per grid state
     val thumbnailSnapLayoutInfoProvider = remember(thumbnailLazyGridState) {
         ThumbnailSnapLayoutInfoProvider(
             lazyGridState = thumbnailLazyGridState,
@@ -282,129 +278,71 @@ fun Thumbnail(
         )
     }
 
-    // Current item tracking - derived state for efficiency
-    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
-
-    // Only a genuine horizontal finger drag can arm a song change. Programmatic
-    // movements (player opening, metadata updates, automatic centering) never arm it.
-    var userPointerDown by remember { mutableStateOf(false) }
-    var userSwipeArmed by remember { mutableStateOf(false) }
-
+    // A finger release is one authoritative command. Graphical scroll alone
+    // must never be interpreted as a committed song change.
     val userSwipePointerModifier =
-        Modifier.pointerInput(swipeThumbnail, mediaMetadata?.id) {
+        Modifier.pointerInput(swipeThumbnail, nativeMediaMetadata?.id, currentMediaIndex) {
             if (!swipeThumbnail) return@pointerInput
             val touchSlop = viewConfiguration.touchSlop
-
             awaitPointerEventScope {
-                var gestureActive = false
+                var tracking = false
                 var startX = 0f
                 var startY = 0f
-
+                var horizontalSwipe = false
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Final)
-
-                    if (!gestureActive) {
-                        val down = event.changes.firstOrNull { it.pressed && !it.previousPressed }
-                        if (down != null) {
-                            gestureActive = true
-                            startX = down.position.x
-                            startY = down.position.y
-                            userPointerDown = true
-                            userSwipeArmed = false
+                    if (!tracking) {
+                        event.changes.firstOrNull { it.pressed && !it.previousPressed }?.let {
+                            tracking = true
+                            startX = it.position.x
+                            startY = it.position.y
+                            horizontalSwipe = false
                         }
                         continue
                     }
-
-                    val pressedChange = event.changes.firstOrNull { it.pressed }
-                    if (pressedChange != null) {
-                        val dx = abs(pressedChange.position.x - startX)
-                        val dy = abs(pressedChange.position.y - startY)
-                        if (dx > touchSlop && dx > dy) {
-                            userSwipeArmed = true
-                        }
+                    val pressed = event.changes.firstOrNull { it.pressed }
+                    if (pressed != null) {
+                        val dx = abs(pressed.position.x - startX)
+                        val dy = abs(pressed.position.y - startY)
+                        if (dx > touchSlop && dx > dy) horizontalSwipe = true
                     }
-
                     if (event.changes.none { it.pressed }) {
-                        // LAB64 Pollicino: only a deliberate finger swipe while
-                        // Cover owns this exact video ID can change ranked covers.
-                        // Outside Cover, the native player carousel is unchanged.
-                        val release = event.changes.firstOrNull { !it.pressed && it.previousPressed }
-                        if (release != null && isPlayerExpanded()) {
-                            val dx = release.position.x - startX
-                            val dy = release.position.y - startY
-                            if (kotlin.math.abs(dx) > touchSlop * 4 &&
-                                kotlin.math.abs(dx) > kotlin.math.abs(dy) &&
-                                CoverSwipeBridge.trySwipe(mediaMetadata?.id.orEmpty(), if (dx < 0) 1 else -1)
-                            ) {
-                                userSwipeArmed = false
+                        val released = event.changes.firstOrNull {
+                            !it.pressed && it.previousPressed
+                        }
+                        if (released != null && horizontalSwipe && isPlayerExpanded()) {
+                            val dx = released.position.x - startX
+                            val dy = released.position.y - startY
+                            if (abs(dx) > touchSlop * 4 && abs(dx) > abs(dy)) {
+                                val direction = if (dx < 0f) 1 else -1
+                                val handledByCover = CoverSwipeBridge.trySwipe(
+                                    nativeMediaMetadata?.id.orEmpty(), direction
+                                )
+                                if (!handledByCover) {
+                                    // Use the same navigation path as next/previous buttons:
+                                    // this activates audio priority, prepares IDLE and updates
+                                    // the Media3 listener that owns the player artwork.
+                                    if (direction > 0 && playerConnection.player.hasNextMediaItem()) {
+                                        playerConnection.seekToNext()
+                                    } else if (direction < 0 &&
+                                        playerConnection.player.hasPreviousMediaItem()) {
+                                        playerConnection.skipToPreviousItem()
+                                    }
+                                }
                             }
                         }
-                        gestureActive = false
-                        userPointerDown = false
+                        tracking = false
+                        horizontalSwipe = false
                     }
                 }
             }
         }
 
-    // Commit at most one skip after the real finger gesture has ended and the
-    // carousel has settled. Automatic scroll/centering can never reach this path
-    // because it cannot set userSwipeArmed.
-    LaunchedEffect(
-        thumbnailLazyGridState,
-        swipeThumbnail,
-        currentMediaIndex,
-        canSkipNext,
-        canSkipPrevious,
-    ) {
-        snapshotFlow {
-            !thumbnailLazyGridState.isScrollInProgress &&
-                !userPointerDown &&
-                userSwipeArmed
-        }.collect { shouldCommit ->
-            if (!shouldCommit) return@collect
-
-            userSwipeArmed = false
-            if (!swipeThumbnail || currentMediaIndex < 0) return@collect
-
-            val targetIndex = thumbnailLazyGridState.firstVisibleItemIndex
-            val player = playerConnection.player
-            val changed =
-                when {
-                    targetIndex > currentMediaIndex && canSkipNext -> {
-                        player.seekToNextMediaItem()
-                        true
-                    }
-                    targetIndex < currentMediaIndex && canSkipPrevious -> {
-                        player.seekToPreviousMediaItem()
-                        true
-                    }
-                    else -> false
-                }
-
-            if (changed) {
-                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                    player.prepare()
-                }
-                player.play()
-            }
-        }
-    }
-
-    // Update position when song changes
-    LaunchedEffect(mediaMetadata, canSkipPrevious, canSkipNext) {
-        val index = maxOf(0, currentMediaIndex)
+    // Keep artwork centered on the ACTUAL item transition, never on optimistic
+    // swipe animation. This avoids covers showing a song that is not playing.
+    LaunchedEffect(committedQueueIndex, nativeMediaMetadata?.id, currentMediaIndex) {
+        val index = currentMediaIndex
         if (index >= 0 && index < mediaItems.size) {
-            try {
-                thumbnailLazyGridState.animateScrollToItem(index)
-            } catch (e: Exception) {
-                thumbnailLazyGridState.scrollToItem(index)
-            }
-        }
-    }
-
-    LaunchedEffect(playerConnection.player.currentMediaItemIndex) {
-        val index = mediaItemsData.currentIndex
-        if (index >= 0 && index != currentItem) {
             thumbnailLazyGridState.scrollToItem(index)
         }
     }
