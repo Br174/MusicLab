@@ -27,6 +27,27 @@ class MusicLabHistoricalHitParadeLiveFixtureTest {
         })
     }
 
+
+    private fun verifyIndex(year: Int, minimum: Int, expectedSuffix: String) {
+        val path = "hitparade/index-$year.html"
+        val input = requireNotNull(javaClass.classLoader?.getResourceAsStream(path)) {
+            "Missing authentic weekly index $path"
+        }
+        val html = input.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val weeks = MusicLabHistoricalHitParade.weeksFromIndex(html, year)
+        assertTrue("$year archive resolved only ${weeks.size} weeks", weeks.size >= minimum)
+        assertTrue("$year published week link missing: $expectedSuffix",
+            weeks.any { it.url.endsWith(expectedSuffix) })
+        assertEquals("$year week dates not in chronological order",
+            weeks.map { it.millis }.sorted(), weeks.map { it.millis })
+    }
+
+    @Test fun actualIndex1959() = verifyIndex(1959, 50, "hps19590801.html")
+    @Test fun actualIndex1984() = verifyIndex(1984, 50, "hp840804.htm")
+    @Test fun actualIndex1995() = verifyIndex(1995, 50, "hp950930.htm")
+    @Test fun actualIndex2017() = verifyIndex(2017, 48, "hp170805.htm")
+    @Test fun actualIndex2026() = verifyIndex(2026, 40, "hps20260801.html")
+
     @Test fun actual1959Top50() = verify("1959", 40, "Arrivederci", "Marino Barreto jr")
     @Test fun actual1980Top50() = verify("1980", 40, "Luna", "Gianni Togni")
     @Test fun preserveActual1981Top10() = verify("1981", 8, "Enola Gay", "OMD")
