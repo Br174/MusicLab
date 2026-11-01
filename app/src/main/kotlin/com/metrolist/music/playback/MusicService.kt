@@ -2116,7 +2116,7 @@ class MusicService :
             Timber.tag(TAG).w("playQueue called before player initialization, queuing request")
             scope.launch {
                 playerInitialized.first { it }
-                if (requestSerial != queueRequestSerial) return@launch
+                if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
                 playQueue(queue, playWhenReady, restoringQueue)
             }
             return
@@ -2149,7 +2149,7 @@ class MusicService :
                         .filterExplicit(dataStore.get(HideExplicitKey, false))
                         .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                 }
-            if (requestSerial != queueRequestSerial) return@launch
+            if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
             if (queue.preloadItem != null && player.playbackState == STATE_IDLE) return@launch
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
@@ -2180,14 +2180,14 @@ class MusicService :
             if (player.shuffleModeEnabled) {
                 // Fallback when queue doesn't support getFullStatus: load remaining pages then shuffle
                 withContext(Dispatchers.IO) { queue.shuffleRemainingTracks() }
-                if (requestSerial != queueRequestSerial) return@launch
+                if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
                 while (queue.hasNextPage() && player.mediaItemCount < SHUFFLE_PRELOAD_MAX_ITEMS) {
                     val moreItems = withContext(Dispatchers.IO) {
                         queue.nextPage()
                             .filterExplicit(dataStore.get(HideExplicitKey, false))
                             .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                     }
-                    if (requestSerial != queueRequestSerial) return@launch
+                    if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
                     if (moreItems.isEmpty()) break
                     player.addMediaItems(moreItems)
                 }
@@ -2201,7 +2201,7 @@ class MusicService :
                             .filterExplicit(dataStore.get(HideExplicitKey, false))
                             .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                     }
-                    if (requestSerial != queueRequestSerial) return@launch
+                    if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
                     if (moreItems.isNotEmpty()) {
                         player.addMediaItems(moreItems)
                     }
