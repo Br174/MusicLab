@@ -447,6 +447,11 @@ class MusicService :
             audioQuality
         }
 
+    // R35: one authoritative queue request. Obsolete asynchronous initial
+    // status fetches must never overwrite a newer user-selected track.
+    @Volatile private var queueRequestSerial = 0L
+    private var pendingQueuePreparation: Job? = null
+
     private var currentQueue: Queue = EmptyQueue
     var queueTitle: String? = null
 
@@ -2104,11 +2109,15 @@ class MusicService :
         playWhenReady: Boolean = true,
         restoringQueue: Boolean = false,
     ) {
+        val requestSerial = ++queueRequestSerial
+        pendingQueuePreparation?.cancel()
+        pendingQueuePreparation = null
         if (!playerInitialized.value) {
             Timber.tag(TAG).w("playQueue called before player initialization, queuing request")
             scope.launch {
                 playerInitialized.first { it }
-                playQueue(queue, playWhenReady)
+                if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
+                playQueue(queue, playWhenReady, restoringQueue)
             }
             return
         }
@@ -2124,7 +2133,7 @@ class MusicService :
             player.prepare()
             player.playWhenReady = playWhenReady
         }
-        scope.launch(SilentHandler) {
+        pendingQueuePreparation = scope.launch(SilentHandler) {
             // Issue #143: previously, when shuffle was enabled we called getFullStatus()
             // here, which fetches every page of a Spotify playlist (227+ tracks) and
             // resolves each one to a YouTube MediaItem before playback could start.
@@ -2140,6 +2149,7 @@ class MusicService :
                         .filterExplicit(dataStore.get(HideExplicitKey, false))
                         .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                 }
+            if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
             if (queue.preloadItem != null && player.playbackState == STATE_IDLE) return@launch
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
@@ -2170,12 +2180,14 @@ class MusicService :
             if (player.shuffleModeEnabled) {
                 // Fallback when queue doesn't support getFullStatus: load remaining pages then shuffle
                 withContext(Dispatchers.IO) { queue.shuffleRemainingTracks() }
+                if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
                 while (queue.hasNextPage() && player.mediaItemCount < SHUFFLE_PRELOAD_MAX_ITEMS) {
                     val moreItems = withContext(Dispatchers.IO) {
                         queue.nextPage()
                             .filterExplicit(dataStore.get(HideExplicitKey, false))
                             .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                     }
+                    if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
                     if (moreItems.isEmpty()) break
                     player.addMediaItems(moreItems)
                 }
@@ -2189,6 +2201,7 @@ class MusicService :
                             .filterExplicit(dataStore.get(HideExplicitKey, false))
                             .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                     }
+                    if (!PlaybackSprintPolicy.isLatestQueueRequest(requestSerial, queueRequestSerial)) return@launch
                     if (moreItems.isNotEmpty()) {
                         player.addMediaItems(moreItems)
                     }
@@ -2198,6 +2211,9 @@ class MusicService :
     }
 
     fun adoptQueue(queue: Queue, title: String? = null, initialQueueSize: Int = 0) {
+        ++queueRequestSerial
+        pendingQueuePreparation?.cancel()
+        pendingQueuePreparation = null
         currentQueue = queue
         queueTitle = title
         originalQueueSize = initialQueueSize
@@ -2484,6 +2500,10 @@ class MusicService :
     }
 
     fun playNow(item: MediaItem) {
+        // A direct tap must win over a slower queued search/playlist expansion.
+        ++queueRequestSerial
+        pendingQueuePreparation?.cancel()
+        pendingQueuePreparation = null
         lab31AudioEvent("PLAY_NOW", "player_state=" + player.playbackState)
         beginPlaybackPriorityBurst("play-now")
 
