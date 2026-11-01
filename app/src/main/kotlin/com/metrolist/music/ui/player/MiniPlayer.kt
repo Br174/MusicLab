@@ -245,6 +245,8 @@ private fun NewMiniPlayer(
     val offsetXAnimatable = remember { Animatable(0f) }
     var dragStartTime by remember { mutableLongStateOf(0L) }
     var totalDragDistance by remember { mutableFloatStateOf(0f) }
+    // Keep true signed gesture displacement independent of async artwork animation.
+    val signedSwipePixels = remember { floatArrayOf(0f) }
 
     val animationSpec =
         remember {
@@ -323,11 +325,12 @@ private fun NewMiniPlayer(
                 .padding(horizontal = 12.dp)
                 .let { baseModifier ->
                     if (swipeThumbnail) {
-                        baseModifier.pointerInput(Unit) {
+                        baseModifier.pointerInput(canSkipNext, canSkipPrevious, mediaMetadata?.id) {
                             detectHorizontalDragGestures(
                                 onDragStart = {
                                     dragStartTime = System.currentTimeMillis()
                                     totalDragDistance = 0f
+                                    signedSwipePixels[0] = 0f
                                 },
                                 onDragCancel = {
                                     coroutineScope.launch {
@@ -350,6 +353,7 @@ private fun NewMiniPlayer(
 
                                     if (allowLeft || allowRight || canReturnToCenter) {
                                         totalDragDistance += kotlin.math.abs(adjustedDragAmount)
+                                        signedSwipePixels[0] += adjustedDragAmount
                                         coroutineScope.launch {
                                             offsetXAnimatable.snapTo(offsetXAnimatable.value + adjustedDragAmount)
                                         }
@@ -358,7 +362,7 @@ private fun NewMiniPlayer(
                                 onDragEnd = {
                                     val dragDuration = System.currentTimeMillis() - dragStartTime
                                     val velocity = if (dragDuration > 0) totalDragDistance / dragDuration else 0f
-                                    val currentOffset = offsetXAnimatable.value
+                                    val currentOffset = signedSwipePixels[0]
                                     val minDistanceThreshold = 50f
                                     val velocityThreshold = (swipeSensitivity * -8.25f) + 8.5f
 
@@ -368,9 +372,9 @@ private fun NewMiniPlayer(
 
                                     if (shouldChangeSong) {
                                         if (currentOffset > 0 && canSkipPrevious) {
-                                            playerConnection.player.seekToPreviousMediaItem()
+                                            playerConnection.skipToPreviousItem()
                                         } else if (currentOffset <= 0 && canSkipNext) {
-                                            playerConnection.player.seekToNext()
+                                            playerConnection.seekToNext()
                                         }
                                     }
                                     coroutineScope.launch {
@@ -745,6 +749,8 @@ private fun LegacyMiniPlayer(
     val offsetXAnimatable = remember { Animatable(0f) }
     var dragStartTime by remember { mutableLongStateOf(0L) }
     var totalDragDistance by remember { mutableFloatStateOf(0f) }
+    // Keep true signed gesture displacement independent of async artwork animation.
+    val signedSwipePixels = remember { floatArrayOf(0f) }
 
     val animationSpec =
         remember {
@@ -780,11 +786,12 @@ private fun LegacyMiniPlayer(
                     onClick = onClick
                 ).let { baseModifier ->
                     if (swipeThumbnail) {
-                        baseModifier.pointerInput(Unit) {
+                        baseModifier.pointerInput(canSkipNext, canSkipPrevious, mediaMetadata?.id) {
                             detectHorizontalDragGestures(
                                 onDragStart = {
                                     dragStartTime = System.currentTimeMillis()
                                     totalDragDistance = 0f
+                                    signedSwipePixels[0] = 0f
                                 },
                                 onDragCancel = {
                                     coroutineScope.launch { offsetXAnimatable.animateTo(0f, animationSpec) }
@@ -805,6 +812,7 @@ private fun LegacyMiniPlayer(
 
                                     if (allowLeft || allowRight || canReturnToCenter) {
                                         totalDragDistance += kotlin.math.abs(adjustedDragAmount)
+                                        signedSwipePixels[0] += adjustedDragAmount
                                         coroutineScope.launch {
                                             offsetXAnimatable.snapTo(offsetXAnimatable.value + adjustedDragAmount)
                                         }
@@ -813,7 +821,7 @@ private fun LegacyMiniPlayer(
                                 onDragEnd = {
                                     val dragDuration = System.currentTimeMillis() - dragStartTime
                                     val velocity = if (dragDuration > 0) totalDragDistance / dragDuration else 0f
-                                    val currentOffset = offsetXAnimatable.value
+                                    val currentOffset = signedSwipePixels[0]
                                     val minDistanceThreshold = 50f
                                     val velocityThreshold = (swipeSensitivity * -8.25f) + 8.5f
 
@@ -823,9 +831,9 @@ private fun LegacyMiniPlayer(
 
                                     if (shouldChangeSong) {
                                         if (currentOffset > 0 && canSkipPrevious) {
-                                            playerConnection.player.seekToPreviousMediaItem()
+                                            playerConnection.skipToPreviousItem()
                                         } else if (currentOffset <= 0 && canSkipNext) {
-                                            playerConnection.player.seekToNext()
+                                            playerConnection.seekToNext()
                                         }
                                     }
                                     coroutineScope.launch { offsetXAnimatable.animateTo(0f, animationSpec) }
