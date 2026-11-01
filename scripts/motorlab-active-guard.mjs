@@ -17,16 +17,16 @@ function validate(){
    assert.match(c.cert_sha256,/^[a-f0-9]{64}$/i);
  }else assert.equal(c.mode,'control-only','unrecognized signing mode');
 }
-function getJson(path){return JSON.parse(execFileSync('gh',['api',path],{encoding:'utf8',timeout:20000,stdio:['ignore','pipe','pipe']}));}
+function getJson(path,query){return JSON.parse(execFileSync('gh',['api',path,'--jq',query],{encoding:'utf8',timeout:20000,maxBuffer:16*1024*1024,stdio:['ignore','pipe','pipe']}));}
 try{
  validate();
  if(process.argv.includes('--self-test'))console.log('ACTIVE_FAMILY_SELF_TEST_PASS '+c.repo);
  else {
    assert.equal(process.env.GITHUB_REPOSITORY,c.repo,'Wrong project/repository');
-   const ref=getJson('repos/'+c.repo+'/git/ref/heads/'+c.active_ref);
+   const ref=getJson('repos/'+c.repo+'/git/ref/heads/'+c.active_ref,'{object:{sha:.object.sha}}');
    assert.ok(sha.test(ref.object?.sha||''),'Missing authoritative active ref');
    const current=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
-   const comparison=getJson('repos/'+c.repo+'/compare/'+ref.object.sha+'...'+current);
+   const comparison=getJson('repos/'+c.repo+'/compare/'+ref.object.sha+'...'+current,'{status:.status}');
    assert.ok(['ahead','identical'].includes(comparison.status),'WRONG_FAMILY: source does not descend from currently verified active ref');
    console.log('ACTIVE_FAMILY_PASS repo='+c.repo+' ref='+c.active_ref+' base='+ref.object.sha+' current='+current+' Scudo=REQUIRED');
  }
