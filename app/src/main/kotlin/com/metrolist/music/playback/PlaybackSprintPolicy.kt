@@ -34,6 +34,23 @@ internal object PlaybackSprintPolicy {
         isBuffering && playRequested && sameMediaId && online &&
             recoveryAttempts < MAX_BUFFER_STALL_RECOVERIES
 
+    // R35: asynchronous queue results are accepted only for the latest tap.
+    fun isLatestQueueRequest(requestSerial: Long, activeSerial: Long): Boolean =
+        requestSerial == activeSerial
+
+    // R35: a visual carousel must not pretend that a short or vertical drag
+    // is a successful audio transition.
+    fun committedSwipeDirection(
+        horizontalPx: Float,
+        verticalPx: Float,
+        minimumPx: Float,
+    ): Int = when {
+        kotlin.math.abs(horizontalPx) <= minimumPx -> 0
+        kotlin.math.abs(horizontalPx) <= kotlin.math.abs(verticalPx) -> 0
+        horizontalPx < 0f -> 1
+        else -> -1
+    }
+
     // R34: network timeouts, decoder resets and expired URLs must not destroy
     // the healthy cached audio prefix. Purge only confirmed damaged cache/ranges.
     fun shouldPurgeCachedAudio(fileMissing: Boolean, invalidRange: Boolean): Boolean =
