@@ -307,6 +307,31 @@ internal object MusicLabHistoricalHitParade {
 
     /** Each supported source layout has a different structured parser. */
     internal fun parseSongs(html: String): List<HistoricalHit> {
+        // REAL first-party HTML (1959-1980 and 2018+). The browser-extracted
+        // fixtures flatten these structured divs into an unrelated legacy
+        // <p><h5> layout, which had concealed the production regression.
+        // Read the current site's dedicated title and artist elements first.
+        val actualPage = Jsoup.parse(html)
+        val realRows = actualPage.select("li").mapNotNull { entry ->
+            val titleNode = entry.selectFirst(".brano-dettagli-titolo")
+                ?: return@mapNotNull null
+            val artistNode = entry.selectFirst(".brano-dettagli-artista")
+                ?: return@mapNotNull null
+            val rank = entry.selectFirst(".rank h5")?.text()?.trim()?.toIntOrNull()
+                ?: return@mapNotNull null
+            if (rank !in 1..200) return@mapNotNull null
+            val title = titleNode.text().trim()
+            val artist = artistNode.text().trim()
+            if (!validSong(title, artist)) return@mapNotNull null
+            val statistics = entry.selectFirst(".brano-dettagli-pesi")?.text().orEmpty()
+            fun field(label: String): String? =
+                Regex("\\b$label:\\s*([^|\\s]+)", RegexOption.IGNORE_CASE)
+                    .find(statistics)?.groupValues?.get(1)
+            HistoricalHit(rank, title, artist, field("MAX"), field("NS"), field("Pre"))
+        }.distinctBy { it.rank }.sortedBy { it.rank }
+        if (realRows.isNotEmpty()) return realRows
+
+        // Keep the functioning old 1981-2017 Top10 and table readers.
         val plainTop10 = parseOriginalPlainTop10(html)
         if (plainTop10.isNotEmpty()) return plainTop10
         // First use the source layout. Malformed legacy HTML may be
