@@ -82,11 +82,13 @@ internal fun MusicLabSearchExploreHome(
         verticalArrangement = Arrangement.spacedBy(13.dp),
     ) {
         item(key = "explore_tabs") {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ExploreTabChip("Classifiche", selectedTab == 0,
                     { selectedTab = 0 }, Modifier.weight(1f))
                 ExploreTabChip("Generi musicali", selectedTab == 1,
                     { selectedTab = 1 }, Modifier.weight(1f))
+                ExploreTabChip("Hit Parade", false,
+                    { navController.navigate("musiclab_hit_parade") }, Modifier.weight(1f))
             }
         }
         if (selectedTab == 0) {
@@ -156,12 +158,12 @@ private fun ExploreTabChip(label: String, selected: Boolean, onClick: () -> Unit
         .background(if (selected) MaterialTheme.colorScheme.primaryContainer
             else MaterialTheme.colorScheme.surfaceContainer)
         .clickable(onClick = onClick)
-        .padding(horizontal = 9.dp, vertical = 12.dp),
+        .padding(horizontal = 4.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center) {
         Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1,
             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                 else MaterialTheme.colorScheme.onSurface,
-            fontSize = 14.sp)
+            fontSize = 11.sp)
     }
 }
 
