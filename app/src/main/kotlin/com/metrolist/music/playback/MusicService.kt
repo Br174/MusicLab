@@ -2500,6 +2500,10 @@ class MusicService :
     }
 
     fun playNow(item: MediaItem) {
+        // A direct tap must win over a slower queued search/playlist expansion.
+        ++queueRequestSerial
+        pendingQueuePreparation?.cancel()
+        pendingQueuePreparation = null
         lab31AudioEvent("PLAY_NOW", "player_state=" + player.playbackState)
         beginPlaybackPriorityBurst("play-now")
 
