@@ -4315,7 +4315,12 @@ class MusicService :
                 }
                 // An actual ENOENT means the cached backing file is absent.
                 // Invalidate this mediaId only after confirming the same song.
-                performAggressiveCacheClear(mediaId)
+                if (PlaybackSprintPolicy.shouldPurgeCachedAudio(
+                        fileMissing = true, invalidRange = false
+                    )
+                ) {
+                    performAggressiveCacheClear(mediaId)
+                }
                 player.seekTo(currentIndex, currentPosition)
                 player.prepare()
 
