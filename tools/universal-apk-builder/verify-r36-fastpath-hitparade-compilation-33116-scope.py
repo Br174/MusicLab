@@ -55,7 +55,7 @@ assert "MusicLabFastPath.find(song.title, song.artist)" in new
 
 comp=Path("app/src/main/kotlin/com/metrolist/music/ui/component/CompilationScreen.kt").read_text()
 for must in (
- "DiscogsClient.searchCompilations(", 
+ "DiscogsClient.searchCompilations(",
  "model = summary.coverUrl ?: summary.thumbnailUrl",
  "model = detail.coverUrl",
  "CompilationTrackResolver.isHardCompatible",
