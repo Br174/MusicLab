@@ -42,6 +42,15 @@ for year,idx,week in patterns:
      print("[HTTP] firsthref="+str(links_into_year[:2]))
      print("[HTTP] head="+repr(payload[:90]))
      if kind=="week" and ua_name=="app" and year in (1959,1980,2018,2026):
+      from pathlib import Path
+      folder=Path("hpi-http-diag");folder.mkdir(exist_ok=True)
+      (folder/("week-"+str(year)+".html")).write_bytes(raw)
+      tag=payload.find("<h5")
+      print("[HPI_RAW_TAG] year="+str(year)+" h5Pos="+str(tag)+
+        " around="+repr(payload[max(0,tag-140):tag+450]) if tag>=0 else
+        "[HPI_RAW_TAG] year="+str(year)+" no literal <h5")
+
+     if kind=="week" and ua_name=="app" and year in (1959,1980,2018,2026):
       first=re.search(r"<h5[^>]*>\\s*1\\s*</h5>",payload,re.I)
       # Rank may be wrapped by attributes or extra inline tags.
       anyh=re.search(r"<h5\\b[^>]*>",payload,re.I)
