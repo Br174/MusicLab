@@ -19,7 +19,13 @@ internal object CompilationTrackMatchPolicy {
         val actual = normalize(track.title)
         if (wanted.isEmpty() || actual.isEmpty()) return false
         // Exact work label; allow a documented edition suffix, not a different song.
-        if (actual != wanted && !actual.startsWith(wanted + " ")) return false
+        if (actual != wanted) {
+            if (!actual.startsWith(wanted + " ")) return false
+            val edition = actual.removePrefix(wanted).trim()
+            // Never accept unrelated songs such as "Il mondo che vorrei".
+            if (!Regex("^(live|remastered?|radio edit|single version|album version|mono|stereo|edit|original version)( .*)?$")
+                    .matches(edition)) return false
+        }
         val requestedArtist = normalize(artist)
         if (requestedArtist.isEmpty()) return true
         val attributed = track.artists.map(::normalize).filter(String::isNotBlank)
