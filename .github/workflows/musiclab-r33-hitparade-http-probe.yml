@@ -1,0 +1,19 @@
+name: MusicLab R33 Hit Parade HTTP Diagnostic Only
+on:
+  push:
+    branches:
+      - lab/musiclab-r33-hitparade-http-path-33113-20261101
+    paths:
+      - tools/universal-apk-builder/probe-hitparade-http-33113.py
+      - .github/workflows/musiclab-r33-hitparade-http-probe.yml
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe MusicLab chart URLs with real Android HTTP headers
+        run: python3 tools/universal-apk-builder/probe-hitparade-http-33113.py
