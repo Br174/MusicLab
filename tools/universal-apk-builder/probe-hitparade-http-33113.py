@@ -41,5 +41,14 @@ for year,idx,week in patterns:
      print(f"[HTTP] year={year} kind={kind} agent={ua_name} status={f.status} final={f.url} bytes={len(raw)} charset={enc} links={len(links.hrefs)} weekLinks={len(links_into_year)} h5={h5}")
      print("[HTTP] firsthref="+str(links_into_year[:2]))
      print("[HTTP] head="+repr(payload[:90]))
+     if kind=="week" and ua_name=="app" and year in (1959,1980,2018,2026):
+      first=re.search(r"<h5[^>]*>\\s*1\\s*</h5>",payload,re.I)
+      # Rank may be wrapped by attributes or extra inline tags.
+      anyh=re.search(r"<h5\\b[^>]*>",payload,re.I)
+      pos=first.start() if first else (anyh.start() if anyh else -1)
+      print("[HTML_SHAPE] year="+str(year)+" exactRank="+str(bool(first))+
+        " firstRankContext="+repr(payload[max(0,pos-180):pos+620]) if pos>=0 else "[HTML_SHAPE] no h5")
+      print("[HTML_SHAPE] li="+str(len(re.findall(r"<li\\b",payload,re.I)))+
+        " nextSnippet="+repr(payload[max(0,pos-50):pos+180]))
    except Exception as e:
     print(f"[HTTP] year={year} kind={kind} agent={ua_name} FAILED {type(e).__name__} {str(e)[:200]}")
