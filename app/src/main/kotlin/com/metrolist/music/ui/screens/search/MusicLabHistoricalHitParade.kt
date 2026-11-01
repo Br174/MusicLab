@@ -154,7 +154,8 @@ internal object MusicLabHistoricalHitParade {
         val index = download("$BASE/$year/index.html")
         val weeks = weeksFromIndex(index, year)
         if (weeks.isEmpty()) error("Nessuna settimana pubblicata nell'indice del $year")
-        val target = saturdayOf(day).timeInMillis
+        // Published index dates are midnight. Compare day boundaries, not 12:00 noon.
+        val target = saturdayOf(day).apply { set(Calendar.HOUR_OF_DAY, 0) }.timeInMillis
         val chosen = weeks.firstOrNull { it.millis >= target } ?: weeks.last()
         val tracks = parseSongs(download(chosen.url))
         if (tracks.isEmpty()) error("Formato storico non ancora riconosciuto per questa settimana")
