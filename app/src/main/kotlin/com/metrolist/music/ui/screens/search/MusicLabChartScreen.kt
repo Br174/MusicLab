@@ -67,6 +67,7 @@ internal data class MusicLabChartTrack(
     val artist: String,
     val youtubeId: String? = null,
     val artwork: String? = null,
+    val sourceArtworkTrusted: Boolean = true,
 )
 
 internal data class MusicLabChartResult(
@@ -108,7 +109,11 @@ internal object MusicLabChartsRepository {
             if (!top.isNullOrEmpty()) return@runCatching MusicLabChartResult(
                 source = "Last.fm · brani popolari per Paese",
                 tracks = top.take(50).map {
-                    MusicLabChartTrack(it.rank, it.title, it.artist, artwork = it.artwork)
+                    // Last.fm frequently supplies a successful HTTP image that is
+                    // only its generic white-star placeholder. It must not
+                    // override real album artwork from verified catalogues.
+                    MusicLabChartTrack(it.rank, it.title, it.artist,
+                        artwork = it.artwork, sourceArtworkTrusted = false)
                 },
             )
             lastFmDiagnostic = when {
