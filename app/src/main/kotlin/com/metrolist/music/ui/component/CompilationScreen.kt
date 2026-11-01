@@ -57,6 +57,7 @@ import com.metrolist.music.discogs.CompilationFullAudio
 import com.metrolist.music.discogs.CompilationLanguageHeuristics
 import com.metrolist.music.discogs.CompilationResolvedTrack
 import com.metrolist.music.discogs.CompilationTrackResolver
+import com.metrolist.music.discogs.CompilationTrackMatchPolicy
 import com.metrolist.music.discogs.DiscogsClient
 import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsCompilationSummary
@@ -80,6 +81,8 @@ private data class CompilationSearchCriteria(
     val style: String?,
     val country: String?,
     val language: String?,
+    val trackTitle: String? = null,
+    val trackArtist: String? = null,
 )
 
 private object CompilationSessionStore {
@@ -131,6 +134,7 @@ internal fun CompilationScreen(
     val discogsToken by rememberPreference(DiscogsTokenKey, "")
 
     var query by remember { mutableStateOf(CompilationSessionStore.query) }
+    var trackRequest by remember { mutableStateOf(CompilationNavigationBridge.takePendingTrack()) }
     var year by remember { mutableStateOf(CompilationSessionStore.year) }
     var genre by remember { mutableStateOf(CompilationSessionStore.genre) }
     var style by remember { mutableStateOf(CompilationSessionStore.style) }
@@ -164,6 +168,7 @@ internal fun CompilationScreen(
     var filtersExpanded by remember { mutableStateOf(CompilationSessionStore.filtersExpanded) }
     var selectedTrackIndex by remember { mutableStateOf(CompilationSessionStore.selectedTrackIndex) }
     var paginationJob by remember { mutableStateOf<Job?>(null) }
+    var searchJob by remember { mutableStateOf<Job?>(null) }
     var fullAudioLookupJob by remember { mutableStateOf<Job?>(null) }
     var nextTrackWarmJob by remember { mutableStateOf<Job?>(null) }
     var fastTrackPlayJob by remember { mutableStateOf<Job?>(null) }
@@ -202,6 +207,31 @@ internal fun CompilationScreen(
         }
     }
 
+    // Verify the actual release tracklist before showing it as containing the song.
+    // Results are painted progressively as each real Discogs release is checked.
+    suspend fun verifyContainingTrack(
+        candidates: List<DiscogsCompilationSummary>,
+        criteria: CompilationSearchCriteria,
+        replaceResults: Boolean,
+    ): List<DiscogsCompilationSummary> {
+        val wantedTitle = criteria.trackTitle ?: return candidates
+        val accepted = mutableListOf<DiscogsCompilationSummary>()
+        for (candidate in candidates) {
+            val release = DiscogsClient.getRelease(discogsToken, candidate.id, includeMasterVideos = false)
+                .getOrNull() ?: continue
+            if (release.tracks.any { track ->
+                    CompilationTrackMatchPolicy.matches(track, wantedTitle, criteria.trackArtist.orEmpty())
+                }
+            ) {
+                accepted += candidate
+                results = if (replaceResults) accepted.toList()
+                          else (results + candidate).distinctBy { it.id }
+                CompilationSessionStore.results = results
+            }
+        }
+        return accepted
+    }
+
     suspend fun loadPage(
         criteria: CompilationSearchCriteria,
         page: Int,
@@ -209,13 +239,14 @@ internal fun CompilationScreen(
     ): Boolean {
         val response = DiscogsClient.searchCompilations(
             token = discogsToken,
-            query = criteria.query,
+            query = if (criteria.trackTitle != null) "" else criteria.query,
+            trackTitle = criteria.trackTitle,
             year = criteria.year,
             genre = criteria.genre,
             style = criteria.style,
             country = criteria.country,
             page = page,
-            perPage = if (criteria.language == null) 100 else 25,
+            perPage = if (criteria.trackTitle != null || criteria.language != null) 25 else 100,
         )
 
         val pageResult = response.getOrElse {
@@ -228,10 +259,13 @@ internal fun CompilationScreen(
         }
 
         val visibleItems = filterByLanguage(pageResult.items, criteria.language)
+        val verifiedItems = if (criteria.trackTitle != null) {
+            verifyContainingTrack(visibleItems, criteria, replaceResults)
+        } else visibleItems
         results = if (replaceResults) {
-            visibleItems
+            verifiedItems
         } else {
-            (results + visibleItems).distinctBy { it.id }
+            (results + verifiedItems).distinctBy { it.id }
         }
         currentPage = pageResult.page
         totalPages = pageResult.pages
@@ -260,9 +294,12 @@ internal fun CompilationScreen(
             style = style,
             country = country,
             language = language,
+            trackTitle = trackRequest?.title,
+            trackArtist = trackRequest?.artist,
         )
 
         paginationJob?.cancel()
+        searchJob?.cancel()
         fullAudioLookupJob?.cancel()
         nextTrackWarmJob?.cancel()
         loading = true
@@ -279,10 +316,27 @@ internal fun CompilationScreen(
         activeSearch = criteria
         CompilationSessionStore.activeSearch = criteria
 
-        scope.launch {
-            resultListState.scrollToItem(0)
-            loadPage(criteria, page = 1, replaceResults = true)
-            loading = false
+        searchJob = scope.launch {
+            try {
+                resultListState.scrollToItem(0)
+                loadPage(criteria, page = 1, replaceResults = true)
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    // Opening Compilation from the player is a track-search request, not a
+    // release-title query. Manual editing returns to the original search mode.
+    LaunchedEffect(trackRequest?.title, trackRequest?.artist) {
+        trackRequest?.let { target ->
+            query = target.title
+            year = null
+            genre = null
+            style = null
+            country = null
+            language = null
+            runSearch()
         }
     }
 
@@ -633,7 +687,7 @@ internal fun CompilationScreen(
                                     ) {
                                         BasicTextField(
                                             value = query,
-                                            onValueChange = { query = it },
+                                            onValueChange = { query = it; trackRequest = null },
                                             singleLine = true,
                                             textStyle = MaterialTheme.typography.bodyMedium.copy(
                                                 color = MaterialTheme.colorScheme.onSurface,
@@ -742,7 +796,9 @@ internal fun CompilationScreen(
                             if (activeSearch != null && (totalDiscogsResults > 0 || results.isNotEmpty())) {
                                 val counterText =
                                     if (activeSearch?.language == null) {
-                                        "Caricate ${results.size} / $totalDiscogsResults · pagina $currentPage/$totalPages"
+                                        if (activeSearch?.trackTitle != null) {
+                                            "Compilation verificate: ${results.size} · ricerca in corso nelle pagine Discogs ($currentPage/$totalPages)"
+                                        } else "Caricate ${results.size} / $totalDiscogsResults · pagina $currentPage/$totalPages"
                                     } else {
                                         "Visibili ${results.size} · Discogs $totalDiscogsResults · pagina $currentPage/$totalPages"
                                     }
