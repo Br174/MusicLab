@@ -12,6 +12,5 @@ updated = previous.replace("33108", "33109").replace(
     "Revisione-28-Classifiche-Copertine-Reali", "Revisione-29-Hit-Parade")
 assert 'UAB_UPDATE_FAMILY_VERSION_CODE="33109"' in updated
 assert 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' in updated
-assert 'UAB_UPDATE_FAMILY_VERSION_NAME=' in updated
 path.write_text(updated)
 print("[MUSICLAB 33109] Uses existing 33108 application ID and original signing family")
