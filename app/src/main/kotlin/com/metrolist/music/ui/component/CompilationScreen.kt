@@ -393,7 +393,7 @@ internal fun CompilationScreen(
     LaunchedEffect(detail?.id) {
         val current = detail ?: return@LaunchedEffect
         delay(180L)
-        for (index in 0 until minOf(2, current.tracks.size)) {
+        for (index in 0 until minOf(MusicLabFastPathPolicy.COMPILATION_WARM_TRACKS, current.tracks.size)) {
             if (detail?.id != current.id ||
                 playerConnection?.isPlaybackPriorityBurstActive() == true) break
             resolveTrack(index, current)
@@ -455,9 +455,9 @@ internal fun CompilationScreen(
             val admittedIds = linkedSetOf<String>()
             try {
                 for (index in current.tracks.indices) {
-                    if (detail?.id != current.id || selectedTrackIndex != null) break
+                    if (!MusicLabFastPathPolicy.mayContinueCompilation(detail?.id, current.id, selectedTrackIndex)) break
                     val found = resolveTrack(index, current) ?: continue
-                    if (detail?.id != current.id || selectedTrackIndex != null) break
+                    if (!MusicLabFastPathPolicy.mayContinueCompilation(detail?.id, current.id, selectedTrackIndex)) break
                     val item = found.song.toMediaItem()
                     if (!started) {
                         playerConnection?.beginPlaybackPriorityBurst("compilation-first-audio")
@@ -468,9 +468,9 @@ internal fun CompilationScreen(
                         started = true
                         // Allow the initial one-item queue to commit before appending.
                         delay(120L)
-                    } else if (item.mediaId !in admittedIds) {
+                    } else {
                         val currentId = playerConnection?.player?.currentMediaItem?.mediaId
-                        if (currentId != null && currentId !in admittedIds) break
+                        if (!MusicLabFastPathPolicy.mayAppendResolvedSong(currentId, admittedIds, item.mediaId)) break
                         admittedIds.add(item.mediaId)
                         playerConnection?.addToQueue(item)
                     }
