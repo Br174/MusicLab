@@ -51,6 +51,28 @@ class MusicLabHistoricalHitParadeTest {
     }
 
     @Test
+    fun modernTop200UsesLinkedTitleAndSeparatePerformerNotStatistics() {
+        val modern = """
+            <ul>
+              <li><h5>1</h5>3<a href="https://www.youtube.com/watch?v=abc">Il filo rosso</a>
+                <p>Alfa</p><p>Artist First</p>
+                <p><b>P:100,00% | MAX: 1 | NS: 10</b></p>
+              </li>
+              <li><h5>2</h5>11<a href="https://www.youtube.com/watch?v=def">Last Christmas</a>
+                <p>Wham!</p><p>Sony</p>
+                <p><b>P:97,13% | MAX: 2 | NS: 7</b></p>
+              </li>
+            </ul>
+        """.trimIndent()
+        val songs = MusicLabHistoricalHitParade.parseSongs(modern)
+        assertEquals(2, songs.size)
+        assertEquals("Il filo rosso", songs[0].title)
+        assertEquals("Alfa", songs[0].artist)
+        assertEquals("Wham!", songs[1].artist)
+        assertEquals("7", songs[1].weeks)
+    }
+
+    @Test
     fun anyDateResolvesToTheWeeklySaturday() {
         val friday = Calendar.getInstance().apply { set(1980, Calendar.SEPTEMBER, 26) }
         val saturday = MusicLabHistoricalHitParade.saturdayOf(friday)
