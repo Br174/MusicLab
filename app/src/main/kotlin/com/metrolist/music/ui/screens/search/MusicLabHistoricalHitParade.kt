@@ -199,7 +199,8 @@ internal object MusicLabHistoricalHitParade {
             val headlineMarkup = afterRank.substringBefore("<p")
             val heading = Jsoup.parseBodyFragment(headlineMarkup).text()
                 .replace('\u00a0', ' ').trim()
-            val cleanHeading = heading.replace(movement, "").trim()
+            val cleanHeading = heading.replace(movement, "")
+                .replace(Regex("^(Re|NE)(?=\\p{Lu})"), "").trim()
             val track = tracklist.find(block)?.groupValues?.get(1).orEmpty()
             val sides = Jsoup.parseBodyFragment(track).text()
                 .split('|').flatMap { it.split('\\') }.map { it.trim() }
