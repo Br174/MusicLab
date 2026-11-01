@@ -445,6 +445,8 @@ internal fun CompilationScreen(
         if (resolvingAll) return
         fastTrackPlayJob?.cancel()
         nextTrackWarmJob?.cancel()
+        selectedTrackIndex = null
+        CompilationSessionStore.selectedTrackIndex = null
         resolvingAll = true
         // Start the first playable track immediately. Append later tracks in
         // original Discogs order as they resolve; never wait for the full album.
@@ -466,9 +468,10 @@ internal fun CompilationScreen(
                         started = true
                         // Allow the initial one-item queue to commit before appending.
                         delay(120L)
-                    } else if (admittedIds.add(item.mediaId)) {
+                    } else if (item.mediaId !in admittedIds) {
                         val currentId = playerConnection?.player?.currentMediaItem?.mediaId
                         if (currentId != null && currentId !in admittedIds) break
+                        admittedIds.add(item.mediaId)
                         playerConnection?.addToQueue(item)
                     }
                 }
