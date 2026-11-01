@@ -128,7 +128,8 @@ internal object MusicLabHistoricalHitParade {
 
     /** Validate chart identity separately from artwork and player availability. */
     private fun validSong(title: String, artist: String): Boolean =
-        title.isNotBlank() && artist.any { it.isLetter() } &&
+        title.isNotBlank() &&
+            (artist.any { it.isLetter() } || artist.trim() == "883") &&
             !title.startsWith("P:", ignoreCase = true) &&
             !artist.startsWith("P:", ignoreCase = true) &&
             !artist.contains("MAX:", ignoreCase = true)
