@@ -296,8 +296,8 @@ private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
 // deliberately small start buffer is being filled.
 // Player Veloce 3: shave the remaining tap-to-audio delay without weakening
 // rebuffer protection. 900ms is the new startup target; recovery remains 4s.
-private const val PLAYBACK_START_BUFFER_MS = 900
-private const val PLAYBACK_REBUFFER_MS = 6_000
+private const val PLAYBACK_START_BUFFER_MS = 1_600
+private const val PLAYBACK_REBUFFER_MS = 8_000
 
 private const val SMART_PRELOAD_TRACKS = 1
 private const val SMART_PRELOAD_PREFIX_BYTES = 384L * 1024L
@@ -310,7 +310,7 @@ private const val PLAYBACK_PRIORITY_BURST_MIN_MS = 2_000L
 // the native player has accumulated a REAL audio reserve. The startup
 // decoder threshold (900ms) and maximum Media3 buffer (50s) stay unchanged.
 private const val PLAYBACK_PRIORITY_BURST_MAX_MS = 15_000L
-private const val PLAYBACK_PRIORITY_RELEASE_BUFFER_MS = 12_000L
+private const val PLAYBACK_PRIORITY_RELEASE_BUFFER_MS = 18_000L
 private const val COVER_AUDIO_SAFETY_BUFFER_MS = 18_000L
 
 /** When the queue has this many or fewer items (or items ahead of current), load more from paginated queues (e.g. Spotify). */
@@ -2446,12 +2446,15 @@ class MusicService :
                     if (::player.isInitialized) player.playbackState else -1,
                 )
 
-                if (::player.isInitialized && player.playWhenReady) {
-                    if (player.playbackState == Player.STATE_READY) {
-                        scheduleSmartPlaybackPreload()
-                        startSponsorBlockForCurrentTrack()
-                        scheduleCrossfade()
-                    }
+                if (::player.isInitialized && PlaybackSprintPolicy.canRunOptionalBackgroundAudioWork(
+                        isReady = player.playbackState == Player.STATE_READY,
+                        wantsPlayback = player.playWhenReady,
+                        bufferedMs = player.totalBufferedDuration,
+                        minimumReserveMs = PLAYBACK_PRIORITY_RELEASE_BUFFER_MS,
+                    )) {
+                    scheduleSmartPlaybackPreload()
+                    startSponsorBlockForCurrentTrack()
+                    scheduleCrossfade()
                 }
             }
     }
@@ -3258,7 +3261,14 @@ class MusicService :
             Player.STATE_READY -> {
                 if (!playbackPriorityBurstActive) {
                     scheduleSmartPlaybackPreload()
-                    if (sponsorBlockJob == null) {
+                    if (sponsorBlockJob == null &&
+                        PlaybackSprintPolicy.canRunOptionalBackgroundAudioWork(
+                            isReady = true,
+                            wantsPlayback = player.playWhenReady,
+                            bufferedMs = player.totalBufferedDuration,
+                            minimumReserveMs = PLAYBACK_PRIORITY_RELEASE_BUFFER_MS,
+                        )
+                    ) {
                         startSponsorBlockForCurrentTrack()
                     }
                 }
@@ -3934,10 +3944,8 @@ class MusicService :
             return
         }
 
-        if (mediaId != null) {
-            performAggressiveCacheClear(mediaId)
-        }
-
+        // R34: do NOT evict healthy buffered audio before classifying the error.
+        // Damaged cache/ranges are cleared only by their dedicated handlers.
         when {
             isAudioRendererError(error) -> {
                 Timber.tag(TAG).d("AudioTrack error detected (${error.errorCode}), performing safe recovery")
@@ -4305,6 +4313,9 @@ class MusicService :
                     handleFinalFailure()
                     return@launch
                 }
+                // An actual ENOENT means the cached backing file is absent.
+                // Invalidate this mediaId only after confirming the same song.
+                performAggressiveCacheClear(mediaId)
                 player.seekTo(currentIndex, currentPosition)
                 player.prepare()
 
@@ -4345,7 +4356,8 @@ class MusicService :
         retryJob?.cancel()
         retryJob =
             scope.launch {
-                performAggressiveCacheClear(mediaId)
+                // Transient network I/O is not proof of corrupted cached audio.
+                // Preserve the buffered prefix and retry the same current item.
                 delay(RETRY_DELAY_MS)
 
                 // A delayed failed-stream retry cannot prepare a newer song,
