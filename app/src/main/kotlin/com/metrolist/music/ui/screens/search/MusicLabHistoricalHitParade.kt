@@ -152,9 +152,13 @@ internal object MusicLabHistoricalHitParade {
             if (!chartedSide.isNullOrBlank()) {
                 // Identify the side actually ranked, not automatically side A.
                 title = chartedSide
-                val index = heading.indexOf(title, ignoreCase = true)
+                // Some chart templates wrap the headline in a link, which
+                // disappears from Element.ownText(). Fall back to row.text().
+                val readable = if (heading.indexOf(title, ignoreCase = true) >= 0)
+                    heading else row.text()
+                val index = readable.indexOf(title, ignoreCase = true)
                 if (index < 0) return@mapNotNull null
-                artist = heading.substring(index + title.length)
+                artist = readable.substring(index + title.length).substringBefore('(')
                     .trim().replace(Regex("\\s+"), " ")
             } else {
                 // On Top200 pages the YouTube-linked title is followed by a
