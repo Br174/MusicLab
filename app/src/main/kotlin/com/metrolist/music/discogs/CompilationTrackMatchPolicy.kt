@@ -19,7 +19,7 @@ internal object CompilationTrackMatchPolicy {
         val actual = normalize(track.title)
         if (wanted.isEmpty() || actual.isEmpty()) return false
         // Exact work label; allow a documented edition suffix, not a different song.
-        if (actual != wanted && !actual.startsWith("$"+"wanted ")) return false
+        if (actual != wanted && !actual.startsWith(wanted + " ")) return false
         val requestedArtist = normalize(artist)
         if (requestedArtist.isEmpty()) return true
         val attributed = track.artists.map(::normalize).filter(String::isNotBlank)
@@ -27,6 +27,6 @@ internal object CompilationTrackMatchPolicy {
             return true // title verified, recording credit not supplied by source
         }
         return attributed.any { it == requestedArtist ||
-            it.startsWith("$"+"requestedArtist ") || requestedArtist.startsWith(it + " ") }
+            it.startsWith(requestedArtist + " ") || requestedArtist.startsWith(it + " ") }
     }
 }
