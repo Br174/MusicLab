@@ -87,9 +87,15 @@ internal object MusicLabHistoricalHitParade {
         set(Calendar.MILLISECOND, 0)
     }
 
-    private fun download(url: String): String {
+    private fun download(url: String, browserFallback: Boolean = false): String {
         require(url.startsWith("$BASE/") && !url.contains(".."))
-        val request = Request.Builder().url(url).header("User-Agent", "MusicLab-HitParade/1.1").build()
+        val agent = if (browserFallback)
+            "Mozilla/5.0 (Linux; Android 11; Mobile) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36"
+            else "MusicLab-HitParade/1.1"
+        val request = Request.Builder().url(url).header("User-Agent", agent)
+            .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
+            .build()
         return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Fonte non disponibile (HTTP " + response.code + ")")
             response.body?.string() ?: error("Pagina vuota")
@@ -434,12 +440,20 @@ internal object MusicLabHistoricalHitParade {
         require(year in 1959..Calendar.getInstance().get(Calendar.YEAR)) {
             "L'archivio settimanale inizia nel 1959"
         }
-        val weeks = weeksFromIndex(download(indexUrl(year)), year)
-        if (weeks.isEmpty()) error("Nessuna settimana pubblicata per l'anno " + year)
+        val index = indexUrl(year)
+        var weeks = weeksFromIndex(download(index), year)
+        if (weeks.isEmpty()) weeks = weeksFromIndex(download(index, browserFallback = true), year)
+        if (weeks.isEmpty()) error("Nessuna settimana riconosciuta nell'archivio " + year)
         val target = saturdayOf(day).timeInMillis
         val selectedWeek = weeks.lastOrNull { it.millis <= target } ?: weeks.first()
-        val tracks = parseSongs(download(selectedWeek.url))
-        if (tracks.isEmpty()) error("Formato storico non riconosciuto per questa settimana")
+        var tracks = parseSongs(download(selectedWeek.url))
+        if (tracks.isEmpty()) {
+            // Some source templates vary by HTTP user agent. Read once more as
+            // a normal mobile browser, never manufacture missing chart rows.
+            tracks = parseSongs(download(selectedWeek.url, browserFallback = true))
+        }
+        if (tracks.isEmpty()) error("Dati non leggibili per la settimana " +
+            selectedWeek.url.substringAfterLast('/'))
         HistoricalChart(selectedWeek, tracks)
     }
 }
