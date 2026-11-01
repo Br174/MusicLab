@@ -454,6 +454,31 @@ class PlayerConnection(
         }
     }
 
+    /**
+     * R35 carousel gesture: move to the preceding queue item, not the
+     * seekToPrevious button behavior that restarts the current song at >3s.
+     */
+    fun skipToPreviousItem() {
+        try {
+            val castHandler = service.castConnectionHandler
+            if (castHandler?.isCasting?.value == true) {
+                castHandler.skipToPrevious()
+                return
+            }
+            if (!player.hasPreviousMediaItem()) return
+            service.beginPlaybackPriorityBurst("swipe-previous")
+            player.seekToPreviousMediaItem()
+            if (player.playbackState == Player.STATE_IDLE ||
+                player.playbackState == Player.STATE_ENDED) {
+                player.prepare()
+            }
+            player.playWhenReady = true
+            onSkipPrevious?.invoke()
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Error in skipToPreviousItem")
+        }
+    }
+
     var onRestartSong: (() -> Unit)? = null
 
     fun seekToPrevious() {
