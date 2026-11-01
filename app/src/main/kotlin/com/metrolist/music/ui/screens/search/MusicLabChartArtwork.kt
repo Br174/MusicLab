@@ -24,6 +24,13 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
+import com.metrolist.spotify.Spotify
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
@@ -180,11 +187,108 @@ internal object MusicLabChartArtworkResolver {
         }
     }
 
+
+    /**
+     * The Last.fm chart API can return a *valid HTTPS* placeholder graphic
+     * (grey box with white star). Coil successfully renders it, therefore
+     * onError never fires. For charts sourced from Last.fm the source thumbnail
+     * is untrusted and catalogue/album covers are resolved independently.
+     *
+     * Reuse MusicLab's already-available Spotify metadata when authenticated,
+     * with the public Apple catalogue as a no-login fallback. Neither lookup
+     * touches playback, queue, ranking, or the chart's original track list.
+     */
+    private fun matchingCatalogueTrack(
+        requested: MusicLabChartTrack, title: String, artist: String,
+    ): Boolean {
+        val wantTitle = norm(requested.title).replace(
+            Regex("\\s+(feat|featuring|ft)\\s+.*$"), ""
+        ).trim()
+        val candidateTitle = norm(title).replace(
+            Regex("\\s+(feat|featuring|ft)\\s+.*$"), ""
+        ).trim()
+        if (titleScore(wantTitle, candidateTitle) < 5) return false
+        val wantedArtist = norm(requested.artist)
+        val candidateArtist = norm(artist)
+        return wantedArtist.isNotBlank() && candidateArtist.isNotBlank() &&
+            (wantedArtist == candidateArtist ||
+                (wantedArtist.length >= 4 && candidateArtist.length >= 4 &&
+                    (candidateArtist.contains(wantedArtist) ||
+                        wantedArtist.contains(candidateArtist))))
+    }
+
+    private suspend fun spotifyArtwork(track: MusicLabChartTrack): String? =
+        withTimeoutOrNull(2600L) {
+            val found = Spotify.search(
+                query = track.title + " " + track.artist,
+                types = listOf("track"),
+                limit = 10,
+            ).getOrNull()?.tracks?.items.orEmpty()
+            found.firstOrNull { candidate ->
+                matchingCatalogueTrack(
+                    track, candidate.name,
+                    candidate.artists.joinToString(" ") { it.name },
+                )
+            }?.album?.images?.firstNotNullOfOrNull { allowedImage(it.url) }
+        }
+
+    private suspend fun appleArtwork(track: MusicLabChartTrack): String? =
+        withTimeoutOrNull(3200L) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val query = URLEncoder.encode(
+                        track.title + " " + track.artist, "UTF-8",
+                    )
+                    val url = URL(
+                        "https://itunes.apple.com/search?term=" + query +
+                            "&entity=song&media=music&limit=12&country=IT"
+                    )
+                    val connection = url.openConnection() as HttpURLConnection
+                    connection.connectTimeout = 2200
+                    connection.readTimeout = 2200
+                    connection.setRequestProperty("Accept", "application/json")
+                    try {
+                        if (connection.responseCode !in 200..299) return@runCatching null
+                        val response = connection.inputStream.bufferedReader().use { it.readText() }
+                        val results = JSONObject(response).optJSONArray("results")
+                            ?: return@runCatching null
+                        for (index in 0 until results.length()) {
+                            val item = results.optJSONObject(index) ?: continue
+                            if (!matchingCatalogueTrack(
+                                track, item.optString("trackName"),
+                                item.optString("artistName"),
+                            )) continue
+                            val image = allowedImage(item.optString("artworkUrl100"))
+                            if (image != null) {
+                                return@runCatching image.replace(
+                                    "100x100bb", "600x600bb"
+                                )
+                            }
+                        }
+                        null
+                    } finally {
+                        connection.disconnect()
+                    }
+                }.getOrNull()
+            }
+        }
+
+    private suspend fun catalogueArtwork(track: MusicLabChartTrack): String? =
+        coroutineScope {
+            // Both existing metadata sources run off-main, concurrently.
+            // Bound per-row requests with the same semaphore as YouTube.
+            val spotify = async(Dispatchers.IO) { spotifyArtwork(track) }
+            val apple = async(Dispatchers.IO) { appleArtwork(track) }
+            spotify.await() ?: apple.await()
+        }
+
     suspend fun resolve(context: Context, track: MusicLabChartTrack,
                         ignoreSourceArtwork: Boolean = false,
                         rejectedUrl: String? = null): String? {
         if (!ignoreSourceArtwork) {
-            allowedImage(track.artwork)?.takeUnless { it == rejectedUrl }?.let { return it }
+            if (track.sourceArtworkTrusted) {
+                allowedImage(track.artwork)?.takeUnless { it == rejectedUrl }?.let { return it }
+            }
         }
         val id = key(track)
         artworkCache[id]?.takeUnless { it == rejectedUrl }?.let { return it }
@@ -195,8 +299,18 @@ internal object MusicLabChartArtworkResolver {
             artworkCache[id] = it
             return it
         }
+        // The initial list loads artwork without any click or player event.
+        // Never persist the generic Last.fm star as a successful cover.
+        val fromCatalogue = gate.withPermit { catalogueArtwork(track) }
+            ?.takeUnless { it == rejectedUrl }
+        if (fromCatalogue != null) {
+            rememberArtwork(context, track, fromCatalogue)
+            return fromCatalogue
+        }
         val song = resolveSong(context, track)
-        return allowedImage(song?.thumbnail)?.takeUnless { it == rejectedUrl }
+        val fromYouTube = allowedImage(song?.thumbnail)?.takeUnless { it == rejectedUrl }
+        if (fromYouTube != null) rememberArtwork(context, track, fromYouTube)
+        return fromYouTube
     }
 }
 
@@ -206,7 +320,7 @@ internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: 
     var sourceFailed by remember(track.title, track.artist, track.artwork) { mutableStateOf(false) }
     var rejectedUrl by remember(track.title, track.artist) { mutableStateOf<String?>(null) }
     val image by produceState<String?>(
-        initialValue = track.artwork,
+        initialValue = track.artwork.takeIf { track.sourceArtworkTrusted },
         key1 = track,
         key2 = nowPlayingArtwork,
         key3 = Pair(sourceFailed, rejectedUrl),
