@@ -87,9 +87,15 @@ internal object MusicLabHistoricalHitParade {
         set(Calendar.MILLISECOND, 0)
     }
 
-    private fun download(url: String): String {
+    private fun download(url: String, browserFallback: Boolean = false): String {
         require(url.startsWith("$BASE/") && !url.contains(".."))
-        val request = Request.Builder().url(url).header("User-Agent", "MusicLab-HitParade/1.1").build()
+        val agent = if (browserFallback)
+            "Mozilla/5.0 (Linux; Android 11; Mobile) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36"
+            else "MusicLab-HitParade/1.1"
+        val request = Request.Builder().url(url).header("User-Agent", agent)
+            .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
+            .build()
         return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Fonte non disponibile (HTTP " + response.code + ")")
             response.body?.string() ?: error("Pagina vuota")
@@ -122,7 +128,8 @@ internal object MusicLabHistoricalHitParade {
 
     /** Validate chart identity separately from artwork and player availability. */
     private fun validSong(title: String, artist: String): Boolean =
-        title.isNotBlank() && artist.any { it.isLetter() } &&
+        title.isNotBlank() &&
+            (artist.any { it.isLetter() } || artist.trim() == "883") &&
             !title.startsWith("P:", ignoreCase = true) &&
             !artist.startsWith("P:", ignoreCase = true) &&
             !artist.contains("MAX:", ignoreCase = true)
@@ -156,8 +163,155 @@ internal object MusicLabHistoricalHitParade {
         return result.toString().replace('\u00a0', ' ').trim()
     }
 
+    /** Top10 1983-84 is sometimes plain newline text, with no row elements. */
+    private fun parseOriginalPlainTop10(html: String): List<HistoricalHit> {
+        val top10 = Regex("(?i)HitParadeItalia\\s*-\\s*Top\\s*10")
+        val para = Regex("(?is)<p\\b[^>]*>(.*?)</p>").findAll(html)
+            .firstOrNull { top10.containsMatchIn(it.groupValues[1]) }
+            ?.groupValues?.get(1) ?: return emptyList()
+        val lines = para.replace(Regex("(?i)<br\\s*/?>"), "\n")
+            .split(Regex("\\r?\\n")).map {
+                Jsoup.parseBodyFragment(it).text().trim()
+            }.filter { it.isNotBlank() && !top10.containsMatchIn(it) }
+        return lines.mapNotNull { splitOldTop10(it) }.take(10)
+            .mapIndexed { index, pair ->
+                HistoricalHit(index + 1, pair.first, pair.second, null, null, null)
+            }
+    }
+
+    /**
+     * Parse the original weekly markup rather than a repaired DOM: the source
+     * uses invalid <p><h5> and unclosed <li> nodes, which are reparented by
+     * HTML parsers. Real-page fixtures guard every generation (1959..2026).
+     */
+    private fun parseOriginalListSource(html: String): List<HistoricalHit> {
+        val blocks = Regex("(?is)<li\\b[^>]*>(.*?)(?=<li\\b|</ul>)")
+        val ranks = Regex("(?is)<h5[^>]*>\\s*(\\d{1,3})\\s*</h5>")
+        val paragraphs = Regex("(?is)<p\\b[^>]*>(.*?)</p>")
+        val tracklist = Regex("(?is)Tracklist\\s*:\\s*<b[^>]*>(.*?)</b>")
+        val movement = Regex("^[+-]?\\d{1,3}(?=\\p{L})")
+        val result = mutableListOf<HistoricalHit>()
+        for (match in blocks.findAll(html)) {
+            val block = match.groupValues[1]
+            val rank = ranks.find(block)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            if (rank !in 1..200) continue
+            val afterRank = block.substringAfter("</h5>", "")
+            if (afterRank.isBlank()) continue
+            val headlineMarkup = afterRank.substringBefore("<p")
+            val heading = Jsoup.parseBodyFragment(headlineMarkup).text()
+                .replace('\u00a0', ' ').trim()
+            val cleanHeading = heading.replace(movement, "")
+                .replace(Regex("^(Re|NE)(?=\\p{Lu})"), "").trim()
+            val track = tracklist.find(block)?.groupValues?.get(1).orEmpty()
+            val sides = Jsoup.parseBodyFragment(track).text()
+                .split('|').flatMap { it.split('\\') }.map { it.trim() }
+                .filter { it.isNotBlank() }
+            val title: String
+            val artist: String
+            if (sides.isNotEmpty()) {
+                // The actual chart heading comes first, then the performer.
+                // Match it against all A/B sides with punctuation and minor
+                // spelling tolerance, but display the original heading title.
+                val matchTitle = matchLegacyHeading(cleanHeading, sides) ?: continue
+                title = matchTitle.first
+                artist = matchTitle.second
+            } else {
+                // Top200 modern: heading text and the FIRST following <p>
+                // contain title and performer. Never use movement or N.S.
+                title = cleanHeading
+                val artistParagraph = paragraphs.find(afterRank)?.groupValues?.get(1)
+                    ?: continue
+                artist = Jsoup.parseBodyFragment(artistParagraph).text().trim()
+            }
+            if (!validSong(title, artist)) continue
+            fun stat(name: String): String? =
+                Regex("\\b$name:\\s*([^|\\s]+)", RegexOption.IGNORE_CASE)
+                    .find(Jsoup.parseBodyFragment(block).text())?.groupValues?.get(1)
+            result.add(HistoricalHit(rank, title, artist, stat("MAX"), stat("NS"), stat("Pre")))
+        }
+        return result.distinctBy { it.rank }.sortedBy { it.rank }
+    }
+
+    private fun normalizeLegacy(s: String) =
+        s.lowercase(Locale.ROOT).filter(Char::isLetterOrDigit)
+
+    private fun editDistance(a: String, b: String): Int {
+        val prev = IntArray(b.length + 1) { it }
+        val curr = IntArray(b.length + 1)
+        for (i in a.indices) {
+            curr[0] = i + 1
+            for (j in b.indices) {
+                curr[j + 1] = minOf(
+                    curr[j] + 1, prev[j + 1] + 1,
+                    prev[j] + if (a[i] == b[j]) 0 else 1)
+            }
+            for (k in prev.indices) prev[k] = curr[k]
+        }
+        return prev[b.length]
+    }
+
+    private fun matchLegacyHeading(heading: String, sides: List<String>): Pair<String, String>? {
+        val map = heading.indices.filter { heading[it].isLetterOrDigit() }
+        val normalizedHeading = normalizeLegacy(heading)
+        if (map.isEmpty()) return null
+        var best: Pair<String, String>? = null
+        var bestDistance = Int.MAX_VALUE
+        for (side in sides) {
+            val normalizedSide = normalizeLegacy(side)
+            if (normalizedSide.length < 2) continue
+            for (len in (normalizedSide.length - 2).coerceAtLeast(1)..
+                (normalizedSide.length + 2).coerceAtMost(normalizedHeading.length)) {
+                val distance = editDistance(
+                    normalizedHeading.take(len), normalizedSide)
+                val tolerance = if (normalizedSide.length >= 12) 2 else 1
+                if (distance > tolerance || distance >= bestDistance) continue
+                val endIndex = map[len - 1] + 1
+                val title = heading.substring(0, endIndex).trim()
+                val artist = heading.substring(endIndex).trim()
+                if (!validSong(title, artist)) continue
+                best = title to artist
+                bestDistance = distance
+            }
+        }
+        return best
+    }
+
+    /** Columns are located by their original header cells, never by position. */
+    private fun parseOriginalTableSource(html: String): List<HistoricalHit> {
+        val rows = Regex("(?is)<tr\\b[^>]*>(.*?)</tr>").findAll(html).map { match ->
+            Regex("(?is)<td\\b[^>]*>(.*?)</td>").findAll(match.groupValues[1])
+                .map { Jsoup.parseBodyFragment(it.groupValues[1]).text().trim() }.toList()
+        }.toList()
+        val headers = rows.firstOrNull { row ->
+            row.any { it.equals("Titolo", ignoreCase = true) } &&
+                row.any { it.equals("Interprete", ignoreCase = true) }
+        } ?: return emptyList()
+        val titleCol = headers.indexOfFirst { it.equals("Titolo", ignoreCase = true) }
+        val artistCol = headers.indexOfFirst { it.equals("Interprete", ignoreCase = true) }
+        val peakCol = headers.indexOfFirst { it.equals("Peak", ignoreCase = true) }
+        val weeksCol = headers.indexOfFirst { it.equals("n.s.", ignoreCase = true) }
+        val songs = rows.mapNotNull { cells ->
+            if (cells.size <= maxOf(titleCol, artistCol)) return@mapNotNull null
+            val rank = cells[0].toIntOrNull() ?: return@mapNotNull null
+            val title = cells[titleCol]
+            val artist = cells[artistCol]
+            if (rank !in 1..200 || !validSong(title, artist)) return@mapNotNull null
+            fun c(index: Int) = cells.getOrNull(index)?.takeIf { it.isNotBlank() }
+            HistoricalHit(rank, title, artist, c(peakCol), c(weeksCol), c(1))
+        }
+        return songs.distinctBy { it.rank }.sortedBy { it.rank }
+    }
+
     /** Each supported source layout has a different structured parser. */
     internal fun parseSongs(html: String): List<HistoricalHit> {
+        val plainTop10 = parseOriginalPlainTop10(html)
+        if (plainTop10.isNotEmpty()) return plainTop10
+        // First use the source layout. Malformed legacy HTML may be
+        // reparented unpredictably by DOM parsers, hiding actual track fields.
+        val ranked = parseOriginalListSource(html)
+        if (ranked.isNotEmpty()) return ranked
+        val table = parseOriginalTableSource(html)
+        if (table.isNotEmpty()) return table
         val doc = Jsoup.parse(html)
 
         // Tables have different column counts. 1985-2016: 4 columns;
@@ -288,12 +442,20 @@ internal object MusicLabHistoricalHitParade {
         require(year in 1959..Calendar.getInstance().get(Calendar.YEAR)) {
             "L'archivio settimanale inizia nel 1959"
         }
-        val weeks = weeksFromIndex(download(indexUrl(year)), year)
-        if (weeks.isEmpty()) error("Nessuna settimana pubblicata per l'anno " + year)
+        val index = indexUrl(year)
+        var weeks = weeksFromIndex(download(index), year)
+        if (weeks.isEmpty()) weeks = weeksFromIndex(download(index, browserFallback = true), year)
+        if (weeks.isEmpty()) error("Nessuna settimana riconosciuta nell'archivio " + year)
         val target = saturdayOf(day).timeInMillis
         val selectedWeek = weeks.lastOrNull { it.millis <= target } ?: weeks.first()
-        val tracks = parseSongs(download(selectedWeek.url))
-        if (tracks.isEmpty()) error("Formato storico non riconosciuto per questa settimana")
+        var tracks = parseSongs(download(selectedWeek.url))
+        if (tracks.isEmpty()) {
+            // Some source templates vary by HTTP user agent. Read once more as
+            // a normal mobile browser, never manufacture missing chart rows.
+            tracks = parseSongs(download(selectedWeek.url, browserFallback = true))
+        }
+        if (tracks.isEmpty()) error("Dati non leggibili per la settimana " +
+            selectedWeek.url.substringAfterLast('/'))
         HistoricalChart(selectedWeek, tracks)
     }
 }
