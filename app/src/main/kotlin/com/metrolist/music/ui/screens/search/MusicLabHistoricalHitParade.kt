@@ -68,15 +68,20 @@ internal data class HistoricalChart(val week: HistoricalWeek, val songs: List<Hi
 
 internal object MusicLabHistoricalHitParade {
     private const val BASE = "https://www.hitparadeitalia.it/hp_weeks"
-    private val weekPattern = Regex("hps(\\d{8})\\.html", RegexOption.IGNORE_CASE)
+    private val modernLink = Regex("^$BASE/(\\d{4})/hps(\\d{8})\\.html$", RegexOption.IGNORE_CASE)
+    private val classicLink = Regex("^$BASE/(\\d{2})/hp(\\d{6})\\.htm$", RegexOption.IGNORE_CASE)
     private val client = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS).readTimeout(9, TimeUnit.SECONDS).build()
     private val dateFormat = SimpleDateFormat("yyyyMMdd", Locale.ROOT).apply { isLenient = false }
 
+    /** The site's 1981-2017 years use hpw_YEAR.htm, not YEAR/index.html. */
+    internal fun indexUrl(year: Int): String =
+        if (year in 1981..2017) "$BASE/hpw_$year.htm" else "$BASE/$year/index.html"
+
     internal fun saturdayOf(day: Calendar): Calendar = (day.clone() as Calendar).apply {
         val offset = (Calendar.SATURDAY - get(Calendar.DAY_OF_WEEK) + 7) % 7
         add(Calendar.DAY_OF_MONTH, offset)
-        set(Calendar.HOUR_OF_DAY, 12)
+        set(Calendar.HOUR_OF_DAY, 0)
         set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
@@ -84,64 +89,97 @@ internal object MusicLabHistoricalHitParade {
 
     private fun download(url: String): String {
         require(url.startsWith("$BASE/") && !url.contains(".."))
-        val request = Request.Builder().url(url).header("User-Agent", "MusicLab-HitParade/1.0").build()
+        val request = Request.Builder().url(url).header("User-Agent", "MusicLab-HitParade/1.1").build()
         return client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) error("Fonte non disponibile (HTTP ${response.code})")
+            if (!response.isSuccessful) error("Fonte non disponibile (HTTP " + response.code + ")")
             response.body?.string() ?: error("Pagina vuota")
         }
     }
 
+    /** Resolve actual first-party links instead of synthesizing invalid weeks. */
     internal fun weeksFromIndex(html: String, year: Int): List<HistoricalWeek> {
-        val doc = Jsoup.parse(html, "$BASE/$year/index.html")
+        val doc = Jsoup.parse(html, indexUrl(year))
         return doc.select("a[href]").mapNotNull { link ->
-            val url = link.absUrl("href")
-            val name = weekPattern.find(url)?.groupValues?.get(1) ?: return@mapNotNull null
-            if (!url.startsWith("$BASE/$year/") || !name.startsWith(year.toString())) return@mapNotNull null
-            val day = synchronized(dateFormat) { runCatching { dateFormat.parse(name) }.getOrNull() }
-                ?: return@mapNotNull null
+            val url = link.absUrl("href").substringBefore('#').substringBefore('?')
+            val fresh = modernLink.matchEntire(url)
+            val old = classicLink.matchEntire(url)
+            val yearShort = (year % 100).toString().padStart(2, '0')
+            val dateKey = when {
+                fresh != null && fresh.groupValues[1] == year.toString() &&
+                    fresh.groupValues[2].startsWith(year.toString()) ->
+                    fresh.groupValues[2]
+                old != null && old.groupValues[1] == yearShort &&
+                    old.groupValues[2].startsWith(yearShort) ->
+                    year.toString() + old.groupValues[2].takeLast(4)
+                else -> return@mapNotNull null
+            }
+            val day = synchronized(dateFormat) {
+                runCatching { dateFormat.parse(dateKey) }.getOrNull()
+            } ?: return@mapNotNull null
             HistoricalWeek(day.time, url)
         }.distinctBy { it.millis }.sortedBy { it.millis }
     }
 
+    /** Top20/50/100 tables from 1981-2017 and list entries from newer archives. */
     internal fun parseSongs(html: String): List<HistoricalHit> {
         val doc = Jsoup.parse(html)
+        val tableSongs = doc.select("table.piccolo tr").mapNotNull { row ->
+            val cells = row.children().filter { it.tagName() == "td" }
+            if (cells.size < 4) return@mapNotNull null
+            val rank = cells[0].text().trim().toIntOrNull() ?: return@mapNotNull null
+            if (rank !in 1..200) return@mapNotNull null
+            val title = cells[2].text().trim()
+            val artist = cells[3].text().trim()
+            if (title.isEmpty() || artist.isEmpty()) return@mapNotNull null
+            HistoricalHit(rank, title, artist, null, null, cells[1].text().trim())
+        }
+        if (tableSongs.isNotEmpty()) return tableSongs.distinctBy { it.rank }.sortedBy { it.rank }
+
         return doc.select("li").mapNotNull { row ->
             val rank = row.selectFirst("h5")?.text()?.trim()?.toIntOrNull()
                 ?: return@mapNotNull null
             if (rank !in 1..200) return@mapNotNull null
-            val text = row.text()
-            val trackList = row.select("p").firstOrNull { paragraph ->
-                paragraph.text().contains("Tracklist:", ignoreCase = true)
-            }
-            val historicalTitle = trackList?.selectFirst("b")?.text()
-                ?.substringBefore('\\')?.trim()
+            // Heading's own text excludes copyright, writers, label and statistics.
+            val heading = row.ownText().replace('\u00a0', ' ').trim()
+            val trackList = row.select("p").firstOrNull {
+                it.text().contains("Tracklist:", ignoreCase = true)
+            }?.selectFirst("b")?.text().orEmpty()
+            val sides = trackList.split('\\').map { it.trim() }.filter { it.isNotEmpty() }
+            val chartedSide = sides.firstOrNull { heading.contains(it, ignoreCase = true) }
+                ?: sides.firstOrNull()
             val title: String
             val artist: String
-            if (!historicalTitle.isNullOrBlank()) {
-                // Legacy Top 50: tracklist identifies the exact side A, followed
-                // by the performer in the item's own heading text.
-                title = historicalTitle
-                val index = text.indexOf(title, ignoreCase = true)
+            if (!chartedSide.isNullOrBlank()) {
+                // Identify the side actually ranked, not automatically side A.
+                title = chartedSide
+                // Some chart templates wrap the headline in a link, which
+                // disappears from Element.ownText(). Fall back to row.text().
+                val readable = if (heading.indexOf(title, ignoreCase = true) >= 0)
+                    heading else row.text()
+                val index = readable.indexOf(title, ignoreCase = true)
                 if (index < 0) return@mapNotNull null
-                artist = text.substring(index + title.length).substringBefore('(')
+                artist = readable.substring(index + title.length).substringBefore('(')
                     .trim().replace(Regex("\\s+"), " ")
             } else {
-                // New Top 200: clickable title, then separate performer paragraph.
-                // Do not mistake a bold P/MAX/NS statistics line for the title.
-                title = row.selectFirst("a[href*='youtube.com'], a[href*='youtu.be']")
-                    ?.text()?.trim().orEmpty()
-                artist = row.select("p").map { it.text().trim() }
-                    .firstOrNull { value ->
-                        value.isNotEmpty() && value != rank.toString() &&
-                            !value.startsWith("P:", ignoreCase = true) &&
-                            !value.contains("MAX:", ignoreCase = true)
-                    }.orEmpty()
+                // On Top200 pages the YouTube-linked title is followed by a
+                // separate interpreter paragraph, not by an A/B side tracklist.
+                title = row.select("a[href]").firstOrNull { link ->
+                    val href = link.attr("href")
+                    link.text().isNotBlank() && (
+                        href.contains("youtube", ignoreCase = true) ||
+                        href.contains("youtu.be", ignoreCase = true))
+                }?.text()?.trim().orEmpty()
+                artist = row.select("p").map { it.text().trim() }.firstOrNull {
+                    it.isNotBlank() && !it.startsWith("P:", ignoreCase = true) &&
+                        !it.contains("MAX:", ignoreCase = true) && it != rank.toString()
+                }.orEmpty()
             }
             if (title.isBlank() || artist.isBlank() || artist.startsWith("P:"))
                 return@mapNotNull null
-            fun field(label: String): String? =
-                Regex("\\b$label:\\s*([^|\\s]+)", RegexOption.IGNORE_CASE)
-                    .find(text)?.groupValues?.get(1)
+            val content = row.text()
+            fun field(name: String): String? =
+                Regex("\\b$name:\\s*([^|\\s]+)", RegexOption.IGNORE_CASE)
+                    .find(content)?.groupValues?.get(1)
             HistoricalHit(rank, title, artist, field("MAX"), field("NS"), field("Pre"))
         }.distinctBy { it.rank }.sortedBy { it.rank }
     }
@@ -151,14 +189,13 @@ internal object MusicLabHistoricalHitParade {
         require(year in 1959..Calendar.getInstance().get(Calendar.YEAR)) {
             "L'archivio settimanale inizia nel 1959"
         }
-        val index = download("$BASE/$year/index.html")
-        val weeks = weeksFromIndex(index, year)
-        if (weeks.isEmpty()) error("Nessuna settimana pubblicata nell'indice del $year")
+        val weeks = weeksFromIndex(download(indexUrl(year)), year)
+        if (weeks.isEmpty()) error("Nessuna settimana pubblicata per l'anno " + year)
         val target = saturdayOf(day).timeInMillis
-        val chosen = weeks.firstOrNull { it.millis >= target } ?: weeks.last()
-        val tracks = parseSongs(download(chosen.url))
-        if (tracks.isEmpty()) error("Formato storico non ancora riconosciuto per questa settimana")
-        HistoricalChart(chosen, tracks)
+        val selectedWeek = weeks.lastOrNull { it.millis <= target } ?: weeks.first()
+        val tracks = parseSongs(download(selectedWeek.url))
+        if (tracks.isEmpty()) error("Formato storico non riconosciuto per questa settimana")
+        HistoricalChart(selectedWeek, tracks)
     }
 }
 
