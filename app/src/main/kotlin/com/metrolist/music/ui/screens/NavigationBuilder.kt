@@ -54,6 +54,7 @@ import com.metrolist.music.ui.screens.recognition.RecognitionScreen
 import com.metrolist.music.ui.screens.search.OnlineSearchResult
 import com.metrolist.music.ui.screens.search.SearchScreen
 import com.metrolist.music.ui.screens.search.MusicLabChartScreen
+import com.metrolist.music.ui.screens.search.MusicLabHistoricalHitParadeScreen
 import com.metrolist.music.ui.screens.settings.AboutScreen
 import com.metrolist.music.ui.screens.settings.AiSettings
 import com.metrolist.music.ui.screens.settings.AndroidAutoSettings
@@ -145,6 +146,11 @@ fun NavGraphBuilder.navigationBuilder(
             navController = navController,
             title = entry.arguments?.getString("chartTitle").orEmpty(),
         )
+    }
+
+    // Historical data is independent of live charts and genres.
+    composable("musiclab_hit_parade") {
+        MusicLabHistoricalHitParadeScreen(navController)
     }
 
     composable(Screens.Library.route) {
