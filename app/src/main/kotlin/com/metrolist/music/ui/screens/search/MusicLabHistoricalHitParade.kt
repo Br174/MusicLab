@@ -120,66 +120,165 @@ internal object MusicLabHistoricalHitParade {
         }.distinctBy { it.millis }.sortedBy { it.millis }
     }
 
-    /** Top20/50/100 tables from 1981-2017 and list entries from newer archives. */
+    /** Validate chart identity separately from artwork and player availability. */
+    private fun validSong(title: String, artist: String): Boolean =
+        title.isNotBlank() && artist.any { it.isLetter() } &&
+            !title.startsWith("P:", ignoreCase = true) &&
+            !artist.startsWith("P:", ignoreCase = true) &&
+            !artist.contains("MAX:", ignoreCase = true)
+
+    private fun splitOldTop10(text: String): Pair<String, String>? {
+        // The 1981-1984 archive uses both "Title-Artist" and "Title - Artist".
+        val separator = text.lastIndexOf('-')
+        if (separator < 1 || separator >= text.lastIndex) return null
+        val title = text.substring(0, separator).trim()
+        val artist = text.substring(separator + 1).trim()
+        return if (validSong(title, artist)) title to artist else null
+    }
+
+    private fun chartHeading(row: org.jsoup.nodes.Element): String {
+        // Avoid confusing the h5 rank, numeric chart movement and its links
+        // with the song headline. Collect only siblings before the first detail <p>.
+        val result = StringBuilder()
+        var pastRank = false
+        for (node in row.childNodes()) {
+            if (node is org.jsoup.nodes.Element && node.selectFirst("h5") != null) {
+                pastRank = true
+                continue
+            }
+            if (!pastRank) continue
+            if (node is org.jsoup.nodes.Element && node.tagName() == "p") break
+            when (node) {
+                is org.jsoup.nodes.TextNode -> result.append(node.getWholeText())
+                is org.jsoup.nodes.Element -> result.append(node.text())
+            }
+        }
+        return result.toString().replace('\u00a0', ' ').trim()
+    }
+
+    /** Each supported source layout has a different structured parser. */
     internal fun parseSongs(html: String): List<HistoricalHit> {
         val doc = Jsoup.parse(html)
-        val tableSongs = doc.select("table.piccolo tr").mapNotNull { row ->
-            val cells = row.children().filter { it.tagName() == "td" }
-            if (cells.size < 4) return@mapNotNull null
-            val rank = cells[0].text().trim().toIntOrNull() ?: return@mapNotNull null
-            if (rank !in 1..200) return@mapNotNull null
-            val title = cells[2].text().trim()
-            val artist = cells[3].text().trim()
-            if (title.isEmpty() || artist.isEmpty()) return@mapNotNull null
-            HistoricalHit(rank, title, artist, null, null, cells[1].text().trim())
-        }
-        if (tableSongs.isNotEmpty()) return tableSongs.distinctBy { it.rank }.sortedBy { it.rank }
 
+        // Tables have different column counts. 1985-2016: 4 columns;
+        // 2017: 11 columns. Read the heading names, never fixed offsets.
+        val tableRows = doc.select("table").firstNotNullOfOrNull { table ->
+            val rows = table.select("tr")
+            val names = rows.firstOrNull()?.select("th, td")?.map { it.text().trim() }
+                ?: return@firstNotNullOfOrNull null
+            val titleCol = names.indexOfFirst { it.equals("Titolo", ignoreCase = true) }
+            val artistCol = names.indexOfFirst { it.equals("Interprete", ignoreCase = true) }
+            if (titleCol < 0 || artistCol < 0) return@firstNotNullOfOrNull null
+            val previousCol = if (names.size > 1) 1 else -1
+            val weeksCol = names.indexOfFirst {
+                it.equals("n.s.", ignoreCase = true) ||
+                    it.equals("Settimane", ignoreCase = true)
+            }
+            val peakCol = names.indexOfFirst {
+                it.equals("Peak", ignoreCase = true) ||
+                    it.equals("Max", ignoreCase = true)
+            }
+            rows.drop(1).mapNotNull { row ->
+                val cells = row.children().filter { it.tagName() in listOf("td", "th") }
+                if (cells.size <= maxOf(titleCol, artistCol)) return@mapNotNull null
+                val rank = cells.firstOrNull()?.text()?.trim()?.toIntOrNull()
+                    ?: return@mapNotNull null
+                if (rank !in 1..200) return@mapNotNull null
+                val title = cells[titleCol].text().trim()
+                val artist = cells[artistCol].text().trim()
+                if (!validSong(title, artist)) return@mapNotNull null
+                fun column(index: Int): String? = if (index in cells.indices) {
+                    cells[index].text().trim().takeIf { it.isNotEmpty() }
+                } else null
+                HistoricalHit(rank, title, artist, column(peakCol),
+                    column(weeksCol), column(previousCol))
+            }
+        }
+        if (!tableRows.isNullOrEmpty()) {
+            return tableRows.distinctBy { it.rank }.sortedBy { it.rank }
+        }
+
+        // 1981/1982 legacy Top10: numbered <ol><li>Title-Artist</li></ol>.
+        val oldOrdered = doc.select("ol").firstOrNull { it.select("li").isNotEmpty() }
+        if (oldOrdered != null) {
+            val ordered = oldOrdered.select("li").mapIndexedNotNull { i, element ->
+                val pair = splitOldTop10(element.ownText().ifBlank { element.text() })
+                    ?: return@mapIndexedNotNull null
+                HistoricalHit(i + 1, pair.first, pair.second, null, null, null)
+            }
+            if (ordered.isNotEmpty()) return ordered
+        }
+
+        // 1983/1984 Top10: plain paragraph separated by <br>, not an <li> list.
+        val top10Heading = Regex("HitParadeItalia\\s*-\\s*Top\\s*10", RegexOption.IGNORE_CASE)
+        val top10 = doc.select("p").firstOrNull { top10Heading.containsMatchIn(it.text()) }
+        if (top10 != null) {
+            val lines = top10.html()
+                .split(Regex("(?i)<br\\s*/?>|\\r?\\n"))
+                .map { Jsoup.parseBodyFragment(it).text().trim() }
+                .filter { it.isNotBlank() && !top10Heading.containsMatchIn(it) }
+            val songs = lines.mapNotNull { line ->
+                splitOldTop10(line)?.let { it.first to it.second }
+            }.take(10).mapIndexed { index, pair ->
+                HistoricalHit(index + 1, pair.first, pair.second, null, null, null)
+            }
+            if (songs.isNotEmpty()) return songs
+        }
+
+        // 1959-1980 Top50 uses disc side / tracklist and a linked headline.
+        // 2018+ Top200 uses a linked headline plus a separate artist <p>.
         return doc.select("li").mapNotNull { row ->
             val rank = row.selectFirst("h5")?.text()?.trim()?.toIntOrNull()
                 ?: return@mapNotNull null
             if (rank !in 1..200) return@mapNotNull null
-            // Heading's own text excludes copyright, writers, label and statistics.
-            val heading = row.ownText().replace('\u00a0', ' ').trim()
+            // Jsoup places the chart headline directly on the <li> itself for
+            // 1959-1980 and 2018+; walking children from <h5> can lose it
+            // when the heading element is hoisted out of its malformed <p>.
+            // Keep the linked-headline fallback for other historical variants.
+            val ownHeading = row.ownText().replace('\u00a0', ' ').trim()
+            val heading = if (ownHeading.any(Char::isLetter)) ownHeading
+                else chartHeading(row)
             val trackList = row.select("p").firstOrNull {
                 it.text().contains("Tracklist:", ignoreCase = true)
             }?.selectFirst("b")?.text().orEmpty()
-            val sides = trackList.split('\\').map { it.trim() }.filter { it.isNotEmpty() }
-            val chartedSide = sides.firstOrNull { heading.contains(it, ignoreCase = true) }
-                ?: sides.firstOrNull()
+            val sides = trackList.split('\\').flatMap { it.split('|') }
+                .map { it.trim() }.filter { it.isNotBlank() }
             val title: String
             val artist: String
-            if (!chartedSide.isNullOrBlank()) {
-                // Identify the side actually ranked, not automatically side A.
-                title = chartedSide
-                // Some chart templates wrap the headline in a link, which
-                // disappears from Element.ownText(). Fall back to row.text().
-                val readable = if (heading.indexOf(title, ignoreCase = true) >= 0)
-                    heading else row.text()
-                val index = readable.indexOf(title, ignoreCase = true)
+            if (sides.isNotEmpty()) {
+                // Select the disc side actually listed in the ranking, not side A.
+                val side = sides.sortedByDescending { it.length }.firstOrNull {
+                    heading.contains(it, ignoreCase = true)
+                }
+                val headline = if (side == null) row.text() else heading
+                val chosen = side ?: sides.firstOrNull {
+                    headline.contains(it, ignoreCase = true)
+                } ?: return@mapNotNull null
+                val index = headline.indexOf(chosen, ignoreCase = true)
                 if (index < 0) return@mapNotNull null
-                artist = readable.substring(index + title.length).substringBefore('(')
+                title = chosen
+                artist = headline.substring(index + chosen.length).substringBefore('(')
                     .trim().replace(Regex("\\s+"), " ")
             } else {
-                // On Top200 pages the YouTube-linked title is followed by a
-                // separate interpreter paragraph, not by an A/B side tracklist.
-                title = row.select("a[href]").firstOrNull { link ->
-                    val href = link.attr("href")
-                    link.text().isNotBlank() && (
-                        href.contains("youtube", ignoreCase = true) ||
-                        href.contains("youtu.be", ignoreCase = true))
+                // The movement number is directly prefixed to the headline,
+                // e.g. "9Movin' to the sun"; never treat that digit as title.
+                val withoutDelta = heading.replace(
+                    Regex("^[+-]?\\d{1,3}(?=\\p{L})"), "").trim()
+                val linkTitle = row.select("a[href]").map { it.text().trim() }
+                    .firstOrNull { it.any(Char::isLetter) && !it.contains("MAX:") }
+                title = if (withoutDelta.any { it.isLetter() }) withoutDelta
+                    else linkTitle.orEmpty()
+                artist = row.select("p").firstOrNull {
+                    it.selectFirst("h5") == null &&
+                        it.text().any(Char::isLetter) &&
+                        !it.text().contains("MAX:", ignoreCase = true)
                 }?.text()?.trim().orEmpty()
-                artist = row.select("p").map { it.text().trim() }.firstOrNull {
-                    it.isNotBlank() && !it.startsWith("P:", ignoreCase = true) &&
-                        !it.contains("MAX:", ignoreCase = true) && it != rank.toString()
-                }.orEmpty()
             }
-            if (title.isBlank() || artist.isBlank() || artist.startsWith("P:"))
-                return@mapNotNull null
-            val content = row.text()
-            fun field(name: String): String? =
-                Regex("\\b$name:\\s*([^|\\s]+)", RegexOption.IGNORE_CASE)
-                    .find(content)?.groupValues?.get(1)
+            if (!validSong(title, artist)) return@mapNotNull null
+            val details = row.text()
+            fun field(label: String): String? =
+                Regex("\\b$label:\\s*([^|\\s]+)", RegexOption.IGNORE_CASE)
+                    .find(details)?.groupValues?.get(1)
             HistoricalHit(rank, title, artist, field("MAX"), field("NS"), field("Pre"))
         }.distinctBy { it.rank }.sortedBy { it.rank }
     }
