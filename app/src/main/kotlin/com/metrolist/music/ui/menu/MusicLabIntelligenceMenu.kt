@@ -159,133 +159,133 @@ internal fun MusicLabIntelligenceActions(
         )
     }
 
+    // R37: one stable action layout. The canonical credits/artist/album
+    // handlers are reused rather than duplicated in PlayerMenu's lower list.
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        val quickActions = buildList {
-            // LAB64: Originali are integrated above the covers; no duplicate standalone action.
-            if (settings.cover) {
-                add(
-                    NewAction(
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.cover_microphone),
-                                contentDescription = null,
-                                modifier = Modifier.size(30.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        text = "Cover",
-                        onClick = {
-                            // Come Originali, la schermata Cover possiede già il proprio
-                            // motore AI: apriamo immediatamente e lasciamo il lavoro al suo pipeline.
-                            collapsePlayerToMiniNow()
-                            val opened = CoverNavigationBridge.open(
-                                CoverSearchRequest(
-                                    title = mediaMetadata.title,
-                                    originalArtist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
-                                    durationSec = mediaMetadata.duration,
-                                    currentYouTubeId = mediaMetadata.id,
-                                ),
-                            )
-                            if (opened) {
+        NewActionGrid(
+            actions = listOf(
+                NewAction(
+                    icon = { Icon(painterResource(R.drawable.info), contentDescription = null, modifier = Modifier.size(30.dp)) },
+                    text = "Crediti",
+                    enabled = settings.credits,
+                    onClick = {
+                        creditsOpen = true
+                        if (canonical == null) {
+                            creditsLoading = true
+                            scope.launch {
+                                resolveCanonical()
+                                creditsLoading = false
+                            }
+                        }
+                    },
+                ),
+                NewAction(
+                    icon = { Icon(painterResource(R.drawable.person), contentDescription = null, modifier = Modifier.size(30.dp)) },
+                    text = "Artista",
+                    onClick = {
+                        collapsePlayerToMiniNow()
+                        scope.launch {
+                            val canonicalId = if (settings.artistResolver) resolveCanonical()?.artistBrowseId else null
+                            val browseId = canonicalId?.takeIf { it.isNotBlank() }
+                                ?: mediaMetadata.artists.firstOrNull { !it.id.isNullOrBlank() }?.id
+                            if (!browseId.isNullOrBlank()) {
                                 collapsePlayerToMiniNow()
+                                navController.navigate("artist/$browseId")
                                 onDismiss()
                             } else {
-                                Toast.makeText(context, "Cover non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Pagina artista non disponibile", Toast.LENGTH_SHORT).show()
                             }
-                        },
-                    ),
-                )
-            }
-}
-
-        if (quickActions.isNotEmpty()) {
-            NewActionGrid(
-                actions = quickActions,
-                columns = quickActions.size.coerceAtMost(2),
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-        }
-
-        val canonicalItems = buildList {
-            if (settings.artistResolver) {
-                add(
-                    Material3MenuItemData(
-                        title = { Text("Vai all'artista") },
-                        description = {
-                            Text(canonical?.artist ?: "Identificazione AI in background")
-                        },
-                        icon = { Icon(painterResource(R.drawable.person), contentDescription = null) },
-                        onClick = {
+                        }
+                    },
+                ),
+                NewAction(
+                    icon = { Icon(painterResource(R.drawable.album), contentDescription = null, modifier = Modifier.size(30.dp)) },
+                    text = "Album",
+                    onClick = {
+                        collapsePlayerToMiniNow()
+                        scope.launch {
+                            val canonicalId = if (settings.albumResolver) resolveCanonical()?.albumBrowseId else null
+                            val browseId = canonicalId?.takeIf { it.isNotBlank() }
+                                ?: mediaMetadata.album?.id
+                            if (!browseId.isNullOrBlank()) {
+                                collapsePlayerToMiniNow()
+                                navController.navigate("album/$browseId")
+                                onDismiss()
+                            } else {
+                                Toast.makeText(context, "Album non disponibile", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                ),
+            ),
+            columns = 3,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        NewActionGrid(
+            actions = listOf(
+                NewAction(
+                    icon = {
+                        Icon(painterResource(R.drawable.cover_microphone), contentDescription = null, modifier = Modifier.size(30.dp))
+                    },
+                    text = "Cover",
+                    enabled = settings.cover,
+                    onClick = {
+                        collapsePlayerToMiniNow()
+                        val opened = CoverNavigationBridge.open(
+                            CoverSearchRequest(
+                                title = mediaMetadata.title,
+                                originalArtist = mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                                durationSec = mediaMetadata.duration,
+                                currentYouTubeId = mediaMetadata.id,
+                            ),
+                        )
+                        if (opened) {
                             collapsePlayerToMiniNow()
-                            Toast.makeText(context, "Sto identificando l'artista corretto…", Toast.LENGTH_SHORT).show()
-                            scope.launch {
-                                val resolved = resolveCanonical()
-                                val browseId = resolved?.artistBrowseId
-                                if (!browseId.isNullOrBlank()) {
-                                    collapsePlayerToMiniNow()
-                                    navController.navigate("artist/$browseId")
-                                    onDismiss()
-                                } else {
-                                    Toast.makeText(context, "Pagina artista canonica non disponibile", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                    ),
-                )
-            }
-            if (settings.albumResolver) {
-                add(
-                    Material3MenuItemData(
-                        title = { Text("Vai all'album") },
-                        description = {
-                            Text(canonical?.album ?: "Album canonico in identificazione")
-                        },
-                        icon = { Icon(painterResource(R.drawable.album), contentDescription = null) },
-                        onClick = {
-                            collapsePlayerToMiniNow()
-                            Toast.makeText(context, "Sto identificando l'album corretto…", Toast.LENGTH_SHORT).show()
-                            scope.launch {
-                                val resolved = resolveCanonical()
-                                val browseId = resolved?.albumBrowseId
-                                if (!browseId.isNullOrBlank()) {
-                                    collapsePlayerToMiniNow()
-                                    navController.navigate("album/$browseId")
-                                    onDismiss()
-                                } else {
-                                    Toast.makeText(context, "Album canonico non disponibile", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                    ),
-                )
-            }
-            if (settings.credits) {
-                add(
-                    Material3MenuItemData(
-                        title = { Text("Crediti") },
-                        description = { Text("Autori, compositori, parolieri, produttori ed etichetta") },
-                        icon = { Icon(painterResource(R.drawable.info), contentDescription = null) },
-                        onClick = {
-                            creditsOpen = true
-                            if (canonical == null) {
-                                creditsLoading = true
-                                scope.launch {
-                                    resolveCanonical()
-                                    creditsLoading = false
-                                }
-                            }
-                        },
-                    ),
-                )
-            }
-        }
-
-        if (canonicalItems.isNotEmpty()) {
-            Material3MenuGroup(items = canonicalItems)
-        }
+                            onDismiss()
+                        } else {
+                            Toast.makeText(context, "Cover non disponibile in questa schermata", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                ),
+                NewAction(
+                    icon = {
+                        Icon(painterResource(R.drawable.compilation_music), contentDescription = null, modifier = Modifier.size(30.dp))
+                    },
+                    text = "Compilation",
+                    onClick = {
+                        val opened = com.metrolist.music.ui.component.CompilationNavigationBridge.openForTrack(
+                            mediaMetadata.title,
+                            mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+                        )
+                        if (opened) onDismiss()
+                        else Toast.makeText(context, "Compilation non disponibile", Toast.LENGTH_SHORT).show()
+                    },
+                ),
+            ),
+            columns = 2,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        // The original Copy link is relocated where Credits used to appear.
+        Material3MenuGroup(items = listOf(
+            Material3MenuItemData(
+                title = { Text("Copia link") },
+                icon = { Icon(painterResource(R.drawable.link), contentDescription = null) },
+                onClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(
+                        android.content.ClipData.newPlainText(
+                            "Song Link", "https://music.youtube.com/watch?v=${mediaMetadata.id}"
+                        )
+                    )
+                    Toast.makeText(context, R.string.link_copied, Toast.LENGTH_SHORT).show()
+                    onDismiss()
+                },
+            ),
+        ))
         Spacer(modifier = Modifier.height(4.dp))
     }
 }
