@@ -166,6 +166,8 @@ internal fun CompilationScreen(
     var paginationJob by remember { mutableStateOf<Job?>(null) }
     var fullAudioLookupJob by remember { mutableStateOf<Job?>(null) }
     var nextTrackWarmJob by remember { mutableStateOf<Job?>(null) }
+    var fastTrackPlayJob by remember { mutableStateOf<Job?>(null) }
+    var progressiveAlbumJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(query, year, genre, style, country, language) {
         CompilationSessionStore.query = query
@@ -371,12 +373,31 @@ internal fun CompilationScreen(
     suspend fun resolveTrack(index: Int, current: DiscogsCompilationDetail): CompilationResolvedTrack? {
         resolvedTracks[index]?.let { return it }
         val track = current.tracks.getOrNull(index) ?: return null
-        val found = CompilationTrackResolver.resolveTrack(track, current.videos)
-        if (found != null) {
+        // R36: reuse the exact native search-result object before invoking the
+        // deeper Discogs/video fallback. Cover search remains untouched.
+        val fast = MusicLabFastPath.find(
+            track.title, track.artists.joinToString(" ")
+        ) { candidate -> CompilationTrackResolver.isHardCompatible(track, candidate) }
+        val found = fast?.let {
+            CompilationResolvedTrack(track, it, "MusicLab FastPath", false)
+        } ?: CompilationTrackResolver.resolveTrack(track, current.videos)
+        if (found != null && detail?.id == current.id) {
             resolvedTracks[index] = found
             CompilationSessionStore.resolvedTracks[index] = found
         }
         return found
+    }
+
+    // Warm just the first two tracks while the user reads the tracklist.
+    // This is cancellable and never blocks rendering the Discogs album cover.
+    LaunchedEffect(detail?.id) {
+        val current = detail ?: return@LaunchedEffect
+        delay(180L)
+        for (index in 0 until minOf(2, current.tracks.size)) {
+            if (detail?.id != current.id ||
+                playerConnection?.isPlaybackPriorityBurstActive() == true) break
+            resolveTrack(index, current)
+        }
     }
 
     fun playTrack(index: Int, current: DiscogsCompilationDetail) {
@@ -387,13 +408,16 @@ internal fun CompilationScreen(
         loadingMore = false
         fullAudioLookupJob?.cancel()
         nextTrackWarmJob?.cancel()
+        progressiveAlbumJob?.cancel()
+        fastTrackPlayJob?.cancel()
         playerConnection?.beginPlaybackPriorityBurst("compilation-track-tap")
 
-        scope.launch {
+        fastTrackPlayJob = scope.launch {
+            // The last selection wins even when an older query finishes late.
             val found = resolveTrack(index, current)
+            if (selectedTrackIndex != index || detail?.id != current.id) return@launch
             if (found != null) {
                 playerConnection?.playNow(found.song.toMediaItem())
-
                 nextTrackWarmJob = scope.launch {
                     while (playerConnection?.isPlaybackPriorityBurstActive() == true) {
                         delay(180)
@@ -402,7 +426,8 @@ internal fun CompilationScreen(
                     if (selectedTrackIndex != index || detail?.id != current.id) return@launch
                     val nextIndex = index + 1
                     val next = resolveTrack(nextIndex, current)
-                    if (next != null && selectedTrackIndex == index) {
+                    if (next != null && selectedTrackIndex == index &&
+                        detail?.id == current.id) {
                         playerConnection?.playNext(next.song.toMediaItem())
                     }
                     if (fullAudio == null && detail?.id == current.id) {
@@ -418,23 +443,41 @@ internal fun CompilationScreen(
 
     fun resolveAllAndPlay(current: DiscogsCompilationDetail) {
         if (resolvingAll) return
+        fastTrackPlayJob?.cancel()
+        nextTrackWarmJob?.cancel()
         resolvingAll = true
-        scope.launch {
-            val songs = mutableListOf<CompilationResolvedTrack>()
-            current.tracks.indices.forEach { index ->
-                resolveTrack(index, current)?.let(songs::add)
-            }
-            resolvingAll = false
-            if (songs.isEmpty()) {
-                Toast.makeText(context, "Nessun brano riproducibile trovato.", Toast.LENGTH_SHORT).show()
-            } else {
-                playerConnection?.playQueue(
-                    ListQueue(
-                        title = current.title,
-                        items = songs.map { it.song.toMediaItem() },
-                        startIndex = 0,
-                    ),
-                )
+        // Start the first playable track immediately. Append later tracks in
+        // original Discogs order as they resolve; never wait for the full album.
+        progressiveAlbumJob = scope.launch {
+            var started = false
+            val admittedIds = linkedSetOf<String>()
+            try {
+                for (index in current.tracks.indices) {
+                    if (detail?.id != current.id || selectedTrackIndex != null) break
+                    val found = resolveTrack(index, current) ?: continue
+                    if (detail?.id != current.id || selectedTrackIndex != null) break
+                    val item = found.song.toMediaItem()
+                    if (!started) {
+                        playerConnection?.beginPlaybackPriorityBurst("compilation-first-audio")
+                        playerConnection?.playQueue(
+                            ListQueue(title = current.title, items = listOf(item), startIndex = 0)
+                        )
+                        admittedIds.add(item.mediaId)
+                        started = true
+                        // Allow the initial one-item queue to commit before appending.
+                        delay(120L)
+                    } else if (admittedIds.add(item.mediaId)) {
+                        val currentId = playerConnection?.player?.currentMediaItem?.mediaId
+                        if (currentId != null && currentId !in admittedIds) break
+                        playerConnection?.addToQueue(item)
+                    }
+                }
+                if (!started && detail?.id == current.id) {
+                    Toast.makeText(context, "Nessun brano riproducibile trovato.",
+                        Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                resolvingAll = false
             }
         }
     }
