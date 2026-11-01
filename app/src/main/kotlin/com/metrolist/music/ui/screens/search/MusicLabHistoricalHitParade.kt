@@ -453,9 +453,17 @@ internal object MusicLabHistoricalHitParade {
 
     /** Never invent song rows; retry the same original URL with a browser UA. */
     private fun readChart(url: String): List<HistoricalHit> {
-        val first = runCatching { parseSongs(download(url)) }
+        val firstBody = runCatching { download(url) }
+        val first = firstBody.mapCatching { parseSongs(it) }
         val songs = first.getOrNull().orEmpty()
         if (songs.isNotEmpty()) return songs
+        // Diagnostic evidence on failed FIRST-PARTY page fetch only. No
+        // account information, credentials, history or device data is logged.
+        val body = firstBody.getOrNull().orEmpty()
+        System.err.println("[HPI_HTTP_DIAG] file=" + url.substringAfterLast('/') +
+            " chars=" + body.length + " h5=" + Regex("<h5", RegexOption.IGNORE_CASE).findAll(body).count() +
+            " first=" + body.take(140).replace('\n', ' ') +
+            " error=" + (first.exceptionOrNull()?.javaClass?.simpleName ?: "empty_parser"))
         val second = runCatching { parseSongs(download(url, browserFallback = true)) }
         return second.getOrNull()?.takeIf { it.isNotEmpty() }
             ?: throw IllegalStateException(
