@@ -17,3 +17,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Probe MusicLab chart URLs with real Android HTTP headers
         run: python3 tools/universal-apk-builder/probe-hitparade-http-33113.py
+      - name: Preserve raw first-party HTML for parser investigation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r33-raw-html-source-private
+          path: hpi-http-diag/*.html
+          retention-days: 1
+          if-no-files-found: warn
