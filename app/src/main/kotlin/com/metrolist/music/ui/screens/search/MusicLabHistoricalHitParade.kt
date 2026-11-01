@@ -47,6 +47,8 @@ import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.ui.component.MusicLabFastPath
+import com.metrolist.music.ui.component.MusicLabFastHitArtwork
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.YouTubeQueue
 import kotlinx.coroutines.Dispatchers
@@ -568,6 +570,7 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var resolving by remember { mutableStateOf<Int?>(null) }
+    var tapSerial by remember { mutableStateOf(0L) }
     val formatter = remember { SimpleDateFormat("dd MMMM yyyy", Locale.ITALIAN) }
 
     fun shiftWeek(delta: Int) {
@@ -652,38 +655,41 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             chart?.let { result ->
                 items(result.songs, key = { "hitparade_${it.rank}" }) { song ->
                     Row(modifier = Modifier.fillMaxWidth().clickable {
-                        if (resolving != null) return@clickable
+                        // FastPath: the visible row may already have resolved this exact
+                        // SongItem for its artwork. The latest tapped song always wins.
+                        val myTap = ++tapSerial
                         resolving = song.rank
                         scope.launch {
                             try {
-                                val match = withContext(Dispatchers.IO) {
-                                    YouTube.searchSummary("${song.artist} ${song.title}", incognito = true)
-                                        .getOrNull()?.summaries?.flatMap { it.items }
-                                        ?.filterIsInstance<SongItem>().orEmpty()
-                                        .firstOrNull { item ->
-                                            MusicLabChartArtworkResolver.sameRecordingLabel(
-                                                song.title, song.artist, item)
-                                        }
+                                val match = MusicLabFastPath.find(song.title, song.artist) { item ->
+                                    MusicLabChartArtworkResolver.sameRecordingLabel(
+                                        song.title, song.artist, item)
                                 }
+                                if (myTap != tapSerial) return@launch
                                 if (match != null) {
+                                    player?.beginPlaybackPriorityBurst("hit-parade-tap")
                                     player?.playQueue(YouTubeQueue(
                                         endpoint = WatchEndpoint(videoId = match.id),
                                         preloadItem = match.toMediaMetadata()))
+                                    MusicLabChartArtworkResolver.rememberArtwork(
+                                        context, MusicLabChartTrack(song.rank, song.title, song.artist),
+                                        match.thumbnail)
                                 } else {
                                     error = "Registrazione originale non trovata: ${song.title}. " +
                                         "Il brano rimane visibile."
                                 }
                             } catch (_: Exception) {
-                                error = "Ascolto non disponibile. La classifica resta consultabile."
+                                if (myTap == tapSerial)
+                                    error = "Ascolto non disponibile. La classifica resta consultabile."
                             } finally {
-                                resolving = null
+                                if (myTap == tapSerial) resolving = null
                             }
                         }
                     }.padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("${song.rank}", style = MaterialTheme.typography.titleMedium)
-                        MusicLabChartArtwork(MusicLabChartTrack(
+                        MusicLabFastHitArtwork(MusicLabChartTrack(
                             rank = song.rank, title = song.title, artist = song.artist))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(song.title, fontWeight = FontWeight.SemiBold)
