@@ -210,15 +210,13 @@ internal object MusicLabHistoricalHitParade {
         }
 
         // 1983/1984 Top10: plain paragraph separated by <br>, not an <li> list.
-        val top10 = doc.select("p").firstOrNull { it.text().contains(
-            Regex("HitParadeItalia\\s*-\\s*Top\\s*10", RegexOption.IGNORE_CASE))
-        }
+        val top10Heading = Regex("HitParadeItalia\\s*-\\s*Top\\s*10", RegexOption.IGNORE_CASE)
+        val top10 = doc.select("p").firstOrNull { top10Heading.containsMatchIn(it.text()) }
         if (top10 != null) {
             val lines = top10.html()
                 .split(Regex("(?i)<br\\s*/?>|\\r?\\n"))
                 .map { Jsoup.parseBodyFragment(it).text().trim() }
-                .filter { it.isNotBlank() && !it.contains(
-                    Regex("HitParadeItalia\\s*-\\s*Top\\s*10", RegexOption.IGNORE_CASE)) }
+                .filter { it.isNotBlank() && !top10Heading.containsMatchIn(it) }
             val songs = lines.mapNotNull { line ->
                 splitOldTop10(line)?.let { it.first to it.second }
             }.take(10).mapIndexed { index, pair ->
