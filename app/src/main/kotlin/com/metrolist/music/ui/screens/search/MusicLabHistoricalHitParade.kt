@@ -104,28 +104,45 @@ internal object MusicLabHistoricalHitParade {
 
     internal fun parseSongs(html: String): List<HistoricalHit> {
         val doc = Jsoup.parse(html)
-        val entries = doc.select("li").mapNotNull { row ->
+        return doc.select("li").mapNotNull { row ->
             val rank = row.selectFirst("h5")?.text()?.trim()?.toIntOrNull()
                 ?: return@mapNotNull null
             if (rank !in 1..200) return@mapNotNull null
-            // The site's 1959-2024 templates place a tracklist in the record
-            // detail paragraph. That first side gives the exact song title.
-            val title = row.select("p b").lastOrNull()?.text()
-                ?.substringBefore('\\')?.trim().orEmpty()
-            if (title.isBlank()) return@mapNotNull null
             val text = row.text()
-            val at = text.indexOf(title, ignoreCase = true)
-            if (at < 0) return@mapNotNull null
-            val afterTitle = text.substring(at + title.length)
-            val artist = afterTitle.substringBefore('(').trim()
-                .replace(Regex("\\s+"), " ")
-            if (artist.isEmpty() || artist.startsWith("P:")) return@mapNotNull null
+            val trackList = row.select("p").firstOrNull { paragraph ->
+                paragraph.text().contains("Tracklist:", ignoreCase = true)
+            }
+            val historicalTitle = trackList?.selectFirst("b")?.text()
+                ?.substringBefore('\\')?.trim()
+            val title: String
+            val artist: String
+            if (!historicalTitle.isNullOrBlank()) {
+                // Legacy Top 50: tracklist identifies the exact side A, followed
+                // by the performer in the item's own heading text.
+                title = historicalTitle
+                val index = text.indexOf(title, ignoreCase = true)
+                if (index < 0) return@mapNotNull null
+                artist = text.substring(index + title.length).substringBefore('(')
+                    .trim().replace(Regex("\\s+"), " ")
+            } else {
+                // New Top 200: clickable title, then separate performer paragraph.
+                // Do not mistake a bold P/MAX/NS statistics line for the title.
+                title = row.selectFirst("a[href*='youtube.com'], a[href*='youtu.be']")
+                    ?.text()?.trim().orEmpty()
+                artist = row.select("p").map { it.text().trim() }
+                    .firstOrNull { value ->
+                        value.isNotEmpty() && value != rank.toString() &&
+                            !value.startsWith("P:", ignoreCase = true) &&
+                            !value.contains("MAX:", ignoreCase = true)
+                    }.orEmpty()
+            }
+            if (title.isBlank() || artist.isBlank() || artist.startsWith("P:"))
+                return@mapNotNull null
             fun field(label: String): String? =
                 Regex("\\b$label:\\s*([^|\\s]+)", RegexOption.IGNORE_CASE)
                     .find(text)?.groupValues?.get(1)
             HistoricalHit(rank, title, artist, field("MAX"), field("NS"), field("Pre"))
         }.distinctBy { it.rank }.sortedBy { it.rank }
-        return entries
     }
 
     suspend fun load(day: Calendar): HistoricalChart = withContext(Dispatchers.IO) {
