@@ -21,7 +21,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
+import com.metrolist.music.playback.rememberMusicLabPersistentLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -159,8 +160,8 @@ fun LibraryAlbumsScreen(
         }.distinctBy { it.id }
     }
 
-    val lazyListState = rememberLazyListState()
-    val lazyGridState = rememberLazyGridState()
+    val lazyListState = rememberMusicLabPersistentLazyListState("library:albums:list")
+    val lazyGridState = rememberMusicLabPersistentLazyGridState("library:albums:grid")
     val backStackEntry by navController.currentBackStackEntryAsState()
     val scrollToTop =
         backStackEntry?.savedStateHandle?.getStateFlow("scrollToTop", false)?.collectAsStateWithLifecycle()
