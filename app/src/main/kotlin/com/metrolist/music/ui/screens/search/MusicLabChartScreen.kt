@@ -183,6 +183,10 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
     var loadError by remember(title) { mutableStateOf<String?>(null) }
     var resolvingSong by remember { mutableStateOf<String?>(null) }
     val listKey = "chart:" + title
+    val selectedKeys by MusicLabListPositionStore.selectedKeys.collectAsStateWithLifecycle()
+    val currentContext by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
+    val highlightedRank = selectedKeys[listKey]
+        ?: MusicLabListPositionStore.get(listKey).selectedKey
     val initialPosition = remember(listKey) {
         MusicLabListPositionStore.attach(context)
         MusicLabListPositionStore.get(listKey)
@@ -212,6 +216,16 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
             .collectLatest { (index, offset) ->
                 if (!restorePending) MusicLabListPositionStore.scroll(listKey, index, offset)
             }
+    }
+
+    LaunchedEffect(listKey, currentContext?.index, currentContext?.revision,
+        chartResult?.tracks?.size) {
+        val state = currentContext ?: return@LaunchedEffect
+        if (state.selectionKey == listKey &&
+            state.index in (chartResult?.tracks?.indices ?: IntRange.EMPTY) &&
+            listState.layoutInfo.totalItemsCount > state.index) {
+            listState.animateScrollToItem(state.index)
+        }
     }
 
     LaunchedEffect(chart) {
@@ -278,8 +292,7 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
             chartResult?.let { result ->
                 items(result.tracks, key = { "chart_${it.rank}_${it.title}_${it.artist}" }) { track ->
                     Row(modifier = Modifier.fillMaxWidth()
-                        .background(if (MusicLabListPositionStore.get(listKey).selectedKey ==
-                            track.rank.toString()) MaterialTheme.colorScheme.primaryContainer
+                        .background(if (highlightedRank == track.rank.toString()) MaterialTheme.colorScheme.primaryContainer
                             else Color.Transparent)
                         .clickable {
                         if (resolvingSong != null) return@clickable
@@ -319,6 +332,7 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                                             orderedEntries = rows,
                                             selectedIndex = result.tracks.indexOf(track),
                                             selected = selectedItem,
+                                            selectionKey = listKey,
                                             findPlayable = { entry ->
                                                 result.tracks.firstOrNull { it.rank.toString() == entry.key }
                                                     ?.let { nextTrack ->
