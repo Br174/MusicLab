@@ -177,7 +177,9 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
         .only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
     val scope = rememberCoroutineScope()
     var isLoading by remember(title) { mutableStateOf(true) }
-    var chartResult by remember(title) { mutableStateOf<MusicLabChartResult?>(null) }
+    var chartResult by remember(title) {
+        mutableStateOf(MusicLabEditorialSnapshot.loadChart(context, title))
+    }
     var loadError by remember(title) { mutableStateOf<String?>(null) }
     var resolvingSong by remember { mutableStateOf<String?>(null) }
     val listKey = "chart:" + title
@@ -186,16 +188,30 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
         MusicLabListPositionStore.get(listKey)
     }
     val listState = remember(listKey) { LazyListState(initialPosition.index, initialPosition.offset) }
+    var restorePending by remember(listKey) {
+        mutableStateOf(initialPosition.index > 0 || initialPosition.offset > 0)
+    }
+    LaunchedEffect(listKey, chartResult?.tracks?.size) {
+        if (restorePending && chartResult != null &&
+            chartResult!!.tracks.size + 2 > initialPosition.index) {
+            listState.scrollToItem(initialPosition.index, initialPosition.offset)
+            restorePending = false
+        }
+    }
     DisposableEffect(listKey, listState) {
         onDispose {
-            MusicLabListPositionStore.scroll(listKey,
-                listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
-            MusicLabListPositionStore.flush(listKey)
+            if (!restorePending) {
+                MusicLabListPositionStore.scroll(listKey,
+                    listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                MusicLabListPositionStore.flush(listKey)
+            }
         }
     }
     LaunchedEffect(listKey, listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .collectLatest { (index, offset) -> MusicLabListPositionStore.scroll(listKey, index, offset) }
+            .collectLatest { (index, offset) ->
+                if (!restorePending) MusicLabListPositionStore.scroll(listKey, index, offset)
+            }
     }
 
     LaunchedEffect(chart) {
