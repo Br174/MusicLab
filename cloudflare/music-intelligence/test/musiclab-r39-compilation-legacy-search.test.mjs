@@ -7,7 +7,7 @@ const policy = fs.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/compo
 const bridge = fs.readFileSync('app/src/main/kotlin/com/metrolist/music/ui/component/CompilationNavigationBridge.kt', 'utf8');
 const api = fs.readFileSync('app/src/main/kotlin/com/metrolist/music/discogs/DiscogsClient.kt', 'utf8');
 const load = comp.slice(comp.indexOf('suspend fun loadPage('), comp.indexOf('fun runSearch('));
-const nav = comp.slice(comp.indexOf('LaunchedEffect(trackRequest?.title'), comp.indexOf('fun loadNextPage('));
+const nav = comp.slice(comp.indexOf('LaunchedEffect(trackRequest?.requestId'), comp.indexOf('fun loadNextPage('));
 
 test('R39 restores wide R36 Discogs q-based search, 100 releases per page', () => {
   assert.match(load, /DiscogsClient\.searchCompilations\(/);
@@ -22,8 +22,8 @@ test('R39 restores wide R36 Discogs q-based search, 100 releases per page', () =
 
 test('menu transfers song title without activating the narrow song filter', () => {
   assert.match(bridge, /fun openForTrack\(title: String, artist: String\)/);
-  assert.match(nav, /CompilationSearchTitlePolicy\.clean\(target\.title\)/);
-  assert.match(nav, /query = cleanTitle/);
+  assert.match(nav, /val fullVideoTitle = target\.title\.trim\(\)/);
+  assert.match(nav, /query = fullVideoTitle/);
   assert.match(nav, /trackTitle = null, trackArtist = null/);
   assert.match(nav, /runSearch\(CompilationSearchCriteria\(/);
   assert.doesNotMatch(comp, /"Compilation verificate:/);
