@@ -3,7 +3,7 @@ package com.metrolist.music.playback
 /** Pure decision gate shared by each section's already-existing loader. */
 internal object MusicLabSectionWorkPolicy {
     fun shouldLoad(hasCompleteSnapshot: Boolean, phase: MusicLabSectionWorkCheckpoint.Phase): Boolean =
-        !hasCompleteSnapshot && phase != MusicLabSectionWorkCheckpoint.Phase.COMPLETE
+        !hasCompleteSnapshot
 
     fun shouldResumeInterrupted(
         phase: MusicLabSectionWorkCheckpoint.Phase,
