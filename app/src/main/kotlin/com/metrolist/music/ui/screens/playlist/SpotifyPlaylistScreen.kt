@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
 import com.metrolist.music.playback.MusicLabScreenRouteKey
+import com.metrolist.music.playback.MusicLabListPositionStore
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -504,8 +506,15 @@ fun SpotifyPlaylistScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.primaryContainer.copy(
+                                    alpha = if (MusicLabListPositionStore.get(
+                                        "playlist:spotify:" + MusicLabScreenRouteKey.of(navController)
+                                    ).selectedKey == track.id) 0.65f else 0f))
                                 .combinedClickable(
                                     onClick = {
+                                        MusicLabListPositionStore.select(
+                                            "playlist:spotify:" + MusicLabScreenRouteKey.of(navController),
+                                            track.id)
                                         playerConnection.playQueue(
                                             SpotifyPlaylistQueue(
                                                 playlistId = viewModel.playlistId,
