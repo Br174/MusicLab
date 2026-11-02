@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.res.painterResource
@@ -264,22 +265,25 @@ internal fun CompilationScreen(
             MusicLabListPositionStore.scroll("compilation:results", index, offset)
         }
     }
+    val latestCompilationSnapshot = rememberUpdatedState(MusicLabCompilationSnapshot.Saved(
+        query = query, year = year, genre = genre, style = style,
+        country = country, language = language, filtersExpanded = filtersExpanded,
+        results = results, page = currentPage, pages = totalPages,
+        total = totalDiscogsResults, selectedRelease = selectedReleaseId,
+        selectedTrack = selectedTrackIndex, openRelease = openReleaseId,
+    ))
+    val latestOpenCompilation = rememberUpdatedState(detail)
     DisposableEffect(resultListState) {
         onDispose {
             MusicLabListPositionStore.scroll("compilation:results",
                 resultListState.firstVisibleItemIndex,
                 resultListState.firstVisibleItemScrollOffset)
             MusicLabListPositionStore.flush("compilation:results")
-            // The 350ms coalescing timer may not fire before an immediate tab
-            // switch. Commit the latest visible page and cursor right here.
-            MusicLabCompilationSnapshot.save(context, MusicLabCompilationSnapshot.Saved(
-                query = query, year = year, genre = genre, style = style,
-                country = country, language = language, filtersExpanded = filtersExpanded,
-                results = results, page = currentPage, pages = totalPages,
-                total = totalDiscogsResults, selectedRelease = selectedReleaseId,
-                selectedTrack = selectedTrackIndex, openRelease = openReleaseId,
-            ))
-            detail?.let { current ->
+            // Read the latest committed Compose state, not the initial lambda
+            // closure from the first composition. A quick tab switch must
+            // never roll back the user's latest search and page.
+            MusicLabCompilationSnapshot.save(context, latestCompilationSnapshot.value)
+            latestOpenCompilation.value?.let { current ->
                 MusicLabCompilationResolvedCache.save(context, current, resolvedTracks)
                 if (resolvedTracks.size < current.tracks.size)
                     MusicLabSectionWorkCheckpoint.standby(context, "compilation:tracks",
