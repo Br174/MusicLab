@@ -27,13 +27,15 @@ test('Hit Parade restores exact date, cached list and independently selected car
  assert.match(hp,/MusicLabSectionMemory\.number\([\s\S]*?"hitparade", "last_date_ms"/);
  assert.match(hp,/MusicLabSectionMemory\.putNumber\(context, "hitparade", "last_date_ms"/);
  assert.match(hp,/MusicLabEditorialSnapshot\.loadHistorical\(context, dateKey\)/);
- assert.match(hp,/MusicLabEditorialSnapshot\.saveHistorical\(context, dateKey, it\)/);
+ assert.match(hp,/MusicLabEditorialSnapshot\.saveHistorical\(context, dateKey, found\)/);
+ assert.match(hp,/MusicLabSectionWorkCheckpoint\.complete\(context, "hitparade"/);
  assert.match(hp,/MusicLabListPositionStore\.select\(positionKey, song\.rank\.toString\(\)\)/);
  assert.match(hp,/LazyListState\(initialPosition\.index, initialPosition\.offset\)/);
 });
 test('Chart and genres retain trusted rank and artwork without playback on restoration',()=>{
  assert.match(hc,/MusicLabEditorialSnapshot\.loadChart\(context, title\)/);
- assert.match(hc,/MusicLabEditorialSnapshot\.saveChart\(context, title, it\)/);
+ assert.match(hc,/MusicLabEditorialSnapshot\.saveChart\(context, title, found\)/);
+ assert.match(hc,/MusicLabSectionWorkCheckpoint\.complete\(context, "chart"/);
  assert.match(editorial,/track\.sourceArtworkTrusted/);
  assert.match(hc,/MusicLabListPositionStore\.attach\(context\)/);
  assert.match(hc,/MusicLabListPositionStore\.flush\(listKey\)/);
