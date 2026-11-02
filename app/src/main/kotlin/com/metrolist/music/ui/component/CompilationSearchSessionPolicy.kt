@@ -46,7 +46,7 @@ internal object CompilationSearchHistoryStore {
                 for (index in 0 until minOf(data.length(), LIMIT)) {
                     val entry = data.optJSONObject(index) ?: continue
                     val query = entry.optString("query").trim()
-                    val title = entry.optString("trackTitle").trim().ifBlank { null }
+                    val title = entry.optString("trackTitle").trim().takeIf(String::isNotBlank)
                     if (query.isBlank() && title == null && entry.optInt("year", 0) == 0 &&
                         entry.optString("genre").isBlank() && entry.optString("style").isBlank() &&
                         entry.optString("country").isBlank() && entry.optString("language").isBlank()) continue
