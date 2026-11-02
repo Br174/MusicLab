@@ -269,6 +269,21 @@ internal fun CompilationScreen(
                 resultListState.firstVisibleItemIndex,
                 resultListState.firstVisibleItemScrollOffset)
             MusicLabListPositionStore.flush("compilation:results")
+            // The 350ms coalescing timer may not fire before an immediate tab
+            // switch. Commit the latest visible page and cursor right here.
+            MusicLabCompilationSnapshot.save(context, MusicLabCompilationSnapshot.Saved(
+                query = query, year = year, genre = genre, style = style,
+                country = country, language = language, filtersExpanded = filtersExpanded,
+                results = results, page = currentPage, pages = totalPages,
+                total = totalDiscogsResults, selectedRelease = selectedReleaseId,
+                selectedTrack = selectedTrackIndex, openRelease = openReleaseId,
+            ))
+            detail?.let { current ->
+                MusicLabCompilationResolvedCache.save(context, current, resolvedTracks)
+                if (resolvedTracks.size < current.tracks.size)
+                    MusicLabSectionWorkCheckpoint.standby(context, "compilation:tracks",
+                        current.id.toString())
+            }
         }
     }
     LaunchedEffect(query, year, genre, style, country, language, filtersExpanded,
@@ -527,8 +542,8 @@ internal fun CompilationScreen(
             activeSearchToken = discogsToken
             val pageKey = searchIdentity(criteria) + "|page:${currentPage + 1}"
             if (MusicLabSectionWorkCheckpoint.read(context,
-                    "compilation:pagination", pageKey).phase ==
-                MusicLabSectionWorkCheckpoint.Phase.STANDBY &&
+                    "compilation:pagination", pageKey).phase !=
+                MusicLabSectionWorkCheckpoint.Phase.COMPLETE &&
                 MusicLabSectionWorkCheckpoint.read(context,
                     "compilation:pagination", pageKey).total > 0) {
                 loadNextPage()
@@ -539,7 +554,7 @@ internal fun CompilationScreen(
             val workKey = searchIdentity(restoreCriteria)
             val saved = MusicLabSectionWorkCheckpoint.read(context,
                 "compilation:search", workKey)
-            if (saved.phase == MusicLabSectionWorkCheckpoint.Phase.STANDBY &&
+            if (saved.phase != MusicLabSectionWorkCheckpoint.Phase.COMPLETE &&
                 saved.total > 0) {
                 runSearch(restoreCriteria, resumeInterrupted = true)
             }
