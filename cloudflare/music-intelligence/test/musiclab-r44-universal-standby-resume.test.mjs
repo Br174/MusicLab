@@ -13,7 +13,7 @@ const hit = read('app/src/main/kotlin/com/metrolist/music/ui/screens/search/Musi
 const chart = read('app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabChartScreen.kt');
 const online = read('app/src/main/kotlin/com/metrolist/music/viewmodels/OnlineSearchViewModel.kt');
 const search = read('app/src/main/kotlin/com/metrolist/music/viewmodels/MusicLabOnlineSearchSnapshot.kt');
-const screen = read('app/src/main/kotlin/com/metrolist/music/ui/screens/search/OnlineSearchScreen.kt');
+const screen = read('app/src/main/kotlin/com/metrolist/music/ui/screens/search/OnlineSearchResult.kt');
 
 test('R44 durable checkpoints have explicit running, standby and complete boundaries', () => {
   assert.match(checkpoint, /enum class Phase \{ RUNNING, STANDBY, COMPLETE \}/);
