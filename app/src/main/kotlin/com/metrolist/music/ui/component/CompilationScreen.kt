@@ -67,6 +67,7 @@ import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsCompilationSummary
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.playback.MusicLabSectionWorkCheckpoint
 import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.utils.dataStore
@@ -372,7 +373,13 @@ internal fun CompilationScreen(
         return true
     }
 
-    fun runSearch(requestedCriteria: CompilationSearchCriteria? = null) {
+    fun searchIdentity(criteria: CompilationSearchCriteria): String =
+        listOf(criteria.query, criteria.year?.toString().orEmpty(),
+            criteria.genre.orEmpty(), criteria.style.orEmpty(),
+            criteria.country.orEmpty(), criteria.language.orEmpty()).joinToString("|")
+
+    fun runSearch(requestedCriteria: CompilationSearchCriteria? = null,
+                  resumeInterrupted: Boolean = false) {
         val criteria = requestedCriteria ?: CompilationSearchCriteria(
             query = query.trim(),
             year = year,
@@ -386,6 +393,10 @@ internal fun CompilationScreen(
             trackArtist = null,
         )
 
+        val workKey = searchIdentity(criteria)
+        if (!resumeInterrupted)
+            MusicLabSectionWorkCheckpoint.reset(context, "compilation:search", workKey)
+        MusicLabSectionWorkCheckpoint.advance(context, "compilation:search", workKey, 0, 1)
         // Invalidate and remove the old list BEFORE reading credentials. Neither
         // a missing credential nor a late response may keep the old search alive.
         searchGeneration += 1
@@ -429,6 +440,10 @@ internal fun CompilationScreen(
                 if (!succeeded && generation == searchGeneration) {
                     activeSearch = null
                     CompilationSessionStore.activeSearch = null
+                    MusicLabSectionWorkCheckpoint.standby(context, "compilation:search", workKey)
+                } else if (succeeded && generation == searchGeneration) {
+                    MusicLabSectionWorkCheckpoint.complete(context, "compilation:search",
+                        workKey, results.size)
                 }
                 if (succeeded && generation == searchGeneration) {
                     val updated = withContext(Dispatchers.IO) {
@@ -438,8 +453,10 @@ internal fun CompilationScreen(
                     if (generation == searchGeneration) searchHistory = updated
                 }
             } catch (cancel: CancellationException) {
+                MusicLabSectionWorkCheckpoint.standby(context, "compilation:search", workKey)
                 throw cancel
             } catch (failure: Exception) {
+                MusicLabSectionWorkCheckpoint.standby(context, "compilation:search", workKey)
                 if (generation == searchGeneration)
                     error = failure.message ?: "Impossibile caricare le compilation."
             } finally {
@@ -472,20 +489,59 @@ internal fun CompilationScreen(
         val criteria = activeSearch ?: return
         if (loading || loadingMore || currentPage <= 0 || currentPage >= totalPages) return
 
+        val next = currentPage + 1
+        val pageKey = searchIdentity(criteria) + "|page:$next"
+        MusicLabSectionWorkCheckpoint.advance(context, "compilation:pagination", pageKey,
+            currentPage, next)
         loadingMore = true
         paginationError = null
         paginationJob?.cancel()
         paginationJob = scope.launch {
             try {
-                loadPage(
+                if (loadPage(
                     criteria = criteria,
-                    page = currentPage + 1,
+                    page = next,
                     replaceResults = false,
                     token = activeSearchToken,
                     generation = searchGeneration,
-                )
+                )) {
+                    MusicLabSectionWorkCheckpoint.complete(context, "compilation:pagination",
+                        pageKey, results.size)
+                } else MusicLabSectionWorkCheckpoint.standby(context,
+                    "compilation:pagination", pageKey)
+            } catch (cancel: CancellationException) {
+                MusicLabSectionWorkCheckpoint.standby(context, "compilation:pagination", pageKey)
+                throw cancel
             } finally {
                 loadingMore = false
+            }
+        }
+    }
+
+    // A page interrupted by a screen switch resumes once, using the saved
+    // filters and cursor. Completed pages stay cached and do not restart.
+    LaunchedEffect(tokenState.loaded, discogsToken) {
+        if (!tokenState.loaded || discogsToken.isBlank()) return@LaunchedEffect
+        val criteria = activeSearch
+        if (criteria != null && currentPage > 0) {
+            activeSearchToken = discogsToken
+            val pageKey = searchIdentity(criteria) + "|page:${currentPage + 1}"
+            if (MusicLabSectionWorkCheckpoint.read(context,
+                    "compilation:pagination", pageKey).phase ==
+                MusicLabSectionWorkCheckpoint.Phase.STANDBY &&
+                MusicLabSectionWorkCheckpoint.read(context,
+                    "compilation:pagination", pageKey).total > 0) {
+                loadNextPage()
+            }
+        } else if (query.isNotBlank() && results.isEmpty() && !loading) {
+            val restoreCriteria = CompilationSearchCriteria(
+                query.trim(), year, genre, style, country, language)
+            val workKey = searchIdentity(restoreCriteria)
+            val saved = MusicLabSectionWorkCheckpoint.read(context,
+                "compilation:search", workKey)
+            if (saved.phase == MusicLabSectionWorkCheckpoint.Phase.STANDBY &&
+                saved.total > 0) {
+                runSearch(restoreCriteria, resumeInterrupted = true)
             }
         }
     }
@@ -575,8 +631,31 @@ internal fun CompilationScreen(
         if (found != null && detail?.id == current.id) {
             resolvedTracks[index] = found
             CompilationSessionStore.resolvedTracks[index] = found
+            MusicLabCompilationResolvedCache.save(context, current, resolvedTracks)
+            MusicLabSectionWorkCheckpoint.advance(context, "compilation:tracks",
+                current.id.toString(), resolvedTracks.size, current.tracks.size)
+            if (resolvedTracks.size >= current.tracks.size)
+                MusicLabSectionWorkCheckpoint.complete(context, "compilation:tracks",
+                    current.id.toString(), resolvedTracks.size)
         }
         return found
+    }
+
+    // Restore previously verified SongItems, including after Android process
+    // death. No audio is started; wrong-album indices cannot be restored.
+    LaunchedEffect(detail?.id) {
+        val current = detail ?: return@LaunchedEffect
+        val cached = withContext(Dispatchers.IO) {
+            MusicLabCompilationResolvedCache.load(context, current)
+        }
+        if (detail?.id == current.id) {
+            cached.forEach { (index, entry) ->
+                if (resolvedTracks[index] == null) {
+                    resolvedTracks[index] = entry
+                    CompilationSessionStore.resolvedTracks[index] = entry
+                }
+            }
+        }
     }
 
     // Exactly as in Hit Parade: prepare only the rows entering the viewport,
@@ -600,6 +679,12 @@ internal fun CompilationScreen(
                 val found = CompilationResolvedTrack(track, song, "MusicLab FastPath", false)
                 resolvedTracks[index] = found
                 CompilationSessionStore.resolvedTracks[index] = found
+                MusicLabCompilationResolvedCache.save(context, current, resolvedTracks)
+                MusicLabSectionWorkCheckpoint.advance(context, "compilation:tracks",
+                    current.id.toString(), resolvedTracks.size, current.tracks.size)
+                if (resolvedTracks.size >= current.tracks.size)
+                    MusicLabSectionWorkCheckpoint.complete(context, "compilation:tracks",
+                        current.id.toString(), resolvedTracks.size)
             }
         }
     }
