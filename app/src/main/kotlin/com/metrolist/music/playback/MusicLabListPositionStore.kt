@@ -2,11 +2,17 @@ package com.metrolist.music.playback
 
 import android.content.Context
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /** R41: per-list selection and scroll persist even after process death. */
 internal object MusicLabListPositionStore {
     data class Position(val index: Int = 0, val offset: Int = 0, val selectedKey: String? = null)
     private val values = ConcurrentHashMap<String, Position>()
+    // Reactive row selection: a player swipe changes the highlighted card
+    // even when no screen-local onClick handler runs.
+    private val selectedKeysFlow = MutableStateFlow<Map<String, String>>(emptyMap())
+    val selectedKeys: StateFlow<Map<String, String>> = selectedKeysFlow
     @Volatile private var application: Context? = null
     private val lastDiskScroll = ConcurrentHashMap<String, Position>()
 
@@ -54,12 +60,14 @@ internal object MusicLabListPositionStore {
     fun select(key: String, selectedKey: String) {
         val next = get(key).copy(selectedKey = selectedKey)
         values[key] = next
+        selectedKeysFlow.value = selectedKeysFlow.value + (key to selectedKey)
         save(key, next)
     }
 
     fun clear(key: String) {
         values.remove(key)
         lastDiskScroll.remove(key)
+        selectedKeysFlow.value = selectedKeysFlow.value - key
         application?.let { MusicLabSectionMemory.eraseSection(it, "position:$key") }
     }
 }
