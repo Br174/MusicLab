@@ -763,11 +763,14 @@ fun BottomSheetPlayer(
     // Position update - only for local playback
     // When casting, we use castPosition directly to avoid sync issues
     // Use isPlaying instead of playbackState to ensure continuous updates during playback
-    LaunchedEffect(isPlaying, isCasting) {
-        if (!isCasting && isPlaying) {
+    LaunchedEffect(isCasting, mediaMetadata?.id) {
+        // R42: duration/seekability must update even while initial stream buffers,
+        // not only after isPlaying becomes true.
+        if (!isCasting) {
             while (isActive) {
                 delay(100) // Update more frequently for smoother progress bar
-                if (sliderPosition == null) { // Only update if user isn't dragging
+                if (sliderPosition == null &&
+                    System.currentTimeMillis() - lastManualSeekTime > 400L) {
                     position = playerConnection.player.currentPosition
                     // Don't clobber a valid (metadata-derived) duration with 0/UNSET mid-resolve.
                     playerConnection.player.duration.takeIf { it > 0 }?.let { duration = it }
@@ -779,12 +782,13 @@ fun BottomSheetPlayer(
     // Also update position when playback state changes (e.g., song change, seek)
     LaunchedEffect(playbackState, mediaMetadata?.id) {
         if (!isCasting) {
-            position = playerConnection.player.currentPosition
+            if (System.currentTimeMillis() - lastManualSeekTime > 400L)
+                position = playerConnection.player.currentPosition
             // Prefer the song's known duration (from metadata, available instantly from the restored
             // queue) so the slider range is right even when restored paused / before the stream
             // resolves; fall back to the player's duration once it is known.
             duration = (mediaMetadata?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L))
-                ?: playerConnection.player.duration
+                ?: playerConnection.player.duration.takeIf { it > 0 } ?: 0L
         }
     }
 
@@ -1387,8 +1391,9 @@ fun BottomSheetPlayer(
             when (sliderStyle) {
                 SliderStyle.DEFAULT -> {
                     Slider(
-                        value = (sliderPosition ?: effectivePosition).toFloat(),
-                        valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
+                        value = (sliderPosition ?: effectivePosition)
+                            .coerceIn(0L, duration.coerceAtLeast(0L)).toFloat(),
+                        valueRange = 0f..duration.coerceAtLeast(0L).toFloat(),
                         onValueChange = {
                             if (!isListenTogetherGuest) {
                                 sliderPosition = it.toLong()
@@ -1401,7 +1406,8 @@ fun BottomSheetPlayer(
                                         castHandler?.seekTo(it)
                                         lastManualSeekTime = System.currentTimeMillis()
                                     } else {
-                                        playerConnection.player.seekTo(it)
+                                        lastManualSeekTime = System.currentTimeMillis()
+                                        playerConnection.seekTo(it)
                                     }
                                     position = it
                                 }
@@ -1417,8 +1423,9 @@ fun BottomSheetPlayer(
                 SliderStyle.WAVY -> {
                     if (squigglySlider) {
                         SquigglySlider(
-                            value = (sliderPosition ?: effectivePosition).toFloat(),
-                            valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
+                            value = (sliderPosition ?: effectivePosition)
+                            .coerceIn(0L, duration.coerceAtLeast(0L)).toFloat(),
+                            valueRange = 0f..duration.coerceAtLeast(0L).toFloat(),
                             onValueChange = {
                                 sliderPosition = it.toLong()
                             },
@@ -1428,7 +1435,8 @@ fun BottomSheetPlayer(
                                         castHandler?.seekTo(it)
                                         lastManualSeekTime = System.currentTimeMillis()
                                     } else {
-                                        playerConnection.player.seekTo(it)
+                                        lastManualSeekTime = System.currentTimeMillis()
+                                        playerConnection.seekTo(it)
                                     }
                                     position = it
                                 }
@@ -1440,8 +1448,9 @@ fun BottomSheetPlayer(
                         )
                     } else {
                         WavySlider(
-                            value = (sliderPosition ?: effectivePosition).toFloat(),
-                            valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
+                            value = (sliderPosition ?: effectivePosition)
+                            .coerceIn(0L, duration.coerceAtLeast(0L)).toFloat(),
+                            valueRange = 0f..duration.coerceAtLeast(0L).toFloat(),
                             onValueChange = {
                                 sliderPosition = it.toLong()
                             },
@@ -1451,7 +1460,8 @@ fun BottomSheetPlayer(
                                         castHandler?.seekTo(it)
                                         lastManualSeekTime = System.currentTimeMillis()
                                     } else {
-                                        playerConnection.player.seekTo(it)
+                                        lastManualSeekTime = System.currentTimeMillis()
+                                        playerConnection.seekTo(it)
                                     }
                                     position = it
                                 }
@@ -1466,8 +1476,9 @@ fun BottomSheetPlayer(
 
                 SliderStyle.SLIM -> {
                     Slider(
-                        value = (sliderPosition ?: effectivePosition).toFloat(),
-                        valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
+                        value = (sliderPosition ?: effectivePosition)
+                            .coerceIn(0L, duration.coerceAtLeast(0L)).toFloat(),
+                        valueRange = 0f..duration.coerceAtLeast(0L).toFloat(),
                         onValueChange = {
                             if (!isListenTogetherGuest) {
                                 sliderPosition = it.toLong()
@@ -1480,7 +1491,8 @@ fun BottomSheetPlayer(
                                         castHandler?.seekTo(it)
                                         lastManualSeekTime = System.currentTimeMillis()
                                     } else {
-                                        playerConnection.player.seekTo(it)
+                                        lastManualSeekTime = System.currentTimeMillis()
+                                        playerConnection.seekTo(it)
                                     }
                                     position = it
                                 }
