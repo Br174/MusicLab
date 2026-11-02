@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,11 +31,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,8 +56,10 @@ import com.metrolist.music.ui.component.MusicLabFastHitArtwork
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.MusicLabSectionPlayback
+import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.playback.queues.YouTubeQueue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -574,6 +580,16 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
     var resolving by remember { mutableStateOf<Int?>(null) }
     var tapSerial by remember { mutableStateOf(0L) }
     val formatter = remember { SimpleDateFormat("dd MMMM yyyy", Locale.ITALIAN) }
+    val positionKey = "hitparade:" + selected.timeInMillis.toString()
+    val initialPosition = remember(positionKey) { MusicLabListPositionStore.get(positionKey) }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialPosition.index,
+        initialFirstVisibleItemScrollOffset = initialPosition.offset,
+    )
+    LaunchedEffect(positionKey, listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collectLatest { (index, offset) -> MusicLabListPositionStore.scroll(positionKey, index, offset) }
+    }
 
     fun shiftWeek(delta: Int) {
         selected = (selected.clone() as Calendar).apply {
@@ -611,7 +627,7 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             }
         })
     }) { insets ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(insets),
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(insets),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
                 top = 10.dp, bottom = bottomPadding + 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -656,7 +672,11 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             } }
             chart?.let { result ->
                 items(result.songs, key = { "hitparade_${it.rank}" }) { song ->
-                    Row(modifier = Modifier.fillMaxWidth().clickable {
+                    Row(modifier = Modifier.fillMaxWidth()
+                        .background(if (MusicLabListPositionStore.get(positionKey).selectedKey ==
+                            song.rank.toString()) MaterialTheme.colorScheme.primaryContainer
+                            else Color.Transparent)
+                        .clickable {
                         // FastPath: the visible row may already have resolved this exact
                         // SongItem for its artwork. The latest tapped song always wins.
                         val myTap = ++tapSerial
@@ -681,6 +701,7 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
                                         ranked.rank == song.rank
                                     }
                                     player?.let { connection ->
+                                        MusicLabListPositionStore.select(positionKey, song.rank.toString())
                                         MusicLabSectionPlayback.select(
                                             connection = connection,
                                             source = "Hit Parade · " + formatter.format(selected.time),
