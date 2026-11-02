@@ -5,11 +5,26 @@ from pathlib import Path
 
 BASE="b8e14c465f425e4a84c518ea5980a32b6be9b736"
 EXPECTED={
+".github/workflows/musiclab-r41-section-memory-33121-apk.yml",
 "app/src/main/kotlin/com/metrolist/music/playback/MusicLabListPositionStore.kt",
+"app/src/main/kotlin/com/metrolist/music/playback/MusicLabPersistentLazyList.kt",
 "app/src/main/kotlin/com/metrolist/music/playback/MusicLabSectionMemory.kt",
 "app/src/main/kotlin/com/metrolist/music/ui/component/CompilationScreen.kt",
 "app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt",
 "app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabCompilationSnapshot.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/AlbumScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/library/LibraryAlbumsScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/library/LibraryArtistsScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/library/LibraryMixScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/library/LibraryPlaylistsScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/library/LibraryScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/library/LibrarySongsScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/playlist/AutoPlaylistScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/playlist/LocalPlaylistScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/playlist/OnlinePlaylistScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/playlist/SpotifyLikedSongsScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/playlist/SpotifyPlaylistScreen.kt",
+"app/src/main/kotlin/com/metrolist/music/ui/screens/playlist/TopPlaylistScreen.kt",
 "app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabChartScreen.kt",
 "app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabEditorialSnapshot.kt",
 "app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHistoricalHitParade.kt",
@@ -19,7 +34,6 @@ EXPECTED={
 "cloudflare/music-intelligence/test/musiclab-r41-section-memory.test.mjs",
 "tools/universal-apk-builder/prepare-turbo-r41-33121-env.py",
 "tools/universal-apk-builder/verify-r41-33121-scope.py",
-".github/workflows/musiclab-r41-section-memory-33121-apk.yml",
 }
 PROTECTED=[
 "app/src/main/kotlin/com/metrolist/music/discogs/DiscogsClient.kt",
