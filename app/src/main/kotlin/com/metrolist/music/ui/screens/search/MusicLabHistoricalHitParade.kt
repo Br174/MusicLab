@@ -627,12 +627,18 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
     LaunchedEffect(selected.timeInMillis) {
         MusicLabSectionMemory.putNumber(context, "hitparade", "last_date_ms",
             selected.timeInMillis)
-        loading = true
-        chart = null
+        val dateKey = selected.timeInMillis
+        chart = MusicLabEditorialSnapshot.loadHistorical(context, dateKey)
+        loading = chart == null
         error = null
         runCatching { MusicLabHistoricalHitParade.load(selected) }
-            .onSuccess { chart = it }
-            .onFailure { error = it.message ?: "Impossibile caricare la classifica" }
+            .onSuccess {
+                chart = it
+                MusicLabEditorialSnapshot.saveHistorical(context, dateKey, it)
+            }
+            .onFailure {
+                if (chart == null) error = it.message ?: "Impossibile caricare la classifica"
+            }
         loading = false
     }
 
