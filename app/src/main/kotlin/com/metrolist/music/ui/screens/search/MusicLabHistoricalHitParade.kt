@@ -571,7 +571,11 @@ internal object MusicLabHistoricalHitParade {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
+internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
+    navController: NavController,
+    selectedMode: MusicLabHistoricalChartMode,
+    onModeChange: (MusicLabHistoricalChartMode) -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val player = LocalPlayerConnection.current
@@ -709,6 +713,7 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item(key = "date_controls") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MusicLabHistoricalChartModeMenu(selectedMode, onModeChange)
                     Text("Scegli una data per riscoprire le canzoni in classifica",
                         style = MaterialTheme.typography.bodyMedium)
                     Row(verticalAlignment = Alignment.CenterVertically,
