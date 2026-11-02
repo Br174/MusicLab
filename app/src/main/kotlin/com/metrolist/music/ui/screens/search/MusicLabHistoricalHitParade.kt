@@ -50,6 +50,8 @@ import com.metrolist.music.R
 import com.metrolist.music.ui.component.MusicLabFastPath
 import com.metrolist.music.ui.component.MusicLabFastHitArtwork
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.queues.YouTubeQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -668,9 +670,31 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
                                 if (myTap != tapSerial) return@launch
                                 if (match != null) {
                                     player?.beginPlaybackPriorityBurst("hit-parade-tap")
-                                    player?.playQueue(YouTubeQueue(
-                                        endpoint = WatchEndpoint(videoId = match.id),
-                                        preloadItem = match.toMediaMetadata()))
+                                    val ordered = result.songs.map { ranked ->
+                                        MusicLabSectionPlayback.Entry(
+                                            key = ranked.rank.toString(),
+                                            title = ranked.title,
+                                            artist = ranked.artist,
+                                        )
+                                    }
+                                    val position = result.songs.indexOfFirst { ranked ->
+                                        ranked.rank == song.rank
+                                    }
+                                    player?.let { connection ->
+                                        MusicLabSectionPlayback.select(
+                                            connection = connection,
+                                            source = "Hit Parade · " + formatter.format(selected.time),
+                                            orderedEntries = ordered,
+                                            selectedIndex = position,
+                                            selected = match.toMediaItem(),
+                                            findPlayable = { entry ->
+                                                MusicLabFastPath.find(entry.title, entry.artist) { candidate ->
+                                                    MusicLabChartArtworkResolver.sameRecordingLabel(
+                                                        entry.title, entry.artist, candidate)
+                                                }?.toMediaItem()
+                                            },
+                                        )
+                                    }
                                     MusicLabChartArtworkResolver.rememberArtwork(
                                         context, MusicLabChartTrack(song.rank, song.title, song.artist),
                                         match.thumbnail)
