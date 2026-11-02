@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
+import com.metrolist.music.playback.MusicLabScreenRouteKey
+
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -157,7 +159,7 @@ fun SpotifyPlaylistScreen(
     var locked by rememberSaveable { mutableStateOf(true) }
 
     val coroutineScope = rememberCoroutineScope()
-    val lazyListState = rememberLazyListState()
+    val lazyListState = rememberMusicLabPersistentLazyListState("playlist:spotify:" + MusicLabScreenRouteKey.of(navController))
     val pullRefreshState = rememberPullToRefreshState()
 
     val mapper = remember { SpotifyYouTubeMapper(database) }
