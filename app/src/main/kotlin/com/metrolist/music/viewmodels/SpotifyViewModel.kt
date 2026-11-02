@@ -60,6 +60,8 @@ constructor(
         private val CACHE_KEY_PLAYLISTS = stringPreferencesKey("spotify_cached_playlists_json")
         private val CACHE_KEY_LIKED = stringPreferencesKey("musiclab_r44_spotify_liked_json")
         private val CACHE_KEY_TOP = stringPreferencesKey("musiclab_r44_spotify_top_json")
+        private val CACHE_KEY_FOLDERS = stringPreferencesKey("musiclab_r44_spotify_root_folders_json")
+        private val CACHE_KEY_ROOT_PLAYLISTS = stringPreferencesKey("musiclab_r44_spotify_root_playlists_json")
         private val CACHE_KEY_LIKED_TOTAL = stringPreferencesKey("musiclab_r44_spotify_liked_total")
         private val jsonSerializer = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     }
@@ -154,6 +156,7 @@ constructor(
     private var libraryLoadJob: Job? = null
     private var libraryVisible = false
     private var libraryLoadComplete = false
+    private var rootGroupingRestored = false
 
     fun setLibraryVisible(visible: Boolean) {
         libraryVisible = visible
@@ -172,6 +175,15 @@ constructor(
                 if (playlists.isNotBlank()) {
                     _spotifyPlaylists.value = jsonSerializer.decodeFromString<List<SpotifyPlaylist>>(playlists)
                 }
+            }
+            val folderJson = data[CACHE_KEY_FOLDERS]
+            val rootsJson = data[CACHE_KEY_ROOT_PLAYLISTS]
+            if (folderJson != null && rootsJson != null) {
+                _spotifyRootFolders.value =
+                    jsonSerializer.decodeFromString<List<SpotifyLibraryFolder>>(folderJson)
+                _spotifyRootPlaylists.value =
+                    jsonSerializer.decodeFromString<List<SpotifyPlaylist>>(rootsJson)
+                rootGroupingRestored = true
             }
             if (_likedSongs.value.isEmpty()) {
                 val liked = data[CACHE_KEY_LIKED].orEmpty()
@@ -218,7 +230,8 @@ constructor(
                 // does not need refetching when switching sections.
                 val delays = coroutineScope {
                     val pending = mutableListOf<kotlinx.coroutines.Deferred<Long>>()
-                    if (_spotifyPlaylists.value.isEmpty()) pending += async { loadPlaylistsInternal() }
+                    if (_spotifyPlaylists.value.isEmpty() || !rootGroupingRestored)
+                        pending += async { loadPlaylistsInternal() }
                     if (_likedSongs.value.isEmpty()) pending += async { loadLikedSongsInternal() }
                     pending.map { it.await() }
                 }
@@ -328,6 +341,11 @@ constructor(
             )
             _spotifyRootFolders.value = folders
             _spotifyRootPlaylists.value = rootPlaylists
+            rootGroupingRestored = true
+            context.dataStore.edit { prefs ->
+                prefs[CACHE_KEY_FOLDERS] = jsonSerializer.encodeToString(folders)
+                prefs[CACHE_KEY_ROOT_PLAYLISTS] = jsonSerializer.encodeToString(rootPlaylists)
+            }
         }.onFailure { e ->
             Timber.w(e, "SpotifyVM: loadPlaylists() - hierarchy fetch failed (non-fatal)")
         }
