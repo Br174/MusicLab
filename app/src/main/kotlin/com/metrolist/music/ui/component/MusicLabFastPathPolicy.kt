@@ -7,6 +7,8 @@ package com.metrolist.music.ui.component
 internal object MusicLabFastPathPolicy {
     const val SEARCH_PARALLELISM = 4
     const val COMPILATION_WARM_TRACKS = 2
+    // Limit viewport prefetches to leave FastPath lanes free for direct taps.
+    const val COMPILATION_VISIBLE_WARM_PARALLELISM = 2
 
     fun mayContinueCompilation(
         currentAlbumId: Int?,
