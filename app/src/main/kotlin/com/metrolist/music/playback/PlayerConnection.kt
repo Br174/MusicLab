@@ -239,6 +239,7 @@ class PlayerConnection(
     }
 
     fun playQueue(queue: Queue) {
+        MusicLabSectionPlayback.externalSelection()
         // Block if Listen Together guest (unless internal sync)
         if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
             Timber.tag("PlayerConnection").d("playQueue blocked - Listen Together guest")
@@ -291,6 +292,7 @@ class PlayerConnection(
     fun isPlaybackPriorityBurstActive(): Boolean = service.isPlaybackPriorityBurstActive()
 
     fun playNow(item: MediaItem) {
+        MusicLabSectionPlayback.externalSelection()
         if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
             Timber.tag("PlayerConnection").d("playNow blocked - Listen Together guest")
             return
@@ -435,6 +437,7 @@ class PlayerConnection(
     }
 
     fun seekToNext() {
+        if (MusicLabSectionPlayback.skip(this, 1)) return
         try {
             // When casting, use Cast skip instead of local player
             val castHandler = service.castConnectionHandler
@@ -459,6 +462,7 @@ class PlayerConnection(
      * seekToPrevious button behavior that restarts the current song at >3s.
      */
     fun skipToPreviousItem() {
+        if (MusicLabSectionPlayback.skip(this, -1)) return
         try {
             val castHandler = service.castConnectionHandler
             if (castHandler?.isCasting?.value == true) {
@@ -482,6 +486,7 @@ class PlayerConnection(
     var onRestartSong: (() -> Unit)? = null
 
     fun seekToPrevious() {
+        if (MusicLabSectionPlayback.skip(this, -1)) return
         try {
             // When casting, use Cast skip instead of local player
             val castHandler = service.castConnectionHandler
@@ -664,6 +669,7 @@ class PlayerConnection(
         reason: Int,
     ) {
         mediaMetadata.value = mediaItem?.metadata
+        MusicLabSectionPlayback.onMediaTransition(mediaItem?.mediaId)
         currentMediaItemIndex.value = player.currentMediaItemIndex
         currentWindowIndex.value = player.getCurrentQueueIndex()
         updateCanSkipPreviousAndNext()
