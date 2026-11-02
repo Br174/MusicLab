@@ -16,6 +16,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
 import com.metrolist.music.playback.MusicLabScreenRouteKey
+import com.metrolist.music.playback.MusicLabListPositionStore
 
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -657,8 +659,15 @@ fun LocalPlaylistScreen(
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(
+                                        alpha = if (MusicLabListPositionStore.get(
+                                            "playlist:local:" + MusicLabScreenRouteKey.of(navController)
+                                        ).selectedKey == song.song.id) 0.65f else 0f))
                                     .combinedClickable(
                                         onClick = {
+                                            if (!inSelectMode) MusicLabListPositionStore.select(
+                                                "playlist:local:" + MusicLabScreenRouteKey.of(navController),
+                                                song.song.id)
                                             if (inSelectMode) {
                                                 onCheckedChange(!selection.contains(song.map.id))
                                             } else if (song.song.id == mediaMetadata?.id) {
