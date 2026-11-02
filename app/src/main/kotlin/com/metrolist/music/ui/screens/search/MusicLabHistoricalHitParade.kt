@@ -674,6 +674,9 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             loading = false
             return@LaunchedEffect
         }
+        if (MusicLabSectionWorkCheckpoint.read(context, "hitparade", workKey).phase ==
+            MusicLabSectionWorkCheckpoint.Phase.COMPLETE)
+            MusicLabSectionWorkCheckpoint.reset(context, "hitparade", workKey)
         if (!MusicLabSectionWorkCheckpoint.begin(context, "hitparade", workKey)) {
             loading = false
             return@LaunchedEffect
