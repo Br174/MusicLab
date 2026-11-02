@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,6 +29,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -180,11 +181,18 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
     var loadError by remember(title) { mutableStateOf<String?>(null) }
     var resolvingSong by remember { mutableStateOf<String?>(null) }
     val listKey = "chart:" + title
-    val initialPosition = remember(listKey) { MusicLabListPositionStore.get(listKey) }
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = initialPosition.index,
-        initialFirstVisibleItemScrollOffset = initialPosition.offset,
-    )
+    val initialPosition = remember(listKey) {
+        MusicLabListPositionStore.attach(context)
+        MusicLabListPositionStore.get(listKey)
+    }
+    val listState = remember(listKey) { LazyListState(initialPosition.index, initialPosition.offset) }
+    DisposableEffect(listKey, listState) {
+        onDispose {
+            MusicLabListPositionStore.scroll(listKey,
+                listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+            MusicLabListPositionStore.flush(listKey)
+        }
+    }
     LaunchedEffect(listKey, listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collectLatest { (index, offset) -> MusicLabListPositionStore.scroll(listKey, index, offset) }
@@ -193,7 +201,7 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
     LaunchedEffect(chart) {
         isLoading = true
         loadError = null
-        chartResult = null
+        chartResult = MusicLabEditorialSnapshot.loadChart(context, title)
         if (chart == null) {
             loadError = "Classifica sconosciuta"
         } else {
@@ -211,8 +219,12 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                     LastFM.initialize(apiKey = apiKey, secret = secret)
                     MusicLabChartsRepository.load(chart).getOrThrow()
                 }
-            }.onSuccess { chartResult = it }
-                .onFailure { loadError = it.message ?: "Classifica non accessibile" }
+            }.onSuccess {
+                chartResult = it
+                MusicLabEditorialSnapshot.saveChart(context, title, it)
+            }.onFailure {
+                if (chartResult == null) loadError = it.message ?: "Classifica non accessibile"
+            }
         }
         isLoading = false
     }
