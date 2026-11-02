@@ -317,8 +317,8 @@ internal fun CompilationScreen(
         return true
     }
 
-    fun runSearch(override: CompilationSearchCriteria? = null) {
-        val criteria = override ?: CompilationSearchCriteria(
+    fun runSearch(requestedCriteria: CompilationSearchCriteria? = null) {
+        val criteria = requestedCriteria ?: CompilationSearchCriteria(
             query = query.trim(),
             year = year,
             genre = genre,
@@ -369,6 +369,10 @@ internal fun CompilationScreen(
                 resultListState.scrollToItem(0)
                 val succeeded = loadPage(criteria, page = 1, replaceResults = true,
                     token = token, generation = generation)
+                if (!succeeded && generation == searchGeneration) {
+                    activeSearch = null
+                    CompilationSessionStore.activeSearch = null
+                }
                 if (succeeded && generation == searchGeneration) {
                     val updated = withContext(Dispatchers.IO) {
                         CompilationSearchHistoryStore.save(context, criteria)
@@ -782,7 +786,7 @@ internal fun CompilationScreen(
                                             },
                                         )
                                         TextButton(
-                                            onClick = ::runSearch,
+                                            onClick = { runSearch() },
                                             enabled = !loading,
                                         ) {
                                             Text(if (loading) "…" else "Cerca")
@@ -832,9 +836,9 @@ internal fun CompilationScreen(
                                                     style = previous.style
                                                     country = previous.country
                                                     language = previous.language
-                                                    trackRequest = previous.trackTitle?.let {
-                                                        CompilationTrackRequest(it, previous.trackArtist.orEmpty())
-                                                    }
+                                                    // The history entry supplies the exact criteria.
+                                                    // Avoid the auto-navigation effect launching a second search.
+                                                    trackRequest = null
                                                     runSearch(previous)
                                                 },
                                             )
@@ -909,7 +913,7 @@ internal fun CompilationScreen(
                                 )
 
                                 Button(
-                                    onClick = ::runSearch,
+                                    onClick = { runSearch() },
                                     enabled = !loading,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
