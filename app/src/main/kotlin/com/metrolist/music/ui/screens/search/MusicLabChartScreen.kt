@@ -53,6 +53,9 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.CoverPlaybackMemory
 import com.metrolist.music.playback.queues.YouTubeQueue
 import kotlinx.coroutines.Dispatchers
@@ -246,10 +249,47 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                                     }
                                 val ytId = id ?: savedId ?: song?.id
                                 if (ytId != null) {
-                                    player?.playQueue(YouTubeQueue(
-                                        endpoint = WatchEndpoint(videoId = ytId),
-                                        preloadItem = song?.toMediaMetadata(),
-                                    ))
+                                    val selectedItem = song?.toMediaItem() ?: MediaMetadata(
+                                        id = ytId,
+                                        title = track.title,
+                                        artists = listOf(MediaMetadata.Artist(id = null, name = track.artist)),
+                                        duration = -1,
+                                        thumbnailUrl = track.artwork,
+                                    ).toMediaItem()
+                                    val rows = result.tracks.map { ranked ->
+                                        MusicLabSectionPlayback.Entry(
+                                            key = ranked.rank.toString(),
+                                            title = ranked.title,
+                                            artist = ranked.artist,
+                                        )
+                                    }
+                                    player?.let { connection ->
+                                        MusicLabSectionPlayback.select(
+                                            connection = connection,
+                                            source = title,
+                                            orderedEntries = rows,
+                                            selectedIndex = result.tracks.indexOf(track),
+                                            selected = selectedItem,
+                                            findPlayable = { entry ->
+                                                result.tracks.firstOrNull { it.rank.toString() == entry.key }
+                                                    ?.let { nextTrack ->
+                                                        val found = withContext(Dispatchers.IO) {
+                                                            MusicLabChartArtworkResolver.resolveSong(context, nextTrack)
+                                                        }
+                                                        found?.toMediaItem() ?: nextTrack.youtubeId?.let { id ->
+                                                            MediaMetadata(
+                                                                id = id,
+                                                                title = nextTrack.title,
+                                                                artists = listOf(MediaMetadata.Artist(
+                                                                    id = null, name = nextTrack.artist)),
+                                                                duration = -1,
+                                                                thumbnailUrl = nextTrack.artwork,
+                                                            ).toMediaItem()
+                                                        }
+                                                    }
+                                            },
+                                        )
+                                    }
                                 } else loadError = "Video verificato non trovato per ${track.title}. " +
                                     "Il brano resta nella classifica."
                             } finally { resolvingSong = null }
