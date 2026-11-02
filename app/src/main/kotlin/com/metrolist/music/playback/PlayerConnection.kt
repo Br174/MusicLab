@@ -291,6 +291,12 @@ class PlayerConnection(
 
     fun isPlaybackPriorityBurstActive(): Boolean = service.isPlaybackPriorityBurstActive()
 
+    /** R42: bypass the late asynchronous queue hydration for editorial lists. */
+    fun playSectionNow(item: MediaItem, sectionTitle: String) {
+        if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) return
+        service.playSectionNow(item, sectionTitle)
+    }
+
     fun playNow(item: MediaItem) {
         MusicLabSectionPlayback.externalSelection()
         if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
