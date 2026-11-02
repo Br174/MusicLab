@@ -108,6 +108,8 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.CoverPlaybackMemory
+import com.metrolist.music.playback.MusicLabListPositionStore
+import com.metrolist.music.playback.MusicLabSectionMemory
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
@@ -436,8 +438,19 @@ internal fun DiscogsDirectVersionBrowser(
 
     // LAB62: fresh navigation entry means a fresh CoverLab search session.
     // Opening details or returning from a video retains the same entry ID.
-    val coverEntryId = remember {
-        navController.currentBackStackEntry?.id ?: java.util.UUID.randomUUID().toString()
+    val sectionIdentity = mode.name + "|" + initialTitle.trim().lowercase() +
+        "|" + lockedArtist.trim().lowercase()
+    val coverEntryId = remember(sectionIdentity) {
+        // A stable visit preserves the existing CoverRoundStorage checkpoint
+        // across screens and Android process restarts.
+        MusicLabSectionMemory.text(context, "version:$sectionIdentity", "visit")
+            .ifBlank {
+                (navController.currentBackStackEntry?.id ?:
+                    java.util.UUID.randomUUID().toString()).also {
+                    MusicLabSectionMemory.putText(context,
+                        "version:$sectionIdentity", "visit", it)
+                }
+            }
     }
     val sessionKey = buildString {
         append(mode.name)
@@ -454,7 +467,39 @@ internal fun DiscogsDirectVersionBrowser(
     // JSON/canonical metadata deduplication. Never call it from remember()
     // on the Android UI thread. The next LaunchedEffect restores it on IO.
     val session = remember(sessionKey) {
-        DirectVersionSessionStore.get(sessionKey, initialTitle)
+        MusicLabListPositionStore.attach(context)
+        val saved = MusicLabSectionMemory.readState(context, "version:$sectionIdentity")
+        DirectVersionSessionStore.get(sessionKey, initialTitle).also { entry ->
+            if (!entry.initialized && entry.results.isEmpty() &&
+                entry.previousRoundRows.isEmpty()) {
+                entry.title = saved.optString("title", initialTitle)
+                entry.artistFilter = saved.optString("artistFilter")
+                entry.releaseTitle = saved.optString("releaseTitle")
+                entry.year = saved.optString("year")
+                entry.format = saved.optString("format")
+                entry.country = saved.optString("country")
+                entry.label = saved.optString("label")
+                entry.genre = saved.optString("genre")
+                entry.style = saved.optString("style")
+                entry.catalogNumber = saved.optString("catalogNumber")
+                entry.filtersExpanded = saved.optBoolean("filtersExpanded", false)
+                entry.headerExpanded = saved.optBoolean("headerExpanded", false)
+                entry.category = DirectVersionCategory.values().firstOrNull {
+                    it.name == saved.optString("category")
+                } ?: entry.category
+                entry.sortMode = DirectVersionSort.values().firstOrNull {
+                    it.name == saved.optString("sortMode")
+                } ?: entry.sortMode
+                entry.visibleLimit = saved.optInt("visibleLimit", entry.visibleLimit)
+                    .coerceAtLeast(pageSize)
+                entry.selectedFingerprint = saved.optString("selectedFingerprint")
+                    .takeIf(String::isNotBlank)
+                entry.listIndex = MusicLabListPositionStore
+                    .get("version:$sectionIdentity").index
+                entry.listOffset = MusicLabListPositionStore
+                    .get("version:$sectionIdentity").offset
+            }
+        }
     }
     // LAB12: protect UI/audio and source quotas from an unbounded 50-way
     // metadata burst. Four verifiers may run; providers retain own limits.
@@ -552,6 +597,30 @@ internal fun DiscogsDirectVersionBrowser(
         initialFirstVisibleItemIndex = session.listIndex,
         initialFirstVisibleItemScrollOffset = session.listOffset,
     )
+    LaunchedEffect(sessionKey, title, artistFilter, releaseTitle, year, format,
+        country, label, genre, style, catalogNumber, filtersExpanded,
+        headerExpanded, category, sortMode, visibleLimit, selectedFingerprint) {
+        delay(350)
+        MusicLabSectionMemory.writeState(context, "version:$sectionIdentity",
+            org.json.JSONObject().apply {
+                put("title", title)
+                put("artistFilter", artistFilter)
+                put("releaseTitle", releaseTitle)
+                put("year", year)
+                put("format", format)
+                put("country", country)
+                put("label", label)
+                put("genre", genre)
+                put("style", style)
+                put("catalogNumber", catalogNumber)
+                put("filtersExpanded", filtersExpanded)
+                put("headerExpanded", headerExpanded)
+                put("category", category.name)
+                put("sortMode", sortMode.name)
+                put("visibleLimit", visibleLimit)
+                put("selectedFingerprint", selectedFingerprint)
+            })
+    }
 
     // Read the LAST_GOOD archive asynchronously, with no UI-thread file lock.
     // Starting first discovery only after restoration avoids overwriting prior
@@ -598,6 +667,9 @@ internal fun DiscogsDirectVersionBrowser(
             )
         }
         onDispose {
+            MusicLabListPositionStore.scroll("version:$sectionIdentity",
+                listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+            MusicLabListPositionStore.flush("version:$sectionIdentity")
             // LAB57 hard Cover lifecycle barrier: leaving this screen cancels every
             // owned coroutine and releases the playback-quality governor.
             playbackLaunchJob?.cancel()
@@ -6382,6 +6454,7 @@ internal fun DiscogsDirectVersionBrowser(
         CoverSwipeBridge.stop(sessionKey)
         session.listIndex = listState.firstVisibleItemIndex
         session.listOffset = listState.firstVisibleItemScrollOffset
+        MusicLabListPositionStore.select("version:$sectionIdentity", seed.fingerprint)
         selectedFingerprint = seed.fingerprint
         session.selectedFingerprint = seed.fingerprint
         resolvingFingerprint = seed.fingerprint
@@ -6769,6 +6842,7 @@ internal fun DiscogsDirectVersionBrowser(
             previousOffset = offset
             session.listIndex = index
             session.listOffset = offset
+            MusicLabListPositionStore.scroll("version:$sectionIdentity", index, offset)
         }
     }
 
