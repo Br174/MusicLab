@@ -20,11 +20,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
+import com.metrolist.music.playback.MusicLabListPositionStore
+import com.metrolist.music.playback.MusicLabSectionMemory
+import kotlinx.coroutines.flow.collectLatest
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.spotify.Spotify
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +70,31 @@ internal fun MusicLabSearchExploreHome(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedTab by rememberSaveable { mutableStateOf(0) }
+    var selectedTab by rememberSaveable {
+        mutableStateOf(MusicLabSectionMemory.number(context, "explore", "tab", 0).toInt()
+            .coerceIn(0, 1))
+    }
+    val position = remember {
+        MusicLabListPositionStore.attach(context)
+        MusicLabListPositionStore.get("explore:home")
+    }
+    val listState = remember { LazyListState(position.index, position.offset) }
+    LaunchedEffect(selectedTab) {
+        MusicLabSectionMemory.putNumber(context, "explore", "tab", selectedTab.toLong())
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collectLatest { (index, offset) ->
+                MusicLabListPositionStore.scroll("explore:home", index, offset)
+            }
+    }
+    DisposableEffect(listState) {
+        onDispose {
+            MusicLabListPositionStore.scroll("explore:home",
+                listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+            MusicLabListPositionStore.flush("explore:home")
+        }
+    }
     var openingChart by remember { mutableStateOf<String?>(null) }
 
     // R29: All charts navigate internally, including previously unsupported
@@ -76,6 +107,7 @@ internal fun MusicLabSearchExploreHome(
         .only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().background(
             if (pureBlack) Color.Black else MaterialTheme.colorScheme.background),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = miniPlayerBottomInset + 16.dp),
