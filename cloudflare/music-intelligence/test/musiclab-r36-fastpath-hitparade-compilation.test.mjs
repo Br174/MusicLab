@@ -36,11 +36,12 @@ test('Compilation preserves Discogs single cover and original track order while 
   assert.match(comp, /MusicLabFastPath\.find\(/);
   assert.match(comp, /CompilationTrackResolver\.isHardCompatible/);
   assert.match(comp, /CompilationTrackResolver\.resolveTrack\(track, current\.videos\)/);
-  assert.match(comp, /for \(index in current\.tracks\.indices\)/);
-  assert.match(comp, /ListQueue\(title = current\.title, items = listOf\(item\), startIndex = 0\)/);
-  assert.match(comp, /playerConnection\?\.addToQueue\(item\)/);
-  assert.match(comp, /progressiveAlbumJob\?\.cancel\(\)/);
-  assert.match(comp, /mayContinueCompilation/);
+  // R43 replaces the obsolete bulk-play queue with Hit Parade-style viewport prewarm.
+  assert.match(comp, /LaunchedEffect\(detail\.id, index\)/);
+  assert.match(comp, /onVisibleTrack\(index\)/);
+  assert.match(comp, /visibleWarmGate\.withPermit/);
+  assert.match(comp, /MusicLabSectionPlayback\.select\(/);
+  assert.doesNotMatch(comp, /Riproduci tutto per brani|resolveAllAndPlay|progressiveAlbumJob/);
   assert.match(policy, /COMPILATION_WARM_TRACKS = 2/);
 });
 
