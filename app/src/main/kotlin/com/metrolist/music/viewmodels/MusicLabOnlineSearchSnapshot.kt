@@ -42,7 +42,8 @@ internal object MusicLabOnlineSearchSnapshot {
     private fun decodeArtists(arr: JSONArray?): List<Artist> = if (arr == null) emptyList()
     else (0 until arr.length()).mapNotNull { decodeArtist(arr.optJSONObject(it)) }
 
-    private fun encode(item: YTItem): JSONObject? = JSONObject().apply {
+    private fun encode(item: YTItem): JSONObject? {
+        return JSONObject().apply {
         put("id", item.id)
         put("title", item.title)
         put("thumbnail", item.thumbnail)
@@ -87,6 +88,7 @@ internal object MusicLabOnlineSearchSnapshot {
                 put("date", item.publishDateText)
             }
             else -> return null
+        }
         }
     }
 
