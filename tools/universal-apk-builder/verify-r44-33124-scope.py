@@ -16,6 +16,7 @@ EXPECTED = {
     "app/src/main/kotlin/com/metrolist/music/viewmodels/OnlineSearchViewModel.kt",
     "app/src/test/kotlin/com/metrolist/music/playback/MusicLabSectionWorkPolicyTest.kt",
     "cloudflare/music-intelligence/test/musiclab-r44-universal-standby-resume.test.mjs",
+    "cloudflare/music-intelligence/test/musiclab-r41-section-memory.test.mjs",
     "tools/universal-apk-builder/prepare-turbo-r44-33124-env.py",
     "tools/universal-apk-builder/verify-r44-33124-scope.py",
     ".github/workflows/musiclab-r44-universal-standby-33124-apk.yml",
