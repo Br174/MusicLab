@@ -23,7 +23,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
+
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -313,7 +314,7 @@ fun LibraryPlaylistsScreen(
     val spotifyHasVisibleContent = showSpotifyEntries && isSpotifyActive &&
         (spotifyPlaylists.isNotEmpty() || spotifyFolders.isNotEmpty() || spotifyLikedSongsTotal > 0)
     val showEmptyPlaceholder = visibleResults.isEmpty() && !spotifyHasVisibleContent
-    val lazyListState = rememberLazyListState()
+    val lazyListState = rememberMusicLabPersistentLazyListState("library:playlists:" + sourceFilter.name)
     val lazyGridState = rememberLazyGridState()
 
     val backStackEntry by navController.currentBackStackEntryAsState()
