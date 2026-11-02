@@ -1,5 +1,6 @@
 package com.metrolist.music.playback
 
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import com.metrolist.music.playback.queues.ListQueue
 import kotlinx.coroutines.CancellationException
@@ -99,6 +100,16 @@ internal object MusicLabSectionPlayback {
         } finally {
             internalPlayback = false
         }
+        scheduleNeighbour(connection, source, index, item, rev)
+    }
+
+    private fun scheduleNeighbour(
+        connection: PlayerConnection,
+        source: String,
+        index: Int,
+        item: MediaItem,
+        rev: Long,
+    ) {
         // Deferred neighbour only. Never block selected audio for a full list lookup.
         warmJob?.cancel()
         warmJob = worker.launch {
@@ -136,7 +147,21 @@ internal object MusicLabSectionPlayback {
                 val item = lookup(target, rev) ?: return@launch
                 if (rev != revision || snapshotFlow.value?.index != current.index ||
                     connection.mediaMetadata.value?.id != current.mediaId) return@launch
-                playAt(connection, current.source, target, item, rev)
+                val nativeNext = if (direction > 0) connection.player.nextMediaItemIndex
+                    else C.INDEX_UNSET
+                val prepared = nativeNext != C.INDEX_UNSET &&
+                    connection.player.getMediaItemAt(nativeNext).mediaId == item.mediaId
+                if (prepared) {
+                    // The native player has already buffered the exact next
+                    // recording. Seek it immediately, not a new queue/network path.
+                    snapshotFlow.value = current.copy(index = target, mediaId = item.mediaId)
+                    connection.beginPlaybackPriorityBurst("section-prepared-next")
+                    connection.player.seekTo(nativeNext, 0L)
+                    connection.player.playWhenReady = true
+                    scheduleNeighbour(connection, current.source, target, item, rev)
+                } else {
+                    playAt(connection, current.source, target, item, rev)
+                }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
