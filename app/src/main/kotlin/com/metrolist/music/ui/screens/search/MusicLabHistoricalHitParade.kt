@@ -58,12 +58,14 @@ import com.metrolist.music.ui.component.MusicLabTrackRecovery
 import com.metrolist.music.ui.component.MusicLabFastHitArtwork
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.playback.MusicLabSectionWorkCheckpoint
 import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.playback.MusicLabSectionMemory
 import com.metrolist.music.playback.queues.YouTubeQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -658,18 +660,37 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
         MusicLabSectionMemory.putNumber(context, "hitparade", "last_date_ms",
             selected.timeInMillis)
         val dateKey = selected.timeInMillis
+        val workKey = dateKey.toString()
         chart = MusicLabEditorialSnapshot.loadHistorical(context, dateKey)
         loading = chart == null
         error = null
-        runCatching { MusicLabHistoricalHitParade.load(selected) }
-            .onSuccess {
-                chart = it
-                MusicLabEditorialSnapshot.saveHistorical(context, dateKey, it)
-            }
-            .onFailure {
-                if (chart == null) error = it.message ?: "Impossibile caricare la classifica"
-            }
-        loading = false
+        // A historical week already saved in full does not need any network
+        // request on return. A cancelled/failed week resumes on entry.
+        if (chart != null) {
+            MusicLabSectionWorkCheckpoint.complete(context, "hitparade", workKey,
+                chart!!.songs.size)
+            loading = false
+            return@LaunchedEffect
+        }
+        if (!MusicLabSectionWorkCheckpoint.begin(context, "hitparade", workKey)) {
+            loading = false
+            return@LaunchedEffect
+        }
+        try {
+            val found = MusicLabHistoricalHitParade.load(selected)
+            chart = found
+            MusicLabEditorialSnapshot.saveHistorical(context, dateKey, found)
+            MusicLabSectionWorkCheckpoint.complete(context, "hitparade", workKey,
+                found.songs.size)
+        } catch (cancel: CancellationException) {
+            MusicLabSectionWorkCheckpoint.standby(context, "hitparade", workKey)
+            throw cancel
+        } catch (failure: Exception) {
+            MusicLabSectionWorkCheckpoint.standby(context, "hitparade", workKey)
+            if (chart == null) error = failure.message ?: "Impossibile caricare la classifica"
+        } finally {
+            loading = false
+        }
     }
 
     Scaffold(topBar = {
