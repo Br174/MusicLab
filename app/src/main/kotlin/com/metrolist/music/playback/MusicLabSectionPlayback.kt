@@ -53,6 +53,7 @@ internal object MusicLabSectionPlayback {
     private var requestJob: Job? = null
     private var warmJob: Job? = null
     private var internalPlayback = false
+    private var versionContext: android.content.Context? = null
 
     /** Called by the existing native player on any external/playlist selection. */
     fun externalSelection() {
@@ -62,6 +63,7 @@ internal object MusicLabSectionPlayback {
         warmJob?.cancel()
         entries = emptyList()
         resolver = null
+        versionContext = null
         selectionKey = null
         resolved.clear()
         snapshotFlow.value = null
@@ -81,12 +83,14 @@ internal object MusicLabSectionPlayback {
         val rev = revision
         requestJob?.cancel()
         warmJob?.cancel()
+        versionContext = connection.service
         entries = orderedEntries.toList()
         resolver = findPlayable
         this.selectionKey = selectionKey
         resolved.clear()
-        resolved[selectedIndex] = selected
-        playAt(connection, source, selectedIndex, selected, rev)
+        val effective = MusicLabManualVersionStore.apply(connection.service, selected)
+        resolved[selectedIndex] = effective
+        playAt(connection, source, selectedIndex, effective, rev)
     }
 
     private fun playAt(
@@ -147,8 +151,9 @@ internal object MusicLabSectionPlayback {
         if (index !in entries.indices || rev != revision) return null
         val item = entries[index].ready ?: resolver?.invoke(entries[index]) ?: return null
         if (rev != revision || item.mediaId.isBlank()) return null
-        resolved[index] = item
-        return item
+        val effective = versionContext?.let { MusicLabManualVersionStore.apply(it, item) } ?: item
+        resolved[index] = effective
+        return effective
     }
 
     /** true = contextual skip accepted; false = use the native player's queue. */
@@ -188,6 +193,14 @@ internal object MusicLabSectionPlayback {
             }
         }
         return true
+    }
+
+    /** Preserve the R40 contextual index when just the recording version changes. */
+    fun onManualVersionReplaced(oldId: String, replacement: MediaItem) {
+        val current = snapshotFlow.value ?: return
+        if (current.mediaId != oldId) return
+        resolved[current.index] = replacement
+        snapshotFlow.value = current.copy(mediaId = replacement.mediaId)
     }
 
     fun isCurrent(mediaId: String?): Boolean =

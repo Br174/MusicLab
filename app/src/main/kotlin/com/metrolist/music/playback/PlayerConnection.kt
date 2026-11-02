@@ -256,6 +256,22 @@ class PlayerConnection(
         }
     }
 
+    /** R45: swap the current recording, without erasing the surrounding playlist. */
+    fun replaceCurrentVersion(originalId: String, replacement: MediaItem) {
+        if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) return
+        val currentPlayer = getPlayerOrNull() ?: return
+        val current = currentPlayer.currentMediaItem ?: return
+        if (MusicLabManualVersionStore.canonicalId(service, current.mediaId) != originalId &&
+            current.mediaId != originalId) return
+        val index = currentPlayer.currentMediaItemIndex
+        if (index < 0) return
+        MusicLabSectionPlayback.onManualVersionReplaced(current.mediaId, replacement)
+        beginPlaybackPriorityBurst("manual-version-replacement")
+        currentPlayer.replaceMediaItem(index, replacement)
+        currentPlayer.seekTo(index, 0L)
+        currentPlayer.playWhenReady = true
+    }
+
     fun refreshSongMetadata(song: Song) {
         val player = getPlayerOrNull() ?: return
         val updatedMetadata = song.toMediaMetadata()

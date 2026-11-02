@@ -2505,7 +2505,8 @@ class MusicService :
      * 1-2 seconds after first sound or after a user's manual seek.
      * This method is called only for explicit selection or contextual skip.
      */
-    fun playSectionNow(item: MediaItem, sectionTitle: String) {
+    fun playSectionNow(requestedItem: MediaItem, sectionTitle: String) {
+        val item = MusicLabManualVersionStore.apply(this, requestedItem)
         ++queueRequestSerial
         pendingQueuePreparation?.cancel()
         pendingQueuePreparation = null
@@ -2525,7 +2526,8 @@ class MusicService :
         player.playWhenReady = true
     }
 
-    fun playNow(item: MediaItem) {
+    fun playNow(requestedItem: MediaItem) {
+        val item = MusicLabManualVersionStore.apply(this, requestedItem)
         // A direct tap must win over a slower queued search/playlist expansion.
         ++queueRequestSerial
         pendingQueuePreparation?.cancel()
@@ -3137,6 +3139,17 @@ class MusicService :
             }
         }
         lastTransitionedMediaId = mediaItem?.mediaId
+        // Applies saved manual recording to the next song of any existing queue.
+        // A replacement ID has no second replacement, so transition cannot loop.
+        mediaItem?.let { original ->
+            val effective = MusicLabManualVersionStore.apply(this, original)
+            val index = player.currentMediaItemIndex
+            if (effective.mediaId != original.mediaId && index >= 0 &&
+                player.currentMediaItem?.mediaId == original.mediaId) {
+                MusicLabSectionPlayback.onManualVersionReplaced(original.mediaId, effective)
+                player.replaceMediaItem(index, effective)
+            }
+        }
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
         initialBufferRecoveryAttemptedMediaId = null
