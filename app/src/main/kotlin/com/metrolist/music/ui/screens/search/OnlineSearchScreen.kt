@@ -69,6 +69,8 @@ import com.metrolist.music.constants.SuggestionItemHeight
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
+import com.metrolist.music.playback.MusicLabSectionPlayback
+import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.YouTubeListItem
@@ -107,7 +109,18 @@ fun OnlineSearchScreen(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
     val viewState by viewModel.viewState.collectAsStateWithLifecycle()
 
-    val lazyListState = rememberLazyListState()
+    val listKey = "online-search:" + query
+    val listMemory = remember(listKey) { MusicLabListPositionStore.get(listKey) }
+    val lazyListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = listMemory.index,
+        initialFirstVisibleItemScrollOffset = listMemory.offset,
+    )
+    LaunchedEffect(listKey, lazyListState) {
+        snapshotFlow { lazyListState.firstVisibleItemIndex to lazyListState.firstVisibleItemScrollOffset }
+            .collectLatest { (index, offset) ->
+                MusicLabListPositionStore.scroll(listKey, index, offset)
+            }
+    }
 
     val autoRadioQueue by rememberPreference(AutoRadioQueueKey, defaultValue = true)
 
@@ -245,21 +258,8 @@ fun OnlineSearchScreen(
                                 onClick = {
                                     when (item) {
                                         is SongItem -> {
-                                            if (item.id == mediaMetadata?.id) {
-                                                playerConnection.togglePlayPause()
-                                            } else {
-                                                playerConnection.playQueue(
-                                                    if (autoRadioQueue) {
-                                                        YouTubeQueue.radio(item.toMediaMetadata())
-                                                    } else {
-                                                        ListQueue(
-                                                            title = item.title,
-                                                            items = listOf(item.toMediaItem())
-                                                        )
-                                                    }
-                                                )
-                                                onDismiss()
-                                            }
+                                            playerConnection.playNow(item.toMediaItem())
+                                            onDismiss()
                                         }
 
                                         is AlbumItem -> {
@@ -518,21 +518,29 @@ fun OnlineSearchScreen(
                             onClick = {
                                 when (item) {
                                     is SongItem -> {
-                                        if (item.id == mediaMetadata?.id) {
-                                            playerConnection.togglePlayPause()
-                                        } else {
-                                            playerConnection.playQueue(
-                                                if (autoRadioQueue) {
-                                                    YouTubeQueue.radio(item.toMediaMetadata())
-                                                } else {
-                                                    ListQueue(
-                                                        title = item.title,
-                                                        items = listOf(item.toMediaItem())
+                                        val songs = viewState.items.filterIsInstance<SongItem>()
+                                        val selectedIndex = songs.indexOfFirst { it.id == item.id }
+                                        if (selectedIndex >= 0) {
+                                            MusicLabListPositionStore.select(listKey, item.id)
+                                            MusicLabSectionPlayback.select(
+                                                connection = playerConnection,
+                                                source = "Ricerca · " + query,
+                                                orderedEntries = songs.map { next ->
+                                                    MusicLabSectionPlayback.Entry(
+                                                        key = next.id,
+                                                        title = next.title,
+                                                        artist = next.artists.firstOrNull()?.name.orEmpty(),
+                                                        ready = next.toMediaItem(),
                                                     )
-                                                }
+                                                },
+                                                selectedIndex = selectedIndex,
+                                                selected = item.toMediaItem(),
+                                                findPlayable = { entry -> entry.ready },
                                             )
-                                            onDismiss()
+                                        } else {
+                                            playerConnection.playNow(item.toMediaItem())
                                         }
+                                        onDismiss()
                                     }
 
                                     is AlbumItem -> {
