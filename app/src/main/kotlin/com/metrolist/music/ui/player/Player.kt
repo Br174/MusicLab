@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.player
 
 import com.metrolist.music.playback.CoverPlaybackMemory
+import com.metrolist.music.playback.MusicLabSectionPlayback
 
 import androidx.activity.compose.BackHandler
 import android.content.ClipData
@@ -330,6 +331,12 @@ fun BottomSheetPlayer(
     val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
+    val sectionContext by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
+    val contextMatchesPlaying = MusicLabSectionPlayback.isCurrent(nativeMediaMetadata?.id)
+    val effectiveCanSkipPrevious = canSkipPrevious ||
+        (contextMatchesPlaying && sectionContext?.canPrevious == true)
+    val effectiveCanSkipNext = canSkipNext ||
+        (contextMatchesPlaying && sectionContext?.canNext == true)
     val isMuted by playerConnection.isMuted.collectAsStateWithLifecycle()
 
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
@@ -1598,7 +1605,7 @@ fun BottomSheetPlayer(
 
                             FilledIconButton(
                                 onClick = playerConnection::seekToPrevious,
-                                enabled = canSkipPrevious && !isListenTogetherGuest,
+                                enabled = effectiveCanSkipPrevious && !isListenTogetherGuest,
                                 shape = RoundedCornerShape(50),
                                 interactionSource = backInteractionSource,
                                 colors =
@@ -1690,7 +1697,7 @@ fun BottomSheetPlayer(
 
                             FilledIconButton(
                                 onClick = playerConnection::seekToNext,
-                                enabled = canSkipNext && !isListenTogetherGuest,
+                                enabled = effectiveCanSkipNext && !isListenTogetherGuest,
                                 shape = RoundedCornerShape(50),
                                 interactionSource = nextInteractionSource,
                                 colors =
@@ -1745,7 +1752,7 @@ fun BottomSheetPlayer(
                             Box(modifier = Modifier.weight(1f)) {
                                 ResizableIconButton(
                                     icon = R.drawable.skip_previous,
-                                    enabled = canSkipPrevious && !isListenTogetherGuest,
+                                    enabled = effectiveCanSkipPrevious && !isListenTogetherGuest,
                                     color = TextBackgroundColor,
                                     modifier =
                                         Modifier
@@ -1813,7 +1820,7 @@ fun BottomSheetPlayer(
                             Box(modifier = Modifier.weight(1f)) {
                                 ResizableIconButton(
                                     icon = R.drawable.skip_next,
-                                    enabled = canSkipNext && !isListenTogetherGuest,
+                                    enabled = effectiveCanSkipNext && !isListenTogetherGuest,
                                     color = TextBackgroundColor,
                                     modifier =
                                         Modifier
