@@ -10,7 +10,7 @@ import org.json.JSONObject
  */
 internal object MusicLabSectionMemory {
     private const val PREFS = "musiclab_section_memory_r41"
-    private const val MAX_SNAPSHOT_BYTES = 240_000
+    private const val MAX_SNAPSHOT_BYTES = 850_000
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
