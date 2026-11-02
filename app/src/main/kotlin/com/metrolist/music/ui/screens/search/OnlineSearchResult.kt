@@ -188,6 +188,11 @@ fun OnlineSearchResult(
     val lazyListState = remember(listKey) {
         LazyListState(savedPosition.index, savedPosition.offset)
     }
+    // Only the actual results owner can suspend its provider searches.
+    DisposableEffect(viewModel, listKey) {
+        viewModel.setSectionActive(true)
+        onDispose { viewModel.setSectionActive(false) }
+    }
     LaunchedEffect(listKey, lazyListState) {
         snapshotFlow { lazyListState.firstVisibleItemIndex to lazyListState.firstVisibleItemScrollOffset }
             .collect { (index, offset) ->
