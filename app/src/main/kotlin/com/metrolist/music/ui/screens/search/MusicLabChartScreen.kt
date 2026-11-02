@@ -250,6 +250,9 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
             isLoading = false
             return@LaunchedEffect
         }
+        if (MusicLabSectionWorkCheckpoint.read(context, "chart", title).phase ==
+            MusicLabSectionWorkCheckpoint.Phase.COMPLETE)
+            MusicLabSectionWorkCheckpoint.reset(context, "chart", title)
         if (!MusicLabSectionWorkCheckpoint.begin(context, "chart", title)) {
             isLoading = false
             return@LaunchedEffect
