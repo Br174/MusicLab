@@ -61,7 +61,6 @@ import com.metrolist.music.discogs.CompilationFullAudio
 import com.metrolist.music.discogs.CompilationLanguageHeuristics
 import com.metrolist.music.discogs.CompilationResolvedTrack
 import com.metrolist.music.discogs.CompilationTrackResolver
-import com.metrolist.music.discogs.CompilationTrackMatchPolicy
 import com.metrolist.music.discogs.DiscogsClient
 import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsCompilationSummary
@@ -235,33 +234,6 @@ internal fun CompilationScreen(
 
     // Verify the actual release tracklist before showing it as containing the song.
     // Results are painted progressively as each real Discogs release is checked.
-    suspend fun verifyContainingTrack(
-        candidates: List<DiscogsCompilationSummary>,
-        criteria: CompilationSearchCriteria,
-        replaceResults: Boolean,
-        token: String,
-        generation: Long,
-    ): List<DiscogsCompilationSummary> {
-        val wantedTitle = criteria.trackTitle ?: return candidates
-        val accepted = mutableListOf<DiscogsCompilationSummary>()
-        for (candidate in candidates) {
-            if (generation != searchGeneration) break
-            val release = DiscogsClient.getRelease(token, candidate.id, includeMasterVideos = false)
-                .getOrNull() ?: continue
-            if (generation != searchGeneration) break
-            if (release.tracks.any { track ->
-                    CompilationTrackMatchPolicy.matches(track, wantedTitle, criteria.trackArtist.orEmpty())
-                }
-            ) {
-                accepted += candidate
-                results = if (replaceResults) accepted.toList()
-                          else (results + candidate).distinctBy { it.id }
-                CompilationSessionStore.results = results
-            }
-        }
-        return accepted
-    }
-
     suspend fun loadPage(
         criteria: CompilationSearchCriteria,
         page: Int,
@@ -272,14 +244,15 @@ internal fun CompilationScreen(
         if (generation != searchGeneration) return false
         val response = DiscogsClient.searchCompilations(
             token = token,
-            query = if (criteria.trackTitle != null) "" else criteria.query,
-            trackTitle = criteria.trackTitle,
+            // R39: Restore R36's broad Discogs 'q' search. Never use the
+            // narrow Discogs 'track' parameter supplied by R37/R38.
+            query = criteria.query,
             year = criteria.year,
             genre = criteria.genre,
             style = criteria.style,
             country = criteria.country,
             page = page,
-            perPage = if (criteria.trackTitle != null || criteria.language != null) 25 else 100,
+            perPage = if (criteria.language == null) 100 else 25,
         )
 
         if (generation != searchGeneration) return false
@@ -294,14 +267,13 @@ internal fun CompilationScreen(
 
         val visibleItems = filterByLanguage(pageResult.items, criteria.language, token, generation)
         if (generation != searchGeneration) return false
-        val verifiedItems = if (criteria.trackTitle != null) {
-            verifyContainingTrack(visibleItems, criteria, replaceResults, token, generation)
-        } else visibleItems
+        // R36 behavior: show all releases returned by Discogs. No mandatory
+        // tracklist/artist matching; keep the R38 stale-request generation gate.
         if (generation != searchGeneration) return false
         results = if (replaceResults) {
-            verifiedItems
+            visibleItems
         } else {
-            (results + verifiedItems).distinctBy { it.id }
+            (results + visibleItems).distinctBy { it.id }
         }
         currentPage = pageResult.page
         totalPages = pageResult.pages
@@ -325,8 +297,10 @@ internal fun CompilationScreen(
             style = style,
             country = country,
             language = language,
-            trackTitle = trackRequest?.title?.let(CompilationSearchTitlePolicy::clean),
-            trackArtist = trackRequest?.artist,
+            // Menu track selection only supplies the text shown in the regular
+            // search field. It must not alter Discogs search admission.
+            trackTitle = null,
+            trackArtist = null,
         )
 
         // Invalidate and remove the old list BEFORE reading credentials. Neither
@@ -405,7 +379,8 @@ internal fun CompilationScreen(
             runSearch(CompilationSearchCriteria(
                 query = cleanTitle, year = null, genre = null, style = null,
                 country = null, language = null,
-                trackTitle = cleanTitle, trackArtist = target.artist.trim(),
+                // R36 generic search with the transferred song title only.
+                trackTitle = null, trackArtist = null,
             ))
         }
     }
@@ -926,9 +901,7 @@ internal fun CompilationScreen(
                             if (activeSearch != null && (totalDiscogsResults > 0 || results.isNotEmpty())) {
                                 val counterText =
                                     if (activeSearch?.language == null) {
-                                        if (activeSearch?.trackTitle != null) {
-                                            "Compilation verificate: ${results.size} · ricerca in corso nelle pagine Discogs ($currentPage/$totalPages)"
-                                        } else "Caricate ${results.size} / $totalDiscogsResults · pagina $currentPage/$totalPages"
+                                        "Caricate ${results.size} / $totalDiscogsResults · pagina $currentPage/$totalPages"
                                     } else {
                                         "Visibili ${results.size} · Discogs $totalDiscogsResults · pagina $currentPage/$totalPages"
                                     }
