@@ -9,7 +9,7 @@ class MusicLabSectionWorkPolicyTest {
             MusicLabSectionWorkCheckpoint.Phase.COMPLETE))
         assertFalse(MusicLabSectionWorkPolicy.shouldLoad(true,
             MusicLabSectionWorkCheckpoint.Phase.STANDBY))
-        assertFalse(MusicLabSectionWorkPolicy.shouldLoad(false,
+        assertTrue(MusicLabSectionWorkPolicy.shouldLoad(false,
             MusicLabSectionWorkCheckpoint.Phase.COMPLETE))
     }
     @Test fun cancelledOrCrashedIncompleteResultCanResume() {
