@@ -32,6 +32,7 @@ EXPECTED={
 "app/src/main/kotlin/com/metrolist/music/ui/screens/search/OnlineSearchResult.kt",
 "app/src/main/kotlin/com/metrolist/music/ui/screens/search/OnlineSearchScreen.kt",
 "cloudflare/music-intelligence/test/musiclab-r41-section-memory.test.mjs",
+"cloudflare/music-intelligence/test/turbo-r28-search-explore.test.mjs",
 "tools/universal-apk-builder/prepare-turbo-r41-33121-env.py",
 "tools/universal-apk-builder/verify-r41-33121-scope.py",
 }
