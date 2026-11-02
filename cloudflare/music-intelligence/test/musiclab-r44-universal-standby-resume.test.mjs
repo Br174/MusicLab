@@ -66,6 +66,21 @@ test('R44 full search section suspends network and restores completed Spotify/YT
   assert.doesNotMatch(search, /SpotifyAccessToken|LastFMSecret|\.playNow\(/);
 });
 
+test('R44 Spotify Library stops all ViewModel loads on leave and restores persisted metadata', () => {
+  const spotify = read('app/src/main/kotlin/com/metrolist/music/viewmodels/SpotifyViewModel.kt');
+  const mixes = read('app/src/main/kotlin/com/metrolist/music/ui/screens/library/LibraryMixScreen.kt');
+  const playlists = read('app/src/main/kotlin/com/metrolist/music/ui/screens/library/LibraryPlaylistsScreen.kt');
+  assert.match(spotify, /fun setLibraryVisible\(visible: Boolean\)/);
+  assert.match(spotify, /libraryLoadJob\?\.cancel\(\)/);
+  assert.match(spotify, /restoreLibraryCache\(\)/);
+  assert.match(spotify, /saveLibraryTracks\(CACHE_KEY_LIKED/);
+  assert.match(spotify, /saveLibraryTracks\(CACHE_KEY_TOP/);
+  assert.match(spotify, /savePlaylistsToCache\(collected\)/);
+  assert.match(mixes, /setLibraryVisible\(false\)/);
+  assert.match(playlists, /setLibraryVisible\(false\)/);
+  assert.doesNotMatch(spotify, /playNow\(|playQueue\(/);
+});
+
 test('R44 reuses native Cover pause and saved round recovery without modifying the Cover engine', () => {
   assert.match(cover, /LAB57 hard Cover lifecycle barrier/);
   assert.match(cover, /searchJob\?\.cancel\(\)/);
