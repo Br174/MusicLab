@@ -58,6 +58,7 @@ import com.metrolist.music.ui.component.MusicLabTrackRecovery
 import com.metrolist.music.ui.component.MusicLabFastHitArtwork
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.playback.MusicLabSectionWorkPolicy
 import com.metrolist.music.playback.MusicLabSectionWorkCheckpoint
 import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.MusicLabListPositionStore
@@ -666,8 +667,9 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
         error = null
         // A historical week already saved in full does not need any network
         // request on return. A cancelled/failed week resumes on entry.
-        if (chart != null) {
-            MusicLabSectionWorkCheckpoint.complete(context, "hitparade", workKey,
+        if (!MusicLabSectionWorkPolicy.shouldLoad(chart != null,
+                MusicLabSectionWorkCheckpoint.read(context, "hitparade", workKey).phase)) {
+            if (chart != null) MusicLabSectionWorkCheckpoint.complete(context, "hitparade", workKey,
                 chart!!.songs.size)
             loading = false
             return@LaunchedEffect
