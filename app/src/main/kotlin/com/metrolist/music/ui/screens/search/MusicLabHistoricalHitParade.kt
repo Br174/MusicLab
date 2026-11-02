@@ -588,6 +588,10 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
     var tapSerial by remember { mutableStateOf(0L) }
     val formatter = remember { SimpleDateFormat("dd MMMM yyyy", Locale.ITALIAN) }
     val positionKey = "hitparade:" + selected.timeInMillis.toString()
+    val selectedKeys by MusicLabListPositionStore.selectedKeys.collectAsStateWithLifecycle()
+    val currentContext by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
+    val highlightedRank = selectedKeys[positionKey]
+        ?: MusicLabListPositionStore.get(positionKey).selectedKey
     val initialPosition = remember(positionKey) {
         MusicLabListPositionStore.attach(context)
         MusicLabListPositionStore.get(positionKey)
@@ -618,6 +622,17 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             .collectLatest { (index, offset) ->
                 if (!restorePending) MusicLabListPositionStore.scroll(positionKey, index, offset)
             }
+    }
+
+    // A contextual swipe updates the remembered rank and reveals its artwork.
+    // Never changes the source date or starts playback when returning to the tab.
+    LaunchedEffect(positionKey, currentContext?.index, currentContext?.revision, chart?.songs?.size) {
+        val state = currentContext ?: return@LaunchedEffect
+        if (state.selectionKey == positionKey && state.index in
+            (chart?.songs?.indices ?: IntRange.EMPTY) &&
+            listState.layoutInfo.totalItemsCount > state.index + 1) {
+            listState.animateScrollToItem(state.index + 1)
+        }
     }
 
     fun shiftWeek(delta: Int) {
@@ -710,8 +725,7 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             chart?.let { result ->
                 items(result.songs, key = { "hitparade_${it.rank}" }) { song ->
                     Row(modifier = Modifier.fillMaxWidth()
-                        .background(if (MusicLabListPositionStore.get(positionKey).selectedKey ==
-                            song.rank.toString()) MaterialTheme.colorScheme.primaryContainer
+                        .background(if (highlightedRank == song.rank.toString()) MaterialTheme.colorScheme.primaryContainer
                             else Color.Transparent)
                         .clickable {
                         // FastPath: the visible row may already have resolved this exact
@@ -754,6 +768,7 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
                                                         entry.title, entry.artist, candidate)
                                                 }?.toMediaItem()
                                             },
+                                            selectionKey = positionKey,
                                         )
                                     }
                                     MusicLabChartArtworkResolver.rememberArtwork(
