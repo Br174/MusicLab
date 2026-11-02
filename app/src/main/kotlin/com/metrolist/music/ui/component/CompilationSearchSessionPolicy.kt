@@ -22,14 +22,39 @@ internal object CompilationSearchTitlePolicy {
     }
 }
 
-/** R45: second broad search query, without introducing a strict tracklist filter. */
+/** R46: Player fallback strips video-specific metadata, never the first complete query. */
 internal object CompilationFallbackQueryPolicy {
-    fun query(cleanTitle: String, artist: String): String? {
-        val title = CompilationSearchTitlePolicy.clean(cleanTitle)
+    private val videoSuffix = Regex(
+        """\s*[\(\[]\s*(?:official(?:\s+music)?\s+video|official\s+audio|music\s+video|video\s+ufficiale|lyric(?:s)?(?:\s+video)?|remaster(?:ed)?|live|hd|hq|4k)[^\)\]]*[\)\]]\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val separators = listOf(" - ", " – ", " — ", " | ", " : ")
+
+    fun songTitle(fullVideoTitle: String, artist: String): String {
+        var title = fullVideoTitle.trim()
+        val singer = artist.trim()
+        if (singer.isNotEmpty()) {
+            for (sep in separators) {
+                if (title.startsWith(singer + sep, ignoreCase = true)) {
+                    title = title.substring(singer.length + sep.length).trim()
+                    break
+                }
+                val suffix = sep + singer
+                if (title.endsWith(suffix, ignoreCase = true)) {
+                    title = title.dropLast(suffix.length).trim()
+                    break
+                }
+            }
+        }
+        repeat(4) { title = title.replace(videoSuffix, "").trim() }
+        return CompilationSearchTitlePolicy.clean(title)
+    }
+
+    fun query(fullVideoTitle: String, artist: String): String? {
+        val title = songTitle(fullVideoTitle, artist)
         val singer = artist.trim().replace(Regex("\\s+"), " ")
         if (title.isBlank() || singer.isBlank()) return null
-        if (title.contains(singer, ignoreCase = true)) return null
-        return "$title $singer"
+        return if (title.contains(singer, ignoreCase = true)) title else "$title $singer"
     }
 }
 
