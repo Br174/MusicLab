@@ -128,8 +128,8 @@ internal object MusicLabSectionPlayback {
     private suspend fun lookup(index: Int, rev: Long): MediaItem? {
         resolved[index]?.let { return it }
         if (index !in entries.indices || rev != revision) return null
-        val item = entries[index].ready ?: resolver?.invoke(entries[index])
-        if (rev != revision || item?.mediaId.isNullOrBlank()) return null
+        val item = entries[index].ready ?: resolver?.invoke(entries[index]) ?: return null
+        if (rev != revision || item.mediaId.isBlank()) return null
         resolved[index] = item
         return item
     }
