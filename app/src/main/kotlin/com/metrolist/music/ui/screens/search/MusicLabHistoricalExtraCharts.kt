@@ -149,7 +149,7 @@ internal object MusicLabHistoricalExtraRepository {
     private val dayFormat = SimpleDateFormat("yyyyMMdd", Locale.ROOT).apply { isLenient = false }
 
     private fun download(url: String): String {
-        val uri = Uri.parse(url)
+        val uri = java.net.URI(url)
         require(uri.scheme == "https" && uri.host in setOf("hitparadeitalia.it",
             "www.hitparadeitalia.it") && !url.contains("..")) { "Fonte non autorizzata" }
         val request = Request.Builder().url(url)
@@ -191,7 +191,7 @@ internal object MusicLabHistoricalExtraRepository {
         val img = element.selectFirst("img[src]") ?: return null
         val url = img.absUrl("src")
         return url.takeIf { it.startsWith("https://") &&
-            Uri.parse(it).host?.endsWith("hitparadeitalia.it") == true }
+            java.net.URI(it).host?.endsWith("hitparadeitalia.it") == true }
     }
 
     /** 1947+ annual singles: ordered list, title - artist [weekly peak]. */
