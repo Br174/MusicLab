@@ -35,6 +35,8 @@ internal object MusicLabSectionPlayback {
         val size: Int,
         val mediaId: String,
         val revision: Long,
+        val selectionKey: String? = null,
+        val selectedKey: String? = null,
     ) {
         val canPrevious get() = index > 0
         val canNext get() = index + 1 < size
@@ -46,6 +48,7 @@ internal object MusicLabSectionPlayback {
     private var revision = 0L
     private var entries: List<Entry> = emptyList()
     private var resolver: (suspend (Entry) -> MediaItem?)? = null
+    private var selectionKey: String? = null
     private val resolved = mutableMapOf<Int, MediaItem>()
     private var requestJob: Job? = null
     private var warmJob: Job? = null
@@ -59,6 +62,7 @@ internal object MusicLabSectionPlayback {
         warmJob?.cancel()
         entries = emptyList()
         resolver = null
+        selectionKey = null
         resolved.clear()
         snapshotFlow.value = null
     }
@@ -70,6 +74,7 @@ internal object MusicLabSectionPlayback {
         selectedIndex: Int,
         selected: MediaItem,
         findPlayable: suspend (Entry) -> MediaItem?,
+        selectionKey: String? = null,
     ) {
         if (selectedIndex !in orderedEntries.indices || selected.mediaId.isBlank()) return
         revision++
@@ -78,6 +83,7 @@ internal object MusicLabSectionPlayback {
         warmJob?.cancel()
         entries = orderedEntries.toList()
         resolver = findPlayable
+        this.selectionKey = selectionKey
         resolved.clear()
         resolved[selectedIndex] = selected
         playAt(connection, source, selectedIndex, selected, rev)
@@ -91,16 +97,27 @@ internal object MusicLabSectionPlayback {
         rev: Long,
     ) {
         if (rev != revision) return
-        snapshotFlow.value = Snapshot(source, index, entries.size, item.mediaId, rev)
+        publishSelection(Snapshot(source, index, entries.size, item.mediaId, rev,
+            selectionKey = selectionKey, selectedKey = entries.getOrNull(index)?.key))
         internalPlayback = true
         try {
             connection.beginPlaybackPriorityBurst("section-selection")
-            // Always reset to the first millisecond even if the video ID is unchanged.
-            connection.playQueue(ListQueue(title = source, items = listOf(item), startIndex = 0, position = 0L))
+            // One synchronous selection. No deferred ListQueue hydration may rewind
+            // the track after sound starts or after a manual seek.
+            connection.playSectionNow(item, source)
         } finally {
             internalPlayback = false
         }
         scheduleNeighbour(connection, source, index, item, rev)
+    }
+
+    private fun publishSelection(snapshot: Snapshot) {
+        snapshotFlow.value = snapshot
+        val key = snapshot.selectionKey
+        val selected = snapshot.selectedKey
+        if (key != null && selected != null) {
+            MusicLabListPositionStore.select(key, selected)
+        }
     }
 
     private fun scheduleNeighbour(
@@ -154,7 +171,8 @@ internal object MusicLabSectionPlayback {
                 if (prepared) {
                     // The native player has already buffered the exact next
                     // recording. Seek it immediately, not a new queue/network path.
-                    snapshotFlow.value = current.copy(index = target, mediaId = item.mediaId)
+                    publishSelection(current.copy(index = target, mediaId = item.mediaId,
+                        selectedKey = entries[target].key))
                     connection.beginPlaybackPriorityBurst("section-prepared-next")
                     connection.player.seekTo(nativeNext, 0L)
                     connection.player.playWhenReady = true
@@ -181,7 +199,8 @@ internal object MusicLabSectionPlayback {
         if (mediaId == null || mediaId == current.mediaId) return
         val next = current.index + 1
         if (resolved[next]?.mediaId == mediaId && next in entries.indices) {
-            snapshotFlow.value = current.copy(index = next, mediaId = mediaId)
+            publishSelection(current.copy(index = next, mediaId = mediaId,
+                selectedKey = entries[next].key))
         } else {
             externalSelection()
         }
