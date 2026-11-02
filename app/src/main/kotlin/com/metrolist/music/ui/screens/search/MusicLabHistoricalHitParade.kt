@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +59,7 @@ import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.MusicLabListPositionStore
+import com.metrolist.music.playback.MusicLabSectionMemory
 import com.metrolist.music.playback.queues.YouTubeQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -570,11 +572,14 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
     val player = LocalPlayerConnection.current
     val bottomPadding = LocalPlayerAwareWindowInsets.current
         .only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding()
-    var selected by remember {
-        mutableStateOf(Calendar.getInstance().apply {
-            set(1980, Calendar.SEPTEMBER, 27, 12, 0, 0)
-        })
-    }
+    val fallbackDate = remember { Calendar.getInstance().apply {
+        set(1980, Calendar.SEPTEMBER, 27, 12, 0, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis }
+    var selected by remember { mutableStateOf(Calendar.getInstance().apply {
+        timeInMillis = MusicLabSectionMemory.number(
+            context, "hitparade", "last_date_ms", fallbackDate)
+    }) }
     var chart by remember { mutableStateOf<HistoricalChart?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -582,11 +587,20 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
     var tapSerial by remember { mutableStateOf(0L) }
     val formatter = remember { SimpleDateFormat("dd MMMM yyyy", Locale.ITALIAN) }
     val positionKey = "hitparade:" + selected.timeInMillis.toString()
-    val initialPosition = remember(positionKey) { MusicLabListPositionStore.get(positionKey) }
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = initialPosition.index,
-        initialFirstVisibleItemScrollOffset = initialPosition.offset,
-    )
+    val initialPosition = remember(positionKey) {
+        MusicLabListPositionStore.attach(context)
+        MusicLabListPositionStore.get(positionKey)
+    }
+    val listState = remember(positionKey) {
+        LazyListState(initialPosition.index, initialPosition.offset)
+    }
+    DisposableEffect(positionKey, listState) {
+        onDispose {
+            MusicLabListPositionStore.scroll(positionKey,
+                listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+            MusicLabListPositionStore.flush(positionKey)
+        }
+    }
     LaunchedEffect(positionKey, listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collectLatest { (index, offset) -> MusicLabListPositionStore.scroll(positionKey, index, offset) }
@@ -611,6 +625,8 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
     }
 
     LaunchedEffect(selected.timeInMillis) {
+        MusicLabSectionMemory.putNumber(context, "hitparade", "last_date_ms",
+            selected.timeInMillis)
         loading = true
         chart = null
         error = null
