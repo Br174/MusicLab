@@ -29,6 +29,8 @@ import com.metrolist.spotify.models.SpotifyTrack
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -56,6 +58,9 @@ constructor(
     companion object {
         private const val STAGGER_DELAY_MS = 500L
         private val CACHE_KEY_PLAYLISTS = stringPreferencesKey("spotify_cached_playlists_json")
+        private val CACHE_KEY_LIKED = stringPreferencesKey("musiclab_r44_spotify_liked_json")
+        private val CACHE_KEY_TOP = stringPreferencesKey("musiclab_r44_spotify_top_json")
+        private val CACHE_KEY_LIKED_TOTAL = stringPreferencesKey("musiclab_r44_spotify_liked_total")
         private val jsonSerializer = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     }
 
@@ -144,6 +149,55 @@ constructor(
     private val _topTracks = MutableStateFlow<List<SpotifyTrack>>(emptyList())
     val topTracks = _topTracks.asStateFlow()
 
+    // R44: navigation can dismiss the Library while its ViewModel stays
+    // alive. Never let that ViewModel continue non-audio provider work.
+    private var libraryLoadJob: Job? = null
+    private var libraryVisible = false
+    private var libraryLoadComplete = false
+
+    fun setLibraryVisible(visible: Boolean) {
+        libraryVisible = visible
+        if (!visible) {
+            libraryLoadJob?.cancel()
+            return
+        }
+        loadAll()
+    }
+
+    private suspend fun restoreLibraryCache() {
+        try {
+            val data = context.dataStore.data.first()
+            if (_spotifyPlaylists.value.isEmpty()) {
+                val playlists = data[CACHE_KEY_PLAYLISTS].orEmpty()
+                if (playlists.isNotBlank()) {
+                    _spotifyPlaylists.value = jsonSerializer.decodeFromString<List<SpotifyPlaylist>>(playlists)
+                }
+            }
+            if (_likedSongs.value.isEmpty()) {
+                val liked = data[CACHE_KEY_LIKED].orEmpty()
+                if (liked.isNotBlank()) {
+                    _likedSongs.value = jsonSerializer.decodeFromString<List<SpotifyTrack>>(liked)
+                    _likedSongsTotal.value = data[CACHE_KEY_LIKED_TOTAL]?.toIntOrNull()
+                        ?: _likedSongs.value.size
+                }
+            }
+            if (_topTracks.value.isEmpty()) {
+                val top = data[CACHE_KEY_TOP].orEmpty()
+                if (top.isNotBlank()) _topTracks.value = jsonSerializer.decodeFromString<List<SpotifyTrack>>(top)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (failure: Exception) {
+            Timber.w(failure, "R44: library metadata cache fallback")
+        }
+    }
+
+    private suspend fun saveLibraryTracks(key: androidx.datastore.preferences.core.Preferences.Key<String>,
+                                          tracks: List<SpotifyTrack>) {
+        val encoded = jsonSerializer.encodeToString(tracks)
+        context.dataStore.edit { it[key] = encoded }
+    }
+
     // =========================================================================
     // Data loading
     // =========================================================================
@@ -155,25 +209,32 @@ constructor(
      * REST top-tracks call is guarded by a stagger/Retry-After cooldown.
      */
     fun loadAll() {
-        Timber.d("SpotifyVM: loadAll() triggered")
-        viewModelScope.launch(Dispatchers.IO) {
-            val gqlDelays = coroutineScope {
-                val playlistsDeferred = async { loadPlaylistsInternal() }
-                val likedDeferred = async { loadLikedSongsInternal() }
-                listOf(playlistsDeferred.await(), likedDeferred.await())
+        if (!libraryVisible || libraryLoadComplete || libraryLoadJob?.isActive == true) return
+        Timber.d("SpotifyVM: R44 resumable Library load")
+        libraryLoadJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                restoreLibraryCache()
+                // Resume only missing pieces. A completed metadata snapshot
+                // does not need refetching when switching sections.
+                val delays = coroutineScope {
+                    val pending = mutableListOf<kotlinx.coroutines.Deferred<Long>>()
+                    if (_spotifyPlaylists.value.isEmpty()) pending += async { loadPlaylistsInternal() }
+                    if (_likedSongs.value.isEmpty()) pending += async { loadLikedSongsInternal() }
+                    pending.map { it.await() }
+                }
+                if (_topTracks.value.isEmpty()) {
+                    val cooldown = delays.maxOrNull() ?: 0L
+                    delay(if (cooldown > 0) cooldown * 1000 else STAGGER_DELAY_MS)
+                    loadTopTracksInternal()
+                }
+                libraryLoadComplete = _spotifyPlaylists.value.isNotEmpty() &&
+                    _likedSongs.value.isNotEmpty() && _topTracks.value.isNotEmpty()
+            } catch (cancel: CancellationException) {
+                // Standby only. Retain every already committed list.
+                throw cancel
+            } finally {
+                libraryLoadJob = null
             }
-
-            // If a GQL call unexpectedly hit a 429, honor the longest Retry-After
-            // before the REST call; otherwise a single stagger delay suffices.
-            val gqlDelay = gqlDelays.maxOrNull() ?: 0L
-            if (gqlDelay > 0) {
-                Timber.d("SpotifyVM: loadAll() waiting ${gqlDelay}s after GQL 429")
-                delay(gqlDelay * 1000)
-            } else {
-                delay(STAGGER_DELAY_MS)
-            }
-
-            loadTopTracksInternal()
         }
     }
 
@@ -330,6 +391,8 @@ constructor(
             Timber.d("SpotifyVM: loadLikedSongs() - SUCCESS, got ${paging.items.size} songs, total=${paging.total}")
             _likedSongs.value = paging.items.map { it.track }
             _likedSongsTotal.value = paging.total
+            saveLibraryTracks(CACHE_KEY_LIKED, _likedSongs.value)
+            context.dataStore.edit { it[CACHE_KEY_LIKED_TOTAL] = paging.total.toString() }
         }.onFailure { e ->
             Timber.e(e, "SpotifyVM: loadLikedSongs() - FAILED")
             retryAfter = (e as? Spotify.SpotifyException)?.retryAfterSec ?: 0
@@ -351,6 +414,7 @@ constructor(
         Spotify.topTracks(timeRange = "medium_term", limit = 50).onSuccess { paging ->
             Timber.d("SpotifyVM: loadTopTracks() - SUCCESS, got ${paging.items.size} tracks")
             _topTracks.value = paging.items
+            saveLibraryTracks(CACHE_KEY_TOP, _topTracks.value)
         }.onFailure { e ->
             Timber.e(e, "SpotifyVM: loadTopTracks() - FAILED")
             handleAuthError(e)
