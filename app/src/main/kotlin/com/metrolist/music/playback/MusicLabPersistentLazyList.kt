@@ -1,6 +1,7 @@
 package com.metrolist.music.playback
 
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.navigation.NavController
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -14,6 +15,22 @@ import kotlinx.coroutines.flow.collectLatest
  * gets a stable isolated key. Only reads/writes UI scroll metadata; never
  * changes media queue, current song, search backend or native player.
  */
+internal object MusicLabScreenRouteKey {
+    fun of(navController: NavController): String {
+        val entry = navController.currentBackStackEntry
+        val base = entry?.destination?.route.orEmpty()
+        val args = entry?.arguments
+        val suffix = args?.keySet()?.sorted()?.filter { name ->
+            listOf("id", "playlist", "album", "artist", "browse", "query", "type").any {
+                name.contains(it, ignoreCase = true)
+            }
+        }?.joinToString("|") { name ->
+            name + "=" + (args.get(name)?.toString().orEmpty())
+        }.orEmpty()
+        return base + "|" + suffix
+    }
+}
+
 @Composable
 internal fun rememberMusicLabPersistentLazyListState(key: String): LazyListState {
     val context = LocalContext.current
