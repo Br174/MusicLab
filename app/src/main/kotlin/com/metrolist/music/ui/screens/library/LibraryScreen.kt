@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.metrolist.music.playback.MusicLabSectionMemory
 import androidx.compose.ui.res.stringResource
 import com.metrolist.music.LocalNavController
 import com.metrolist.music.R
@@ -33,7 +36,16 @@ fun LibraryScreen() {
     var filterType by rememberEnumPreference(ChipSortTypeKey, LibraryFilter.LIBRARY)
     var libraryViewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.GRID)
     var playlistViewType by rememberEnumPreference(PlaylistViewTypeKey, LibraryViewType.GRID)
-    var playlistSource by rememberSaveable { mutableStateOf(PlaylistSourceFilter.ALL) }
+    val context = LocalContext.current
+    var playlistSource by rememberSaveable {
+        mutableStateOf(PlaylistSourceFilter.values().firstOrNull {
+            it.name == MusicLabSectionMemory.text(context, "library", "playlist_source")
+        } ?: PlaylistSourceFilter.ALL)
+    }
+    LaunchedEffect(playlistSource) {
+        MusicLabSectionMemory.putText(context, "library", "playlist_source",
+            playlistSource.name)
+    }
 
     val filterContent = @Composable {
         Row {
