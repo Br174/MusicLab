@@ -90,9 +90,14 @@ fun YouTubeMatchDialog(
         return try {
             val uri = Uri.parse(trimmed)
             when {
-                uri.host == "youtu.be" -> uri.pathSegments.firstOrNull()
-                uri.host?.contains("youtube.com") == true && uri.path == "/watch" ->
+                uri.host?.lowercase() == "youtu.be" -> uri.pathSegments.firstOrNull()
+                uri.host?.lowercase() in setOf("youtube.com", "www.youtube.com",
+                    "m.youtube.com", "music.youtube.com") && uri.path == "/watch" ->
                     uri.getQueryParameter("v")
+                uri.host?.lowercase() in setOf("youtube.com", "www.youtube.com",
+                    "m.youtube.com", "music.youtube.com") &&
+                    uri.pathSegments.firstOrNull() in setOf("shorts", "live") ->
+                    uri.pathSegments.getOrNull(1)
                 else -> null
             }
         } catch (_: Exception) {

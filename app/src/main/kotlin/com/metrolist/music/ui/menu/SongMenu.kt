@@ -84,6 +84,7 @@ import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
+import com.metrolist.music.playback.MusicLabManualVersionStore
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.ListDialog
@@ -196,16 +197,21 @@ fun SongMenu(
     if (showYouTubeMatchDialog) {
         val mapper = remember { com.metrolist.music.playback.SpotifyYouTubeMapper(database) }
         YouTubeMatchDialog(
-            currentYouTubeId = resolvedSpotifyMatch?.youtubeId,
+            currentYouTubeId = MusicLabManualVersionStore.get(context, song.id)?.videoId
+                ?: resolvedSpotifyMatch?.youtubeId ?: song.id,
             onConfirm = { result ->
-                val sid = resolvedSpotifyMatch?.spotifyId ?: spotifyId ?: return@YouTubeMatchDialog
+                val originalId = MusicLabManualVersionStore.canonicalId(context, song.id)
+                MusicLabManualVersionStore.save(context, originalId,
+                    MusicLabManualVersionStore.Choice(
+                        result.videoId, result.title, result.artist, result.thumbnail))
                 coroutineScope.launch(Dispatchers.IO) {
-                    mapper.overrideMatch(
-                        spotifyId = sid,
-                        youtubeId = result.videoId,
-                        title = result.title,
-                        artist = result.artist,
-                    )
+                    (resolvedSpotifyMatch?.spotifyId ?: spotifyId)?.let { sid ->
+                        mapper.overrideMatch(sid, result.videoId, result.title, result.artist)
+                    }
+                    val target = YouTube.queue(listOf(result.videoId)).getOrNull()?.firstOrNull()
+                    if (target != null) withContext(Dispatchers.Main) {
+                        playerConnection.replaceCurrentVersion(originalId, target.toMediaItem())
+                    }
                 }
             },
             onDismiss = { showYouTubeMatchDialog = false },
@@ -1222,7 +1228,7 @@ fun SongMenu(
                                 },
                             ),
                         )
-                        if (resolvedSpotifyMatch != null && !qobuzEnabled) {
+                        if (song.id.isNotBlank()) {
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(R.string.change_youtube_version)) },
@@ -1238,6 +1244,17 @@ fun SongMenu(
                                     },
                                 ),
                             )
+                        }
+                        if (MusicLabManualVersionStore.get(context, song.id) != null) {
+                            add(Material3MenuItemData(
+                                title = { Text("Ripristina versione originale") },
+                                icon = { Icon(painter = painterResource(R.drawable.link),
+                                    contentDescription = null) },
+                                onClick = {
+                                    MusicLabManualVersionStore.clear(context, song.id)
+                                    onDismiss()
+                                },
+                            ))
                         }
                     },
             )

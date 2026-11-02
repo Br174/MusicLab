@@ -92,6 +92,7 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.SpotifyYouTubeMapper
+import com.metrolist.music.playback.MusicLabManualVersionStore
 import com.metrolist.music.ui.component.YouTubeMatchDialog
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.db.entities.SpeedDialItem
@@ -105,6 +106,7 @@ import com.metrolist.music.ui.component.VolumeSlider
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.log2
 import kotlin.math.pow
 import kotlin.math.round
@@ -210,28 +212,20 @@ fun PlayerMenu(
     if (showYouTubeMatchDialog) {
         val mapper = remember { SpotifyYouTubeMapper(database) }
         YouTubeMatchDialog(
-            currentYouTubeId = resolvedSpotifyMatch?.youtubeId,
+            currentYouTubeId = MusicLabManualVersionStore.get(context, mediaMetadata.id)?.videoId
+                ?: resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id,
             onConfirm = { result ->
-                val sid = resolvedSpotifyMatch?.spotifyId ?: return@YouTubeMatchDialog
+                val originalId = MusicLabManualVersionStore.canonicalId(context, mediaMetadata.id)
+                MusicLabManualVersionStore.save(context, originalId,
+                    MusicLabManualVersionStore.Choice(
+                        result.videoId, result.title, result.artist, result.thumbnail))
                 coroutineScope.launch(Dispatchers.IO) {
-                    mapper.overrideMatch(
-                        spotifyId = sid,
-                        youtubeId = result.videoId,
-                        title = result.title,
-                        artist = result.artist,
-                    )
-                    // Swap playback to the new version if currently playing the overridden track
-                    if (mediaMetadata.id == resolvedSpotifyMatch?.youtubeId &&
-                        result.videoId != mediaMetadata.id
-                    ) {
-                        val songItems = YouTube.queue(listOf(result.videoId)).getOrNull()
-                        val songItem = songItems?.firstOrNull()
-                        if (songItem != null) {
-                            kotlinx.coroutines.withContext(Dispatchers.Main) {
-                                playerConnection.playNext(songItem.toMediaItem())
-                                playerConnection.seekToNext()
-                            }
-                        }
+                    resolvedSpotifyMatch?.spotifyId?.let { sid ->
+                        mapper.overrideMatch(sid, result.videoId, result.title, result.artist)
+                    }
+                    val target = YouTube.queue(listOf(result.videoId)).getOrNull()?.firstOrNull()
+                    if (target != null) withContext(Dispatchers.Main) {
+                        playerConnection.replaceCurrentVersion(originalId, target.toMediaItem())
                     }
                 }
             },
@@ -709,7 +703,7 @@ fun PlayerMenu(
             Material3MenuGroup(
                 items =
                     buildList {
-                        if (resolvedSpotifyMatch != null && !qobuzEnabled) {
+                        if (mediaMetadata.id.isNotBlank()) {
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(R.string.change_youtube_version)) },
@@ -726,6 +720,20 @@ fun PlayerMenu(
                                     },
                                 ),
                             )
+                        }
+
+                        if (MusicLabManualVersionStore.get(context, mediaMetadata.id) != null) {
+                            add(Material3MenuItemData(
+                                title = { Text("Ripristina versione originale") },
+                                icon = {
+                                    Icon(painter = painterResource(R.drawable.link),
+                                        contentDescription = null, modifier = Modifier.size(24.dp))
+                                },
+                                onClick = {
+                                    MusicLabManualVersionStore.clear(context, mediaMetadata.id)
+                                    onDismiss()
+                                },
+                            ))
                         }
 
                         if (qobuzEnabled) {
