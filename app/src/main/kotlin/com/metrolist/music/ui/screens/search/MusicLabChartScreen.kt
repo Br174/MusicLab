@@ -61,6 +61,7 @@ import com.metrolist.music.R
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.playback.MusicLabSectionWorkPolicy
 import com.metrolist.music.playback.MusicLabSectionWorkCheckpoint
 import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.MusicLabListPositionStore
@@ -237,8 +238,9 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
         chartResult = MusicLabEditorialSnapshot.loadChart(context, title)
         // The editorial snapshot is committed only after a successful complete
         // provider request. Return to that result without downloading it again.
-        if (chartResult != null) {
-            MusicLabSectionWorkCheckpoint.complete(context, "chart", title,
+        if (!MusicLabSectionWorkPolicy.shouldLoad(chartResult != null,
+                MusicLabSectionWorkCheckpoint.read(context, "chart", title).phase)) {
+            if (chartResult != null) MusicLabSectionWorkCheckpoint.complete(context, "chart", title,
                 chartResult!!.tracks.size)
             isLoading = false
             return@LaunchedEffect
