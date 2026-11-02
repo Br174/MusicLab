@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +69,7 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.MusicLabSectionPlayback
+import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.utils.dataStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -142,6 +144,32 @@ internal fun CompilationScreen(
     val playerConnection = LocalPlayerConnection.current
     val database = LocalDatabase.current
     val scope = rememberCoroutineScope()
+    val restored = remember(context) {
+        MusicLabListPositionStore.attach(context)
+        MusicLabCompilationSnapshot.load(context).also { saved ->
+            if (CompilationSessionStore.results.isEmpty() &&
+                CompilationSessionStore.activeSearch == null) {
+                CompilationSessionStore.query = saved.query
+                CompilationSessionStore.year = saved.year
+                CompilationSessionStore.genre = saved.genre
+                CompilationSessionStore.style = saved.style
+                CompilationSessionStore.country = saved.country
+                CompilationSessionStore.language = saved.language
+                CompilationSessionStore.results = saved.results
+                CompilationSessionStore.currentPage = saved.page
+                CompilationSessionStore.totalPages = saved.pages
+                CompilationSessionStore.totalDiscogsResults = saved.total
+                CompilationSessionStore.filtersExpanded = saved.filtersExpanded
+                CompilationSessionStore.selectedReleaseId = saved.selectedRelease
+                CompilationSessionStore.selectedTrackIndex = saved.selectedTrack
+                if (saved.page > 0 && saved.results.isNotEmpty()) {
+                    CompilationSessionStore.activeSearch = CompilationSearchCriteria(
+                        saved.query, saved.year, saved.genre, saved.style,
+                        saved.country, saved.language)
+                }
+            }
+        }
+    }
     // Null (loading) and a genuinely absent token must not be confused.
     val tokenFlow = remember(context) {
         context.dataStore.data.map { CompilationTokenState(true, it[DiscogsTokenKey].orEmpty().trim()) }
@@ -175,15 +203,18 @@ internal fun CompilationScreen(
             putAll(CompilationSessionStore.resolvedTracks)
         }
     }
-    val resultListState = rememberLazyListState(
-        initialFirstVisibleItemIndex = CompilationSessionStore.listIndex,
-        initialFirstVisibleItemScrollOffset = CompilationSessionStore.listOffset,
-    )
+    val savedPosition = remember(context) {
+        MusicLabListPositionStore.get("compilation:results")
+    }
+    val resultListState = remember {
+        LazyListState(savedPosition.index, savedPosition.offset)
+    }
     var resolvingAll by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var filtersExpanded by remember { mutableStateOf(CompilationSessionStore.filtersExpanded) }
     var selectedTrackIndex by remember { mutableStateOf(CompilationSessionStore.selectedTrackIndex) }
     var selectedReleaseId by remember { mutableStateOf(CompilationSessionStore.selectedReleaseId) }
+    var openReleaseId by remember { mutableStateOf(restored.openRelease) }
     var paginationJob by remember { mutableStateOf<Job?>(null) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
     var fullAudioLookupJob by remember { mutableStateOf<Job?>(null) }
@@ -215,7 +246,43 @@ internal fun CompilationScreen(
         }.collectLatest { (index, offset) ->
             CompilationSessionStore.listIndex = index
             CompilationSessionStore.listOffset = offset
+            MusicLabListPositionStore.scroll("compilation:results", index, offset)
         }
+    }
+    DisposableEffect(resultListState) {
+        onDispose {
+            MusicLabListPositionStore.scroll("compilation:results",
+                resultListState.firstVisibleItemIndex,
+                resultListState.firstVisibleItemScrollOffset)
+            MusicLabListPositionStore.flush("compilation:results")
+        }
+    }
+    LaunchedEffect(query, year, genre, style, country, language, filtersExpanded,
+        results, currentPage, totalPages, totalDiscogsResults, selectedReleaseId,
+        selectedTrackIndex, openReleaseId) {
+        // Coalesce edits and list pagination, never persist the Discogs token.
+        delay(350)
+        MusicLabCompilationSnapshot.save(context, MusicLabCompilationSnapshot.Saved(
+            query = query, year = year, genre = genre, style = style,
+            country = country, language = language, filtersExpanded = filtersExpanded,
+            results = results, page = currentPage, pages = totalPages,
+            total = totalDiscogsResults, selectedRelease = selectedReleaseId,
+            selectedTrack = selectedTrackIndex, openRelease = openReleaseId,
+        ))
+    }
+    LaunchedEffect(openReleaseId, tokenState.loaded, discogsToken) {
+        val id = openReleaseId ?: return@LaunchedEffect
+        if (!tokenState.loaded || discogsToken.isBlank() || detail != null) return@LaunchedEffect
+        detailLoading = true
+        DiscogsClient.getRelease(discogsToken, id)
+            .onSuccess { if (openReleaseId == id) {
+                detail = it
+                CompilationSessionStore.detail = it
+            } }
+            .onFailure { if (openReleaseId == id) {
+                error = it.message ?: "Impossibile riaprire questa compilation."
+            } }
+        detailLoading = false
     }
 
     suspend fun filterByLanguage(
@@ -320,6 +387,7 @@ internal fun CompilationScreen(
         error = null
         paginationError = null
         detail = null
+        openReleaseId = null
         fullAudio = null
         resolvedTracks.clear()
         CompilationSessionStore.resetForNewSearch()
@@ -430,6 +498,7 @@ internal fun CompilationScreen(
     fun openCompilation(summary: DiscogsCompilationSummary) {
         // The selected poster and its scroll position survive the detail screen.
         selectedReleaseId = summary.id
+        openReleaseId = summary.id
         CompilationSessionStore.selectedReleaseId = summary.id
         CompilationSessionStore.listIndex = resultListState.firstVisibleItemIndex
         CompilationSessionStore.listOffset = resultListState.firstVisibleItemScrollOffset
@@ -662,6 +731,7 @@ internal fun CompilationScreen(
                 onClick = {
                     if (detail != null) {
                         detail = null
+                        openReleaseId = null
                         fullAudio = null
                         resolvedTracks.clear()
                         CompilationSessionStore.detail = null
