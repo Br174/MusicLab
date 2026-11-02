@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Icon
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.res.painterResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -50,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.metrolist.music.LocalDatabase
+import com.metrolist.music.R
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.DiscogsTokenKey
 import com.metrolist.music.db.entities.PlaylistEntity
@@ -64,17 +68,22 @@ import com.metrolist.music.discogs.DiscogsCompilationSummary
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
-import com.metrolist.music.utils.rememberPreference
+import com.metrolist.music.utils.dataStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.Year
 
-private data class CompilationSearchCriteria(
+private data class CompilationTokenState(val loaded: Boolean = false, val token: String = "")
+
+internal data class CompilationSearchCriteria(
     val query: String,
     val year: Int?,
     val genre: String?,
@@ -109,6 +118,7 @@ private object CompilationSessionStore {
     var selectedTrackIndex: Int? = null
 
     fun resetForNewSearch() {
+        activeSearch = null
         results = emptyList()
         currentPage = 0
         totalPages = 0
@@ -131,7 +141,12 @@ internal fun CompilationScreen(
     val playerConnection = LocalPlayerConnection.current
     val database = LocalDatabase.current
     val scope = rememberCoroutineScope()
-    val discogsToken by rememberPreference(DiscogsTokenKey, "")
+    // Null (loading) and a genuinely absent token must not be confused.
+    val tokenFlow = remember(context) {
+        context.dataStore.data.map { CompilationTokenState(true, it[DiscogsTokenKey].orEmpty().trim()) }
+    }
+    val tokenState by tokenFlow.collectAsStateWithLifecycle(initialValue = CompilationTokenState())
+    val discogsToken = tokenState.token
 
     var query by remember { mutableStateOf(CompilationSessionStore.query) }
     var trackRequest by remember { mutableStateOf(CompilationNavigationBridge.takePendingTrack()) }
@@ -173,6 +188,14 @@ internal fun CompilationScreen(
     var nextTrackWarmJob by remember { mutableStateOf<Job?>(null) }
     var fastTrackPlayJob by remember { mutableStateOf<Job?>(null) }
     var progressiveAlbumJob by remember { mutableStateOf<Job?>(null) }
+    var searchGeneration by remember { mutableStateOf(0L) }
+    var activeSearchToken by remember { mutableStateOf("") }
+    var historyOpen by remember { mutableStateOf(false) }
+    var searchHistory by remember { mutableStateOf(emptyList<CompilationSearchCriteria>()) }
+
+    LaunchedEffect(Unit) {
+        searchHistory = withContext(Dispatchers.IO) { CompilationSearchHistoryStore.load(context) }
+    }
 
     LaunchedEffect(query, year, genre, style, country, language) {
         CompilationSessionStore.query = query
@@ -196,11 +219,14 @@ internal fun CompilationScreen(
     suspend fun filterByLanguage(
         items: List<DiscogsCompilationSummary>,
         requestedLanguage: String?,
+        token: String,
+        generation: Long,
     ): List<DiscogsCompilationSummary> {
         if (requestedLanguage == null || items.isEmpty()) return items
         return withContext(Dispatchers.IO) {
             items.filter { summary ->
-                val candidate = DiscogsClient.getRelease(discogsToken, summary.id).getOrNull()
+                if (generation != searchGeneration) return@filter false
+                val candidate = DiscogsClient.getRelease(token, summary.id).getOrNull()
                 candidate == null ||
                     CompilationLanguageHeuristics.matchesOrUnknown(requestedLanguage, candidate.tracks)
             }
@@ -213,12 +239,16 @@ internal fun CompilationScreen(
         candidates: List<DiscogsCompilationSummary>,
         criteria: CompilationSearchCriteria,
         replaceResults: Boolean,
+        token: String,
+        generation: Long,
     ): List<DiscogsCompilationSummary> {
         val wantedTitle = criteria.trackTitle ?: return candidates
         val accepted = mutableListOf<DiscogsCompilationSummary>()
         for (candidate in candidates) {
-            val release = DiscogsClient.getRelease(discogsToken, candidate.id, includeMasterVideos = false)
+            if (generation != searchGeneration) break
+            val release = DiscogsClient.getRelease(token, candidate.id, includeMasterVideos = false)
                 .getOrNull() ?: continue
+            if (generation != searchGeneration) break
             if (release.tracks.any { track ->
                     CompilationTrackMatchPolicy.matches(track, wantedTitle, criteria.trackArtist.orEmpty())
                 }
@@ -236,9 +266,12 @@ internal fun CompilationScreen(
         criteria: CompilationSearchCriteria,
         page: Int,
         replaceResults: Boolean,
+        token: String,
+        generation: Long,
     ): Boolean {
+        if (generation != searchGeneration) return false
         val response = DiscogsClient.searchCompilations(
-            token = discogsToken,
+            token = token,
             query = if (criteria.trackTitle != null) "" else criteria.query,
             trackTitle = criteria.trackTitle,
             year = criteria.year,
@@ -249,6 +282,7 @@ internal fun CompilationScreen(
             perPage = if (criteria.trackTitle != null || criteria.language != null) 25 else 100,
         )
 
+        if (generation != searchGeneration) return false
         val pageResult = response.getOrElse {
             if (replaceResults) {
                 error = it.message ?: "Errore durante la ricerca Discogs."
@@ -258,10 +292,12 @@ internal fun CompilationScreen(
             return false
         }
 
-        val visibleItems = filterByLanguage(pageResult.items, criteria.language)
+        val visibleItems = filterByLanguage(pageResult.items, criteria.language, token, generation)
+        if (generation != searchGeneration) return false
         val verifiedItems = if (criteria.trackTitle != null) {
-            verifyContainingTrack(visibleItems, criteria, replaceResults)
+            verifyContainingTrack(visibleItems, criteria, replaceResults, token, generation)
         } else visibleItems
+        if (generation != searchGeneration) return false
         results = if (replaceResults) {
             verifiedItems
         } else {
@@ -281,62 +317,92 @@ internal fun CompilationScreen(
         return true
     }
 
-    fun runSearch() {
-        if (discogsToken.isBlank()) {
-            error = "Inserisci prima il Personal Access Token Discogs in Token e API."
-            return
-        }
-
-        val criteria = CompilationSearchCriteria(
+    fun runSearch(override: CompilationSearchCriteria? = null) {
+        val criteria = override ?: CompilationSearchCriteria(
             query = query.trim(),
             year = year,
             genre = genre,
             style = style,
             country = country,
             language = language,
-            trackTitle = trackRequest?.title,
+            trackTitle = trackRequest?.title?.let(CompilationSearchTitlePolicy::clean),
             trackArtist = trackRequest?.artist,
         )
 
+        // Invalidate and remove the old list BEFORE reading credentials. Neither
+        // a missing credential nor a late response may keep the old search alive.
+        searchGeneration += 1
+        val generation = searchGeneration
         paginationJob?.cancel()
         searchJob?.cancel()
         fullAudioLookupJob?.cancel()
         nextTrackWarmJob?.cancel()
+        progressiveAlbumJob?.cancel()
         loading = true
         loadingMore = false
         error = null
         paginationError = null
         detail = null
+        fullAudio = null
         resolvedTracks.clear()
         CompilationSessionStore.resetForNewSearch()
+        activeSearchToken = ""
         results = emptyList()
         currentPage = 0
         totalPages = 0
         totalDiscogsResults = 0
-        activeSearch = criteria
-        CompilationSessionStore.activeSearch = criteria
-
+        activeSearch = null
         searchJob = scope.launch {
             try {
+                // Read the persisted value, not the initial empty Compose placeholder.
+                val token = withContext(Dispatchers.IO) {
+                    context.dataStore.data.first()[DiscogsTokenKey].orEmpty().trim()
+                }
+                if (generation != searchGeneration) return@launch
+                if (token.isBlank()) {
+                    error = "Token Discogs non salvato. Apri Token e API nelle impostazioni."
+                    return@launch
+                }
+                activeSearchToken = token
+                activeSearch = criteria
+                CompilationSessionStore.activeSearch = criteria
                 resultListState.scrollToItem(0)
-                loadPage(criteria, page = 1, replaceResults = true)
+                val succeeded = loadPage(criteria, page = 1, replaceResults = true,
+                    token = token, generation = generation)
+                if (succeeded && generation == searchGeneration) {
+                    val updated = withContext(Dispatchers.IO) {
+                        CompilationSearchHistoryStore.save(context, criteria)
+                        CompilationSearchHistoryStore.load(context)
+                    }
+                    if (generation == searchGeneration) searchHistory = updated
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (failure: Exception) {
+                if (generation == searchGeneration)
+                    error = failure.message ?: "Impossibile caricare le compilation."
             } finally {
-                loading = false
+                if (generation == searchGeneration) loading = false
             }
         }
     }
 
-    // Opening Compilation from the player is a track-search request, not a
-    // release-title query. Manual editing returns to the original search mode.
+    // A menu-to-Compilation action is a new search, never a continuation of
+    // the previous year/filter results. Keep the original artist evidence.
     LaunchedEffect(trackRequest?.title, trackRequest?.artist) {
         trackRequest?.let { target ->
-            query = target.title
+            val cleanTitle = CompilationSearchTitlePolicy.clean(target.title)
+            query = cleanTitle
             year = null
             genre = null
             style = null
             country = null
             language = null
-            runSearch()
+            runSearch(CompilationSearchCriteria(
+                query = cleanTitle, year = null, genre = null, style = null,
+                country = null, language = null,
+                trackTitle = cleanTitle, trackArtist = target.artist.trim(),
+            ))
         }
     }
 
@@ -353,6 +419,8 @@ internal fun CompilationScreen(
                     criteria = criteria,
                     page = currentPage + 1,
                     replaceResults = false,
+                    token = activeSearchToken,
+                    generation = searchGeneration,
                 )
             } finally {
                 loadingMore = false
@@ -621,6 +689,12 @@ internal fun CompilationScreen(
         }
 
         when {
+            !tokenState.loaded -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+
             discogsToken.isBlank() -> {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -712,6 +786,58 @@ internal fun CompilationScreen(
                                             enabled = !loading,
                                         ) {
                                             Text(if (loading) "…" else "Cerca")
+                                        }
+                                    }
+                                }
+                                Box {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        modifier = Modifier.size(48.dp).clickable { historyOpen = true },
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.history),
+                                                contentDescription = "Cronologia ricerche Compilation",
+                                                modifier = Modifier.size(24.dp),
+                                            )
+                                        }
+                                    }
+                                    DropdownMenu(expanded = historyOpen,
+                                        onDismissRequest = { historyOpen = false }) {
+                                        if (searchHistory.isEmpty()) {
+                                            DropdownMenuItem(text = { Text("Nessuna ricerca salvata") },
+                                                onClick = { historyOpen = false })
+                                        }
+                                        searchHistory.forEach { previous ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Column {
+                                                        Text(previous.trackTitle
+                                                            ?: previous.query.ifBlank {
+                                                                "Compilation " + (previous.year?.toString() ?: "con filtri")
+                                                            })
+                                                        Text(previous.trackArtist ?: listOfNotNull(
+                                                            previous.year?.toString(), previous.genre,
+                                                            previous.style, previous.country,
+                                                        ).joinToString(" · "),
+                                                            style = MaterialTheme.typography.bodySmall)
+                                                    }
+                                                },
+                                                onClick = {
+                                                    historyOpen = false
+                                                    query = previous.query
+                                                    year = previous.year
+                                                    genre = previous.genre
+                                                    style = previous.style
+                                                    country = previous.country
+                                                    language = previous.language
+                                                    trackRequest = previous.trackTitle?.let {
+                                                        CompilationTrackRequest(it, previous.trackArtist.orEmpty())
+                                                    }
+                                                    runSearch(previous)
+                                                },
+                                            )
                                         }
                                     }
                                 }
