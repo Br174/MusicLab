@@ -7,6 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.flow.collectLatest
@@ -40,17 +43,31 @@ internal fun rememberMusicLabPersistentLazyListState(key: String): LazyListState
         MusicLabListPositionStore.get(key)
     }
     val state = remember(key) { LazyListState(initial.index, initial.offset) }
+    var waitingForRows by remember(key) {
+        mutableStateOf(initial.index > 0 || initial.offset > 0)
+    }
+    LaunchedEffect(key, state) {
+        snapshotFlow { state.layoutInfo.totalItemsCount }
+            .collectLatest { count ->
+                if (waitingForRows && count > initial.index) {
+                    state.scrollToItem(initial.index, initial.offset)
+                    waitingForRows = false
+                }
+            }
+    }
     LaunchedEffect(key, state) {
         snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
             .collectLatest { (index, offset) ->
-                MusicLabListPositionStore.scroll(key, index, offset)
+                if (!waitingForRows) MusicLabListPositionStore.scroll(key, index, offset)
             }
     }
     DisposableEffect(key, state) {
         onDispose {
-            MusicLabListPositionStore.scroll(key,
-                state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)
-            MusicLabListPositionStore.flush(key)
+            if (!waitingForRows) {
+                MusicLabListPositionStore.scroll(key,
+                    state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)
+                MusicLabListPositionStore.flush(key)
+            }
         }
     }
     return state
@@ -65,17 +82,31 @@ internal fun rememberMusicLabPersistentLazyGridState(key: String): LazyGridState
         MusicLabListPositionStore.get(key)
     }
     val state = remember(key) { LazyGridState(initial.index, initial.offset) }
+    var waitingForRows by remember(key) {
+        mutableStateOf(initial.index > 0 || initial.offset > 0)
+    }
+    LaunchedEffect(key, state) {
+        snapshotFlow { state.layoutInfo.totalItemsCount }
+            .collectLatest { count ->
+                if (waitingForRows && count > initial.index) {
+                    state.scrollToItem(initial.index, initial.offset)
+                    waitingForRows = false
+                }
+            }
+    }
     LaunchedEffect(key, state) {
         snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
             .collectLatest { (index, offset) ->
-                MusicLabListPositionStore.scroll(key, index, offset)
+                if (!waitingForRows) MusicLabListPositionStore.scroll(key, index, offset)
             }
     }
     DisposableEffect(key, state) {
         onDispose {
-            MusicLabListPositionStore.scroll(key,
-                state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)
-            MusicLabListPositionStore.flush(key)
+            if (!waitingForRows) {
+                MusicLabListPositionStore.scroll(key,
+                    state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)
+                MusicLabListPositionStore.flush(key)
+            }
         }
     }
     return state
