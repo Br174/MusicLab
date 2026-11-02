@@ -61,12 +61,14 @@ import com.metrolist.music.R
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.playback.MusicLabSectionWorkCheckpoint
 import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.playback.CoverPlaybackMemory
 import com.metrolist.music.playback.queues.YouTubeQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -233,31 +235,49 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
         isLoading = true
         loadError = null
         chartResult = MusicLabEditorialSnapshot.loadChart(context, title)
+        // The editorial snapshot is committed only after a successful complete
+        // provider request. Return to that result without downloading it again.
+        if (chartResult != null) {
+            MusicLabSectionWorkCheckpoint.complete(context, "chart", title,
+                chartResult!!.tracks.size)
+            isLoading = false
+            return@LaunchedEffect
+        }
         if (chart == null) {
             loadError = "Classifica sconosciuta"
-        } else {
-            // R30: bind the chart loader to the EXACT same locally stored keys
-            // shown under Account > Last.fm + Discogs. Never log/send secrets.
-            // Read at chart-opening time to include credentials saved after
-            // application startup; no logout, reinstall or manual re-entry.
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val saved = context.dataStore.data.first()
-                    val apiKey = saved[LastFMApiKeyKey].orEmpty().trim()
-                        .ifBlank { BuildConfig.LASTFM_API_KEY }
-                    val secret = saved[LastFMSecretKey].orEmpty().trim()
-                        .ifBlank { BuildConfig.LASTFM_SECRET }
-                    LastFM.initialize(apiKey = apiKey, secret = secret)
-                    MusicLabChartsRepository.load(chart).getOrThrow()
-                }
-            }.onSuccess {
-                chartResult = it
-                MusicLabEditorialSnapshot.saveChart(context, title, it)
-            }.onFailure {
-                if (chartResult == null) loadError = it.message ?: "Classifica non accessibile"
-            }
+            isLoading = false
+            return@LaunchedEffect
         }
-        isLoading = false
+        if (!MusicLabSectionWorkCheckpoint.begin(context, "chart", title)) {
+            isLoading = false
+            return@LaunchedEffect
+        }
+        try {
+            // The user's stored keys are read only when a NEW provider request
+            // is actually necessary. Never persist API keys in the checkpoint.
+            val found = withContext(Dispatchers.IO) {
+                val saved = context.dataStore.data.first()
+                val apiKey = saved[LastFMApiKeyKey].orEmpty().trim()
+                    .ifBlank { BuildConfig.LASTFM_API_KEY }
+                val secret = saved[LastFMSecretKey].orEmpty().trim()
+                    .ifBlank { BuildConfig.LASTFM_SECRET }
+                LastFM.initialize(apiKey = apiKey, secret = secret)
+                MusicLabChartsRepository.load(chart).getOrThrow()
+            }
+            chartResult = found
+            MusicLabEditorialSnapshot.saveChart(context, title, found)
+            MusicLabSectionWorkCheckpoint.complete(context, "chart", title,
+                found.tracks.size)
+        } catch (cancel: CancellationException) {
+            MusicLabSectionWorkCheckpoint.standby(context, "chart", title)
+            throw cancel
+        } catch (failure: Exception) {
+            MusicLabSectionWorkCheckpoint.standby(context, "chart", title)
+            if (chartResult == null)
+                loadError = failure.message ?: "Classifica non accessibile"
+        } finally {
+            isLoading = false
+        }
     }
 
     Scaffold(topBar = {
