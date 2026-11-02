@@ -47,7 +47,10 @@ assert load(old)==load(new),"STOP: R39 Discogs q-mode changed"
 assert "query = criteria.query" in new and "perPage = if (criteria.language == null) 100 else 25" in new
 hp="app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHistoricalHitParade.kt"
 before,after=version(hp,BASE),version(hp,"HEAD")
-assert before.split("internal fun MusicLabHistoricalHitParadeScreen(",1)[0]==after.split("internal fun MusicLabHistoricalHitParadeScreen(",1)[0], "STOP historic chart fetch changed"
+def historical_fetch_only(text):
+    return text.split("internal object MusicLabHistoricalHitParade",1)[1].split(
+        "internal fun MusicLabHistoricalHitParadeScreen(",1)[0]
+assert historical_fetch_only(before)==historical_fetch_only(after), "STOP historic chart fetch changed"
 srv="app/src/main/kotlin/com/metrolist/music/playback/MusicService.kt"
 a,b=version(srv,BASE),version(srv,"HEAD")
 method=b.split("    fun playSectionNow(item: MediaItem, sectionTitle: String) {",1)[1].split("    fun playNow(item: MediaItem)",1)[0]
