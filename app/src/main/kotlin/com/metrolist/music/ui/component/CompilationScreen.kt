@@ -67,6 +67,7 @@ import com.metrolist.music.discogs.DiscogsCompilationSummary
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
+import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.utils.dataStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -525,23 +526,30 @@ internal fun CompilationScreen(
             val found = resolveTrack(index, current)
             if (selectedTrackIndex != index || detail?.id != current.id) return@launch
             if (found != null) {
-                playerConnection?.playNow(found.song.toMediaItem())
-                nextTrackWarmJob = scope.launch {
-                    while (playerConnection?.isPlaybackPriorityBurstActive() == true) {
-                        delay(180)
-                    }
-                    delay(350)
-                    if (selectedTrackIndex != index || detail?.id != current.id) return@launch
-                    val nextIndex = index + 1
-                    val next = resolveTrack(nextIndex, current)
-                    if (next != null && selectedTrackIndex == index &&
-                        detail?.id == current.id) {
-                        playerConnection?.playNext(next.song.toMediaItem())
-                    }
-                    if (fullAudio == null && detail?.id == current.id) {
-                        scheduleFullAudioLookup(current, delayMs = 2_000L)
-                    }
+                playerConnection?.let { connection ->
+                    MusicLabSectionPlayback.select(
+                        connection = connection,
+                        source = "Compilation · " + current.title,
+                        orderedEntries = current.tracks.mapIndexed { trackIndex, track ->
+                            MusicLabSectionPlayback.Entry(
+                                key = trackIndex.toString(),
+                                title = track.title,
+                                artist = track.artists.joinToString(", "),
+                            )
+                        },
+                        selectedIndex = index,
+                        selected = found.song.toMediaItem(),
+                        findPlayable = { entry ->
+                            entry.key.toIntOrNull()
+                                ?.takeIf { it in current.tracks.indices }
+                                ?.let { trackIndex ->
+                                    resolveTrack(trackIndex, current)?.song?.toMediaItem()
+                                }
+                        },
+                    )
                 }
+                if (fullAudio == null && detail?.id == current.id)
+                    scheduleFullAudioLookup(current, delayMs = 2_000L)
             } else {
                 Toast.makeText(context, "Brano non trovato per ora.", Toast.LENGTH_SHORT).show()
                 if (fullAudio == null) scheduleFullAudioLookup(current, delayMs = 1_000L)
