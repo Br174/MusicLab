@@ -25,7 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -53,6 +54,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -96,6 +98,8 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.SpotifyQueue
 import com.metrolist.music.playback.queues.ListQueue
+import com.metrolist.music.playback.MusicLabSectionMemory
+import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.ChipsRow
 import com.metrolist.music.ui.component.EmptyPlaceholder
@@ -137,7 +141,7 @@ fun OnlineSearchResult(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
 
     val coroutineScope = rememberCoroutineScope()
-    val lazyListState = rememberLazyListState()
+    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
     val scrollToTopCount by savedStateHandle
@@ -176,6 +180,27 @@ fun OnlineSearchResult(
     // Extract query from navigation arguments
     val encodedQuery = navController.currentBackStackEntry?.arguments?.getString("query") ?: ""
     val decodedQuery = remember(encodedQuery) { SearchRoutes.decodeQuery(encodedQuery) }
+    val listKey = "search-results:" + decodedQuery
+    val savedPosition = remember(listKey) {
+        MusicLabListPositionStore.attach(context)
+        MusicLabListPositionStore.get(listKey)
+    }
+    val lazyListState = remember(listKey) {
+        LazyListState(savedPosition.index, savedPosition.offset)
+    }
+    LaunchedEffect(listKey, lazyListState) {
+        snapshotFlow { lazyListState.firstVisibleItemIndex to lazyListState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) ->
+                MusicLabListPositionStore.scroll(listKey, index, offset)
+            }
+    }
+    DisposableEffect(listKey, lazyListState) {
+        onDispose {
+            MusicLabListPositionStore.scroll(listKey,
+                lazyListState.firstVisibleItemIndex, lazyListState.firstVisibleItemScrollOffset)
+            MusicLabListPositionStore.flush(listKey)
+        }
+    }
 
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(decodedQuery, TextRange(decodedQuery.length)))
@@ -219,6 +244,43 @@ fun OnlineSearchResult(
 
     val searchFilter by viewModel.filter.collectAsStateWithLifecycle()
     val spotifyFilterValue by viewModel.spotifyFilter.collectAsStateWithLifecycle()
+    var filtersRestored by remember(decodedQuery) { mutableStateOf(false) }
+    LaunchedEffect(decodedQuery) {
+        val saved = MusicLabSectionMemory.text(context, listKey, "search_filter")
+        viewModel.filter.value = when (saved) {
+            "song" -> FILTER_SONG
+            "video" -> FILTER_VIDEO
+            "album" -> FILTER_ALBUM
+            "artist" -> FILTER_ARTIST
+            "playlist" -> FILTER_COMMUNITY_PLAYLIST
+            "featured" -> FILTER_FEATURED_PLAYLIST
+            "podcast" -> FILTER_PODCAST
+            "episode" -> FILTER_EPISODE
+            "profile" -> FILTER_PROFILE
+            else -> null
+        }
+        viewModel.spotifyFilter.value = MusicLabSectionMemory
+            .text(context, listKey, "spotify_filter").ifBlank { null }
+        filtersRestored = true
+    }
+    LaunchedEffect(searchFilter, spotifyFilterValue, filtersRestored) {
+        if (!filtersRestored) return@LaunchedEffect
+        val selected = when (searchFilter) {
+            FILTER_SONG -> "song"
+            FILTER_VIDEO -> "video"
+            FILTER_ALBUM -> "album"
+            FILTER_ARTIST -> "artist"
+            FILTER_COMMUNITY_PLAYLIST -> "playlist"
+            FILTER_FEATURED_PLAYLIST -> "featured"
+            FILTER_PODCAST -> "podcast"
+            FILTER_EPISODE -> "episode"
+            FILTER_PROFILE -> "profile"
+            else -> ""
+        }
+        MusicLabSectionMemory.putText(context, listKey, "search_filter", selected)
+        MusicLabSectionMemory.putText(context, listKey, "spotify_filter",
+            spotifyFilterValue.orEmpty())
+    }
     val searchSummary = viewModel.summaryPage
 
     val itemsPage by remember(searchFilter, spotifyFilterValue, isSpotifySearch) {
@@ -328,6 +390,8 @@ fun OnlineSearchResult(
                 Modifier
                     .combinedClickable(
                         onClick = {
+                            // Visited-row memory is separate from the currently playing item.
+                            MusicLabListPositionStore.select(listKey, item.id)
                             when (item) {
                                 is SongItem -> {
                                     if (item.id == mediaMetadata?.id) {
@@ -416,7 +480,11 @@ fun OnlineSearchResult(
                             }
                         },
                         onLongClick = longClick,
-                    ).animateItem(),
+                    )
+                    .background(if (MusicLabListPositionStore.get(listKey).selectedKey ==
+                        item.id) MaterialTheme.colorScheme.primaryContainer
+                        else Color.Transparent)
+                    .animateItem(),
         )
     }
 
