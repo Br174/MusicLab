@@ -54,7 +54,8 @@ internal object CompilationFallbackQueryPolicy {
         val title = songTitle(fullVideoTitle, artist)
         val singer = artist.trim().replace(Regex("\\s+"), " ")
         if (title.isBlank() || singer.isBlank()) return null
-        return if (title.contains(singer, ignoreCase = true)) title else "$title $singer"
+        if (title.contains(singer, ignoreCase = true)) return null
+        return "$title $singer"
     }
 }
 
