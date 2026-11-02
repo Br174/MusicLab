@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -164,10 +165,13 @@ fun LibraryPlaylistsScreen(
     val fallbackReason by spotifyViewModel.fallbackReason.collectAsState()
     val needsSpotifyReLogin by spotifyViewModel.needsReLogin.collectAsState()
 
+    // R44: Library owns only non-audio catalogue work while on screen.
+    // Leaving cancels requests; returning resumes the missing lists.
     LaunchedEffect(isSpotifyActive) {
-        if (isSpotifyActive) {
-            spotifyViewModel.loadAll()
-        }
+        spotifyViewModel.setLibraryVisible(isSpotifyActive)
+    }
+    DisposableEffect(spotifyViewModel) {
+        onDispose { spotifyViewModel.setLibraryVisible(false) }
     }
 
     val likedPlaylist =
