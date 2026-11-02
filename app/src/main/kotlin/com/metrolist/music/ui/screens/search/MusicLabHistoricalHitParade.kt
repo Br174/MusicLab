@@ -52,6 +52,7 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.ui.component.MusicLabFastPath
+import com.metrolist.music.ui.component.MusicLabTrackRecovery
 import com.metrolist.music.ui.component.MusicLabFastHitArtwork
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.extensions.toMediaItem
@@ -683,7 +684,7 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
                         resolving = song.rank
                         scope.launch {
                             try {
-                                val match = MusicLabFastPath.find(song.title, song.artist) { item ->
+                                val match = MusicLabTrackRecovery.find(song.title, song.artist) { item ->
                                     MusicLabChartArtworkResolver.sameRecordingLabel(
                                         song.title, song.artist, item)
                                 }
@@ -709,7 +710,7 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
                                             selectedIndex = position,
                                             selected = match.toMediaItem(),
                                             findPlayable = { entry ->
-                                                MusicLabFastPath.find(entry.title, entry.artist) { candidate ->
+                                                MusicLabTrackRecovery.find(entry.title, entry.artist) { candidate ->
                                                     MusicLabChartArtworkResolver.sameRecordingLabel(
                                                         entry.title, entry.artist, candidate)
                                                 }?.toMediaItem()
