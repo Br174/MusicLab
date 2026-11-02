@@ -31,7 +31,8 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
+
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
@@ -475,7 +476,7 @@ fun AutoPlaylistScreen(
         }
     }
 
-    val state = rememberLazyListState()
+    val state = rememberMusicLabPersistentLazyListState("playlist:auto:" + viewModel.playlist)
 
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val pullRefreshState = rememberPullToRefreshState()
