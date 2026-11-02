@@ -115,6 +115,7 @@ private object CompilationSessionStore {
     var listOffset: Int = 0
     var filtersExpanded: Boolean = true
     var selectedTrackIndex: Int? = null
+    var selectedReleaseId: Int? = null
 
     fun resetForNewSearch() {
         activeSearch = null
@@ -181,6 +182,7 @@ internal fun CompilationScreen(
     var saving by remember { mutableStateOf(false) }
     var filtersExpanded by remember { mutableStateOf(CompilationSessionStore.filtersExpanded) }
     var selectedTrackIndex by remember { mutableStateOf(CompilationSessionStore.selectedTrackIndex) }
+    var selectedReleaseId by remember { mutableStateOf(CompilationSessionStore.selectedReleaseId) }
     var paginationJob by remember { mutableStateOf<Job?>(null) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
     var fullAudioLookupJob by remember { mutableStateOf<Job?>(null) }
@@ -425,6 +427,11 @@ internal fun CompilationScreen(
     }
 
     fun openCompilation(summary: DiscogsCompilationSummary) {
+        // The selected poster and its scroll position survive the detail screen.
+        selectedReleaseId = summary.id
+        CompilationSessionStore.selectedReleaseId = summary.id
+        CompilationSessionStore.listIndex = resultListState.firstVisibleItemIndex
+        CompilationSessionStore.listOffset = resultListState.firstVisibleItemScrollOffset
         paginationJob?.cancel()
         loadingMore = false
         selectedTrackIndex = null
@@ -947,6 +954,7 @@ internal fun CompilationScreen(
                         ) { item ->
                             CompilationResultCard(
                                 summary = item,
+                                selected = item.id == selectedReleaseId,
                                 onClick = { openCompilation(item) },
                             )
                         }
@@ -1015,12 +1023,14 @@ internal fun CompilationScreen(
 @Composable
 private fun CompilationResultCard(
     summary: DiscogsCompilationSummary,
+    selected: Boolean,
     onClick: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
-        tonalElevation = 2.dp,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        tonalElevation = if (selected) 5.dp else 2.dp,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
