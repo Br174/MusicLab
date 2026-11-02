@@ -22,6 +22,17 @@ internal object CompilationSearchTitlePolicy {
     }
 }
 
+/** R45: second broad search query, without introducing a strict tracklist filter. */
+internal object CompilationFallbackQueryPolicy {
+    fun query(cleanTitle: String, artist: String): String? {
+        val title = CompilationSearchTitlePolicy.clean(cleanTitle)
+        val singer = artist.trim().replace(Regex("\\s+"), " ")
+        if (title.isBlank() || singer.isBlank()) return null
+        if (title.contains(singer, ignoreCase = true)) return null
+        return "$title $singer"
+    }
+}
+
 /** Only search criteria are saved; never credentials, audio content, or result lists. */
 internal object CompilationSearchHistoryStore {
     private val historyKey = stringPreferencesKey("musiclab_compilation_search_history_r38")

@@ -628,16 +628,8 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             }
     }
 
-    // A contextual swipe updates the remembered rank and reveals its artwork.
-    // Never changes the source date or starts playback when returning to the tab.
-    LaunchedEffect(positionKey, currentContext?.index, currentContext?.revision, chart?.songs?.size) {
-        val state = currentContext ?: return@LaunchedEffect
-        if (state.selectionKey == positionKey && state.index in
-            (chart?.songs?.indices ?: IntRange.EMPTY) &&
-            listState.layoutInfo.totalItemsCount > state.index + 1) {
-            listState.animateScrollToItem(state.index + 1)
-        }
-    }
+    // R45: changing/returning to the highlighted song never moves the viewport.
+    // Only a user scroll or explicit new date search may change its position.
 
     fun shiftWeek(delta: Int) {
         selected = (selected.clone() as Calendar).apply {
@@ -706,7 +698,11 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
             }
         })
     }) { insets ->
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(insets),
+        if (chart == null && restorePending) {
+            Box(modifier = Modifier.fillMaxSize().padding(insets)) {
+                if (loading) CircularProgressIndicator()
+            }
+        } else LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(insets),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
                 top = 10.dp, bottom = bottomPadding + 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {

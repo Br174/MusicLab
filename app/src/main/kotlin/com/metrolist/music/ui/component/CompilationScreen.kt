@@ -457,6 +457,20 @@ internal fun CompilationScreen(
                 resultListState.scrollToItem(0)
                 val succeeded = loadPage(criteria, page = 1, replaceResults = true,
                     token = token, generation = generation)
+                // R45: only the player's new-song search gets a bounded retry
+                // after zero results. R39's wide Discogs q search is unchanged.
+                if (succeeded && generation == searchGeneration && results.isEmpty()) {
+                    val fromPlayer = trackRequest
+                    val fallbackQuery = if (fromPlayer != null &&
+                        CompilationSearchTitlePolicy.clean(fromPlayer.title) == criteria.query)
+                        CompilationFallbackQueryPolicy.query(criteria.query, fromPlayer.artist)
+                    else null
+                    if (fallbackQuery != null && fallbackQuery != criteria.query) {
+                        val alternative = criteria.copy(query = fallbackQuery)
+                        loadPage(alternative, page = 1, replaceResults = true,
+                            token = token, generation = generation)
+                    }
+                }
                 if (!succeeded && generation == searchGeneration) {
                     activeSearch = null
                     CompilationSessionStore.activeSearch = null
