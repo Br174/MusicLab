@@ -7,6 +7,8 @@ class MusicLabFastPathPolicyTest {
     @Test fun boundedVisibleSearchDoesNotSaturateFullAlbums() {
         assertEquals(4, MusicLabFastPathPolicy.SEARCH_PARALLELISM)
         assertEquals(2, MusicLabFastPathPolicy.COMPILATION_WARM_TRACKS)
+        assertEquals(2, MusicLabFastPathPolicy.COMPILATION_VISIBLE_WARM_PARALLELISM)
+        assertTrue(MusicLabFastPathPolicy.COMPILATION_VISIBLE_WARM_PARALLELISM < MusicLabFastPathPolicy.SEARCH_PARALLELISM)
     }
 
     @Test fun oldAlbumOrExplicitSongTapCancelsProgressiveAlbum() {
