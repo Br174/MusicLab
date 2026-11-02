@@ -67,6 +67,7 @@ import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsCompilationSummary
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.playback.MusicLabSectionWorkPolicy
 import com.metrolist.music.playback.MusicLabSectionWorkCheckpoint
 import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.MusicLabListPositionStore
@@ -554,8 +555,8 @@ internal fun CompilationScreen(
             val workKey = searchIdentity(restoreCriteria)
             val saved = MusicLabSectionWorkCheckpoint.read(context,
                 "compilation:search", workKey)
-            if (saved.phase != MusicLabSectionWorkCheckpoint.Phase.COMPLETE &&
-                saved.total > 0) {
+            if (MusicLabSectionWorkPolicy.shouldResumeInterrupted(
+                    saved.phase, saved.total > 0, results.isNotEmpty())) {
                 runSearch(restoreCriteria, resumeInterrupted = true)
             }
         }
