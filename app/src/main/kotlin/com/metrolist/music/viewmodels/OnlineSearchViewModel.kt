@@ -44,9 +44,12 @@ import com.metrolist.spotify.Spotify
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -66,6 +69,14 @@ constructor(
     val titleSearchMode = SearchRoutes.isTitleSearch(rawSearchQuery)
     val query = SearchRoutes.decodeQuery(rawSearchQuery)
     val filter = MutableStateFlow<YouTube.SearchFilter?>(null)
+    private val sectionActive = MutableStateFlow(true)
+    private var pagingJob: Job? = null
+
+    /** The search ViewModel may outlive its visible destination in NavHost. */
+    fun setSectionActive(active: Boolean) {
+        sectionActive.value = active
+        if (!active) pagingJob?.cancel()
+    }
     var summaryPage by mutableStateOf<SearchSummaryPage?>(null)
     val viewStateMap = mutableStateMapOf<String, ItemsPage?>()
 
@@ -189,7 +200,9 @@ constructor(
 
     private fun initYouTubeSearch() {
         viewModelScope.launch {
-            filter.collect { filter ->
+            combine(filter, sectionActive) { filter, active -> filter to active }
+                .collectLatest { (filter, active) ->
+                if (!active) return@collectLatest
                 if (filter == null) {
                     loadSummaryPage()
                 } else if (filter == YouTube.SearchFilter.FILTER_EPISODE) {
@@ -238,20 +251,19 @@ constructor(
 
     private fun initSpotifySearch() {
         viewModelScope.launch(Dispatchers.IO) {
-            if (!SpotifyTokenManager.ensureAuthenticated()) {
-                Timber.w("SearchVM: Spotify auth failed, falling back to YouTube")
-                isSpotifySearch.value = false
-                initYouTubeSearch()
-                return@launch
-            }
-
-            // Load summary (all types) immediately
-            loadSpotifySummary()
-
-            // Observe Spotify filter changes for filtered searches
-            spotifyFilter.collect { filterType ->
-                if (filterType != null) {
-                    loadSpotifyFiltered(filterType)
+            // Cancels a pending Spotify request when its destination is hidden;
+            // on return only incomplete filters/summaries are retried.
+            sectionActive.collectLatest { active ->
+                if (!active) return@collectLatest
+                if (!SpotifyTokenManager.ensureAuthenticated()) {
+                    Timber.w("SearchVM: Spotify auth failed, falling back to YouTube")
+                    isSpotifySearch.value = false
+                    initYouTubeSearch()
+                    return@collectLatest
+                }
+                loadSpotifySummary()
+                spotifyFilter.collectLatest { filterType ->
+                    if (filterType != null) loadSpotifyFiltered(filterType)
                 }
             }
         }
@@ -364,7 +376,9 @@ constructor(
 
     private fun loadMoreYouTube() {
         val filterValue = filter.value?.value ?: return
-        viewModelScope.launch {
+        pagingJob?.cancel()
+        pagingJob = viewModelScope.launch {
+            if (!sectionActive.value) return@launch
             val viewState = viewStateMap[filterValue] ?: return@launch
             val continuation = viewState.continuation ?: return@launch
             val searchResult =
@@ -386,7 +400,9 @@ constructor(
 
     private fun loadMoreSpotify() {
         val filterType = spotifyFilter.value ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        pagingJob?.cancel()
+        pagingJob = viewModelScope.launch(Dispatchers.IO) {
+            if (!sectionActive.value) return@launch
             val viewState = viewStateMap[filterType] ?: return@launch
             val continuation = viewState.continuation ?: return@launch
 
