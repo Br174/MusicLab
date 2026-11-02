@@ -27,7 +27,7 @@ jobs:
           node scripts/motorlab-active-guard.mjs --self-test
           node scripts/motorlab-active-guard.mjs
       - name: R44 universal section lifecycle compatibility and no-audio-regression gate
-        run: python3 tools/universal-apk-builder/verify-r44-33124-scope.py
+        run: python3 tools/universal-apk-builder/verify-r45-33125-scope.py
       - name: Spotify and YouTube Music filtering and regression contracts
         run: |
           node --test cloudflare/music-intelligence/test/turbo-r25-library-spotify-first.test.mjs cloudflare/music-intelligence/test/turbo-r25-partial-cycle-audio.test.mjs cloudflare/music-intelligence/test/turbo-r28-search-explore.test.mjs cloudflare/music-intelligence/test/turbo-r29-verified-charts.test.mjs cloudflare/music-intelligence/test/turbo-r30-lastfm-credentials.test.mjs cloudflare/music-intelligence/test/turbo-r31-chart-artwork.test.mjs cloudflare/music-intelligence/test/turbo-r26-chart-artwork-insets.test.mjs cloudflare/music-intelligence/test/turbo-r25-spotify-first-charts-restored.test.mjs cloudflare/music-intelligence/test/turbo-r24-qobuz-anr.test.mjs cloudflare/music-intelligence/test/scudo-r40-class-evidence-real.test.mjs cloudflare/music-intelligence/test/turbo-r27-artwork-coverage-playback.test.mjs cloudflare/music-intelligence/test/turbo-r28-real-chart-album-artwork.test.mjs cloudflare/music-intelligence/test/musiclab-r35-player-ui-sync.test.mjs cloudflare/music-intelligence/test/musiclab-r36-fastpath-hitparade-compilation.test.mjs

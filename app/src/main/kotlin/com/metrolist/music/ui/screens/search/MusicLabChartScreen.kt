@@ -222,15 +222,7 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
             }
     }
 
-    LaunchedEffect(listKey, currentContext?.index, currentContext?.revision,
-        chartResult?.tracks?.size) {
-        val state = currentContext ?: return@LaunchedEffect
-        if (state.selectionKey == listKey &&
-            state.index in (chartResult?.tracks?.indices ?: IntRange.EMPTY) &&
-            listState.layoutInfo.totalItemsCount > state.index) {
-            listState.animateScrollToItem(state.index)
-        }
-    }
+    // R45: current playback can update highlighted artwork, never the scroll.
 
     LaunchedEffect(chart) {
         isLoading = true
@@ -296,7 +288,11 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
             },
         )
     }) { insets ->
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(insets),
+        if (chartResult == null && restorePending) {
+            Box(modifier = Modifier.fillMaxSize().padding(insets)) {
+                if (isLoading) CircularProgressIndicator()
+            }
+        } else LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(insets),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
                 top = 12.dp, bottom = miniPlayerBottomInset + 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {

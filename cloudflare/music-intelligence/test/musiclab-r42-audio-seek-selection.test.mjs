@@ -46,7 +46,7 @@ test('R42 contextual next/previous updates persistent last-selected row reactive
   assert.match(source,/MusicLabSectionPlayback\.active\.collectAsStateWithLifecycle\(\)/);
   assert.match(source,/MusicLabListPositionStore\.selectedKeys\.collectAsStateWithLifecycle\(\)/);
   assert.match(source,/selectionKey = (positionKey|listKey)/);
-  assert.match(source,/animateScrollToItem\(/);
+  assert.doesNotMatch(source,/animateScrollToItem\(/);
  }
  assert.match(comp,/selectionKey = "compilation:detail:" \+ current\.id/);
  assert.match(comp,/selectedTrackIndex = state\.index/);

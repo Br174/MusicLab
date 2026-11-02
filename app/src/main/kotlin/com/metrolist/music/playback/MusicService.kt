@@ -2505,8 +2505,11 @@ class MusicService :
      * 1-2 seconds after first sound or after a user's manual seek.
      * This method is called only for explicit selection or contextual skip.
      */
-    fun playSectionNow(requestedItem: MediaItem, sectionTitle: String) {
-        val item = MusicLabManualVersionStore.apply(this, requestedItem)
+    fun playSectionNow(item: MediaItem, sectionTitle: String) {
+        playSectionEffective(MusicLabManualVersionStore.apply(this, item), sectionTitle)
+    }
+
+    private fun playSectionEffective(item: MediaItem, sectionTitle: String) {
         ++queueRequestSerial
         pendingQueuePreparation?.cancel()
         pendingQueuePreparation = null
@@ -2526,8 +2529,11 @@ class MusicService :
         player.playWhenReady = true
     }
 
-    fun playNow(requestedItem: MediaItem) {
-        val item = MusicLabManualVersionStore.apply(this, requestedItem)
+    fun playNow(item: MediaItem) {
+        playNowEffective(MusicLabManualVersionStore.apply(this, item))
+    }
+
+    private fun playNowEffective(item: MediaItem) {
         // A direct tap must win over a slower queued search/playlist expansion.
         ++queueRequestSerial
         pendingQueuePreparation?.cancel()
