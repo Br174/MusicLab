@@ -36,6 +36,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
 import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -138,10 +139,13 @@ fun LibraryMixScreen(
     val spotifyLikedSongsTotal by spotifyViewModel.likedSongsTotal.collectAsState()
     val needsSpotifyReLogin by spotifyViewModel.needsReLogin.collectAsState()
 
+    // R44: Library owns only non-audio catalogue work while on screen.
+    // Leaving cancels requests; returning resumes the missing lists.
     LaunchedEffect(isSpotifyActive) {
-        if (isSpotifyActive) {
-            spotifyViewModel.loadAll()
-        }
+        spotifyViewModel.setLibraryVisible(isSpotifyActive)
+    }
+    DisposableEffect(spotifyViewModel) {
+        onDispose { spotifyViewModel.setLibraryVisible(false) }
     }
 
     val (sortType, onSortTypeChange) =
