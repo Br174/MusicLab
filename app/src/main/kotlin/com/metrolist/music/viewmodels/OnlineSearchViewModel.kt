@@ -170,6 +170,9 @@ constructor(
                             .filterExplicit(hideExplicit)
                             .filterVideoSongs(hideVideoSongs)
                             .filterYoutubeShorts(hideYoutubeShorts)
+                    summaryPage?.let {
+                        MusicLabOnlineSearchSnapshot.saveSummary(context, query, "youtube", it)
+                    }
                 }.onFailure {
                     reportException(it)
                 }
@@ -181,6 +184,8 @@ constructor(
         viewModelScope.launch(Dispatchers.IO) {
             val useSpotify = shouldUseSpotifySearch()
             isSpotifySearch.value = useSpotify
+            summaryPage = MusicLabOnlineSearchSnapshot.loadSummary(
+                context, query, if (useSpotify) "spotify" else "youtube")
 
             if (useSpotify) {
                 initSpotifySearch()
@@ -203,6 +208,10 @@ constructor(
             combine(filter, sectionActive) { filter, active -> filter to active }
                 .collectLatest { (filter, active) ->
                 if (!active) return@collectLatest
+                if (filter != null && viewStateMap[filter.value] == null) {
+                    MusicLabOnlineSearchSnapshot.loadPage(context, query, "youtube",
+                        filter.value)?.let { viewStateMap[filter.value] = it }
+                }
                 if (filter == null) {
                     loadSummaryPage()
                 } else if (filter == YouTube.SearchFilter.FILTER_EPISODE) {
@@ -220,6 +229,10 @@ constructor(
                                 ?.items
                                 .orEmpty()
                             viewStateMap[filter.value] = ItemsPage(episodes, null)
+                            viewStateMap[filter.value]?.let {
+                                MusicLabOnlineSearchSnapshot.savePage(context, query, "youtube",
+                                    filter.value, it)
+                            }
                         }
                     }
                 } else {
@@ -240,6 +253,10 @@ constructor(
                                             .filterYoutubeShorts(hideYoutubeShorts),
                                         result.continuation,
                                     )
+                                viewStateMap[filter.value]?.let {
+                                    MusicLabOnlineSearchSnapshot.savePage(context, query,
+                                        "youtube", filter.value, it)
+                                }
                             }.onFailure {
                                 reportException(it)
                             }
@@ -263,7 +280,13 @@ constructor(
                 }
                 loadSpotifySummary()
                 spotifyFilter.collectLatest { filterType ->
-                    if (filterType != null) loadSpotifyFiltered(filterType)
+                    if (filterType != null) {
+                        if (viewStateMap[filterType] == null) {
+                            MusicLabOnlineSearchSnapshot.loadPage(context, query, "spotify",
+                                filterType)?.let { viewStateMap[filterType] = it }
+                        }
+                        if (viewStateMap[filterType] == null) loadSpotifyFiltered(filterType)
+                    }
                 }
             }
         }
@@ -321,6 +344,9 @@ constructor(
             }
 
         summaryPage = SearchSummaryPage(summaries = summaries)
+        summaryPage?.let {
+            MusicLabOnlineSearchSnapshot.saveSummary(context, query, "spotify", it)
+        }
     }
 
     private suspend fun loadSpotifyFiltered(filterType: String) {
@@ -360,6 +386,9 @@ constructor(
                 // Encode offset in continuation string for Spotify pagination
                 continuation = if (hasMore) "spotify:$filterType:${offset + limit}" else null,
             )
+            viewStateMap[filterType]?.let {
+                MusicLabOnlineSearchSnapshot.savePage(context, query, "spotify", filterType, it)
+            }
         }.onFailure {
             Timber.e(it, "SearchVM: Spotify filtered search failed for type=$filterType")
             reportException(it)
@@ -395,6 +424,9 @@ constructor(
                 rankTitleSearch((viewState.items + newItems).distinctBy { it.id }),
                 searchResult.continuation
             )
+            viewStateMap[filterValue]?.let {
+                MusicLabOnlineSearchSnapshot.savePage(context, query, "youtube", filterValue, it)
+            }
         }
     }
 
@@ -443,6 +475,9 @@ constructor(
                     rankTitleSearch((viewState.items + newItems).distinctBy { it.id }),
                     if (hasMore) "spotify:$filterType:${offset + limit}" else null,
                 )
+                viewStateMap[filterType]?.let {
+                    MusicLabOnlineSearchSnapshot.savePage(context, query, "spotify", filterType, it)
+                }
             }.onFailure {
                 Timber.e(it, "SearchVM: Spotify loadMore failed")
                 reportException(it)
