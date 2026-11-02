@@ -260,7 +260,7 @@ fun OnlineSearchResult(
             else -> null
         }
         viewModel.spotifyFilter.value = MusicLabSectionMemory
-            .text(context, listKey, "spotify_filter").ifBlank { null }
+            .text(context, listKey, "spotify_filter").takeIf { it.isNotBlank() }
         filtersRestored = true
     }
     LaunchedEffect(searchFilter, spotifyFilterValue, filtersRestored) {
