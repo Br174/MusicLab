@@ -63,6 +63,7 @@ import com.metrolist.music.discogs.CompilationFullAudio
 import com.metrolist.music.discogs.CompilationLanguageHeuristics
 import com.metrolist.music.discogs.CompilationResolvedTrack
 import com.metrolist.music.discogs.CompilationTrackResolver
+import com.metrolist.music.discogs.CompilationTrackMatchPolicy
 import com.metrolist.music.discogs.DiscogsClient
 import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsCompilationSummary
@@ -182,7 +183,12 @@ internal fun CompilationScreen(
     val discogsToken = tokenState.token
 
     var query by remember { mutableStateOf(CompilationSessionStore.query) }
-    var trackRequest by remember { mutableStateOf(CompilationNavigationBridge.takePendingTrack()) }
+    var trackRequest by remember { mutableStateOf<CompilationTrackRequest?>(null) }
+    val pendingPlayerRequest by CompilationNavigationBridge.requests.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingPlayerRequest?.requestId) {
+        if (pendingPlayerRequest != null)
+            trackRequest = CompilationNavigationBridge.takePendingTrack()
+    }
     var year by remember { mutableStateOf(CompilationSessionStore.year) }
     var genre by remember { mutableStateOf(CompilationSessionStore.genre) }
     var style by remember { mutableStateOf(CompilationSessionStore.style) }
@@ -337,6 +343,33 @@ internal fun CompilationScreen(
     }
 
     // Verify the actual release tracklist before showing it as containing the song.
+    // Only the Player -> Compilation route needs tracklist confirmation.
+    // Generic/manual R39 search remains broad, without this additional network check.
+    suspend fun confirmPlayerCandidates(
+        candidates: List<DiscogsCompilationSummary>,
+        token: String,
+        songTitle: String,
+        artist: String,
+        generation: Long,
+    ): List<DiscogsCompilationSummary> {
+        val confirmed = mutableListOf<DiscogsCompilationSummary>()
+        for (candidate in candidates.take(12)) {
+            if (generation != searchGeneration) return emptyList()
+            val release = DiscogsClient.getRelease(token, candidate.id,
+                includeMasterVideos = false).getOrNull() ?: continue
+            if (generation != searchGeneration) return emptyList()
+            if (release.tracks.any { track ->
+                    CompilationTrackMatchPolicy.matches(
+                        track.copy(title = CompilationSearchTitlePolicy.clean(track.title)),
+                        songTitle, artist)
+                }) {
+                confirmed.add(candidate)
+            }
+            if (confirmed.size >= 8) break
+        }
+        return confirmed.distinctBy { it.id }
+    }
+
     // Results are painted progressively as each real Discogs release is checked.
     suspend fun loadPage(
         criteria: CompilationSearchCriteria,
@@ -399,7 +432,8 @@ internal fun CompilationScreen(
             criteria.country.orEmpty(), criteria.language.orEmpty()).joinToString("|")
 
     fun runSearch(requestedCriteria: CompilationSearchCriteria? = null,
-                  resumeInterrupted: Boolean = false) {
+                  resumeInterrupted: Boolean = false,
+                  playerRequest: CompilationTrackRequest? = null) {
         val criteria = requestedCriteria ?: CompilationSearchCriteria(
             query = query.trim(),
             year = year,
@@ -455,20 +489,42 @@ internal fun CompilationScreen(
                 activeSearch = criteria
                 CompilationSessionStore.activeSearch = criteria
                 resultListState.scrollToItem(0)
-                val succeeded = loadPage(criteria, page = 1, replaceResults = true,
+                var succeeded = loadPage(criteria, page = 1, replaceResults = true,
                     token = token, generation = generation)
-                // R45: only the player's new-song search gets a bounded retry
-                // after zero results. R39's wide Discogs q search is unchanged.
-                if (succeeded && generation == searchGeneration && results.isEmpty()) {
-                    val fromPlayer = trackRequest
-                    val fallbackQuery = if (fromPlayer != null &&
-                        CompilationSearchTitlePolicy.clean(fromPlayer.title) == criteria.query)
-                        CompilationFallbackQueryPolicy.query(criteria.query, fromPlayer.artist)
-                    else null
-                    if (fallbackQuery != null && fallbackQuery != criteria.query) {
-                        val alternative = criteria.copy(query = fallbackQuery)
-                        loadPage(alternative, page = 1, replaceResults = true,
+                // R46: first search uses the entire raw video label. Generic Discogs
+                // hits aren't proof the compilation contains the requested recording.
+                // When the initial tracklist check finds nothing, automatically search
+                // the cleaned song title with singer/group as the second stage.
+                if (succeeded && generation == searchGeneration && playerRequest != null) {
+                    val songTitle = CompilationFallbackQueryPolicy.songTitle(
+                        playerRequest.title, playerRequest.artist)
+                    val firstMatches = confirmPlayerCandidates(
+                        results, token, songTitle, playerRequest.artist, generation)
+                    if (generation != searchGeneration) return@launch
+                    var verified = firstMatches
+                    val fallback = CompilationFallbackQueryPolicy.query(
+                        playerRequest.title, playerRequest.artist)
+                    if (verified.isEmpty() && fallback != null && fallback != criteria.query) {
+                        val alternative = criteria.copy(query = fallback)
+                        query = fallback
+                        succeeded = loadPage(alternative, page = 1, replaceResults = true,
                             token = token, generation = generation)
+                        if (succeeded && generation == searchGeneration) {
+                            verified = confirmPlayerCandidates(
+                                results, token, songTitle, playerRequest.artist, generation)
+                        }
+                    }
+                    if (generation != searchGeneration) return@launch
+                    if (succeeded) {
+                        results = verified.distinctBy { it.id }
+                        // Never append unverified pages in this player-only mode.
+                        currentPage = 1
+                        totalPages = 1
+                        totalDiscogsResults = results.size
+                        CompilationSessionStore.results = results
+                        CompilationSessionStore.currentPage = currentPage
+                        CompilationSessionStore.totalPages = totalPages
+                        CompilationSessionStore.totalDiscogsResults = totalDiscogsResults
                     }
                 }
                 if (!succeeded && generation == searchGeneration) {
@@ -499,23 +555,22 @@ internal fun CompilationScreen(
         }
     }
 
-    // A menu-to-Compilation action is a new search, never a continuation of
-    // the previous year/filter results. Keep the original artist evidence.
-    LaunchedEffect(trackRequest?.title, trackRequest?.artist) {
+    // A fresh player action must start a fresh search even with singleTop screen
+    // reuse and even when the same song is selected again.
+    LaunchedEffect(trackRequest?.requestId) {
         trackRequest?.let { target ->
-            val cleanTitle = CompilationSearchTitlePolicy.clean(target.title)
-            query = cleanTitle
+            val fullVideoTitle = target.title.trim()
+            query = fullVideoTitle
             year = null
             genre = null
             style = null
             country = null
             language = null
             runSearch(CompilationSearchCriteria(
-                query = cleanTitle, year = null, genre = null, style = null,
+                query = fullVideoTitle, year = null, genre = null, style = null,
                 country = null, language = null,
-                // R36 generic search with the transferred song title only.
                 trackTitle = null, trackArtist = null,
-            ))
+            ), playerRequest = target)
         }
     }
 
