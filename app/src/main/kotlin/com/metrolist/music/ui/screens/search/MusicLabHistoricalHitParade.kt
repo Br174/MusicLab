@@ -684,7 +684,10 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
                         resolving = song.rank
                         scope.launch {
                             try {
-                                val match = MusicLabTrackRecovery.find(song.title, song.artist) { item ->
+                                val match = MusicLabFastPath.find(song.title, song.artist) { item ->
+                                    MusicLabChartArtworkResolver.sameRecordingLabel(
+                                        song.title, song.artist, item)
+                                } ?: MusicLabTrackRecovery.find(song.title, song.artist) { item ->
                                     MusicLabChartArtworkResolver.sameRecordingLabel(
                                         song.title, song.artist, item)
                                 }
