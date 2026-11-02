@@ -12,6 +12,7 @@ EXPECTED={
  "app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabTrackRecovery.kt",
  "app/src/main/kotlin/com/metrolist/music/ui/player/Player.kt",
  "app/src/main/kotlin/com/metrolist/music/ui/player/Thumbnail.kt",
+ "app/src/main/kotlin/com/metrolist/music/ui/screens/search/OnlineSearchScreen.kt",
  "app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabChartScreen.kt",
  "app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHistoricalHitParade.kt",
  "app/src/test/kotlin/com/metrolist/music/playback/MusicLabR40SectionPolicyTest.kt",
