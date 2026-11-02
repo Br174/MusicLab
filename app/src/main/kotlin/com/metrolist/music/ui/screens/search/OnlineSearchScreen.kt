@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -110,12 +112,22 @@ fun OnlineSearchScreen(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
     val viewState by viewModel.viewState.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     val listKey = "online-search:" + query
-    val listMemory = remember(listKey) { MusicLabListPositionStore.get(listKey) }
-    val lazyListState = rememberLazyListState(
-        initialFirstVisibleItemIndex = listMemory.index,
-        initialFirstVisibleItemScrollOffset = listMemory.offset,
-    )
+    val listMemory = remember(listKey) {
+        MusicLabListPositionStore.attach(context)
+        MusicLabListPositionStore.get(listKey)
+    }
+    val lazyListState = remember(listKey) {
+        LazyListState(listMemory.index, listMemory.offset)
+    }
+    DisposableEffect(listKey, lazyListState) {
+        onDispose {
+            MusicLabListPositionStore.scroll(listKey,
+                lazyListState.firstVisibleItemIndex, lazyListState.firstVisibleItemScrollOffset)
+            MusicLabListPositionStore.flush(listKey)
+        }
+    }
     LaunchedEffect(listKey, lazyListState) {
         snapshotFlow { lazyListState.firstVisibleItemIndex to lazyListState.firstVisibleItemScrollOffset }
             .collectLatest { (index, offset) ->
