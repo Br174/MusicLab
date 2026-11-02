@@ -593,10 +593,24 @@ internal fun DiscogsDirectVersionBrowser(
     }
     var coverSwipeJob by remember(sessionKey) { mutableStateOf<Job?>(null) }
 
+    val savedViewport = remember(sessionKey) {
+        MusicLabListPositionStore.get("version:$sectionIdentity")
+    }
+    var restoreViewportPending by remember(sessionKey) {
+        mutableStateOf(savedViewport.index > 0 || savedViewport.offset > 0)
+    }
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = session.listIndex,
         initialFirstVisibleItemScrollOffset = session.listOffset,
     )
+    LaunchedEffect(sessionKey, listState) {
+        snapshotFlow { listState.layoutInfo.totalItemsCount }.collectLatest { count ->
+            if (restoreViewportPending && count > savedViewport.index) {
+                listState.scrollToItem(savedViewport.index, savedViewport.offset)
+                restoreViewportPending = false
+            }
+        }
+    }
     LaunchedEffect(sessionKey, title, artistFilter, releaseTitle, year, format,
         country, label, genre, style, catalogNumber, filtersExpanded,
         headerExpanded, category, sortMode, visibleLimit, selectedFingerprint) {
@@ -667,9 +681,11 @@ internal fun DiscogsDirectVersionBrowser(
             )
         }
         onDispose {
-            MusicLabListPositionStore.scroll("version:$sectionIdentity",
-                listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
-            MusicLabListPositionStore.flush("version:$sectionIdentity")
+            if (!restoreViewportPending) {
+                MusicLabListPositionStore.scroll("version:$sectionIdentity",
+                    listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                MusicLabListPositionStore.flush("version:$sectionIdentity")
+            }
             // LAB57 hard Cover lifecycle barrier: leaving this screen cancels every
             // owned coroutine and releases the playback-quality governor.
             playbackLaunchJob?.cancel()
@@ -6840,9 +6856,11 @@ internal fun DiscogsDirectVersionBrowser(
             }
             previousIndex = index
             previousOffset = offset
-            session.listIndex = index
-            session.listOffset = offset
-            MusicLabListPositionStore.scroll("version:$sectionIdentity", index, offset)
+            if (!restoreViewportPending) {
+                session.listIndex = index
+                session.listOffset = offset
+                MusicLabListPositionStore.scroll("version:$sectionIdentity", index, offset)
+            }
         }
     }
 
