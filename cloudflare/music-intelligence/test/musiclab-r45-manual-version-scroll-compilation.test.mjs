@@ -31,9 +31,9 @@ test('selection reactivity does not animate restored viewport', () => {
   assert.match(hit, /chart == null && restorePending/);
   assert.match(hit, /MusicLabListPositionStore.flush\(positionKey\)/);
 });
-test('Compilation fallback is only used on zero-result original player search', () => {
-  assert.match(comp, /succeeded && generation == searchGeneration && results.isEmpty\(\)/);
+test('Compilation automatic fallback remains player-specific and retains broad R39 q search', () => {
+  assert.match(comp, /succeeded && generation == searchGeneration && playerRequest != null/);
   assert.match(comp, /CompilationFallbackQueryPolicy.query/);
-  assert.match(comp, /criteria.copy\(query = fallbackQuery\)/);
+  assert.match(comp, /criteria.copy\(query = fallback\)/);
   assert.match(comp, /perPage = if \(criteria.language == null\) 100 else 25/);
 });
