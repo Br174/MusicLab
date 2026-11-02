@@ -67,7 +67,6 @@ import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsCompilationSummary
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
-import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.utils.dataStore
@@ -76,6 +75,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -203,13 +204,15 @@ internal fun CompilationScreen(
             putAll(CompilationSessionStore.resolvedTracks)
         }
     }
+    // Same visible-row FastPath prewarm as Hit Parade. Reserve native search
+    // capacity for the user's next tap instead of flooding all 32 tracks.
+    val visibleWarmGate = remember { Semaphore(MusicLabFastPathPolicy.COMPILATION_VISIBLE_WARM_PARALLELISM) }
     val savedPosition = remember(context) {
         MusicLabListPositionStore.get("compilation:results")
     }
     val resultListState = remember {
         LazyListState(savedPosition.index, savedPosition.offset)
     }
-    var resolvingAll by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var filtersExpanded by remember { mutableStateOf(CompilationSessionStore.filtersExpanded) }
     var selectedTrackIndex by remember { mutableStateOf(CompilationSessionStore.selectedTrackIndex) }
@@ -231,7 +234,6 @@ internal fun CompilationScreen(
     var fullAudioLookupJob by remember { mutableStateOf<Job?>(null) }
     var nextTrackWarmJob by remember { mutableStateOf<Job?>(null) }
     var fastTrackPlayJob by remember { mutableStateOf<Job?>(null) }
-    var progressiveAlbumJob by remember { mutableStateOf<Job?>(null) }
     var searchGeneration by remember { mutableStateOf(0L) }
     var activeSearchToken by remember { mutableStateOf("") }
     var historyOpen by remember { mutableStateOf(false) }
@@ -392,7 +394,6 @@ internal fun CompilationScreen(
         searchJob?.cancel()
         fullAudioLookupJob?.cancel()
         nextTrackWarmJob?.cancel()
-        progressiveAlbumJob?.cancel()
         loading = true
         loadingMore = false
         error = null
@@ -521,6 +522,7 @@ internal fun CompilationScreen(
         error = null
         fullAudio = null
         resolvedTracks.clear()
+        CompilationSessionStore.resolvedTracks.clear()
         scope.launch {
             DiscogsClient.getRelease(discogsToken, summary.id)
                 .onSuccess { loaded ->
@@ -577,15 +579,39 @@ internal fun CompilationScreen(
         return found
     }
 
-    // Warm just the first two tracks while the user reads the tracklist.
-    // This is cancellable and never blocks rendering the Discogs album cover.
+    // Exactly as in Hit Parade: prepare only the rows entering the viewport,
+    // share native MusicLab FastPath results, and never start playback here.
+    // No slow Discogs/YouTube fallback runs during a passive scroll; the
+    // already-existing resolveTrack() performs that only on explicit selection.
+    suspend fun warmVisibleTrack(index: Int, current: DiscogsCompilationDetail) {
+        if (detail?.id != current.id || resolvedTracks.containsKey(index)) return
+        val track = current.tracks.getOrNull(index) ?: return
+        visibleWarmGate.withPermit {
+            while (detail?.id == current.id &&
+                playerConnection?.isPlaybackPriorityBurstActive() == true) {
+                delay(160L)
+            }
+            if (detail?.id != current.id || resolvedTracks.containsKey(index)) return@withPermit
+            val song = MusicLabFastPath.find(
+                track.title, track.artists.joinToString(" ")
+            ) { candidate -> CompilationTrackResolver.isHardCompatible(track, candidate) }
+            if (song != null && detail?.id == current.id &&
+                !resolvedTracks.containsKey(index)) {
+                val found = CompilationResolvedTrack(track, song, "MusicLab FastPath", false)
+                resolvedTracks[index] = found
+                CompilationSessionStore.resolvedTracks[index] = found
+            }
+        }
+    }
+
+    // Keep the original first-two head start even before the first rows
+    // become visible. All other tracks warm only as the user scrolls.
     LaunchedEffect(detail?.id) {
         val current = detail ?: return@LaunchedEffect
         delay(180L)
         for (index in 0 until minOf(MusicLabFastPathPolicy.COMPILATION_WARM_TRACKS, current.tracks.size)) {
-            if (detail?.id != current.id ||
-                playerConnection?.isPlaybackPriorityBurstActive() == true) break
-            resolveTrack(index, current)
+            if (detail?.id != current.id) break
+            warmVisibleTrack(index, current)
         }
     }
 
@@ -597,7 +623,6 @@ internal fun CompilationScreen(
         loadingMore = false
         fullAudioLookupJob?.cancel()
         nextTrackWarmJob?.cancel()
-        progressiveAlbumJob?.cancel()
         fastTrackPlayJob?.cancel()
         playerConnection?.beginPlaybackPriorityBurst("compilation-track-tap")
 
@@ -634,50 +659,6 @@ internal fun CompilationScreen(
             } else {
                 Toast.makeText(context, "Brano non trovato per ora.", Toast.LENGTH_SHORT).show()
                 if (fullAudio == null) scheduleFullAudioLookup(current, delayMs = 1_000L)
-            }
-        }
-    }
-
-    fun resolveAllAndPlay(current: DiscogsCompilationDetail) {
-        if (resolvingAll) return
-        fastTrackPlayJob?.cancel()
-        nextTrackWarmJob?.cancel()
-        selectedTrackIndex = null
-        CompilationSessionStore.selectedTrackIndex = null
-        resolvingAll = true
-        // Start the first playable track immediately. Append later tracks in
-        // original Discogs order as they resolve; never wait for the full album.
-        progressiveAlbumJob = scope.launch {
-            var started = false
-            val admittedIds = linkedSetOf<String>()
-            try {
-                for (index in current.tracks.indices) {
-                    if (!MusicLabFastPathPolicy.mayContinueCompilation(detail?.id, current.id, selectedTrackIndex)) break
-                    val found = resolveTrack(index, current) ?: continue
-                    if (!MusicLabFastPathPolicy.mayContinueCompilation(detail?.id, current.id, selectedTrackIndex)) break
-                    val item = found.song.toMediaItem()
-                    if (!started) {
-                        playerConnection?.beginPlaybackPriorityBurst("compilation-first-audio")
-                        playerConnection?.playQueue(
-                            ListQueue(title = current.title, items = listOf(item), startIndex = 0)
-                        )
-                        admittedIds.add(item.mediaId)
-                        started = true
-                        // Allow the initial one-item queue to commit before appending.
-                        delay(120L)
-                    } else {
-                        val currentId = playerConnection?.player?.currentMediaItem?.mediaId
-                        if (!MusicLabFastPathPolicy.mayAppendResolvedSong(currentId, admittedIds, item.mediaId)) break
-                        admittedIds.add(item.mediaId)
-                        playerConnection?.addToQueue(item)
-                    }
-                }
-                if (!started && detail?.id == current.id) {
-                    Toast.makeText(context, "Nessun brano riproducibile trovato.",
-                        Toast.LENGTH_SHORT).show()
-                }
-            } finally {
-                resolvingAll = false
             }
         }
     }
@@ -792,7 +773,6 @@ internal fun CompilationScreen(
                 detail = detail!!,
                 resolvedTracks = resolvedTracks,
                 fullAudio = fullAudio,
-                resolvingAll = resolvingAll,
                 saving = saving,
                 selectedTrackIndex = detail?.let { current ->
                     selectedKeys["compilation:detail:" + current.id]
@@ -802,9 +782,9 @@ internal fun CompilationScreen(
                     playerConnection?.beginPlaybackPriorityBurst("compilation-full-audio")
                     fullAudio?.song?.let { playerConnection?.playNow(it.toMediaItem()) }
                 },
-                onPlayAll = { resolveAllAndPlay(detail!!) },
                 onSave = { saveCompilation(detail!!) },
                 onTrackClick = { index -> playTrack(index, detail!!) },
+                onVisibleTrack = { index -> warmVisibleTrack(index, detail!!) },
                 onDiscogsClick = { uriHandler.openUri(detail!!.discogsUrl) },
             )
 
@@ -1176,13 +1156,12 @@ private fun CompilationDetailContent(
     detail: DiscogsCompilationDetail,
     resolvedTracks: Map<Int, CompilationResolvedTrack>,
     fullAudio: CompilationFullAudio?,
-    resolvingAll: Boolean,
     saving: Boolean,
     selectedTrackIndex: Int?,
     onPlayFull: () -> Unit,
-    onPlayAll: () -> Unit,
     onSave: () -> Unit,
     onTrackClick: (Int) -> Unit,
+    onVisibleTrack: suspend (Int) -> Unit,
     onDiscogsClick: () -> Unit,
 ) {
     LazyColumn(
@@ -1240,24 +1219,6 @@ private fun CompilationDetailContent(
                 }
 
                 OutlinedButton(
-                    onClick = onPlayAll,
-                    enabled = !resolvingAll,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    if (resolvingAll) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text(
-                        if (resolvingAll) {
-                            "Cerco i brani… ${resolvedTracks.size}/${detail.tracks.size}"
-                        } else {
-                            "▶ Riproduci tutto per brani"
-                        },
-                    )
-                }
-
-                OutlinedButton(
                     onClick = onSave,
                     enabled = !saving,
                     modifier = Modifier.fillMaxWidth(),
@@ -1290,6 +1251,9 @@ private fun CompilationDetailContent(
             items = detail.tracks,
             key = { index, track -> "${detail.id}_${index}_${track.position}_${track.title}" },
         ) { index, track ->
+            LaunchedEffect(detail.id, index) {
+                if (resolvedTracks[index] == null) onVisibleTrack(index)
+            }
             val resolved = resolvedTracks[index]
             val selected = index == selectedTrackIndex
             Surface(
