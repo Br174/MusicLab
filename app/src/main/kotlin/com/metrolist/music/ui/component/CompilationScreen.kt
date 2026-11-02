@@ -213,6 +213,17 @@ internal fun CompilationScreen(
     var saving by remember { mutableStateOf(false) }
     var filtersExpanded by remember { mutableStateOf(CompilationSessionStore.filtersExpanded) }
     var selectedTrackIndex by remember { mutableStateOf(CompilationSessionStore.selectedTrackIndex) }
+    val currentSectionContext by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
+    val selectedKeys by MusicLabListPositionStore.selectedKeys.collectAsStateWithLifecycle()
+    LaunchedEffect(currentSectionContext?.index, currentSectionContext?.revision, detail?.id) {
+        val state = currentSectionContext ?: return@LaunchedEffect
+        val currentDetail = detail ?: return@LaunchedEffect
+        if (state.selectionKey == "compilation:detail:" + currentDetail.id &&
+            state.index in currentDetail.tracks.indices) {
+            selectedTrackIndex = state.index
+            CompilationSessionStore.selectedTrackIndex = state.index
+        }
+    }
     var selectedReleaseId by remember { mutableStateOf(CompilationSessionStore.selectedReleaseId) }
     var openReleaseId by remember { mutableStateOf(restored.openRelease) }
     var paginationJob by remember { mutableStateOf<Job?>(null) }
@@ -608,6 +619,7 @@ internal fun CompilationScreen(
                         },
                         selectedIndex = index,
                         selected = found.song.toMediaItem(),
+                        selectionKey = "compilation:detail:" + current.id,
                         findPlayable = { entry ->
                             entry.key.toIntOrNull()
                                 ?.takeIf { it in current.tracks.indices }
@@ -782,7 +794,10 @@ internal fun CompilationScreen(
                 fullAudio = fullAudio,
                 resolvingAll = resolvingAll,
                 saving = saving,
-                selectedTrackIndex = selectedTrackIndex,
+                selectedTrackIndex = detail?.let { current ->
+                    selectedKeys["compilation:detail:" + current.id]
+                        ?.toIntOrNull() ?: selectedTrackIndex
+                },
                 onPlayFull = {
                     playerConnection?.beginPlaybackPriorityBurst("compilation-full-audio")
                     fullAudio?.song?.let { playerConnection?.playNow(it.toMediaItem()) }
