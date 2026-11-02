@@ -2,19 +2,36 @@ package com.metrolist.music.ui.component
 
 import androidx.navigation.NavHostController
 import java.lang.ref.WeakReference
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
-internal data class CompilationTrackRequest(val title: String, val artist: String)
+internal data class CompilationTrackRequest(
+    val title: String,
+    val artist: String,
+    val requestId: Long,
+)
 
 internal object CompilationNavigationBridge {
     @Volatile private var pendingTrack: CompilationTrackRequest? = null
+    private val serial = AtomicLong()
+    private val pendingFlow = MutableStateFlow<CompilationTrackRequest?>(null)
+    val requests: StateFlow<CompilationTrackRequest?> = pendingFlow
 
     fun takePendingTrack(): CompilationTrackRequest? = synchronized(this) {
-        pendingTrack.also { pendingTrack = null }
+        pendingTrack.also {
+            pendingTrack = null
+            pendingFlow.value = null
+        }
     }
 
     fun openForTrack(title: String, artist: String): Boolean {
         if (title.isBlank() || navControllerRef?.get() == null) return false
-        synchronized(this) { pendingTrack = CompilationTrackRequest(title.trim(), artist.trim()) }
+        synchronized(this) {
+            val request = CompilationTrackRequest(title.trim(), artist.trim(), serial.incrementAndGet())
+            pendingTrack = request
+            pendingFlow.value = request
+        }
         return open()
     }
 
