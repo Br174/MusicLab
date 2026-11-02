@@ -16,7 +16,7 @@ test('R28 is empty query only, native search remains and online source remains u
 test('R28 two functional discovery tabs and complete country catalog',()=>{
  assert.match(home,/ExploreTabChip\("Classifiche"/);
  assert.match(home,/ExploreTabChip\("Generi musicali"/);
- assert.match(home,/var selectedTab by rememberSaveable \{ mutableStateOf\(0\) \}/);
+ assert.match(home,/MusicLabSectionMemory\.number\(context, "explore", "tab"/);
  assert.match(catalog,/ExploreChart\("Top 50 Italia"/);
  assert.match(catalog,/ExploreChart\("Top 50 Globale"/);
  assert.match(catalog,/Country\("Vietnam"/);
@@ -29,5 +29,5 @@ test('R29 supersedes R28 external Spotify chart open while preserving real-sourc
  assert.match(home,/navController.navigate\("musiclab_chart\/" \+ Uri.encode\(chart.title\)\)/);
  assert.doesNotMatch(home,/Intent\.ACTION_VIEW/);
  assert.doesNotMatch(home,/Spotify\.search\(chart\.spotifySearch/);
- assert.doesNotMatch(home,/LaunchedEffect\(/);
+ assert.match(home,/MusicLabSectionMemory\.putNumber\(context, "explore", "tab"/);
 });
