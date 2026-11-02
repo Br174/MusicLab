@@ -21,7 +21,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
+import com.metrolist.music.playback.rememberMusicLabPersistentLazyGridState
 import androidx.compose.foundation.lazy.items
 import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
 
@@ -315,7 +316,7 @@ fun LibraryPlaylistsScreen(
         (spotifyPlaylists.isNotEmpty() || spotifyFolders.isNotEmpty() || spotifyLikedSongsTotal > 0)
     val showEmptyPlaceholder = visibleResults.isEmpty() && !spotifyHasVisibleContent
     val lazyListState = rememberMusicLabPersistentLazyListState("library:playlists:" + sourceFilter.name)
-    val lazyGridState = rememberLazyGridState()
+    val lazyGridState = rememberMusicLabPersistentLazyGridState("library:playlists:grid:" + sourceFilter.name)
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val scrollToTop =
