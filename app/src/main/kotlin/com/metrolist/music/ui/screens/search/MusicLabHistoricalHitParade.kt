@@ -580,7 +580,8 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
         timeInMillis = MusicLabSectionMemory.number(
             context, "hitparade", "last_date_ms", fallbackDate)
     }) }
-    var chart by remember { mutableStateOf<HistoricalChart?>(null) }
+    var chart by remember { mutableStateOf(
+        MusicLabEditorialSnapshot.loadHistorical(context, selected.timeInMillis)) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var resolving by remember { mutableStateOf<Int?>(null) }
@@ -594,16 +595,29 @@ internal fun MusicLabHistoricalHitParadeScreen(navController: NavController) {
     val listState = remember(positionKey) {
         LazyListState(initialPosition.index, initialPosition.offset)
     }
+    var restorePending by remember(positionKey) {
+        mutableStateOf(initialPosition.index > 0 || initialPosition.offset > 0)
+    }
+    LaunchedEffect(positionKey, chart?.week?.millis, chart?.songs?.size) {
+        if (restorePending && chart != null && chart!!.songs.size + 1 > initialPosition.index) {
+            listState.scrollToItem(initialPosition.index, initialPosition.offset)
+            restorePending = false
+        }
+    }
     DisposableEffect(positionKey, listState) {
         onDispose {
-            MusicLabListPositionStore.scroll(positionKey,
-                listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
-            MusicLabListPositionStore.flush(positionKey)
+            if (!restorePending) {
+                MusicLabListPositionStore.scroll(positionKey,
+                    listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                MusicLabListPositionStore.flush(positionKey)
+            }
         }
     }
     LaunchedEffect(positionKey, listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .collectLatest { (index, offset) -> MusicLabListPositionStore.scroll(positionKey, index, offset) }
+            .collectLatest { (index, offset) ->
+                if (!restorePending) MusicLabListPositionStore.scroll(positionKey, index, offset)
+            }
     }
 
     fun shiftWeek(delta: Int) {
