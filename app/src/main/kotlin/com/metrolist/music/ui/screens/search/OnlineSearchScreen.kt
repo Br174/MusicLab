@@ -121,10 +121,6 @@ fun OnlineSearchScreen(
     val lazyListState = remember(listKey) {
         LazyListState(listMemory.index, listMemory.offset)
     }
-    DisposableEffect(viewModel, listKey) {
-        viewModel.setSectionActive(true)
-        onDispose { viewModel.setSectionActive(false) }
-    }
     DisposableEffect(listKey, lazyListState) {
         onDispose {
             MusicLabListPositionStore.scroll(listKey,
