@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.metrolist.music.playback.rememberMusicLabPersistentLazyListState
+import com.metrolist.music.playback.MusicLabListPositionStore
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -463,7 +465,11 @@ fun LibrarySongsScreen(
                     modifier =
                         Modifier
                             .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(
+                                alpha = if (MusicLabListPositionStore.get("library:songs")
+                                    .selectedKey == song.id) 0.65f else 0f))
                             .clickable {
+                                MusicLabListPositionStore.select("library:songs", song.id)
                                 if (song.id == mediaMetadata?.id) {
                                     playerConnection.togglePlayPause()
                                 } else {
