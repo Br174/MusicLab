@@ -1,3 +1,4 @@
+# R44 source: verified R43 head; standby affects only non-audio jobs.
 name: MusicLab R44 Universal Section Standby Resume 33124
 on:
   push:
