@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.player
 
 import com.metrolist.music.ui.component.CoverSwipeBridge
+import com.metrolist.music.playback.MusicLabSectionPlayback
 
 import com.metrolist.music.playback.CoverPlaybackMemory
 import com.metrolist.music.playback.PlaybackSprintPolicy
@@ -321,17 +322,18 @@ fun Thumbnail(
                                 dx, dy, touchSlop * 4
                             )
                             if (direction != 0) {
-                                val handledByCover = CoverSwipeBridge.trySwipe(
-                                    nativeMediaMetadata?.id.orEmpty(), direction
-                                )
+                                val handledByCover =
+                                    !MusicLabSectionPlayback.isCurrent(nativeMediaMetadata?.id) &&
+                                    CoverSwipeBridge.trySwipe(
+                                        nativeMediaMetadata?.id.orEmpty(), direction
+                                    )
                                 if (!handledByCover) {
                                     // Use the same navigation path as next/previous buttons:
                                     // this activates audio priority, prepares IDLE and updates
                                     // the Media3 listener that owns the player artwork.
-                                    if (direction > 0 && playerConnection.player.hasNextMediaItem()) {
+                                    if (direction > 0) {
                                         playerConnection.seekToNext()
-                                    } else if (direction < 0 &&
-                                        playerConnection.player.hasPreviousMediaItem()) {
+                                    } else if (direction < 0) {
                                         playerConnection.skipToPreviousItem()
                                     }
                                 }
