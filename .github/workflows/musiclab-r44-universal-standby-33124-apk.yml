@@ -1,4 +1,5 @@
 # R44 source: verified R43 head; standby affects only non-audio jobs.
+# Final approved gate includes Spotify Library lifecycle, completed cache, Cover native continuity and signed identity.
 name: MusicLab R44 Universal Section Standby Resume 33124
 on:
   push:
