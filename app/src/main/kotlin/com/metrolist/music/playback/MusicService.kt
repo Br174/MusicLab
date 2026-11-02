@@ -2499,6 +2499,32 @@ class MusicService :
         }
     }
 
+    /**
+     * R42: an editorial-list selection is a single synchronous player transaction.
+     * Never let a delayed ListQueue getInitialStatus() rebind the current stream
+     * 1-2 seconds after first sound or after a user's manual seek.
+     * This method is called only for explicit selection or contextual skip.
+     */
+    fun playSectionNow(item: MediaItem, sectionTitle: String) {
+        ++queueRequestSerial
+        pendingQueuePreparation?.cancel()
+        pendingQueuePreparation = null
+        currentQueue = ListQueue(title = sectionTitle, items = listOf(item))
+        queueTitle = sectionTitle
+        originalQueueSize = 1
+        if (player.currentMediaItem?.mediaId == item.mediaId &&
+            player.playbackState != Player.STATE_IDLE &&
+            player.playbackState != Player.STATE_ENDED) {
+            // A repeated EXPLICIT selection still starts from exactly 0:00.
+            // No prepare() or replacement can reset a later user seek.
+            player.seekTo(0L)
+        } else {
+            player.setMediaItem(item, 0L)
+            player.prepare()
+        }
+        player.playWhenReady = true
+    }
+
     fun playNow(item: MediaItem) {
         // A direct tap must win over a slower queued search/playlist expansion.
         ++queueRequestSerial
