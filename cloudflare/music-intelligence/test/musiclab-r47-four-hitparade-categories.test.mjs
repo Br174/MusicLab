@@ -17,7 +17,7 @@ test('R47 does not replace or rewrite original verified weekly single parsing an
   assert.match(old,/internal object MusicLabHistoricalHitParade/);
   assert.match(old,/internal fun parseSongs\(html: String\)/);
   assert.match(old,/MusicLabHistoricalHitParade.load\(selected\)/);
-  assert.match(old,/MusicLabFastPath.find\(song.title, song.artist\)/);
+  assert.match(old,/MusicLabHitParadeVideoResolver\.find\(/);
   assert.match(old,/MusicLabSectionPlayback.select\(/);
 });
 test('R47 uses original first-party chart URLs and only published album weeks', () => {
