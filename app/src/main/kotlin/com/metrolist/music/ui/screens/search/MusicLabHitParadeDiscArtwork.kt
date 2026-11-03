@@ -337,6 +337,8 @@ internal object MusicLabHitParadeDiscArtwork {
             snapshot.source != "Top annuali singoli") return null
         val row = playbackRows[(snapshot.selectionKey ?: return null) +
             "|" + (snapshot.selectedKey ?: return null)] ?: return null
+        val selectedVideo = MusicLabHitParadeVideoMemory.get(context, row.title, row.artist)
+        if (selectedVideo?.manual == true && selectedVideo.videoId != mediaId) return null
         return artwork(context, row.title, row.artist, album = false)
     }
 
@@ -387,7 +389,7 @@ internal fun MusicLabHitParadeDiscCover(
     ) {
         value = MusicLabHitParadeDiscArtwork.saved(
             context, identity.title, identity.artist, album)
-        if (value == null && rejectedUrl == null) {
+        if (value == null) {
             value = MusicLabHitParadeDiscArtwork.resolve(
                 context, title, artist, album, sourceArtwork)
         }
