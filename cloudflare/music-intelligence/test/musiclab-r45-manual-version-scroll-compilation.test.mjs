@@ -37,5 +37,5 @@ test('R54 automatic first title+artist index preserves R51 player and removes ol
   assert.match(nav, /runSearch\(CompilationSearchCriteria\(/);
   assert.doesNotMatch(comp, /criteria.copy\(query = fallback\)/);
   assert.match(comp, /CompilationLookupMode.entries.forEach/);
-  assert.match(comp, /else if \(criteria.language == null\) 100 else 25/);
+  assert.match(comp, /perPage = if \(criteria\.language == null\) 100 else 25/);
 });
