@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
@@ -68,6 +69,7 @@ import com.metrolist.music.discogs.DiscogsClient
 import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsCompilationSummary
 import com.metrolist.music.discogs.DiscogsSearchMode
+import com.metrolist.music.discogs.DiscogsReleaseCategory
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.MusicLabSectionWorkPolicy
@@ -80,6 +82,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.collectLatest
@@ -210,6 +213,7 @@ internal fun CompilationScreen(
     var sourceTitle by remember { mutableStateOf(restored.originalTitle) }
     var sourceArtist by remember { mutableStateOf(restored.originalArtist) }
     var searchModesOpen by remember { mutableStateOf(false) }
+    var releaseTypesOpen by remember { mutableStateOf(false) }
 
     var results by remember { mutableStateOf(CompilationSessionStore.results) }
     var loading by remember { mutableStateOf(false) }
@@ -395,27 +399,41 @@ internal fun CompilationScreen(
         criteria: CompilationSearchCriteria,
         token: String,
         generation: Long,
-    ): List<DiscogsCompilationSummary> {
-        val song = criteria.trackTitle ?: return candidates
-        val verified = mutableListOf<DiscogsCompilationSummary>()
-        for (candidate in candidates) {
-            if (generation != searchGeneration) return emptyList()
-            val release = DiscogsClient.getRelease(token, candidate.id,
-                includeMasterVideos = false).getOrNull() ?: continue
-            if (generation != searchGeneration) return emptyList()
-            val formatLabels = release.formatDescriptions.ifEmpty { candidate.formats }
-            if (criteria.lookupMode != CompilationLookupMode.COVER_LITE &&
-                !criteria.mode.accepts(formatLabels)) continue
-            if (release.tracks.none { track ->
-                    CompilationLightSearchPolicy.accepts(
-                        track, song, criteria.trackArtist.orEmpty(), criteria.lookupMode)
-                }) continue
-            if (criteria.language != null &&
-                !CompilationLanguageHeuristics.matchesOrUnknown(
-                    criteria.language, release.tracks)) continue
-            verified.add(candidate)
+        onVerified: (DiscogsCompilationSummary) -> Unit,
+    ): List<DiscogsCompilationSummary> = coroutineScope {
+        val song = criteria.trackTitle ?: return@coroutineScope candidates
+        // R55: small bounded concurrency; Discogs still owns its HTTP rate limits.
+        // Reveal each real tracklist match immediately instead of waiting for the page.
+        val permits = Semaphore(3)
+        val matchedIds = mutableSetOf<Int>()
+        val jobs = candidates.map { candidate ->
+            launch {
+                permits.withPermit {
+                    if (generation != searchGeneration) return@withPermit
+                    // Starting audio pauses lower-priority release inspections.
+                    while (playerConnection?.isPlaybackPriorityBurstActive() == true) {
+                        delay(120L)
+                        if (generation != searchGeneration) return@withPermit
+                    }
+                    val release = DiscogsClient.getRelease(token, candidate.id,
+                        includeMasterVideos = false).getOrNull() ?: return@withPermit
+                    if (generation != searchGeneration) return@withPermit
+                    val formatLabels = release.formatDescriptions.ifEmpty { candidate.formats }
+                    if (!criteria.mode.accepts(formatLabels)) return@withPermit
+                    if (release.tracks.none { track ->
+                            CompilationLightSearchPolicy.accepts(
+                                track, song, criteria.trackArtist.orEmpty(), criteria.lookupMode)
+                        }) return@withPermit
+                    if (criteria.language != null &&
+                        !CompilationLanguageHeuristics.matchesOrUnknown(
+                            criteria.language, release.tracks)) return@withPermit
+                    matchedIds.add(candidate.id)
+                    onVerified(candidate)
+                }
+            }
         }
-        return verified.distinctBy { it.id }
+        jobs.forEach { it.join() }
+        candidates.filter { it.id in matchedIds }.distinctBy { it.id }
     }
 
     // Results are painted progressively as each real Discogs release is checked.
@@ -441,7 +459,7 @@ internal fun CompilationScreen(
                 else if (criteria.language == null) 100 else 25,
             trackTitle = criteria.trackTitle,
             mode = criteria.mode,
-            includeSingles = criteria.lookupMode == CompilationLookupMode.COVER_LITE,
+            includeSingles = false, // All lookup strategies honor the selected publication formats.
         )
 
         if (generation != searchGeneration) return false
@@ -454,14 +472,26 @@ internal fun CompilationScreen(
             return false
         }
 
+        // Save the cursor as soon as Discogs returns it; verification may continue.
+        currentPage = pageResult.page
+        totalPages = pageResult.pages
+        totalDiscogsResults = pageResult.totalItems
         val visibleItems = if (criteria.trackTitle != null)
-            verifyIndexedTrackCandidates(pageResult.items, criteria, token, generation)
+            verifyIndexedTrackCandidates(pageResult.items, criteria, token, generation) { confirmed ->
+                if (generation == searchGeneration) {
+                    results = (results + confirmed).distinctBy { it.id }
+                    CompilationSessionStore.results = results
+                    CompilationSessionStore.currentPage = currentPage
+                    CompilationSessionStore.totalPages = totalPages
+                    CompilationSessionStore.totalDiscogsResults = totalDiscogsResults
+                }
+            }
         else filterByLanguage(pageResult.items, criteria.language, token, generation)
         if (generation != searchGeneration) return false
         // R36 behavior: show all releases returned by Discogs. No mandatory
         // tracklist/artist matching; keep the R38 stale-request generation gate.
         if (generation != searchGeneration) return false
-        results = if (replaceResults) {
+        results = if (replaceResults && criteria.trackTitle == null) {
             visibleItems
         } else {
             (results + visibleItems).distinctBy { it.id }
@@ -1199,19 +1229,38 @@ internal fun CompilationScreen(
                                         modifier = Modifier.weight(1f),
                                         onSelect = { year = it.takeUnless { value -> value == "Tutto" }?.toIntOrNull() },
                                     )
-                                    CompilationFilterDropdown(
-                                        label = "",
-                                        selected = mode.label,
-                                        options = DiscogsSearchMode.entries.map { it.label },
-                                        modifier = Modifier.weight(1f),
-                                        onSelect = { selected ->
-                                            mode = DiscogsSearchMode.entries.firstOrNull {
-                                                it.label == selected
-                                            } ?: DiscogsSearchMode.COMPILATION
-                                            // Preserve originating artist metadata for the
-                                            // explicit Titolo action even after changing category.
-                                        },
-                                    )
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        OutlinedButton(
+                                            onClick = { releaseTypesOpen = true },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text(mode.label, maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f))
+                                            Text("⌄")
+                                        }
+                                        DropdownMenu(
+                                            expanded = releaseTypesOpen,
+                                            onDismissRequest = { releaseTypesOpen = false },
+                                        ) {
+                                            DiscogsReleaseCategory.entries.forEach { category ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Checkbox(
+                                                                checked = mode.includes(category),
+                                                                onCheckedChange = null,
+                                                            )
+                                                            Text(category.label)
+                                                        }
+                                                    },
+                                                    onClick = { mode = mode.toggle(category) },
+                                                    enabled = !(mode.includes(category) &&
+                                                        mode.selected.size == 1),
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
 
                                 Row(
@@ -1252,11 +1301,7 @@ internal fun CompilationScreen(
                                     enabled = !loading,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    Text(if (loading) "Ricerca…" else when (mode) {
-                                        DiscogsSearchMode.COMPILATION -> "Cerca compilation"
-                                        DiscogsSearchMode.ALBUM -> "Cerca album"
-                                        DiscogsSearchMode.BOTH -> "Cerca album e compilation"
-                                    })
+                                    Text(if (loading) "Ricerca…" else "Cerca in " + mode.label)
                                 }
                             }
 
