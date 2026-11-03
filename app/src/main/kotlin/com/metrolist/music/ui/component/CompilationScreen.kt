@@ -235,7 +235,9 @@ internal fun CompilationScreen(
     var selectedTrackIndex by remember { mutableStateOf(CompilationSessionStore.selectedTrackIndex) }
     val currentSectionContext by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
     val selectedKeys by MusicLabListPositionStore.selectedKeys.collectAsStateWithLifecycle()
-    LaunchedEffect(currentSectionContext?.index, currentSectionContext?.revision, detail?.id) {
+    LaunchedEffect(currentSectionContext?.index, currentSectionContext?.revision,
+        detail?.id, awaitingSongSelection) {
+        if (awaitingSongSelection) return@LaunchedEffect
         val state = currentSectionContext ?: return@LaunchedEffect
         val currentDetail = detail ?: return@LaunchedEffect
         if (state.selectionKey == "compilation:detail:" + currentDetail.id &&
@@ -246,6 +248,11 @@ internal fun CompilationScreen(
     }
     var selectedReleaseId by remember { mutableStateOf(CompilationSessionStore.selectedReleaseId) }
     var openReleaseId by remember { mutableStateOf(restored.openRelease) }
+    // A newly searched song must stay highlighted even if an older
+    // playback snapshot points to a different song in the same album.
+    var awaitingSongSelection by remember {
+        mutableStateOf(restored.trackTitle != null && restored.openRelease != null)
+    }
     var paginationJob by remember { mutableStateOf<Job?>(null) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
     var fullAudioLookupJob by remember { mutableStateOf<Job?>(null) }
@@ -751,6 +758,8 @@ internal fun CompilationScreen(
     }
 
     fun openCompilation(summary: DiscogsCompilationSummary) {
+        // Preselection is visual, never a playback event.
+        awaitingSongSelection = activeSearch?.trackTitle != null
         // The selected poster and its scroll position survive the detail screen.
         selectedReleaseId = summary.id
         openReleaseId = summary.id
@@ -897,6 +906,7 @@ internal fun CompilationScreen(
     }
 
     fun playTrack(index: Int, current: DiscogsCompilationDetail) {
+        awaitingSongSelection = false
         selectedTrackIndex = index
         CompilationSessionStore.selectedTrackIndex = index
 
