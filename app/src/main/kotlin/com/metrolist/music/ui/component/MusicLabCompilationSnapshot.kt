@@ -26,6 +26,9 @@ internal object MusicLabCompilationSnapshot {
         val selectedTrack: Int? = null,
         val openRelease: Int? = null,
         val mode: DiscogsSearchMode = DiscogsSearchMode.COMPILATION,
+        val lookupMode: CompilationLookupMode = CompilationLookupMode.TITLE_ARTIST,
+        val originalTitle: String = "",
+        val originalArtist: String = "",
         val trackTitle: String? = null,
         val trackArtist: String? = null,
     )
@@ -59,6 +62,8 @@ internal object MusicLabCompilationSnapshot {
             root.optInt("selectedTrack").takeIf { it >= 0 && root.has("selectedTrack") },
             root.optInt("openRelease").takeIf { it > 0 },
             DiscogsSearchMode.restored(root.optString("mode")),
+            CompilationLookupMode.restored(root.optString("lookupMode")),
+            root.optString("originalTitle"), root.optString("originalArtist"),
             root.optional("trackTitle"), root.optional("trackArtist"))
     }.getOrDefault(Saved())
 
@@ -71,6 +76,9 @@ internal object MusicLabCompilationSnapshot {
             put("country", saved.country)
             put("language", saved.language)
             put("mode", saved.mode.name)
+            put("lookupMode", saved.lookupMode.name)
+            put("originalTitle", saved.originalTitle)
+            put("originalArtist", saved.originalArtist)
             put("trackTitle", saved.trackTitle)
             put("trackArtist", saved.trackArtist)
             put("filtersExpanded", saved.filtersExpanded)
