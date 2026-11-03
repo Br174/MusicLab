@@ -65,6 +65,17 @@ class MusicLabHistoricalExtraChartsTest {
         assertEquals("Pino Daniele", rows.first().artist)
     }
 
+    @Test fun corruptArchivedArtistSnapshotsAreRereadNotReused() {
+        val bad = (1..12).map {
+            HistoricalExtraRow(it, "Album " + it, "Album " + it)
+        }
+        val good = (1..12).map {
+            HistoricalExtraRow(it, "Album " + it, "Artista " + it)
+        }
+        assertTrue(MusicLabHistoricalExtraRepository.looksLikeCorruptAlbumSnapshot(bad))
+        assertTrue(!MusicLabHistoricalExtraRepository.looksLikeCorruptAlbumSnapshot(good))
+    }
+
     @Test fun officialAnnualPagePathsAreExact() {
         assertEquals("https://hitparadeitalia.it/hp_yends/hpe1995.htm",
             MusicLabHistoricalExtraRepository.annualUrl(
@@ -91,6 +102,10 @@ class MusicLabHistoricalExtraLiveSourceTest {
             assertTrue(result.sourceUrl.startsWith("https://hitparadeitalia.it/") ||
                 result.sourceUrl.startsWith("https://www.hitparadeitalia.it/"))
             assertEquals(1, result.rows.first().rank)
+            if (mode == MusicLabHistoricalChartMode.ANNUAL_ALBUMS) {
+                assertEquals("Official 1995 original singer must be used for record sleeves",
+                    "Zucchero", result.rows.first().artist)
+            }
         }
     }
 }
