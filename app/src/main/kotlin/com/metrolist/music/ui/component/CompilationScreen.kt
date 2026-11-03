@@ -1176,7 +1176,8 @@ internal fun CompilationScreen(
                                             mode = DiscogsSearchMode.entries.firstOrNull {
                                                 it.label == selected
                                             } ?: DiscogsSearchMode.COMPILATION
-                                            trackRequest = null
+                                            // Preserve originating artist metadata for the
+                                            // explicit Titolo action even after changing category.
                                         },
                                     )
                                 }
