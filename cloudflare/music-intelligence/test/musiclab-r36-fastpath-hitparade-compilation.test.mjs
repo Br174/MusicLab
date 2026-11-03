@@ -11,7 +11,7 @@ const policy = read('app/src/main/kotlin/com/metrolist/music/ui/component/MusicL
 const cover = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt');
 
 test('Hit Parade R36 uses one fast native song for artwork and subsequent playback', () => {
-  assert.match(hit, /MusicLabFastHitArtwork\(MusicLabChartTrack\(/);
+  assert.match(hit, /MusicLabHitParadeDiscCover\(MusicLabChartTrack\(/);
   assert.match(hit, /MusicLabHitParadeVideoResolver\.find\(/);
   assert.match(hitResolver, /MusicLabFastPath\.find\(title, artist, compatible\)/);
   assert.match(hitResolver, /MusicLabTrackRecovery\.find\(title, artist, compatible\)/);
