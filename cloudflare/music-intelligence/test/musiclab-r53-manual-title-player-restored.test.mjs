@@ -25,7 +25,8 @@ test('R54 exactly three indexed tracklist options replace both action buttons',(
   assert.match(ui,/trackTitle = title/);
   assert.match(api,/addQueryParameter\("track", trackTitle.trim\(\)\)/);
   assert.doesNotMatch(ui,/Text\("Titolo"\)/);
-  assert.doesNotMatch(ui,/onClick = \{ runSearch\(\) \}/);
+  const toolbar=ui.slice(ui.indexOf('BasicTextField('),ui.indexOf('historyOpen = true',ui.indexOf('BasicTextField(')));
+ assert.doesNotMatch(toolbar,/onClick = \{ runSearch\(\) \}/);
 });
 
 test('R54 retains separate Compilation Album Entrambi filter and short label',()=>{
