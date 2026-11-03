@@ -506,6 +506,12 @@ private fun MusicLabHistoricalExtraChartsScreen(
             } }
             chart?.let { current ->
                 items(current.rows, key = { "hpi_extra_" + it.rank }) { row ->
+                    // When a source record repeats the album title as artist,
+                    // use the catalogue-verified artist without changing chart ranks.
+                    val artworkRevision by MusicLabHitParadeDiscArtwork.updates.collectAsStateWithLifecycle()
+                    val displayArtist = if (mode.isAlbum)
+                        MusicLabHitParadeDiscArtwork.correctedArtist(context, row.title, row.artist)
+                            ?: row.artist else row.artist
                     Row(modifier = Modifier.fillMaxWidth()
                         .background(if (selectedKeys[positionKey] == row.rank.toString())
                             MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
@@ -513,7 +519,7 @@ private fun MusicLabHistoricalExtraChartsScreen(
                             MusicLabListPositionStore.select(positionKey, row.rank.toString())
                             if (mode.isAlbum) {
                                 navController.navigate(
-                                    SearchRoutes.resultRoute(row.title + " " + row.artist))
+                                    SearchRoutes.resultRoute(row.title + " " + displayArtist))
                             } else {
                                 val serial = ++tapSerial
                                 resolvingRank = row.rank
@@ -524,18 +530,25 @@ private fun MusicLabHistoricalExtraChartsScreen(
                                         if (serial != tapSerial) return@launch
                                         if (song != null) player?.let { connection ->
                                             connection.beginPlaybackPriorityBurst("historical-annual-tap")
+                                            val ordered = current.rows.map { r ->
+                                                MusicLabSectionPlayback.Entry(
+                                                    r.rank.toString(), r.title, r.artist)
+                                            }
+                                            MusicLabHitParadeDiscArtwork.registerPlaybackRows(
+                                                positionKey, ordered)
                                             MusicLabSectionPlayback.select(connection,
                                                 source = mode.title,
-                                                orderedEntries = current.rows.map { r ->
-                                                    MusicLabSectionPlayback.Entry(
-                                                        r.rank.toString(), r.title, r.artist)
-                                                },
+                                                orderedEntries = ordered,
                                                 selectedIndex = current.rows.indexOfFirst {
                                                     it.rank == row.rank },
-                                                selected = song.toMediaItem(),
+                                                selected = MusicLabHitParadeDiscArtwork.playableMediaItem(
+                                                    context, row.title, row.artist, song),
                                                 findPlayable = { entry ->
                                                     MusicLabHitParadeVideoResolver.find(context,
-                                                        entry.title, entry.artist)?.toMediaItem()
+                                                        entry.title, entry.artist)?.let { playable ->
+                                                        MusicLabHitParadeDiscArtwork.playableMediaItem(
+                                                            context, entry.title, entry.artist, playable)
+                                                    }
                                                 },
                                                 selectionKey = positionKey)
                                         } else {
@@ -552,17 +565,14 @@ private fun MusicLabHistoricalExtraChartsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(row.rank.toString(), style = MaterialTheme.typography.titleMedium)
-                        if (mode.isAlbum) {
-                            if (row.artwork != null) {
-                                AsyncImage(model = row.artwork, contentDescription = row.title,
-                                    modifier = Modifier.size(48.dp))
-                            } else Box(Modifier.size(48.dp),
-                                contentAlignment = Alignment.Center) { Text("▣") }
-                        } else MusicLabFastHitArtwork(
-                            MusicLabChartTrack(row.rank, row.title, row.artist))
+                        MusicLabHitParadeDiscCover(
+                            title = row.title,
+                            artist = displayArtist,
+                            album = mode.isAlbum,
+                            sourceArtwork = row.artwork)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(row.title, fontWeight = FontWeight.SemiBold)
-                            Text(row.artist, style = MaterialTheme.typography.bodySmall)
+                            Text(displayArtist, style = MaterialTheme.typography.bodySmall)
                         }
                         if (resolvingRank == row.rank) CircularProgressIndicator(
                             modifier = Modifier.size(20.dp))
