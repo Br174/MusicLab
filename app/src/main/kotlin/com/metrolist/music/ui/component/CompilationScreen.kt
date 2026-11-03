@@ -857,19 +857,13 @@ internal fun CompilationScreen(
                             )
                         },
                         selectedIndex = index,
-                        selected = MusicLabCompilationCoverBridge.mediaItem(
-                            found.song, MusicLabCompilationCoverBridge.artwork(context, current.id)
-                                ?: current.coverUrl),
+                        selected = found.song.toMediaItem(),
                         selectionKey = "compilation:detail:" + current.id,
                         findPlayable = { entry ->
                             entry.key.toIntOrNull()
                                 ?.takeIf { it in current.tracks.indices }
                                 ?.let { trackIndex ->
-                                    resolveTrack(trackIndex, current)?.song?.let { playable ->
-                                        MusicLabCompilationCoverBridge.mediaItem(playable,
-                                            MusicLabCompilationCoverBridge.artwork(context, current.id)
-                                                ?: current.coverUrl)
-                                    }
+                                    resolveTrack(trackIndex, current)?.song?.toMediaItem()
                                 }
                         },
                     )
@@ -1174,7 +1168,7 @@ internal fun CompilationScreen(
                                         onSelect = { year = it.takeUnless { value -> value == "Tutto" }?.toIntOrNull() },
                                     )
                                     CompilationFilterDropdown(
-                                        label = "Categoria",
+                                        label = "",
                                         selected = mode.label,
                                         options = DiscogsSearchMode.entries.map { it.label },
                                         modifier = Modifier.weight(1f),
@@ -1622,7 +1616,7 @@ private fun CompilationFilterDropdown(
                 horizontalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    "$label: $selected",
+                    if (label.isBlank()) selected else "$label: $selected",
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface,
