@@ -40,7 +40,28 @@ class MusicLabHistoricalExtraChartsTest {
         val rows = MusicLabHistoricalExtraRepository.parseAnnualAlbums(html)
         assertEquals(2, rows.size)
         assertEquals("Spirito diVino", rows.first().title)
+        assertEquals("Zucchero", rows.first().artist)
         assertEquals("Pino Daniele", rows[1].artist)
+    }
+
+    @Test fun original1995FiveColumnTableReadsTrueArtistsAndIgnoresTracklists() {
+        val html = """
+          <table class="dlink">
+            <tr><td>#</td><td>ALBUM</td><td>ARTIST</td><td>LABEL</td><td>peak</td></tr>
+            <tr><td>1</td><td>Spirito diVino</td><td>Zucchero</td><td>POLYDOR</td><td>1</td></tr>
+            <tr><td>Voodoo Voodoo - Pane e sale - Il volo</td></tr>
+            <tr><td>2</td><td>Non calpestare i fiori nel deserto</td>
+                <td>Pino Daniele</td><td>CGD</td><td>1</td></tr>
+            <tr><td>3</td><td>Destinazione paradiso</td>
+                <td>Gianluca Grignani</td><td>MERCURY</td><td>2</td></tr>
+          </table>
+        """.trimIndent()
+        val rows = MusicLabHistoricalExtraRepository.parseAnnualAlbums(html)
+        assertEquals(3, rows.size)
+        assertEquals("Spirito diVino", rows[0].title)
+        assertEquals("Zucchero", rows[0].artist)
+        assertEquals("Pino Daniele", rows[1].artist)
+        assertEquals("Gianluca Grignani", rows[2].artist)
     }
 
     @Test fun weeklyAlbumIndexUsesPublishedWeeksInsteadOfSynthesizingDates() {
