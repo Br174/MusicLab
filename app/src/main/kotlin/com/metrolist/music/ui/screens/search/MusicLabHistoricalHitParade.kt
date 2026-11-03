@@ -763,14 +763,30 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                         // FastPath: the visible row may already have resolved this exact
                         // SongItem for its artwork. The latest tapped song always wins.
                         val myTap = ++tapSerial
-                        resolving = song.rank
+                        // R58: protect the audio lane at the actual tap, before
+                        // any slow YouTube/catalog lookup can consume seconds.
+                        player?.beginPlaybackPriorityBurst("hit-parade-tap")
+                        // A verified/manual video ID is already playable: never
+                        // block audio on a second YouTube.queue metadata lookup.
+                        val ready = MusicLabHitParadeDiscArtwork.rememberedPlayableMediaItem(
+                            context, song.title, song.artist)
+                            ?: MusicLabFastPath.peek(song.title, song.artist) { candidate ->
+                                MusicLabChartArtworkResolver.sameRecordingLabel(
+                                    song.title, song.artist, candidate)
+                            }?.let { cached ->
+                                MusicLabHitParadeDiscArtwork.playableMediaItem(
+                                    context, song.title, song.artist, cached)
+                            }
+                        resolving = if (ready == null) song.rank else null
                         scope.launch {
                             try {
-                                val match = MusicLabHitParadeVideoResolver.find(
-                                    context, song.title, song.artist)
+                                val selectedMedia = ready ?: MusicLabHitParadeVideoResolver.find(
+                                    context, song.title, song.artist)?.let { match ->
+                                    MusicLabHitParadeDiscArtwork.playableMediaItem(
+                                        context, song.title, song.artist, match)
+                                }
                                 if (myTap != tapSerial) return@launch
-                                if (match != null) {
-                                    player?.beginPlaybackPriorityBurst("hit-parade-tap")
+                                if (selectedMedia != null) {
                                     val ordered = result.songs.map { ranked ->
                                         MusicLabSectionPlayback.Entry(
                                             key = ranked.rank.toString(),
@@ -790,8 +806,7 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                                             source = "Hit Parade · " + formatter.format(selected.time),
                                             orderedEntries = ordered,
                                             selectedIndex = position,
-                                            selected = MusicLabHitParadeDiscArtwork.playableMediaItem(
-                                                context, song.title, song.artist, match),
+                                            selected = selectedMedia,
                                             findPlayable = { entry ->
                                                 MusicLabHitParadeVideoResolver.find(context,
                                                     entry.title, entry.artist)?.let { playable ->
