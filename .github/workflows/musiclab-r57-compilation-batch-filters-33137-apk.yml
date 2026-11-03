@@ -1,5 +1,5 @@
 # R57: restore instant Discogs batch display, correct filters-only searches, preserve R56 audio.
-# R57 supersedes old 12-item progressive assertions in R41/R42; all memory/audio tests remain enabled.
+# R57 supersedes obsolete 12-item and pagination assertions in R41/R42/R45; all memory/audio tests remain enabled.
 # R47 adds four official HPI chart types; original weekly singles/album and R46 preserved.
 # Final approved gate includes Spotify Library lifecycle, completed cache, Cover native continuity and signed identity.
 name: MusicLab R57 Compilation Batch Results 33137
