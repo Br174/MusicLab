@@ -60,7 +60,7 @@ test('R54 source title and chosen search strategy persist through app restore an
  assert.match(snap,/put\("originalTitle", saved.originalTitle\)/);
  assert.match(snap,/put\("originalArtist", saved.originalArtist\)/);
  assert.match(history,/put\("lookupMode", entry.lookupMode.name\)/);
- assert.match(ui,/lookupMode = restored.lookupMode/);
+ assert.match(ui,/CompilationSessionStore.lookupMode = saved.lookupMode/);
 });
 test('R54 previous R51 player and main Cover engine unaffected',()=>{
  assert.match(ui,/selected = found.song.toMediaItem\(\)/);
