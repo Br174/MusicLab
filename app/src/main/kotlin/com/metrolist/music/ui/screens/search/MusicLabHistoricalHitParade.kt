@@ -783,7 +783,8 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                                     }
                                     player?.let { connection ->
                                         MusicLabListPositionStore.select(positionKey, song.rank.toString())
-                                        MusicLabHitParadeDiscArtwork.registerPlaybackRows(positionKey, ordered)
+                                        MusicLabHitParadeDiscArtwork.registerPlaybackRows(
+                                            positionKey, ordered, connection)
                                         MusicLabSectionPlayback.select(
                                             connection = connection,
                                             source = "Hit Parade · " + formatter.format(selected.time),
