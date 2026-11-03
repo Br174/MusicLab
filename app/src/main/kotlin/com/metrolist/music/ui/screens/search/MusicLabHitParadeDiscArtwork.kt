@@ -373,15 +373,17 @@ internal fun MusicLabHitParadeDiscCover(
 ) {
     val context = LocalContext.current
     val revision by MusicLabHitParadeDiscArtwork.updates.collectAsStateWithLifecycle()
-    val identity = if (album) MusicLabHitParadeDiscArtwork.RecordIdentity(title, artist)
+    val identity = remember(title, artist, album, revision) {
+        if (album) MusicLabHitParadeDiscArtwork.RecordIdentity(title, artist)
         else MusicLabHitParadeDiscArtwork.identity(context, title, artist)
+    }
     var rejectedUrl by remember(identity.title, identity.artist, album) {
         mutableStateOf<String?>(null)
     }
     val disc by produceState(
         initialValue = MusicLabHitParadeDiscArtwork.saved(
             context, identity.title, identity.artist, album),
-        key1 = identity, key2 = album, key3 = revision, key4 = rejectedUrl,
+        key1 = identity, key2 = album, key3 = sourceArtwork, key4 = rejectedUrl,
     ) {
         value = MusicLabHitParadeDiscArtwork.saved(
             context, identity.title, identity.artist, album)
