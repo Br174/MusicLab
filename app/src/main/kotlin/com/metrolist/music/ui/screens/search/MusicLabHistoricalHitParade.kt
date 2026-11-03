@@ -783,23 +783,25 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                                     }
                                     player?.let { connection ->
                                         MusicLabListPositionStore.select(positionKey, song.rank.toString())
+                                        MusicLabHitParadeDiscArtwork.registerPlaybackRows(positionKey, ordered)
                                         MusicLabSectionPlayback.select(
                                             connection = connection,
                                             source = "Hit Parade · " + formatter.format(selected.time),
                                             orderedEntries = ordered,
                                             selectedIndex = position,
-                                            selected = match.toMediaItem(),
+                                            selected = MusicLabHitParadeDiscArtwork.playableMediaItem(
+                                                context, song.title, song.artist, match),
                                             findPlayable = { entry ->
                                                 MusicLabHitParadeVideoResolver.find(context,
-                                                    entry.title, entry.artist)?.toMediaItem()
+                                                    entry.title, entry.artist)?.let { playable ->
+                                                    MusicLabHitParadeDiscArtwork.playableMediaItem(
+                                                        context, entry.title, entry.artist, playable)
+                                                }
                                             },
                                             selectionKey = positionKey,
                                         )
                                     }
-                                    MusicLabChartArtworkResolver.rememberArtwork(
-                                        context, MusicLabChartTrack(song.rank, song.title, song.artist),
-                                        match.thumbnail)
-                                } else {
+                                                               } else {
                                     error = "Registrazione originale non trovata: ${song.title}. " +
                                         "Il brano rimane visibile."
                                 }
@@ -814,8 +816,8 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("${song.rank}", style = MaterialTheme.typography.titleMedium)
-                        MusicLabFastHitArtwork(MusicLabChartTrack(
-                            rank = song.rank, title = song.title, artist = song.artist))
+                        MusicLabHitParadeDiscCover(
+                            title = song.title, artist = song.artist, album = false)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(song.title, fontWeight = FontWeight.SemiBold)
                             Text(song.artist, style = MaterialTheme.typography.bodySmall)
