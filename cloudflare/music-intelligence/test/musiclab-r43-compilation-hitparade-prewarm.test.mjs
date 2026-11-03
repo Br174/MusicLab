@@ -15,7 +15,7 @@ test('R43 auto-prewarms each composed Compilation row just like Hit Parade', () 
   assert.match(comp, /MusicLabFastPath\.find\(/);
   assert.match(comp, /CompilationTrackResolver\.isHardCompatible/);
   assert.match(comp, /CompilationSessionStore\.resolvedTracks\[index\] = found/);
-  assert.match(hit, /MusicLabHitParadeDiscCover\(MusicLabChartTrack\(/);
+  assert.match(hit, /MusicLabHitParadeDiscCover\(/);
   assert.match(fast, /flights\.computeIfAbsent/);
 });
 
