@@ -225,20 +225,33 @@ internal object MusicLabHistoricalExtraRepository {
                 val t = it.text().lowercase(Locale.ROOT)
                 t.contains("album") && (t.contains("artist") || t.contains("interprete"))
             } ?: continue
-            val headers = head.select("th, td").map { it.text().trim().lowercase(Locale.ROOT) }
-            val titleCol = headers.indexOfFirst { it.contains("album") }
-            val artistCol = headers.indexOfFirst { it.contains("artist") || it.contains("interprete") }
+            // Historical HTML mixes header cells, nested tracklists and <tbody>.
+            // Only direct header/data cells count; descendant td selectors can
+            // accidentally read the album's title as its artist.
+            val headers = head.children()
+                .filter { it.normalName() == "td" || it.normalName() == "th" }
+                .map { it.text().trim().lowercase(Locale.ROOT) }
+            val titleCol = headers.indexOfFirst { it == "album" || it.startsWith("album ") }
+            val artistCol = headers.indexOfFirst { it == "artist" ||
+                it == "artista" || it == "interprete" }
             if (titleCol < 0 || artistCol < 0) continue
             for (row in table.select("tr")) {
-                val cells = row.select("> td")
-                if (cells.size <= maxOf(titleCol, artistCol)) continue
+                val cells = row.children().filter { it.normalName() == "td" }
                 val rank = cells.firstOrNull()?.text()?.trim()?.toIntOrNull() ?: continue
-                val title = cells[titleCol].ownText().trim().ifBlank {
-                    cells[titleCol].text().substringBefore("[+").trim()
+                if (rank !in 1..200 || cells.size <= titleCol) continue
+                val titleCell = cells[titleCol]
+                val title = titleCell.ownText().trim().ifBlank {
+                    titleCell.text().substringBefore("[+").trim()
                 }
-                val artist = cells[artistCol].text().trim()
-                if (rank !in 1..200 || title.isBlank() || artist.isBlank()) continue
-                result.add(HistoricalExtraRow(rank, title, artist, sourceArtwork(cells[titleCol])))
+                val headerArtist = cells.getOrNull(artistCol)?.text()?.trim().orEmpty()
+                val adjacentArtist = cells.getOrNull(titleCol + 1)?.text()?.trim().orEmpty()
+                // Real HPI annual tables place artist immediately after album.
+                // Do not ever infer the artist from the album name itself.
+                val artist = if (headerArtist == title &&
+                    adjacentArtist.isNotBlank() && adjacentArtist != title)
+                    adjacentArtist else headerArtist.ifBlank { adjacentArtist }
+                if (title.isBlank() || artist.isBlank()) continue
+                result.add(HistoricalExtraRow(rank, title, artist, sourceArtwork(titleCell)))
             }
             if (result.isNotEmpty()) break
         }
