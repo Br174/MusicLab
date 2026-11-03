@@ -516,13 +516,8 @@ private fun MusicLabHistoricalExtraChartsScreen(
                                 resolvingRank = row.rank
                                 scope.launch {
                                     try {
-                                        val song = MusicLabFastPath.find(row.title, row.artist) {
-                                            item -> MusicLabChartArtworkResolver.sameRecordingLabel(
-                                                row.title, row.artist, item)
-                                        } ?: MusicLabTrackRecovery.find(row.title, row.artist) {
-                                            item -> MusicLabChartArtworkResolver.sameRecordingLabel(
-                                                row.title, row.artist, item)
-                                        }
+                                        val song = MusicLabHitParadeVideoResolver.find(
+                                            context, row.title, row.artist)
                                         if (serial != tapSerial) return@launch
                                         if (song != null) player?.let { connection ->
                                             connection.beginPlaybackPriorityBurst("historical-annual-tap")
@@ -536,11 +531,8 @@ private fun MusicLabHistoricalExtraChartsScreen(
                                                     it.rank == row.rank },
                                                 selected = song.toMediaItem(),
                                                 findPlayable = { entry ->
-                                                    MusicLabTrackRecovery.find(entry.title,
-                                                        entry.artist) { match ->
-                                                        MusicLabChartArtworkResolver.sameRecordingLabel(
-                                                            entry.title, entry.artist, match)
-                                                    }?.toMediaItem()
+                                                    MusicLabHitParadeVideoResolver.find(context,
+                                                        entry.title, entry.artist)?.toMediaItem()
                                                 },
                                                 selectionKey = positionKey)
                                         } else {
@@ -571,6 +563,7 @@ private fun MusicLabHistoricalExtraChartsScreen(
                         }
                         if (resolvingRank == row.rank) CircularProgressIndicator(
                             modifier = Modifier.size(20.dp))
+                        if (!mode.isAlbum) MusicLabHitParadeVideoMenu(row.title, row.artist)
                     }
                 }
             }
