@@ -22,13 +22,14 @@ test('R39 restores wide R36 Discogs q-based search, 100 releases per page', () =
   assert.match(api, /addQueryParameter\("q", it\)/);
 });
 
-test('menu transfers song title without activating the narrow song filter', () => {
+test('menu transfers unchanged song title and awaits an explicit Cerca or Titolo tap', () => {
   assert.match(bridge, /fun openForTrack\(title: String, artist: String\)/);
-  assert.match(nav, /val fullVideoTitle = target\.title\.trim\(\)/);
-  assert.match(nav, /query = fullVideoTitle/);
-  assert.match(nav, /trackTitle = null, trackArtist = null/);
-  assert.match(nav, /runSearch\(CompilationSearchCriteria\(/);
-  assert.doesNotMatch(comp, /"Compilation verificate:/);
+  assert.match(nav, /query = target.title/);
+  assert.match(nav, /mode = DiscogsSearchMode.COMPILATION/);
+  assert.doesNotMatch(nav, /runSearch\(/);
+  assert.doesNotMatch(nav, /CompilationFallbackQueryPolicy/);
+  assert.match(comp, /onClick = \{ runSearch\(\) \}/);
+  assert.match(comp, /Text\("Titolo"\)/);
 });
 
 test('R38 safety, token, history and search isolation remain operational', () => {
