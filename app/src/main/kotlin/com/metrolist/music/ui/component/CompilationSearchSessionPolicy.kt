@@ -98,6 +98,7 @@ internal object CompilationSearchHistoryStore {
                         trackTitle = title,
                         trackArtist = entry.optString("trackArtist").takeIf(String::isNotBlank),
                         mode = DiscogsSearchMode.restored(entry.optString("mode")),
+                        lookupMode = CompilationLookupMode.restored(entry.optString("lookupMode")),
                     ))
                 }
             }
@@ -110,6 +111,7 @@ internal object CompilationSearchHistoryStore {
                 put(JSONObject().apply {
                     put("query", entry.query)
                     put("mode", entry.mode.name)
+                    put("lookupMode", entry.lookupMode.name)
                     entry.year?.let { put("year", it) }
                     entry.genre?.let { put("genre", it) }
                     entry.style?.let { put("style", it) }
