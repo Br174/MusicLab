@@ -9,48 +9,29 @@ const player=read(base+'playback/CoverPlaybackMemory.kt');
 const hit=read(base+'ui/screens/search/MusicLabHitParadeDiscArtwork.kt');
 const api=read(base+'discogs/DiscogsClient.kt');
 
-test('R53 poster navigation presents exact full title once and NEVER triggers old auto search',()=>{
- const a=ui.indexOf('// R53: Player/locandina navigation ONLY');
- const b=ui.indexOf('fun loadNextPage()',a);
- assert.ok(a>=0&&b>a);
- const nav=ui.slice(a,b);
- assert.match(nav,/query = target\.title/);
- assert.match(nav,/mode = DiscogsSearchMode\.COMPILATION/);
- assert.doesNotMatch(nav,/runSearch\(/);
- assert.doesNotMatch(nav,/CompilationFallbackQueryPolicy\.query/);
- assert.doesNotMatch(ui,/val alternative = criteria\.copy\(query = fallback\)/);
- assert.doesNotMatch(ui,/finalCriteria\.copy\(mode = DiscogsSearchMode\.ALBUM\)/);
- assert.match(ui,/if \(trackRequest != null\) return@LaunchedEffect/);
+test('R54 automatic first search comes only from locandina title and singer',()=>{
+  const nav=ui.slice(ui.indexOf('LaunchedEffect(trackRequest?.requestId'),ui.indexOf('fun loadNextPage('));
+  assert.match(nav,/sourceTitle = target.title/);
+  assert.match(nav,/sourceArtist = target.artist/);
+  assert.match(nav,/trackTitle = title/);
+  assert.match(nav,/runSearch\(CompilationSearchCriteria\(/);
+  assert.doesNotMatch(nav,/CompilationFallbackQueryPolicy.query|videoTitle/);
 });
 
-test('R53 Cerca preserves ENTIRE user-visible string as q, with no cleanup or mutation',()=>{
- assert.match(ui,/onClick = \{ runSearch\(\) \}/);
- const a=ui.indexOf('fun runSearch('),b=ui.indexOf('val workKey = searchIdentity',a);
- const chosen=ui.slice(a,b);
- assert.match(chosen,/query = query\.trim\(\)/);
- assert.match(chosen,/trackTitle = null/);
- assert.match(chosen,/trackArtist = null/);
- assert.doesNotMatch(chosen,/CompilationFallbackQueryPolicy/);
- assert.match(api,/addQueryParameter\("q", it\)/);
+test('R54 exactly three indexed tracklist options replace both action buttons',()=>{
+  assert.match(ui,/CompilationLookupMode.entries.forEach/);
+  assert.match(ui,/CompilationLightSearchPolicy.indexTitle/);
+  assert.match(ui,/lookupMode = selected/);
+  assert.match(ui,/trackTitle = title/);
+  assert.match(api,/addQueryParameter\("track", trackTitle.trim\(\)\)/);
+  assert.doesNotMatch(ui,/Text\("Titolo"\)/);
+  assert.doesNotMatch(ui,/onClick = \{ runSearch\(\) \}/);
 });
 
-test('R53 Titolo explicitly strips artist from poster label and searches verified tracklist',()=>{
- assert.match(ui,/Text\("Titolo"\)/);
- assert.match(ui,/CompilationTitleOnlyPolicy\.title\(\s*query, trackRequest\?\.artist\)/);
- assert.match(ui,/query = cleaned/);
- assert.match(ui,/trackTitle = cleaned/);
- assert.match(api,/addQueryParameter\("track", trackTitle\.trim\(\)\)/);
- assert.match(title,/matchesKnownArtist/);
- assert.match(title,/artist\.isBlank\(\) -> right/);
- assert.match(ui,/verifyIndexedTrackCandidates\(/);
- assert.match(ui,/CompilationTitleOnlyPolicy\.selectedTrackIndex\(/);
-});
-
-test('R53 category selector shows only Compilation or chosen mode without Categoria prefix',()=>{
- assert.match(ui,/label = "",\s*selected = mode\.label/);
- assert.match(ui,/if \(label\.isBlank\(\)\) selected else "\$label: \$selected"/);
- assert.match(ui,/DiscogsSearchMode\.entries\.map \{ it\.label \}/);
- assert.match(ui,/mode = DiscogsSearchMode\.COMPILATION/);
+test('R54 retains separate Compilation Album Entrambi filter and short label',()=>{
+  assert.match(ui,/label = "",\s*selected = mode.label/);
+  assert.match(ui,/DiscogsSearchMode.entries.map \{ it.label \}/);
+  assert.match(ui,/lookupMode = CompilationLookupMode.TITLE_ARTIST/);
 });
 
 test('R53 restored player uses original native selected and neighbour queue with no custom cover bridge',()=>{
@@ -66,7 +47,7 @@ test('R53 restored player uses original native selected and neighbour queue with
 test('R53 visual track selection still highlights verified disc row without audio autostart',()=>{
  const a=ui.indexOf('fun openCompilation('),b=ui.indexOf('fun scheduleFullAudioLookup(',a);
  const open=ui.slice(a,b);
- assert.match(open,/selectedTrackIndex = CompilationTitleOnlyPolicy\.selectedTrackIndex\(/);
+ assert.match(open,/CompilationLightSearchPolicy\.accepts\(/);
  assert.doesNotMatch(open,/playTrack\(|\.playNow\(/);
  assert.match(ui,/detailListState\.scrollToItem\(highlighted \+ 2\)/);
 });
