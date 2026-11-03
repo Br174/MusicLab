@@ -67,6 +67,7 @@ import com.metrolist.music.discogs.CompilationTrackMatchPolicy
 import com.metrolist.music.discogs.DiscogsClient
 import com.metrolist.music.discogs.DiscogsCompilationDetail
 import com.metrolist.music.discogs.DiscogsCompilationSummary
+import com.metrolist.music.discogs.DiscogsSearchMode
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.MusicLabSectionWorkPolicy
@@ -99,6 +100,7 @@ internal data class CompilationSearchCriteria(
     val language: String?,
     val trackTitle: String? = null,
     val trackArtist: String? = null,
+    val mode: DiscogsSearchMode = DiscogsSearchMode.COMPILATION,
 )
 
 private object CompilationSessionStore {
@@ -108,6 +110,7 @@ private object CompilationSessionStore {
     var style: String? = null
     var country: String? = null
     var language: String? = null
+    var mode: DiscogsSearchMode = DiscogsSearchMode.COMPILATION
 
     var results: List<DiscogsCompilationSummary> = emptyList()
     var currentPage: Int = 0
@@ -160,6 +163,7 @@ internal fun CompilationScreen(
                 CompilationSessionStore.style = saved.style
                 CompilationSessionStore.country = saved.country
                 CompilationSessionStore.language = saved.language
+                CompilationSessionStore.mode = saved.mode
                 CompilationSessionStore.results = saved.results
                 CompilationSessionStore.currentPage = saved.page
                 CompilationSessionStore.totalPages = saved.pages
@@ -170,7 +174,7 @@ internal fun CompilationScreen(
                 if (saved.page > 0 && saved.results.isNotEmpty()) {
                     CompilationSessionStore.activeSearch = CompilationSearchCriteria(
                         saved.query, saved.year, saved.genre, saved.style,
-                        saved.country, saved.language)
+                        saved.country, saved.language, mode = saved.mode)
                 }
             }
         }
@@ -194,6 +198,7 @@ internal fun CompilationScreen(
     var style by remember { mutableStateOf(CompilationSessionStore.style) }
     var country by remember { mutableStateOf(CompilationSessionStore.country) }
     var language by remember { mutableStateOf(CompilationSessionStore.language) }
+    var mode by remember { mutableStateOf(CompilationSessionStore.mode) }
 
     var results by remember { mutableStateOf(CompilationSessionStore.results) }
     var loading by remember { mutableStateOf(false) }
@@ -252,13 +257,14 @@ internal fun CompilationScreen(
         searchHistory = withContext(Dispatchers.IO) { CompilationSearchHistoryStore.load(context) }
     }
 
-    LaunchedEffect(query, year, genre, style, country, language) {
+    LaunchedEffect(query, year, genre, style, country, language, mode) {
         CompilationSessionStore.query = query
         CompilationSessionStore.year = year
         CompilationSessionStore.genre = genre
         CompilationSessionStore.style = style
         CompilationSessionStore.country = country
         CompilationSessionStore.language = language
+        CompilationSessionStore.mode = mode
         CompilationSessionStore.filtersExpanded = filtersExpanded
     }
 
@@ -273,7 +279,7 @@ internal fun CompilationScreen(
     }
     val latestCompilationSnapshot = rememberUpdatedState(MusicLabCompilationSnapshot.Saved(
         query = query, year = year, genre = genre, style = style,
-        country = country, language = language, filtersExpanded = filtersExpanded,
+        country = country, language = language, filtersExpanded = filtersExpanded, mode = mode,
         results = results, page = currentPage, pages = totalPages,
         total = totalDiscogsResults, selectedRelease = selectedReleaseId,
         selectedTrack = selectedTrackIndex, openRelease = openReleaseId,
@@ -297,14 +303,14 @@ internal fun CompilationScreen(
             }
         }
     }
-    LaunchedEffect(query, year, genre, style, country, language, filtersExpanded,
+    LaunchedEffect(query, year, genre, style, country, language, mode, filtersExpanded,
         results, currentPage, totalPages, totalDiscogsResults, selectedReleaseId,
         selectedTrackIndex, openReleaseId) {
         // Coalesce edits and list pagination, never persist the Discogs token.
         delay(350)
         MusicLabCompilationSnapshot.save(context, MusicLabCompilationSnapshot.Saved(
             query = query, year = year, genre = genre, style = style,
-            country = country, language = language, filtersExpanded = filtersExpanded,
+            country = country, language = language, filtersExpanded = filtersExpanded, mode = mode,
             results = results, page = currentPage, pages = totalPages,
             total = totalDiscogsResults, selectedRelease = selectedReleaseId,
             selectedTrack = selectedTrackIndex, openRelease = openReleaseId,
