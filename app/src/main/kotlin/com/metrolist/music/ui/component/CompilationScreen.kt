@@ -500,33 +500,50 @@ internal fun CompilationScreen(
                 resultListState.scrollToItem(0)
                 var succeeded = loadPage(criteria, page = 1, replaceResults = true,
                     token = token, generation = generation)
-                // R46: first search uses the entire raw video label. Generic Discogs
-                // hits aren't proof the compilation contains the requested recording.
-                // When the initial tracklist check finds nothing, automatically search
-                // the cleaned song title with singer/group as the second stage.
+                // R51 automatic player route: use ONE Discogs category at a time.
+                // First check verified compilation tracklists. If none match,
+                // try a cleaned query, then try Album separately. Never mix
+                // results or silently enable the user-only Entrambi mode.
+                var finalCriteria = criteria
                 if (succeeded && generation == searchGeneration && playerRequest != null) {
                     val songTitle = CompilationFallbackQueryPolicy.songTitle(
                         playerRequest.title, playerRequest.artist)
-                    val firstMatches = confirmPlayerCandidates(
+                    var verified = confirmPlayerCandidates(
                         results, token, songTitle, playerRequest.artist, generation)
                     if (generation != searchGeneration) return@launch
-                    var verified = firstMatches
                     val fallback = CompilationFallbackQueryPolicy.query(
                         playerRequest.title, playerRequest.artist)
-                    if (verified.isEmpty() && fallback != null && fallback != criteria.query) {
-                        val alternative = criteria.copy(query = fallback)
-                        query = fallback
-                        succeeded = loadPage(alternative, page = 1, replaceResults = true,
-                            token = token, generation = generation)
+                    if (verified.isEmpty() && fallback != null &&
+                        fallback != finalCriteria.query) {
+                        val alternative = finalCriteria.copy(query = fallback)
+                        succeeded = loadPage(alternative, page = 1,
+                            replaceResults = true, token = token, generation = generation)
                         if (succeeded && generation == searchGeneration) {
-                            verified = confirmPlayerCandidates(
-                                results, token, songTitle, playerRequest.artist, generation)
+                            finalCriteria = alternative
+                            verified = confirmPlayerCandidates(results, token,
+                                songTitle, playerRequest.artist, generation)
+                        }
+                    }
+                    if (generation != searchGeneration) return@launch
+                    // Evidence-based sequential classification: no mixed list.
+                    if (succeeded && verified.isEmpty()) {
+                        val albumOnly = finalCriteria.copy(mode = DiscogsSearchMode.ALBUM)
+                        succeeded = loadPage(albumOnly, page = 1,
+                            replaceResults = true, token = token, generation = generation)
+                        if (succeeded && generation == searchGeneration) {
+                            finalCriteria = albumOnly
+                            verified = confirmPlayerCandidates(results, token,
+                                songTitle, playerRequest.artist, generation)
                         }
                     }
                     if (generation != searchGeneration) return@launch
                     if (succeeded) {
                         results = verified.distinctBy { it.id }
-                        // Never append unverified pages in this player-only mode.
+                        query = finalCriteria.query
+                        mode = finalCriteria.mode
+                        activeSearch = finalCriteria
+                        CompilationSessionStore.activeSearch = finalCriteria
+                        // Player-only verified list has no unverified pagination.
                         currentPage = 1
                         totalPages = 1
                         totalDiscogsResults = results.size
@@ -546,7 +563,7 @@ internal fun CompilationScreen(
                 }
                 if (succeeded && generation == searchGeneration) {
                     val updated = withContext(Dispatchers.IO) {
-                        CompilationSearchHistoryStore.save(context, criteria)
+                        CompilationSearchHistoryStore.save(context, activeSearch ?: criteria)
                         CompilationSearchHistoryStore.load(context)
                     }
                     if (generation == searchGeneration) searchHistory = updated
@@ -575,6 +592,7 @@ internal fun CompilationScreen(
             style = null
             country = null
             language = null
+            mode = DiscogsSearchMode.COMPILATION
             runSearch(CompilationSearchCriteria(
                 query = fullVideoTitle, year = null, genre = null, style = null,
                 country = null, language = null,
