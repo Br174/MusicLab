@@ -121,12 +121,15 @@ internal object DiscogsClient {
         perPage: Int = 100,
         trackTitle: String? = null,
         mode: DiscogsSearchMode = DiscogsSearchMode.COMPILATION,
+        includeSingles: Boolean = false,
     ): Result<DiscogsCompilationPage> = withContext(Dispatchers.IO) {
         runCatching {
             val url = "$API_BASE/database/search".toHttpUrl().newBuilder()
                 .addQueryParameter("type", "release")
                 .apply {
-                    when (mode) {
+                    // R54 lightweight Cover explores ALL publication formats,
+                    // including singles. Other three-source modes keep R51 strict.
+                    if (!includeSingles) when (mode) {
                         DiscogsSearchMode.COMPILATION ->
                             addQueryParameter("format", "Compilation")
                         DiscogsSearchMode.ALBUM ->
@@ -161,7 +164,7 @@ internal object DiscogsClient {
                     val formats = item.stringList("format")
                     // Mixed searches retain real discographic albums and
                     // compilations; EP/single-only releases stay out.
-                    if (!mode.accepts(formats)) continue
+                    if (!includeSingles && !mode.accepts(formats)) continue
                     add(
                         DiscogsCompilationSummary(
                             id = item.optInt("id").takeIf { it > 0 } ?: continue,
