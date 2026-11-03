@@ -51,8 +51,8 @@ test('R54 lightweight Cover accepts anonymous DJ/mashup variants, drops original
  assert.match(policy,/named.isNotEmpty\(\) \|\| alternateMarker.containsMatchIn\(track.title\)/);
  assert.doesNotMatch(policy,/SecondHandSongs|CoverSearchEngine|CoverNavigationBridge/);
 });
-test('R54 cover searches albums compilations and singles only through Discogs',()=>{
- assert.match(ui,/includeSingles = criteria.lookupMode == CompilationLookupMode.COVER_LITE/);
+test('R55 cover respects selected publication formats through Discogs',()=>{
+ assert.match(ui,/includeSingles = false/);
  assert.match(api,/if \(!includeSingles\) when \(mode\)/);
  assert.match(api,/if \(!includeSingles && !mode.accepts\(formats\)\) continue/);
 });
