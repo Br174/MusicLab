@@ -1157,6 +1157,9 @@ internal fun CompilationScreen(
                                                     country = previous.country
                                                     language = previous.language
                                                     mode = previous.mode
+                                                    lookupMode = previous.lookupMode
+                                                    sourceTitle = previous.trackTitle.orEmpty()
+                                                    sourceArtist = previous.trackArtist.orEmpty()
                                                     // The history entry supplies the exact criteria.
                                                     // Avoid the auto-navigation effect launching a second search.
                                                     trackRequest = null
