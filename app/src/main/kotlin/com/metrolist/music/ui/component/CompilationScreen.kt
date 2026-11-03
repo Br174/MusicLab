@@ -404,7 +404,8 @@ internal fun CompilationScreen(
                 includeMasterVideos = false).getOrNull() ?: continue
             if (generation != searchGeneration) return emptyList()
             val formatLabels = release.formatDescriptions.ifEmpty { candidate.formats }
-            if (!criteria.mode.accepts(formatLabels)) continue
+            if (criteria.lookupMode != CompilationLookupMode.COVER_LITE &&
+                !criteria.mode.accepts(formatLabels)) continue
             if (release.tracks.none { track ->
                     CompilationLightSearchPolicy.accepts(
                         track, song, criteria.trackArtist.orEmpty(), criteria.lookupMode)
@@ -1044,7 +1045,12 @@ internal fun CompilationScreen(
                                     ) {
                                         BasicTextField(
                                             value = query,
-                                            onValueChange = { query = it; trackRequest = null },
+                                            onValueChange = {
+                                                query = it
+                                                trackRequest = null
+                                                sourceTitle = ""
+                                                sourceArtist = ""
+                                            },
                                             singleLine = true,
                                             textStyle = MaterialTheme.typography.bodyMedium.copy(
                                                 color = MaterialTheme.colorScheme.onSurface,
@@ -1064,34 +1070,46 @@ internal fun CompilationScreen(
                                                 }
                                             },
                                         )
-                                        TextButton(
-                                            onClick = { runSearch() },
-                                            enabled = !loading,
-                                        ) {
-                                            Text(if (loading) "…" else "Cerca")
-                                        }
-                                        TextButton(
-                                            onClick = {
-                                                // Explicit Titolo changes the field to ONE
-                                                // cleaned track title; Cerca never does.
-                                                val cleaned = CompilationTitleOnlyPolicy.title(
-                                                    query, trackRequest?.artist)
-                                                if (cleaned.isNotBlank()) {
-                                                    query = cleaned
-                                                    trackRequest = null
-                                                    runSearch(CompilationSearchCriteria(
-                                                        query = cleaned,
-                                                        year = year, genre = genre,
-                                                        style = style, country = country,
-                                                        language = language, mode = mode,
-                                                        trackTitle = cleaned,
-                                                        trackArtist = null,
-                                                    ))
+                                        Box {
+                                            TextButton(
+                                                onClick = { searchModesOpen = true },
+                                                enabled = query.isNotBlank(),
+                                            ) {
+                                                Text(lookupMode.label, maxLines = 1)
+                                                Text("⌄")
+                                            }
+                                            DropdownMenu(
+                                                expanded = searchModesOpen,
+                                                onDismissRequest = { searchModesOpen = false },
+                                            ) {
+                                                CompilationLookupMode.entries.forEach { selected ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(selected.label) },
+                                                        onClick = {
+                                                            searchModesOpen = false
+                                                            lookupMode = selected
+                                                            val title = CompilationLightSearchPolicy.indexTitle(
+                                                                sourceTitle.ifBlank { query }, sourceArtist)
+                                                            if (title.isNotBlank()) {
+                                                                val label = if (selected == CompilationLookupMode.TITLE_ARTIST)
+                                                                    listOf(title, sourceArtist)
+                                                                        .filter(String::isNotBlank).joinToString(" - ")
+                                                                else title
+                                                                query = label
+                                                                runSearch(CompilationSearchCriteria(
+                                                                    query = label,
+                                                                    year = year, genre = genre, style = style,
+                                                                    country = country, language = language,
+                                                                    mode = mode,
+                                                                    trackTitle = title,
+                                                                    trackArtist = sourceArtist.takeIf(String::isNotBlank),
+                                                                    lookupMode = selected,
+                                                                ))
+                                                            }
+                                                        },
+                                                    )
                                                 }
-                                            },
-                                            enabled = !loading && query.isNotBlank(),
-                                        ) {
-                                            Text("Titolo")
+                                            }
                                         }
                                     }
                                 }
