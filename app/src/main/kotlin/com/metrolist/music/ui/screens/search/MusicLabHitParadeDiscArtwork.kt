@@ -199,6 +199,51 @@ internal object MusicLabHitParadeDiscArtwork {
             }
         }
 
+    private suspend fun spotifySong(title: String, artist: String): Disc? =
+        withTimeoutOrNull(2_600L) {
+            Spotify.search("$title $artist", types = listOf("track"), limit = 12)
+                .getOrNull()?.tracks?.items.orEmpty().firstNotNullOfOrNull { candidate ->
+                    val performer = candidate.artists.joinToString(" ") { it.name }
+                    if (!sameRecord(title, artist, candidate.name, performer)) null
+                    else candidate.album.images.firstNotNullOfOrNull { safeImage(it.url) }
+                        ?.let { Disc(it, performer) }
+                }
+        }
+
+    private suspend fun appleSong(title: String, artist: String): Disc? =
+        withTimeoutOrNull(4_000L) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val query = URLEncoder.encode("$title $artist", "UTF-8")
+                    val address = URL("https://itunes.apple.com/search?term=" + query +
+                        "&entity=song&media=music&limit=15&country=IT")
+                    val conn = address.openConnection() as HttpURLConnection
+                    conn.connectTimeout = 2300
+                    conn.readTimeout = 2300
+                    try {
+                        if (conn.responseCode !in 200..299) return@runCatching null
+                        val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                        val results = json.optJSONArray("results") ?: return@runCatching null
+                        for (i in 0 until results.length()) {
+                            val c = results.optJSONObject(i) ?: continue
+                            if (!sameRecord(title, artist,
+                                    c.optString("trackName"), c.optString("artistName"))) continue
+                            val cover = safeImage(c.optString("artworkUrl100"))
+                                ?.replace("100x100bb", "600x600bb")
+                            if (cover != null) return@runCatching Disc(cover, c.optString("artistName"))
+                        }
+                        null
+                    } finally { conn.disconnect() }
+                }.getOrNull()
+            }
+        }
+
+    private suspend fun songDisc(title: String, artist: String): Disc? = coroutineScope {
+        val spotify = async(Dispatchers.IO) { spotifySong(title, artist) }
+        val apple = async(Dispatchers.IO) { appleSong(title, artist) }
+        spotify.await() ?: apple.await()
+    }
+
     suspend fun resolve(context: Context, title: String, artist: String,
                         album: Boolean, sourceArtwork: String? = null): String? {
         val original = if (album) RecordIdentity(title, artist) else identity(context, title, artist)
@@ -218,8 +263,7 @@ internal object MusicLabHitParadeDiscArtwork {
                         appleAlbum(original.title, original.artist)
                     }
                     spotify.await() ?: apple.await()
-                } else MusicLabChartArtworkResolver.verifiedDiscArtwork(
-                    original.title, original.artist)?.let { Disc(it, null) }
+                } else songDisc(original.title, original.artist)
             if (verified != null) {
                 rememberDisc(context, original.title, original.artist, album, verified)
                 verified.url
