@@ -42,9 +42,9 @@ internal object CompilationLightSearchPolicy {
         // "Brutta storia" is NOT a version of "Brutta".
         if (!actual.startsWith("$wanted ")) return false
         val suffix = actual.removePrefix("$wanted ").trim()
-        val bracketed = trackTitle.trim().startsWith(wantedTitle.trim() + " (", true) ||
-            trackTitle.trim().startsWith(wantedTitle.trim() + " [", true)
-        return bracketed || editionMarker.containsMatchIn(suffix)
+        // Brackets alone do not prove a version. Reject unrelated lyric
+        // phrases such as "Brutta (Sei davvero brutta)".
+        return editionMarker.containsMatchIn(suffix)
     }
 
     private fun originalArtistPresent(track: DiscogsTrack, originalArtist: String): Boolean {
@@ -78,9 +78,16 @@ internal object CompilationLightSearchPolicy {
                 }
             }
             COVER_LITE -> {
-                // Accept another artist, a DJ/mashup, OR a track with missing
-                // credits. Only exclude positive attribution to the original.
-                !originalArtistPresent(track, originalArtist)
+                if (originalArtistPresent(track, originalArtist)) false
+                else {
+                    val named = track.artists.map(::norm).filter {
+                        it.isNotBlank() && it != "various" && it != "various artists" &&
+                            it != "unknown" && it != "uncredited"
+                    }
+                    // Another performer OR an explicitly named alternative
+                    // version. A plain, uncredited canonical song isn't cover.
+                    named.isNotEmpty() || editionMarker.containsMatchIn(track.title)
+                }
             }
         }
     }
