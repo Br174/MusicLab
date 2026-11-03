@@ -37,14 +37,14 @@ test('R51: Discogs queries use correct format, Both only on manual selection', (
   assert.match(mode,/\?: COMPILATION/);
 });
 
-test('R53: mode is user-controlled and poster navigation never mixes album results', () => {
+test('R54: three song strategies are independent of R51 album/compilation selectors', () => {
   const nav=ui.slice(ui.indexOf('LaunchedEffect(trackRequest?.requestId'),ui.indexOf('fun loadNextPage('));
   assert.match(nav,/mode = DiscogsSearchMode.COMPILATION/);
-  assert.match(nav,/query = target.title/);
-  assert.doesNotMatch(nav,/runSearch\(/);
-  assert.doesNotMatch(ui,/finalCriteria\.copy\(mode = DiscogsSearchMode\.ALBUM\)/);
+  assert.match(nav,/lookupMode = CompilationLookupMode.TITLE_ARTIST/);
+  assert.match(nav,/runSearch\(CompilationSearchCriteria\(/);
+  assert.match(ui,/lookupMode = selected/);
   assert.match(ui,/mode = mode,/);
-  assert.match(ui,/trackTitle = cleaned,/);
+  assert.doesNotMatch(ui,/finalCriteria\.copy\(mode = DiscogsSearchMode\.ALBUM\)/);
 });
 
 test('R51: mode participates in pagination, resume, state, history and source-safe search', () => {
