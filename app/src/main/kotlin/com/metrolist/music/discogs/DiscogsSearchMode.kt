@@ -15,13 +15,13 @@ internal enum class DiscogsSearchMode(val label: String, val queryFormat: String
         val isCompilation = formats.any { it.equals("Compilation", ignoreCase = true) }
         return when (this) {
             COMPILATION -> isCompilation
-            ALBUM -> isAlbum
+            ALBUM -> isAlbum && !isCompilation
             BOTH -> isAlbum || isCompilation
         }
     }
 
     companion object {
         fun restored(value: String?): DiscogsSearchMode =
-            entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: BOTH
+            entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: COMPILATION
     }
 }
