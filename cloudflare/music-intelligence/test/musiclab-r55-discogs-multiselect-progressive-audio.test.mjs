@@ -22,10 +22,12 @@ test('R55: Singles searches Discogs track and format directly', () => {
   assert.match(ui,/includeSingles = false/);
   assert.match(ui,/criteria.mode.accepts\(formatLabels\)/);
 });
-test('R55: progressively verified exact tracklist, bounded IO, playback priority', () => {
+test('R57: full page is visible before background tracklist checks, with bounded IO', () => {
   assert.match(ui,/val permits = Semaphore\(3\)/);
   assert.match(ui,/onVerified\(candidate\)/);
-  assert.match(ui,/results = \(results \+ confirmed\).distinctBy/);
+  assert.match(ui,/verifiedTrackIds\[confirmed.id\] = true/);
+  assert.match(ui,/val visibleItems = if \(criteria\.trackTitle != null\)\s*pageResult.items/);
+  assert.match(ui,/results = if \(replaceResults\) \{/);
   assert.match(ui,/isPlaybackPriorityBurstActive\(\)/);
   assert.match(ui,/includeMasterVideos = false/);
   assert.match(ui,/release.tracks.none \{ track ->/);
