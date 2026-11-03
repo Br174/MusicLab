@@ -233,6 +233,11 @@ internal fun CompilationScreen(
     var saving by remember { mutableStateOf(false) }
     var filtersExpanded by remember { mutableStateOf(CompilationSessionStore.filtersExpanded) }
     var selectedTrackIndex by remember { mutableStateOf(CompilationSessionStore.selectedTrackIndex) }
+    // A newly searched song must stay highlighted even if an older
+    // playback snapshot points to a different song in the same album.
+    var awaitingSongSelection by remember {
+        mutableStateOf(restored.trackTitle != null && restored.openRelease != null)
+    }
     val currentSectionContext by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
     val selectedKeys by MusicLabListPositionStore.selectedKeys.collectAsStateWithLifecycle()
     LaunchedEffect(currentSectionContext?.index, currentSectionContext?.revision,
@@ -248,11 +253,6 @@ internal fun CompilationScreen(
     }
     var selectedReleaseId by remember { mutableStateOf(CompilationSessionStore.selectedReleaseId) }
     var openReleaseId by remember { mutableStateOf(restored.openRelease) }
-    // A newly searched song must stay highlighted even if an older
-    // playback snapshot points to a different song in the same album.
-    var awaitingSongSelection by remember {
-        mutableStateOf(restored.trackTitle != null && restored.openRelease != null)
-    }
     var paginationJob by remember { mutableStateOf<Job?>(null) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
     var fullAudioLookupJob by remember { mutableStateOf<Job?>(null) }
