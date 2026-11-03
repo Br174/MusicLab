@@ -22,9 +22,11 @@ test('LAB28 keeps Discogs credentials local and uses authenticated official API 
   assert.match(client, /User-Agent", USER_AGENT/);
 });
 
-test('LAB28 searches only compilations and exposes native Discogs filters', () => {
+test('LAB28 legacy Discogs filters remain, R51 adds explicit album/compilation category', () => {
   assert.match(client, /addQueryParameter\("type", "release"\)/);
-  assert.match(client, /addQueryParameter\("format", "Compilation"\)/);
+  assert.match(client, /DiscogsSearchMode\.COMPILATION ->\s*addQueryParameter\("format", "Compilation"\)/);
+  assert.match(client, /DiscogsSearchMode\.ALBUM ->\s*addQueryParameter\("format", "Album"\)/);
+  assert.match(client, /DiscogsSearchMode\.BOTH -> Unit/);
   assert.match(client, /addQueryParameter\("year"/);
   assert.match(client, /addQueryParameter\("genre"/);
   assert.match(client, /addQueryParameter\("style"/);
