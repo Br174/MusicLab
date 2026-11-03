@@ -25,7 +25,7 @@ internal object MusicLabCompilationSnapshot {
         val selectedRelease: Int? = null,
         val selectedTrack: Int? = null,
         val openRelease: Int? = null,
-        val mode: DiscogsSearchMode = DiscogsSearchMode.BOTH,
+        val mode: DiscogsSearchMode = DiscogsSearchMode.COMPILATION,
     )
 
     private fun JSONObject.optional(key: String): String? =
