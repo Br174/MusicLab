@@ -34,6 +34,11 @@ internal object PlaybackSprintPolicy {
         isBuffering && playRequested && sameMediaId && online &&
             recoveryAttempts < MAX_BUFFER_STALL_RECOVERIES
 
+    // R56: resumed queues must not start audio by themselves; requested playback
+    // in any foreground section receives the shared source-resolution fast lane.
+    fun shouldPrioritizeQueueStart(playWhenReady: Boolean, restoringQueue: Boolean): Boolean =
+        playWhenReady && !restoringQueue
+
     // R35: asynchronous queue results are accepted only for the latest tap.
     fun isLatestQueueRequest(requestSerial: Long, activeSerial: Long): Boolean =
         requestSerial == activeSerial
