@@ -535,7 +535,7 @@ private fun MusicLabHistoricalExtraChartsScreen(
                                                     r.rank.toString(), r.title, r.artist)
                                             }
                                             MusicLabHitParadeDiscArtwork.registerPlaybackRows(
-                                                positionKey, ordered)
+                                                positionKey, ordered, connection)
                                             MusicLabSectionPlayback.select(connection,
                                                 source = mode.title,
                                                 orderedEntries = ordered,
