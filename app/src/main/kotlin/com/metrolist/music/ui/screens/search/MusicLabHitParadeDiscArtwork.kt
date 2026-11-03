@@ -351,7 +351,8 @@ internal object MusicLabHitParadeDiscArtwork {
     fun playerMetadata(original: MediaMetadata?): MediaMetadata? {
         val context = LocalContext.current
         val revision by updates.collectAsStateWithLifecycle()
-        val section by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
+        val observedSection by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
+        val section = observedSection
         if (original == null || section == null) return original
         if (section.mediaId != original.id ||
             (!section.source.startsWith("Hit Parade") &&
