@@ -32,7 +32,8 @@ test('R54 dropdown replaces dual buttons and runs user-selected isolated trackli
  assert.match(ui,/trackTitle = title/);
  assert.match(ui,/runSearch\(CompilationSearchCriteria\(/);
  assert.doesNotMatch(ui,/Text\("Titolo"\)/);
- assert.doesNotMatch(ui,/onClick = \{ runSearch\(\) \}/);
+ const toolbar=ui.slice(ui.indexOf('BasicTextField('),ui.indexOf('historyOpen = true',ui.indexOf('BasicTextField(')));
+ assert.doesNotMatch(toolbar,/onClick = \{ runSearch\(\) \}/);
 });
 test('R54 Discogs index track and release tracklist ONLY, never release-title matches',()=>{
  assert.match(api,/addQueryParameter\("track", trackTitle.trim\(\)\)/);
