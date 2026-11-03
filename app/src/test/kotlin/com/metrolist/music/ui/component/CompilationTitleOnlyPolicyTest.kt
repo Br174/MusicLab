@@ -28,6 +28,27 @@ class CompilationTitleOnlyPolicyTest {
             CompilationTitleOnlyPolicy.title("Sapore di sale - Live"))
     }
 
+    @Test fun titleOnlyRemovesArtistPrefixWhenBandNameIsLongerThanMetadata() {
+        assertEquals("Napoli: Punto Esclamativo!",
+            CompilationTitleOnlyPolicy.title(
+                "Renzo Arbore e L'Orchestra Italiana - Napoli: Punto Esclamativo!",
+                "Renzo Arbore"))
+    }
+
+    @Test fun titleOnlyRemovesArtistFromEitherSideWithoutRewritingNormalSearch() {
+        assertEquals("Il mondo",
+            CompilationTitleOnlyPolicy.title("Il mondo - Jimmy Fontana", "Jimmy Fontana"))
+        assertEquals("Il mondo",
+            CompilationTitleOnlyPolicy.title("Jimmy Fontana Il mondo", "Jimmy Fontana"))
+        assertEquals("Il mondo",
+            CompilationTitleOnlyPolicy.title("Il mondo Jimmy Fontana", "Jimmy Fontana"))
+    }
+
+    @Test fun titleOnlyRespectsAColonInsideARealSongTitle() {
+        assertEquals("Napoli: Punto Esclamativo!",
+            CompilationTitleOnlyPolicy.title("Napoli: Punto Esclamativo!"))
+    }
+
     @Test fun verifiedTrackIsSelectedAtItsRealDiscogsPosition() {
         val tracks = listOf(
             DiscogsTrack("1", "Altra canzone", listOf("Altra artista"), null, null),
