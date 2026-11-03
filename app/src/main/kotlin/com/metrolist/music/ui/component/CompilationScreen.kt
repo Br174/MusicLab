@@ -1304,7 +1304,10 @@ internal fun CompilationScreen(
 
                             if (activeSearch != null && (totalDiscogsResults > 0 || results.isNotEmpty())) {
                                 val counterText =
-                                    if (activeSearch?.language == null) {
+                                    if (activeSearch?.trackTitle != null) {
+                                        "Canzoni verificate in ${results.size} dischi · " +
+                                            "Discogs $totalDiscogsResults candidati · pagina $currentPage/$totalPages"
+                                    } else if (activeSearch?.language == null) {
                                         "Caricate ${results.size} / $totalDiscogsResults · pagina $currentPage/$totalPages"
                                     } else {
                                         "Visibili ${results.size} · Discogs $totalDiscogsResults · pagina $currentPage/$totalPages"
@@ -1330,6 +1333,15 @@ internal fun CompilationScreen(
                                 Text(
                                     "Scrivi nella barra sopra oppure apri i filtri con ⌄.",
                                     style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                )
+                            }
+                        } else if (!loading && activeSearch != null && results.isEmpty()
+                            && currentPage > 0 && totalDiscogsResults > 0) {
+                            item {
+                                Text(
+                                    "Nessuna canzone verificata in questa pagina. Può cercare nei dischi successivi.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                                 )
@@ -1363,15 +1375,23 @@ internal fun CompilationScreen(
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                    )
-                                    Spacer(Modifier.width(10.dp))
-                                    Text(
-                                        "Carico altri risultati… ${results.size}/$totalDiscogsResults",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
+                                    if (activeSearch?.trackTitle != null) {
+                                        TextButton(onClick = ::loadNextPage,
+                                            enabled = !loadingMore) {
+                                            Text(if (loadingMore) "Verifico le tracklist…"
+                                                else "Cerca nei dischi successivi")
+                                        }
+                                    } else {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            "Carico altri risultati… ${results.size}/$totalDiscogsResults",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                    }
                                 }
                                 paginationError?.let {
                                     Column(
