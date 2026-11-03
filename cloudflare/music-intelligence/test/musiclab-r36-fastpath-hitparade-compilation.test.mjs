@@ -6,12 +6,15 @@ const read = p => fs.readFileSync(p, 'utf8');
 const hit = read('app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHistoricalHitParade.kt');
 const comp = read('app/src/main/kotlin/com/metrolist/music/ui/component/CompilationScreen.kt');
 const fast = read('app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabFastPath.kt');
+const hitResolver = read('app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHitParadeVideoResolver.kt');
 const policy = read('app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabFastPathPolicy.kt');
 const cover = read('app/src/main/kotlin/com/metrolist/music/ui/component/DiscogsDirectVersionBrowser.kt');
 
 test('Hit Parade R36 uses one fast native song for artwork and subsequent playback', () => {
   assert.match(hit, /MusicLabFastHitArtwork\(MusicLabChartTrack\(/);
-  assert.match(hit, /MusicLabFastPath\.find\(song\.title, song\.artist\)/);
+  assert.match(hit, /MusicLabHitParadeVideoResolver\\.find\\(/);
+  assert.match(hitResolver, /MusicLabFastPath\\.find\\(title, artist, compatible\\)/);
+  assert.match(hitResolver, /MusicLabTrackRecovery\\.find\\(title, artist, compatible\\)/);
   assert.match(hit, /myTap != tapSerial/);
   assert.match(hit, /MusicLabHistoricalHitParade\.load\(selected\)/);
   assert.match(hit, /\.rank h5/);
