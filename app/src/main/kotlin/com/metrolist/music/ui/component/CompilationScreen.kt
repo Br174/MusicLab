@@ -381,6 +381,37 @@ internal fun CompilationScreen(
         return confirmed.distinctBy { it.id }
     }
 
+    /**
+     * R52 title-only search must be backed by an actual Discogs tracklist.
+     * Fetch lightweight release data only for candidates of the indexed
+     * Discogs "track" search. Never accept a release just because its album
+     * title contains the song title; never infer unverified chart metadata.
+     */
+    suspend fun verifyIndexedTrackCandidates(
+        candidates: List<DiscogsCompilationSummary>,
+        criteria: CompilationSearchCriteria,
+        token: String,
+        generation: Long,
+    ): List<DiscogsCompilationSummary> {
+        val song = criteria.trackTitle ?: return candidates
+        val verified = mutableListOf<DiscogsCompilationSummary>()
+        for (candidate in candidates) {
+            if (generation != searchGeneration) return emptyList()
+            val release = DiscogsClient.getRelease(token, candidate.id,
+                includeMasterVideos = false).getOrNull() ?: continue
+            if (generation != searchGeneration) return emptyList()
+            val formatLabels = release.formatDescriptions.ifEmpty { candidate.formats }
+            if (!criteria.mode.accepts(formatLabels)) continue
+            if (CompilationTitleOnlyPolicy.selectedTrackIndex(
+                    release.tracks, song, criteria.trackArtist) == null) continue
+            if (criteria.language != null &&
+                !CompilationLanguageHeuristics.matchesOrUnknown(
+                    criteria.language, release.tracks)) continue
+            verified.add(candidate)
+        }
+        return verified.distinctBy { it.id }
+    }
+
     // Results are painted progressively as each real Discogs release is checked.
     suspend fun loadPage(
         criteria: CompilationSearchCriteria,
@@ -400,7 +431,9 @@ internal fun CompilationScreen(
             style = criteria.style,
             country = criteria.country,
             page = page,
-            perPage = if (criteria.language == null) 100 else 25,
+            perPage = if (criteria.trackTitle != null) 12
+                else if (criteria.language == null) 100 else 25,
+            trackTitle = criteria.trackTitle,
             mode = criteria.mode,
         )
 
@@ -414,7 +447,9 @@ internal fun CompilationScreen(
             return false
         }
 
-        val visibleItems = filterByLanguage(pageResult.items, criteria.language, token, generation)
+        val visibleItems = if (criteria.trackTitle != null)
+            verifyIndexedTrackCandidates(pageResult.items, criteria, token, generation)
+        else filterByLanguage(pageResult.items, criteria.language, token, generation)
         if (generation != searchGeneration) return false
         // R36 behavior: show all releases returned by Discogs. No mandatory
         // tracklist/artist matching; keep the R38 stale-request generation gate.
@@ -544,6 +579,9 @@ internal fun CompilationScreen(
                     }
                     if (generation != searchGeneration) return@launch
                     if (succeeded) {
+                        finalCriteria = finalCriteria.copy(
+                            trackTitle = songTitle,
+                            trackArtist = playerRequest.artist)
                         results = verified.distinctBy { it.id }
                         query = finalCriteria.query
                         mode = finalCriteria.mode
