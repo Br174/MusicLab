@@ -573,15 +573,31 @@ internal fun CompilationScreen(
                         }
                     }
                     if (generation != searchGeneration) return@launch
-                    // Evidence-based sequential classification: no mixed list.
-                    if (succeeded && verified.isEmpty()) {
+                    // R52 Discogs indexes track titles independently of album names.
+                    // Only after the exact full-label and R46 cleaned q have
+                    // failed, query the REAL track index for Compilation first.
+                    // The player never mixes Album and Compilation automatically.
+                    if (succeeded && verified.isEmpty() && songTitle.isNotBlank()) {
+                        val compilationTracks = finalCriteria.copy(
+                            mode = DiscogsSearchMode.COMPILATION,
+                            trackTitle = songTitle, trackArtist = playerRequest.artist)
+                        succeeded = loadPage(compilationTracks, page = 1,
+                            replaceResults = true, token = token, generation = generation)
+                        if (succeeded && generation == searchGeneration) {
+                            finalCriteria = compilationTracks
+                            verified = results
+                        }
+                    }
+                    // R51 original sequential Album fallback remains a distinct
+                    // category. Its candidate list is also verified by tracklist.
+                    if (succeeded && verified.isEmpty() && songTitle.isNotBlank()) {
                         val albumOnly = finalCriteria.copy(mode = DiscogsSearchMode.ALBUM)
+                            .copy(trackTitle = songTitle, trackArtist = playerRequest.artist)
                         succeeded = loadPage(albumOnly, page = 1,
                             replaceResults = true, token = token, generation = generation)
                         if (succeeded && generation == searchGeneration) {
                             finalCriteria = albumOnly
-                            verified = confirmPlayerCandidates(results, token,
-                                songTitle, playerRequest.artist, generation)
+                            verified = results
                         }
                     }
                     if (generation != searchGeneration) return@launch
