@@ -53,8 +53,8 @@ test('R42 contextual next/previous updates persistent last-selected row reactive
 });
 test('R42 leaves verified Discogs original q search and R41 persistent memory',()=>{
  assert.match(comp,/query = criteria\.query,/);
- assert.match(comp,/perPage = if \(criteria\.trackTitle != null\) 12/);
- assert.match(comp,/else if \(criteria\.language == null\) 100 else 25/);
+ assert.match(comp,/perPage = if \(criteria\.language == null\) 100 else 25/);
+ assert.match(comp,/trackTitle = query\.takeIf\(String::isNotBlank\)\?\.let/);
  assert.match(hit,/MusicLabSectionMemory\.number\(/);
  assert.match(comp,/MusicLabCompilationSnapshot\.save\(/);
  assert.match(read('ui/component/DiscogsDirectVersionBrowser.kt'),/CoverRoundStorage\.load\(context, sessionKey\)/);
