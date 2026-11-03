@@ -3,7 +3,6 @@ package com.metrolist.music.playback
 import android.content.Context
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.ui.screens.search.MusicLabHitParadeDiscArtwork
-import com.metrolist.music.ui.component.MusicLabCompilationCoverBridge
 import java.security.MessageDigest
 
 /**
@@ -159,12 +158,6 @@ internal object CoverPlaybackMemory {
         if (historical != null)
             return if (metadata.thumbnailUrl == historical) metadata
                 else metadata.copy(thumbnailUrl = historical)
-        // R52: Discogs release sleeve overrides an unrelated YouTube thumbnail
-        // only while the SAME music item belongs to this Compilation/Album list.
-        val releaseSleeve = MusicLabCompilationCoverBridge.currentPlayerArtwork(context, metadata.id)
-        if (releaseSleeve != null)
-            return if (metadata.thumbnailUrl == releaseSleeve) metadata
-                else metadata.copy(thumbnailUrl = releaseSleeve)
         val pinned = pinnedVideoArtwork(context, metadata.id) ?: return metadata
         return if (metadata.thumbnailUrl == pinned) metadata else metadata.copy(thumbnailUrl = pinned)
     }
