@@ -52,7 +52,7 @@ e_old=git("show",BASE+":"+extra)
 e_new=Path(extra).read_text()
 start="internal fun parseAnnualSingles("
 assert (e_old.split(start,1)[1].split("    fun loadSaved(",1)[0].strip() ==
-        e_new.split(start,1)[1].split("    internal fun looksLikeCorruptAlbumSnapshot",1)[0].split("    /**",1)[0].strip()), "HPI source parsers changed"
+        e_new.split(start,1)[1].split("    /**\\n     * Older on-device R47",1)[0].strip()), "HPI source parsers changed"
 assert 'MusicLabHistoricalHitParade.load(selected)' in w_new
 assert 'MusicLabHistoricalHeaderTitle(' in w_new and 'MusicLabHistoricalHeaderTitle(' in e_new
 assert 'MusicLabHitParadeVideoMenu' in w_new and 'MusicLabHitParadeVideoMenu' in e_new
