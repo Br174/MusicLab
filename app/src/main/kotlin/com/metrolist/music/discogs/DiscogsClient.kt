@@ -127,14 +127,17 @@ internal object DiscogsClient {
             val url = "$API_BASE/database/search".toHttpUrl().newBuilder()
                 .addQueryParameter("type", "release")
                 .apply {
-                    // R54 lightweight Cover explores ALL publication formats,
-                    // including singles. Other three-source modes keep R51 strict.
+                    // When only one release format is selected, query it directly.
+                    // For combinations, use one indexed search and filter the returned formats.
                     if (!includeSingles) when (mode) {
                         DiscogsSearchMode.COMPILATION ->
                             addQueryParameter("format", "Compilation")
                         DiscogsSearchMode.ALBUM ->
                             addQueryParameter("format", "Album")
-                        DiscogsSearchMode.BOTH -> Unit
+                        DiscogsSearchMode.SINGLE ->
+                            addQueryParameter("format", "Single")
+                        DiscogsSearchMode.BOTH, DiscogsSearchMode.COMPILATION_SINGLE,
+                        DiscogsSearchMode.ALBUM_SINGLE, DiscogsSearchMode.ALL -> Unit
                     }
                 }
                 .addQueryParameter("page", page.coerceAtLeast(1).toString())
