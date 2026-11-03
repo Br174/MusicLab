@@ -2129,6 +2129,11 @@ class MusicService :
         }
         originalQueueSize = 0
         if (queue.preloadItem != null) {
+            // R56: every direct playlist/search/library start gets the same
+            // audio-first treatment as Play Now, before source preparation.
+            if (PlaybackSprintPolicy.shouldPrioritizeQueueStart(playWhenReady, restoringQueue)) {
+                beginPlaybackPriorityBurst("queue-preload-start")
+            }
             player.setMediaItem(queue.preloadItem!!.toMediaItem())
             player.prepare()
             player.playWhenReady = playWhenReady
@@ -2168,6 +2173,11 @@ class MusicService :
                     ),
                 )
             } else {
+                // R56: an asynchronously resolved playlist must protect audio
+                // immediately BEFORE media source preparation, not minutes earlier.
+                if (PlaybackSprintPolicy.shouldPrioritizeQueueStart(playWhenReady, restoringQueue)) {
+                    beginPlaybackPriorityBurst("queue-initial-start")
+                }
                 player.setMediaItems(
                     initialStatus.items,
                     if (initialStatus.mediaItemIndex > 0) initialStatus.mediaItemIndex else 0,
@@ -2510,6 +2520,9 @@ class MusicService :
     }
 
     private fun playSectionEffective(item: MediaItem, sectionTitle: String) {
+        // Shared service-side priority for Hit Parade, charts, genres and Compilation.
+        // Do not rely on any individual screen remembering to activate it.
+        beginPlaybackPriorityBurst("section-direct-start")
         ++queueRequestSerial
         pendingQueuePreparation?.cancel()
         pendingQueuePreparation = null
@@ -3145,6 +3158,16 @@ class MusicService :
             }
         }
         lastTransitionedMediaId = mediaItem?.mediaId
+        // R56: auto-advanced queue tracks need a fresh audio-first window too.
+        // Explicit taps already start the burst, so avoid duplicating those.
+        if (mediaItem != null &&
+            (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) &&
+            player.playWhenReady && !playbackPriorityBurstActive &&
+            castConnectionHandler?.isCasting?.value != true
+        ) {
+            beginPlaybackPriorityBurst("queue-auto-transition")
+        }
         // Applies saved manual recording to the next song of any existing queue.
         // A replacement ID has no second replacement, so transition cannot loop.
         mediaItem?.let { original ->
@@ -5297,10 +5320,12 @@ class MusicService :
     ): DataSource.Factory {
         return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
             val mediaId = stripQobuzCacheKeyPrefix(dataSpec.key ?: error("No media id"))
-            // R20 sprint lane: a *valid* signed URL already in memory needs no Room
-            // query before playback can begin. The URL cache enforces expiry and
-            // invalidation on playback error and quality/source changes.
-            if (playbackPriorityBurstActive && !mediaId.startsWith("local:") &&
+            // R56 GLOBAL: reuse a valid resolved stream for ALL sections and
+            // rebuffer/chunk requests, not only inside the first 15-second burst.
+            // Otherwise every later chunk does a Room read and may enter a slow
+            // optional-provider cascade before using the existing signed URL.
+            // StreamUrlCache enforces expiration; source/quality changes invalidate it.
+            if (!mediaId.startsWith("local:") &&
                 !bypassCacheForQualityChange.contains(mediaId)
             ) {
                 songUrlCache[mediaId]?.let { cachedStream ->
@@ -5326,10 +5351,10 @@ class MusicService :
 
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
 
-            // Player Veloce 2 fast stream lane. During an explicit playback burst,
-            // check already-ready YouTube/local cache state before any optional provider
-            // discovery. This keeps tap-to-audio independent from Qobuz lookup latency.
-            if (playbackPriorityBurstActive && !shouldBypassCache) {
+            // R56 GLOBAL: prefer downloaded/fully cached audio in every section,
+            // including resumed playback and network rebuffer after burst expiry.
+            // No provider discovery may delay usable cached audio.
+            if (!shouldBypassCache) {
                 val usePlayerCache = cachedEnableSongCache
                 val contentLength = storedFormat?.contentLength
                 val requiredLength =
