@@ -2,6 +2,7 @@ package com.metrolist.music.ui.component
 
 import android.content.Context
 import com.metrolist.music.discogs.DiscogsCompilationSummary
+import com.metrolist.music.discogs.DiscogsSearchMode
 import com.metrolist.music.playback.MusicLabSectionMemory
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,6 +25,7 @@ internal object MusicLabCompilationSnapshot {
         val selectedRelease: Int? = null,
         val selectedTrack: Int? = null,
         val openRelease: Int? = null,
+        val mode: DiscogsSearchMode = DiscogsSearchMode.BOTH,
     )
 
     private fun JSONObject.optional(key: String): String? =
@@ -53,7 +55,8 @@ internal object MusicLabCompilationSnapshot {
             summaries, root.optInt("page"), root.optInt("pages"), root.optInt("total"),
             root.optInt("selectedRelease").takeIf { it > 0 },
             root.optInt("selectedTrack").takeIf { it >= 0 && root.has("selectedTrack") },
-            root.optInt("openRelease").takeIf { it > 0 })
+            root.optInt("openRelease").takeIf { it > 0 },
+            DiscogsSearchMode.restored(root.optString("mode")))
     }.getOrDefault(Saved())
 
     fun save(context: Context, saved: Saved) {
@@ -64,6 +67,7 @@ internal object MusicLabCompilationSnapshot {
             put("style", saved.style)
             put("country", saved.country)
             put("language", saved.language)
+            put("mode", saved.mode.name)
             put("filtersExpanded", saved.filtersExpanded)
             put("page", saved.page)
             put("pages", saved.pages)
