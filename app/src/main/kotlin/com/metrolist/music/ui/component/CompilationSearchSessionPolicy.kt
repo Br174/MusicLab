@@ -2,6 +2,7 @@ package com.metrolist.music.ui.component
 
 import android.content.Context
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.metrolist.music.discogs.DiscogsSearchMode
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.safeDataStoreEdit
 import kotlinx.coroutines.flow.first
@@ -96,6 +97,7 @@ internal object CompilationSearchHistoryStore {
                         language = entry.optString("language").takeIf(String::isNotBlank),
                         trackTitle = title,
                         trackArtist = entry.optString("trackArtist").takeIf(String::isNotBlank),
+                        mode = DiscogsSearchMode.restored(entry.optString("mode")),
                     ))
                 }
             }
@@ -107,6 +109,7 @@ internal object CompilationSearchHistoryStore {
             entries.take(LIMIT).forEach { entry ->
                 put(JSONObject().apply {
                     put("query", entry.query)
+                    put("mode", entry.mode.name)
                     entry.year?.let { put("year", it) }
                     entry.genre?.let { put("genre", it) }
                     entry.style?.let { put("style", it) }
