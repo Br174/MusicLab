@@ -44,16 +44,16 @@ test('R52: only verified actual tracklist matches are displayed for song searche
   assert.ok(ui.includes('Cerca nei dischi successivi'));
 });
 
-test('R52: player first tries verbatim full-q, then compilation track index, then album track index', () => {
-  const a=ui.indexOf('// R51 automatic player route:');
-  const b=ui.indexOf('if (!succeeded && generation == searchGeneration)',a);
-  const chain=ui.slice(a,b);
-  assert.ok(chain.includes('val alternative = criteria.copy(query = fallback)'));
-  assert.ok(chain.includes('mode = DiscogsSearchMode.COMPILATION,'));
-  assert.ok(chain.includes('trackTitle = songTitle'));
-  assert.ok(chain.includes('finalCriteria.copy(mode = DiscogsSearchMode.ALBUM)'));
-  assert.ok(chain.includes('results = verified.distinctBy { it.id }'));
-  assert.ok(!chain.includes('DiscogsSearchMode.BOTH'));
+test('R53: poster is untouched until the user explicitly picks Cerca or Titolo', () => {
+  const a=ui.indexOf('LaunchedEffect(trackRequest?.requestId');
+  const b=ui.indexOf('fun loadNextPage(',a);
+  const nav=ui.slice(a,b);
+  assert.ok(nav.includes('query = target.title'));
+  assert.ok(!nav.includes('runSearch('));
+  assert.ok(!nav.includes('CompilationFallbackQueryPolicy'));
+  assert.ok(!ui.includes('finalCriteria.copy(mode = DiscogsSearchMode.ALBUM)'));
+  assert.ok(ui.includes('onClick = { runSearch() }'));
+  assert.ok(ui.includes('Text("Titolo")'));
 });
 
 test('R52: opened release highlights and scrolls to corresponding track without playing it', () => {
@@ -66,18 +66,19 @@ test('R52: opened release highlights and scrolls to corresponding track without 
   assert.ok(!open.includes('playTrack(') && !open.includes('.playNow('));
 });
 
-test('R52: current Discogs cover takes priority over YouTube thumbnail in mini and expanded players', () => {
+test('R53: retain Discogs release list/detail covers but restore R51 player untouched', () => {
   assert.ok(ui.includes('MusicLabCompilationCoverBridge.remember(context, summary.id'));
-  assert.ok(ui.includes('MusicLabCompilationCoverBridge.mediaItem('));
-  assert.ok(artwork.includes('snapshot.source.startsWith("Compilation · ")'));
   assert.ok(artwork.includes('getSharedPreferences(PREFS, Context.MODE_PRIVATE)'));
-  assert.ok(player.includes('MusicLabCompilationCoverBridge.currentPlayerArtwork(context, metadata.id)'));
   assert.ok(player.includes('MusicLabHitParadeDiscArtwork.currentPlayerArtwork(context, metadata.id)'));
-  assert.ok(!artwork.includes('.prepare(') && !artwork.includes('.seekTo(') && !artwork.includes('.playNow('));
+  assert.ok(!player.includes('MusicLabCompilationCoverBridge.currentPlayerArtwork'));
+  assert.ok(!ui.includes('MusicLabCompilationCoverBridge.mediaItem('));
+  assert.ok(ui.includes('selected = found.song.toMediaItem(),'));
+  assert.ok(ui.includes('resolveTrack(trackIndex, current)?.song?.toMediaItem()'));
 });
 
 test('R52: user modes and prior R50 Hit Parade artwork stay intact', () => {
-  assert.ok(ui.includes('label = "Categoria"'));
+  assert.ok(ui.includes('label = ""'));
+  assert.ok(ui.includes('selected = mode.label'));
   assert.ok(ui.includes('CompilationUnifiedStyleFilter.options('));
   assert.ok(snap.includes('put("trackTitle", saved.trackTitle)'));
   assert.ok(snap.includes('put("trackArtist", saved.trackArtist)'));
