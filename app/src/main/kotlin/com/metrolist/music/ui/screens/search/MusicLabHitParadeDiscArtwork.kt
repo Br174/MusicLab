@@ -1,6 +1,7 @@
 package com.metrolist.music.ui.screens.search
 
 import android.content.Context
+import androidx.media3.common.MediaItem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -296,6 +297,14 @@ internal object MusicLabHitParadeDiscArtwork {
         val chosen = if (album) RecordIdentity(title, artist) else identity(context, title, artist)
         return saved(context, chosen.title, chosen.artist, album)
             ?: if (album) null else fallback(context, title, artist)
+    }
+
+    /** Seed both native artwork metadata and the list from the same verified URL. */
+    fun playableMediaItem(context: Context, title: String, artist: String,
+                          song: SongItem): MediaItem {
+        val sleeve = artwork(context, title, artist, album = false)
+        return if (sleeve == null) song.toMediaItem()
+        else song.toMediaMetadata().copy(thumbnailUrl = sleeve).toMediaItem()
     }
 
     /**
