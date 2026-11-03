@@ -25,8 +25,10 @@ internal object CompilationTitleOnlyPolicy {
             val pair = leadingArtist.matchEntire(value)
             // Standard visible MusicLab/YouTube "artist - title". Do not
             // throw away a real title when its suffix is just an edition tag.
-            if (pair != null && !editionTail.matches(pair.groupValues[2].trim())) {
-                value = pair.groupValues[2].trim()
+            if (pair != null) {
+                value = if (editionTail.matches(pair.groupValues[2].trim()))
+                    pair.groupValues[1].trim()
+                else pair.groupValues[2].trim()
             }
         }
         repeat(3) {
