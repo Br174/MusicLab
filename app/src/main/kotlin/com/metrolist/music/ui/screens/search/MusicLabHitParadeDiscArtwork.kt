@@ -205,7 +205,7 @@ internal object MusicLabHitParadeDiscArtwork {
                 .getOrNull()?.tracks?.items.orEmpty().firstNotNullOfOrNull { candidate ->
                     val performer = candidate.artists.joinToString(" ") { it.name }
                     if (!sameRecord(title, artist, candidate.name, performer)) null
-                    else candidate.album.images.firstNotNullOfOrNull { safeImage(it.url) }
+                    else candidate.album?.images?.firstNotNullOfOrNull { safeImage(it.url) }
                         ?.let { Disc(it, performer) }
                 }
         }
