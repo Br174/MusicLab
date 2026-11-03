@@ -370,31 +370,6 @@ internal fun CompilationScreen(
     // Verify the actual release tracklist before showing it as containing the song.
     // Only the Player -> Compilation route needs tracklist confirmation.
     // Generic/manual R39 search remains broad, without this additional network check.
-    suspend fun confirmPlayerCandidates(
-        candidates: List<DiscogsCompilationSummary>,
-        token: String,
-        songTitle: String,
-        artist: String,
-        generation: Long,
-    ): List<DiscogsCompilationSummary> {
-        val confirmed = mutableListOf<DiscogsCompilationSummary>()
-        for (candidate in candidates.take(12)) {
-            if (generation != searchGeneration) return emptyList()
-            val release = DiscogsClient.getRelease(token, candidate.id,
-                includeMasterVideos = false).getOrNull() ?: continue
-            if (generation != searchGeneration) return emptyList()
-            if (release.tracks.any { track ->
-                    CompilationTrackMatchPolicy.matches(
-                        track.copy(title = CompilationSearchTitlePolicy.clean(track.title)),
-                        songTitle, artist)
-                }) {
-                confirmed.add(candidate)
-            }
-            if (confirmed.size >= 8) break
-        }
-        return confirmed.distinctBy { it.id }
-    }
-
     /**
      * R52 title-only search must be backed by an actual Discogs tracklist.
      * Fetch lightweight release data only for candidates of the indexed
@@ -495,8 +470,7 @@ internal fun CompilationScreen(
             criteria.trackArtist.orEmpty()).joinToString("|")
 
     fun runSearch(requestedCriteria: CompilationSearchCriteria? = null,
-                  resumeInterrupted: Boolean = false,
-                  playerRequest: CompilationTrackRequest? = null) {
+                  resumeInterrupted: Boolean = false) {
         val criteria = requestedCriteria ?: CompilationSearchCriteria(
             query = query.trim(),
             year = year,
@@ -555,78 +529,9 @@ internal fun CompilationScreen(
                 resultListState.scrollToItem(0)
                 var succeeded = loadPage(criteria, page = 1, replaceResults = true,
                     token = token, generation = generation)
-                // R51 automatic player route: use ONE Discogs category at a time.
-                // First check verified compilation tracklists. If none match,
-                // try a cleaned query, then try Album separately. Never mix
-                // results or silently enable the user-only Entrambi mode.
-                var finalCriteria = criteria
-                if (succeeded && generation == searchGeneration && playerRequest != null) {
-                    val songTitle = CompilationFallbackQueryPolicy.songTitle(
-                        playerRequest.title, playerRequest.artist)
-                    var verified = confirmPlayerCandidates(
-                        results, token, songTitle, playerRequest.artist, generation)
-                    if (generation != searchGeneration) return@launch
-                    val fallback = CompilationFallbackQueryPolicy.query(
-                        playerRequest.title, playerRequest.artist)
-                    if (verified.isEmpty() && fallback != null &&
-                        fallback != finalCriteria.query) {
-                        val alternative = criteria.copy(query = fallback)
-                        succeeded = loadPage(alternative, page = 1,
-                            replaceResults = true, token = token, generation = generation)
-                        if (succeeded && generation == searchGeneration) {
-                            finalCriteria = alternative
-                            verified = confirmPlayerCandidates(results, token,
-                                songTitle, playerRequest.artist, generation)
-                        }
-                    }
-                    if (generation != searchGeneration) return@launch
-                    // R52 Discogs indexes track titles independently of album names.
-                    // Only after the exact full-label and R46 cleaned q have
-                    // failed, query the REAL track index for Compilation first.
-                    // The player never mixes Album and Compilation automatically.
-                    if (succeeded && verified.isEmpty() && songTitle.isNotBlank()) {
-                        val compilationTracks = finalCriteria.copy(
-                            mode = DiscogsSearchMode.COMPILATION,
-                            trackTitle = songTitle, trackArtist = playerRequest.artist)
-                        succeeded = loadPage(compilationTracks, page = 1,
-                            replaceResults = true, token = token, generation = generation)
-                        if (succeeded && generation == searchGeneration) {
-                            finalCriteria = compilationTracks
-                            verified = results
-                        }
-                    }
-                    // R51 original sequential Album fallback remains a distinct
-                    // category. Its candidate list is also verified by tracklist.
-                    if (succeeded && verified.isEmpty() && songTitle.isNotBlank()) {
-                        val albumOnly = finalCriteria.copy(mode = DiscogsSearchMode.ALBUM)
-                            .copy(trackTitle = songTitle, trackArtist = playerRequest.artist)
-                        succeeded = loadPage(albumOnly, page = 1,
-                            replaceResults = true, token = token, generation = generation)
-                        if (succeeded && generation == searchGeneration) {
-                            finalCriteria = albumOnly
-                            verified = results
-                        }
-                    }
-                    if (generation != searchGeneration) return@launch
-                    if (succeeded) {
-                        finalCriteria = finalCriteria.copy(
-                            trackTitle = songTitle,
-                            trackArtist = playerRequest.artist)
-                        results = verified.distinctBy { it.id }
-                        query = finalCriteria.query
-                        mode = finalCriteria.mode
-                        activeSearch = finalCriteria
-                        CompilationSessionStore.activeSearch = finalCriteria
-                        // Player-only verified list has no unverified pagination.
-                        currentPage = 1
-                        totalPages = 1
-                        totalDiscogsResults = results.size
-                        CompilationSessionStore.results = results
-                        CompilationSessionStore.currentPage = currentPage
-                        CompilationSessionStore.totalPages = totalPages
-                        CompilationSessionStore.totalDiscogsResults = totalDiscogsResults
-                    }
-                }
+                // R53: no automatic query rewriting or Album fallback.
+                // User controls the exact source query through Cerca,
+                // or chooses the Discogs track index through Titolo.
                 if (!succeeded && generation == searchGeneration) {
                     activeSearch = null
                     CompilationSessionStore.activeSearch = null
@@ -655,25 +560,41 @@ internal fun CompilationScreen(
         }
     }
 
-    // A fresh player action must start a fresh search even with singleTop screen
-    // reuse and even when the same song is selected again.
+    // R53: Player/locandina navigation ONLY fills the unchanged original title.
+    // No search, rewrite, fallback or player mutation runs until the user taps
+    // Cerca (verbatim) or Titolo (explicit cleaned track title).
     LaunchedEffect(trackRequest?.requestId) {
-        trackRequest?.let { target ->
-            val fullVideoTitle = target.title.trim()
-            query = fullVideoTitle
-            year = null
-            genre = null
-            style = null
-            country = null
-            language = null
-            mode = DiscogsSearchMode.COMPILATION
-            runSearch(CompilationSearchCriteria(
-                query = fullVideoTitle, year = null, genre = null, style = null,
-                country = null, language = null,
-                trackTitle = null, trackArtist = null,
-                mode = DiscogsSearchMode.COMPILATION,
-            ), playerRequest = target)
-        }
+        val target = trackRequest ?: return@LaunchedEffect
+        searchGeneration += 1
+        searchJob?.cancel()
+        paginationJob?.cancel()
+        fullAudioLookupJob?.cancel()
+        loading = false
+        loadingMore = false
+        error = null
+        paginationError = null
+        detail = null
+        openReleaseId = null
+        fullAudio = null
+        selectedReleaseId = null
+        selectedTrackIndex = null
+        resolvedTracks.clear()
+        CompilationSessionStore.resetForNewSearch()
+        CompilationSessionStore.selectedReleaseId = null
+        activeSearch = null
+        results = emptyList()
+        currentPage = 0
+        totalPages = 0
+        totalDiscogsResults = 0
+        activeSearchToken = ""
+        query = target.title // preserve EXACT label from the locandina
+        year = null
+        genre = null
+        style = null
+        country = null
+        language = null
+        mode = DiscogsSearchMode.COMPILATION
+        resultListState.scrollToItem(0)
     }
 
     fun loadNextPage() {
@@ -711,7 +632,9 @@ internal fun CompilationScreen(
 
     // A page interrupted by a screen switch resumes once, using the saved
     // filters and cursor. Completed pages stay cached and do not restart.
-    LaunchedEffect(tokenState.loaded, discogsToken) {
+    LaunchedEffect(tokenState.loaded, discogsToken, trackRequest?.requestId) {
+        // A just-arrived poster title deliberately waits for the two buttons.
+        if (trackRequest != null) return@LaunchedEffect
         if (!tokenState.loaded || discogsToken.isBlank()) return@LaunchedEffect
         val criteria = activeSearch
         if (criteria != null && currentPage > 0) {
