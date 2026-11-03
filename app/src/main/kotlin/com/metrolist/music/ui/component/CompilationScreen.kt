@@ -174,7 +174,10 @@ internal fun CompilationScreen(
                 if (saved.page > 0 && saved.results.isNotEmpty()) {
                     CompilationSessionStore.activeSearch = CompilationSearchCriteria(
                         saved.query, saved.year, saved.genre, saved.style,
-                        saved.country, saved.language, mode = saved.mode)
+                        saved.country, saved.language,
+                        trackTitle = saved.trackTitle,
+                        trackArtist = saved.trackArtist,
+                        mode = saved.mode)
                 }
             }
         }
@@ -280,6 +283,7 @@ internal fun CompilationScreen(
     val latestCompilationSnapshot = rememberUpdatedState(MusicLabCompilationSnapshot.Saved(
         query = query, year = year, genre = genre, style = style,
         country = country, language = language, filtersExpanded = filtersExpanded, mode = mode,
+        trackTitle = activeSearch?.trackTitle, trackArtist = activeSearch?.trackArtist,
         results = results, page = currentPage, pages = totalPages,
         total = totalDiscogsResults, selectedRelease = selectedReleaseId,
         selectedTrack = selectedTrackIndex, openRelease = openReleaseId,
@@ -304,13 +308,14 @@ internal fun CompilationScreen(
         }
     }
     LaunchedEffect(query, year, genre, style, country, language, mode, filtersExpanded,
-        results, currentPage, totalPages, totalDiscogsResults, selectedReleaseId,
+        activeSearch, results, currentPage, totalPages, totalDiscogsResults, selectedReleaseId,
         selectedTrackIndex, openReleaseId) {
         // Coalesce edits and list pagination, never persist the Discogs token.
         delay(350)
         MusicLabCompilationSnapshot.save(context, MusicLabCompilationSnapshot.Saved(
             query = query, year = year, genre = genre, style = style,
             country = country, language = language, filtersExpanded = filtersExpanded, mode = mode,
+            trackTitle = activeSearch?.trackTitle, trackArtist = activeSearch?.trackArtist,
             results = results, page = currentPage, pages = totalPages,
             total = totalDiscogsResults, selectedRelease = selectedReleaseId,
             selectedTrack = selectedTrackIndex, openRelease = openReleaseId,
@@ -437,7 +442,8 @@ internal fun CompilationScreen(
         listOf(criteria.query, criteria.year?.toString().orEmpty(),
             criteria.genre.orEmpty(), criteria.style.orEmpty(),
             criteria.country.orEmpty(), criteria.language.orEmpty(),
-            criteria.mode.name).joinToString("|")
+            criteria.mode.name, criteria.trackTitle.orEmpty(),
+            criteria.trackArtist.orEmpty()).joinToString("|")
 
     fun runSearch(requestedCriteria: CompilationSearchCriteria? = null,
                   resumeInterrupted: Boolean = false,
@@ -652,7 +658,10 @@ internal fun CompilationScreen(
             }
         } else if (query.isNotBlank() && results.isEmpty() && !loading) {
             val restoreCriteria = CompilationSearchCriteria(
-                query.trim(), year, genre, style, country, language, mode = mode)
+                query.trim(), year, genre, style, country, language,
+                trackTitle = restored.trackTitle,
+                trackArtist = restored.trackArtist,
+                mode = mode)
             val workKey = searchIdentity(restoreCriteria)
             val saved = MusicLabSectionWorkCheckpoint.read(context,
                 "compilation:search", workKey)
@@ -1047,6 +1056,29 @@ internal fun CompilationScreen(
                                             enabled = !loading,
                                         ) {
                                             Text(if (loading) "…" else "Cerca")
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                // Explicit Titolo changes the field to ONE
+                                                // cleaned track title; Cerca never does.
+                                                val cleaned = CompilationTitleOnlyPolicy.title(
+                                                    query, trackRequest?.artist)
+                                                if (cleaned.isNotBlank()) {
+                                                    query = cleaned
+                                                    trackRequest = null
+                                                    runSearch(CompilationSearchCriteria(
+                                                        query = cleaned,
+                                                        year = year, genre = genre,
+                                                        style = style, country = country,
+                                                        language = language, mode = mode,
+                                                        trackTitle = cleaned,
+                                                        trackArtist = null,
+                                                    ))
+                                                }
+                                            },
+                                            enabled = !loading && query.isNotBlank(),
+                                        ) {
+                                            Text("Titolo")
                                         }
                                     }
                                 }
