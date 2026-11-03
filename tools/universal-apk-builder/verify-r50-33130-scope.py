@@ -50,7 +50,9 @@ end="@OptIn(ExperimentalMaterial3Api::class)"
 assert w_old.split(anchor,1)[1].split(end,1)[0] == w_new.split(anchor,1)[1].split(end,1)[0], "Original HPI weekly parser changed"
 e_old=git("show",BASE+":"+extra)
 e_new=Path(extra).read_text()
-assert e_old.split(end,1)[0] == e_new.split(end,1)[0], "Original HPI album/year source parsers changed"
+start="internal fun parseAnnualSingles("
+assert (e_old.split(start,1)[1].split("    fun loadSaved(",1)[0].strip() ==
+        e_new.split(start,1)[1].split("    internal fun looksLikeCorruptAlbumSnapshot",1)[0].split("    /**",1)[0].strip()), "HPI source parsers changed"
 assert 'MusicLabHistoricalHitParade.load(selected)' in w_new
 assert 'MusicLabHistoricalHeaderTitle(' in w_new and 'MusicLabHistoricalHeaderTitle(' in e_new
 assert 'MusicLabHitParadeVideoMenu' in w_new and 'MusicLabHitParadeVideoMenu' in e_new
