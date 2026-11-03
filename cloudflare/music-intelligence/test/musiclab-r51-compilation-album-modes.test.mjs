@@ -50,7 +50,8 @@ test('R51: player verifies one category at a time; Album only after no Compilati
 
 test('R51: mode participates in pagination, resume, state, history and source-safe search', () => {
   assert.match(ui,/mode = criteria\.mode/);
-  assert.match(ui,/criteria\.mode\.name\)\.joinToString\("\|"\)/);
+  assert.match(ui,/criteria\.mode\.name, criteria\.trackTitle\.orEmpty\(\)/);
+  assert.match(ui,/criteria\.trackArtist\.orEmpty\(\)\)\.joinToString\("\|"\)/);
   assert.match(snap,/put\("mode", saved\.mode\.name\)/);
   assert.match(snap,/DiscogsSearchMode\.restored\(root\.optString\("mode"\)\)/);
   assert.match(history,/put\("mode", entry\.mode\.name\)/);
