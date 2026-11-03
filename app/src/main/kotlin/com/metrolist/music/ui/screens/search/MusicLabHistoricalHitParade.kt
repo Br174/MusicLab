@@ -696,7 +696,10 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
     }
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Hit Parade Italiana") }, navigationIcon = {
+        TopAppBar(title = {
+            MusicLabHistoricalHeaderTitle(selectedMode,
+                chart?.week?.millis ?: selected.timeInMillis)
+        }, navigationIcon = {
             IconButton(onClick = { navController.navigateUp() }) {
                 Icon(painter = painterResource(R.drawable.arrow_back),
                     contentDescription = "Indietro")
