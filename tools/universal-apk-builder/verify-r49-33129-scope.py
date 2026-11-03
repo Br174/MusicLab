@@ -46,7 +46,7 @@ for path in (weekly,extra):
         'TopAppBar(title = {\n            MusicLabHistoricalHeaderTitle('+(
           'selectedMode,\n                chart?.week?.millis ?: selected.timeInMillis'
           if path == weekly else 'mode,\n                chart?.actualDate ?: selectedMillis'
-        )+'\n        }, navigationIcon = {',old) == before, "Unexpected edits to "+path
+        )+'\n        }, navigationIcon = {',old).strip() == before, "Unexpected edits to "+path
 
 subprocess.run(["git","diff","--check",BASE,"HEAD"],check=True)
 print("[R49] Only header and tests updated; parser, playback, video choices, cover sources and signature preserved.")
