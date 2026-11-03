@@ -1014,7 +1014,7 @@ internal fun CompilationScreen(
                                                 Box(contentAlignment = Alignment.CenterStart) {
                                                     if (query.isEmpty()) {
                                                         Text(
-                                                            "Cerca compilation",
+                                                            "Cerca album o compilation",
                                                             style = MaterialTheme.typography.bodyMedium,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                             maxLines = 1,
@@ -1116,11 +1116,16 @@ internal fun CompilationScreen(
                                         onSelect = { year = it.takeUnless { value -> value == "Tutto" }?.toIntOrNull() },
                                     )
                                     CompilationFilterDropdown(
-                                        label = "Genere",
-                                        selected = genre ?: "Tutto",
-                                        options = compilationGenres,
+                                        label = "Categoria",
+                                        selected = mode.label,
+                                        options = DiscogsSearchMode.entries.map { it.label },
                                         modifier = Modifier.weight(1f),
-                                        onSelect = { genre = it.takeUnless { value -> value == "Tutto" } },
+                                        onSelect = { selected ->
+                                            mode = DiscogsSearchMode.entries.firstOrNull {
+                                                it.label == selected
+                                            } ?: DiscogsSearchMode.COMPILATION
+                                            trackRequest = null
+                                        },
                                     )
                                 }
 
@@ -1130,10 +1135,15 @@ internal fun CompilationScreen(
                                 ) {
                                     CompilationFilterDropdown(
                                         label = "Stile",
-                                        selected = style ?: "Tutto",
-                                        options = compilationStyles,
+                                        selected = CompilationUnifiedStyleFilter.label(genre, style),
+                                        options = CompilationUnifiedStyleFilter.options(
+                                            compilationGenres, compilationStyles),
                                         modifier = Modifier.weight(1f),
-                                        onSelect = { style = it.takeUnless { value -> value == "Tutto" } },
+                                        onSelect = {
+                                            val picked = CompilationUnifiedStyleFilter.parse(it)
+                                            genre = picked.first
+                                            style = picked.second
+                                        },
                                     )
                                     CompilationFilterDropdown(
                                         label = "Nazione",
@@ -1157,7 +1167,11 @@ internal fun CompilationScreen(
                                     enabled = !loading,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    Text(if (loading) "Ricerca…" else "Cerca compilation")
+                                    Text(if (loading) "Ricerca…" else when (mode) {
+                                        DiscogsSearchMode.COMPILATION -> "Cerca compilation"
+                                        DiscogsSearchMode.ALBUM -> "Cerca album"
+                                        DiscogsSearchMode.BOTH -> "Cerca album e compilation"
+                                    })
                                 }
                             }
 
@@ -1198,7 +1212,7 @@ internal fun CompilationScreen(
                         } else if (!loading && activeSearch != null && totalDiscogsResults == 0) {
                             item {
                                 Text(
-                                    "Nessuna compilation trovata con questi criteri.",
+                                    "Nessun risultato per ${activeSearch?.mode?.label?.lowercase() ?: "la categoria"} con questi criteri.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1263,7 +1277,7 @@ internal fun CompilationScreen(
                                         if (activeSearch?.language == null) {
                                             "Tutti i risultati Discogs disponibili sono stati caricati: ${results.size}."
                                         } else {
-                                            "Fine risultati Discogs · ${results.size} compilation visibili con il filtro Lingua."
+                                            "Fine risultati Discogs · ${results.size} dischi visibili con il filtro Lingua."
                                         },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
