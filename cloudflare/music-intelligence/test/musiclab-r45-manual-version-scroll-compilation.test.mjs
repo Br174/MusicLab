@@ -31,9 +31,11 @@ test('selection reactivity does not animate restored viewport', () => {
   assert.match(hit, /chart == null && restorePending/);
   assert.match(hit, /MusicLabListPositionStore.flush\(positionKey\)/);
 });
-test('Compilation automatic fallback remains player-specific and retains broad R39 q search', () => {
-  assert.match(comp, /succeeded && generation == searchGeneration && playerRequest != null/);
-  assert.match(comp, /CompilationFallbackQueryPolicy.query/);
-  assert.match(comp, /criteria.copy\(query = fallback\)/);
+test('R53 retires automatic Compilation fallback and preserves original broad q search', () => {
+  const nav = comp.slice(comp.indexOf('LaunchedEffect(trackRequest?.requestId'), comp.indexOf('fun loadNextPage('));
+  assert.match(nav, /query = target.title/);
+  assert.doesNotMatch(nav, /runSearch\(/);
+  assert.doesNotMatch(comp, /criteria.copy\(query = fallback\)/);
+  assert.match(comp, /onClick = \{ runSearch\(\) \}/);
   assert.match(comp, /else if \(criteria.language == null\) 100 else 25/);
 });
