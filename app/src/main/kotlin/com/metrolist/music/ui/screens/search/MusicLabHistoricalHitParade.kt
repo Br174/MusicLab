@@ -763,13 +763,8 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                         resolving = song.rank
                         scope.launch {
                             try {
-                                val match = MusicLabFastPath.find(song.title, song.artist) { item ->
-                                    MusicLabChartArtworkResolver.sameRecordingLabel(
-                                        song.title, song.artist, item)
-                                } ?: MusicLabTrackRecovery.find(song.title, song.artist) { item ->
-                                    MusicLabChartArtworkResolver.sameRecordingLabel(
-                                        song.title, song.artist, item)
-                                }
+                                val match = MusicLabHitParadeVideoResolver.find(
+                                    context, song.title, song.artist)
                                 if (myTap != tapSerial) return@launch
                                 if (match != null) {
                                     player?.beginPlaybackPriorityBurst("hit-parade-tap")
@@ -792,10 +787,8 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                                             selectedIndex = position,
                                             selected = match.toMediaItem(),
                                             findPlayable = { entry ->
-                                                MusicLabTrackRecovery.find(entry.title, entry.artist) { candidate ->
-                                                    MusicLabChartArtworkResolver.sameRecordingLabel(
-                                                        entry.title, entry.artist, candidate)
-                                                }?.toMediaItem()
+                                                MusicLabHitParadeVideoResolver.find(context,
+                                                    entry.title, entry.artist)?.toMediaItem()
                                             },
                                             selectionKey = positionKey,
                                         )
@@ -831,6 +824,7 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                         }
                         if (resolving == song.rank)
                             CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        MusicLabHitParadeVideoMenu(song.title, song.artist)
                     }
                 }
             }
