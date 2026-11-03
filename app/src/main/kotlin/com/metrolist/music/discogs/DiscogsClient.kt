@@ -120,11 +120,20 @@ internal object DiscogsClient {
         page: Int = 1,
         perPage: Int = 100,
         trackTitle: String? = null,
+        mode: DiscogsSearchMode = DiscogsSearchMode.COMPILATION,
     ): Result<DiscogsCompilationPage> = withContext(Dispatchers.IO) {
         runCatching {
             val url = "$API_BASE/database/search".toHttpUrl().newBuilder()
                 .addQueryParameter("type", "release")
-                .addQueryParameter("format", "Compilation")
+                .apply {
+                    when (mode) {
+                        DiscogsSearchMode.COMPILATION ->
+                            addQueryParameter("format", "Compilation")
+                        DiscogsSearchMode.ALBUM ->
+                            addQueryParameter("format", "Album")
+                        DiscogsSearchMode.BOTH -> Unit
+                    }
+                }
                 .addQueryParameter("page", page.coerceAtLeast(1).toString())
                 .addQueryParameter("per_page", perPage.coerceIn(1, 100).toString())
                 .apply {
@@ -143,6 +152,10 @@ internal object DiscogsClient {
             val summaries = buildList {
                 for (index in 0 until results.length()) {
                     val item = results.optJSONObject(index) ?: continue
+                    val formats = item.stringList("format")
+                    // Mixed searches retain real discographic albums and
+                    // compilations; EP/single-only releases stay out.
+                    if (!mode.accepts(formats)) continue
                     add(
                         DiscogsCompilationSummary(
                             id = item.optInt("id").takeIf { it > 0 } ?: continue,
@@ -150,7 +163,7 @@ internal object DiscogsClient {
                             title = item.optString("title").cleanDiscogsText(),
                             year = item.optInt("year").takeIf { it in 1900..3000 },
                             country = item.optString("country").takeIf(String::isNotBlank),
-                            formats = item.stringList("format"),
+                            formats = formats,
                             genres = item.stringList("genre"),
                             styles = item.stringList("style"),
                             labels = item.stringList("label"),
