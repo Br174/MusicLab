@@ -44,8 +44,8 @@ for path in (weekly,extra):
     assert after.count(old)==0
     assert after.replace(
         'TopAppBar(title = {\n            MusicLabHistoricalHeaderTitle('+(
-          'selectedMode,\n                chart?.week?.millis ?: selected.timeInMillis'
-          if path == weekly else 'mode,\n                chart?.actualDate ?: selectedMillis'
+          'selectedMode,\n                chart?.week?.millis ?: selected.timeInMillis)'
+          if path == weekly else 'mode,\n                chart?.actualDate ?: selectedMillis)'
         )+'\n        }, navigationIcon = {',old).strip() == before, "Unexpected edits to "+path
 
 subprocess.run(["git","diff","--check",BASE,"HEAD"],check=True)
