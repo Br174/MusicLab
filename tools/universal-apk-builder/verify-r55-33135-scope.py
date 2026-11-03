@@ -10,6 +10,7 @@ EXPECTED={
     P+"discogs/DiscogsClient.kt",
     P+"ui/component/CompilationScreen.kt",
     "app/src/test/kotlin/com/metrolist/music/discogs/DiscogsSearchModeTest.kt",
+    "cloudflare/music-intelligence/test/musiclab-r39-compilation-legacy-search.test.mjs",
     "cloudflare/music-intelligence/test/musiclab-r51-compilation-album-modes.test.mjs",
     "cloudflare/music-intelligence/test/musiclab-r52-discogs-tracklist-verified.test.mjs",
     "cloudflare/music-intelligence/test/musiclab-r53-manual-title-player-restored.test.mjs",
