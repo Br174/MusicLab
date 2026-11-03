@@ -35,5 +35,5 @@ test('Compilation automatic fallback remains player-specific and retains broad R
   assert.match(comp, /succeeded && generation == searchGeneration && playerRequest != null/);
   assert.match(comp, /CompilationFallbackQueryPolicy.query/);
   assert.match(comp, /criteria.copy\(query = fallback\)/);
-  assert.match(comp, /perPage = if \(criteria.language == null\) 100 else 25/);
+  assert.match(comp, /else if \(criteria.language == null\) 100 else 25/);
 });
