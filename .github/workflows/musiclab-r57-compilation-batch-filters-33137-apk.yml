@@ -1,0 +1,447 @@
+# R57: restore instant Discogs batch display, correct filters-only searches, preserve R56 audio.
+# R47 adds four official HPI chart types; original weekly singles/album and R46 preserved.
+# Final approved gate includes Spotify Library lifecycle, completed cache, Cover native continuity and signed identity.
+name: MusicLab R57 Compilation Batch Results 33137
+on:
+  push:
+    branches:
+      - lab/musiclab-r57-compilation-batch-results-filters-33137-20261103
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: musiclab-r57-compilation-batch-33137-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: MotorLab active update-family guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/motorlab-active-guard.mjs --self-test
+          node scripts/motorlab-active-guard.mjs
+      - name: R57 exact-source, filters-only and no-player-change gate
+        run: python3 tools/universal-apk-builder/verify-r57-33137-scope.py
+      - name: Spotify and YouTube Music filtering and regression contracts
+        run: |
+          node --test cloudflare/music-intelligence/test/turbo-r25-library-spotify-first.test.mjs cloudflare/music-intelligence/test/turbo-r25-partial-cycle-audio.test.mjs cloudflare/music-intelligence/test/turbo-r28-search-explore.test.mjs cloudflare/music-intelligence/test/turbo-r29-verified-charts.test.mjs cloudflare/music-intelligence/test/turbo-r30-lastfm-credentials.test.mjs cloudflare/music-intelligence/test/turbo-r31-chart-artwork.test.mjs cloudflare/music-intelligence/test/turbo-r26-chart-artwork-insets.test.mjs cloudflare/music-intelligence/test/turbo-r25-spotify-first-charts-restored.test.mjs cloudflare/music-intelligence/test/turbo-r24-qobuz-anr.test.mjs cloudflare/music-intelligence/test/scudo-r40-class-evidence-real.test.mjs cloudflare/music-intelligence/test/turbo-r27-artwork-coverage-playback.test.mjs cloudflare/music-intelligence/test/turbo-r28-real-chart-album-artwork.test.mjs cloudflare/music-intelligence/test/musiclab-r35-player-ui-sync.test.mjs cloudflare/music-intelligence/test/musiclab-r36-fastpath-hitparade-compilation.test.mjs
+      - name: R41 persistent section memory and no player side-effects
+        run: node --test cloudflare/music-intelligence/test/musiclab-r41-section-memory.test.mjs
+      - name: R42 audio start, seek and reactive selection regressions
+        run: node --test cloudflare/music-intelligence/test/musiclab-r42-audio-seek-selection.test.mjs
+      - name: R39 broad R36 search and button transfer regression contracts
+        run: node --test cloudflare/music-intelligence/test/musiclab-r39-compilation-legacy-search.test.mjs
+      - name: R43 Compilation visible-row prewarm and no bulk UI regressions
+        run: node --test cloudflare/music-intelligence/test/musiclab-r43-compilation-hitparade-prewarm.test.mjs
+      - name: R44 non-audio standby, checkpoint and restoration evidence
+        run: node --test cloudflare/music-intelligence/test/musiclab-r44-universal-standby-resume.test.mjs
+      - name: R45 manual recording, viewport and Compilation regression gate
+        run: node --test cloudflare/music-intelligence/test/musiclab-r45-manual-version-scroll-compilation.test.mjs
+      - name: R46 player Compilation full-title and fallback source regressions
+        run: node --test cloudflare/music-intelligence/test/musiclab-r46-player-compilation-fallback.test.mjs
+      - name: R47 four historical chart types source/selection contracts
+        run: node --test cloudflare/music-intelligence/test/musiclab-r47-four-hitparade-categories.test.mjs
+      - name: R48 per-song video recovery and user memory deterministic tests
+        run: node --test cloudflare/music-intelligence/test/musiclab-r48-hitparade-video-recovery.test.mjs
+      - name: R49 spaced historical header four-category source checks
+        run: node --test cloudflare/music-intelligence/test/musiclab-r49-hitparade-header-date.test.mjs
+      - name: R50 discographic sleeves and player synchronized artwork source regressions
+        run: node --test cloudflare/music-intelligence/test/musiclab-r50-hitparade-disc-cover.test.mjs
+      - name: R51 Album Compilation strict routing and unified Stile source contracts
+        run: node --test cloudflare/music-intelligence/test/musiclab-r51-compilation-album-modes.test.mjs
+      - name: R52 exact Cerca vs Titolo, verified Discogs tracklists and synchronized covers
+        run: node --test cloudflare/music-intelligence/test/musiclab-r52-discogs-tracklist-verified.test.mjs
+      - name: R54 automatic poster search, three modes and lightweight Discogs variants
+        run: |
+          node --test cloudflare/music-intelligence/test/musiclab-r53-manual-title-player-restored.test.mjs
+          node --test cloudflare/music-intelligence/test/musiclab-r54-discogs-light-cover-three-modes.test.mjs
+          node --test cloudflare/music-intelligence/test/musiclab-r55-discogs-multiselect-progressive-audio.test.mjs
+          node --test cloudflare/music-intelligence/test/musiclab-r56-global-playback-priority.test.mjs
+      - name: R57 full Discogs batch, filters-only and independent verification contracts
+        run: node --test cloudflare/music-intelligence/test/musiclab-r57-compilation-batch-results.test.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: ./.github/actions/setup-protobuf
+      - name: Prepare Android 33137 same signature and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          python3 tools/universal-apk-builder/prepare-turbo-r57-33137-env.py
+          grep -Fq 'UAB_UPDATE_FAMILY_VERSION_CODE="33137"' uab-project.env
+          grep -Fq 'UAB_UPDATE_FAMILY_APPLICATION_ID="it.verlezza.musiclab.turbo01"' uab-project.env
+      - name: Scudo360 full JVM regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source uab-project.env
+          set +a
+          node scripts/scudo360-gate.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-report.json
+          echo '[SCUDO360=PASS] All mandatory JVM regressions'
+      - name: Verify native JUnit all historical 1959–2026 era contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync('.motorlab/scudo360-report.json','utf8'));
+          const match = report.suites.flatMap(s => s.classEvidence || [])
+            .find(e => e.name === 'com.metrolist.music.ui.screens.search.MusicLabHistoricalHitParadeTest');
+          if (!match || !match.passed || match.tests < 13)
+            throw new Error('Hit Parade native JUnit class was not executed successfully');
+          console.log('[HIT PARADE] Native JUnit checks passed:', match.tests);
+          NODE
+      - name: Gate real-source HTML chart/index regression results
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const name = 'app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.screens.search.MusicLabHistoricalHitParadeLiveFixtureTest.xml';
+          const xml = fs.readFileSync(name, 'utf8');
+          const suite = xml.match(/<testsuite\b[^>]*>/)?.[0];
+          if (!suite) throw new Error('Missing authentic HTML tests XML');
+          const attr = key => Number(suite.match(new RegExp(key + '="(\\d+)"'))?.[1] ?? -1);
+          const tests = attr('tests'), failures = attr('failures'),
+            errors = attr('errors'), skipped = attr('skipped');
+          if (tests < 15 || failures !== 0 || errors !== 0 || skipped !== 0) {
+            throw new Error('Real-source pages failed: ' + JSON.stringify({tests,failures,errors,skipped}));
+          }
+          console.log('Real-source weekly and chart regression fixtures:', tests, 'passed');
+          NODE
+      - name: Require live HTTP-to-Kotlin chart tests from first-party website
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const xml = fs.readFileSync('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.screens.search.MusicLabHitParadeRealHttpTest.xml', 'utf8');
+          const suite = xml.match(/<testsuite\b[^>]*>/)?.[0];
+          if (!suite) throw new Error('Live HTTP Kotlin chart evidence missing');
+          const attr = key => Number(suite.match(new RegExp(key + '="(\\d+)"'))?.[1] ?? -1);
+          const stats = { tests:attr('tests'), failures:attr('failures'), errors:attr('errors'), skipped:attr('skipped') };
+          if (stats.tests < 6 || stats.failures !== 0 || stats.errors !== 0 || stats.skipped !== 0)
+            throw new Error('Real HTTP chart test gate: ' + JSON.stringify(stats));
+          console.log('[HIT PARADE R35] Real HTTP -> actual Kotlin loader PASS', stats);
+          NODE
+      - name: Require playback sprint R35 native JUnit proof before signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path = 'app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.playback.PlaybackSprintPolicyTest.xml';
+          const xml = fs.readFileSync(path, 'utf8');
+          const suite = xml.match(/<testsuite\b[^>]*>/)?.[0];
+          if (!suite) throw new Error('Player policy JUnit missing');
+          const attr = key => Number(suite.match(new RegExp(key + '="(\\d+)"'))?.[1] ?? -1);
+          const stats = { tests:attr('tests'), failures:attr('failures'), errors:attr('errors'), skipped:attr('skipped') };
+          if (stats.tests < 10 || stats.failures !== 0 || stats.errors !== 0 || stats.skipped !== 0)
+            throw new Error('Player policy regressions failed: '+JSON.stringify(stats));
+          console.log('[MUSICLAB R35] Player policy '+stats.tests+' JUnit tests passed');
+          NODE
+      - name: Validate GitHub source-level UI/audio sync contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test cloudflare/music-intelligence/test/musiclab-r35-player-ui-sync.test.mjs
+      - name: Require native FastPath JUnit tests and independent source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test cloudflare/music-intelligence/test/musiclab-r36-fastpath-hitparade-compilation.test.mjs
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path = 'app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.MusicLabFastPathPolicyTest.xml';
+          const xml = fs.readFileSync(path, 'utf8');
+          const suite = xml.match(/<testsuite\b[^>]*>/)?.[0];
+          if (!suite) throw new Error('Missing R36 FastPath native tests');
+          const n = key => Number(suite.match(new RegExp(key + '="(\\d+)"'))?.[1] ?? -1);
+          const result = { tests:n('tests'), failures:n('failures'), errors:n('errors'), skipped:n('skipped') };
+          if (result.tests < 4 || result.failures !== 0 || result.errors !== 0 || result.skipped !== 0)
+            throw new Error('R36 FastPath tests failed: '+JSON.stringify(result));
+          console.log('[MUSICLAB 33116] Native FastPath JUnit PASS', result);
+          NODE
+      - name: Verify real R37 compiled tracklist JUnit outcomes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.discogs.CompilationTrackMatchPolicyTest.xml')
+          assert p.is_file(), 'R37 tracklist JUnit suite never executed'
+          root=ET.parse(p).getroot()
+          data={k:int(root.attrib.get(k,-1)) for k in ('tests','errors','failures','skipped')}
+          assert data['tests'] >= 4 and all(data[k]==0 for k in ('errors','failures','skipped')), data
+          print('[R37 TRACKLIST] real native JUnit PASS',data)
+          PY
+      - name: Verify real R38 title-policy JVM test results
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.CompilationSearchTitlePolicyTest.xml')
+          assert p.is_file(), 'R38 native title normalization suite was never executed'
+          root=ET.parse(p).getroot()
+          data={k:int(root.attrib.get(k,-1)) for k in ('tests','errors','failures','skipped')}
+          assert data['tests'] >= 3 and all(data[k]==0 for k in ('errors','failures','skipped')), data
+          print('[R38 NATIVE TITLE POLICY PASS]',data)
+          PY
+      - name: Require compiled R40 contextual navigation native JUnit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.playback.MusicLabR40SectionPolicyTest.xml')
+          assert p.is_file(), 'MusicLab R40 contextual native JUnit never ran'
+          root=ET.parse(p).getroot()
+          stats={k:int(root.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert stats['tests'] >= 3 and all(stats[k]==0 for k in ('failures','errors','skipped')), stats
+          print('[R40 CONTEXT] real native JUnit PASS',stats)
+          PY
+      - name: Require compiled R42 selected-section native unit tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          f=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.playback.MusicLabR42SectionSelectionTest.xml')
+          assert f.exists(), 'R42 compiled unit test not executed'
+          t=ET.parse(f).getroot()
+          n={k:int(t.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert n['tests'] >= 2 and all(n[k]==0 for k in ('failures','errors','skipped')), n
+          print('[R42] native Android contextual state PASS',n)
+          PY
+      - name: Verify R43 native bounded prewarm policy actually executed
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          f=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.MusicLabFastPathPolicyTest.xml')
+          assert f.exists(), 'R43 native FastPath policy tests missing'
+          t=ET.parse(f).getroot()
+          n={k:int(t.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert n['tests']>=4 and all(n[k]==0 for k in ('failures','errors','skipped')),n
+          print('[R43] real native visible-prewarm bound PASS',n)
+          PY
+      - name: Require compiled R44 native standby and resume policy tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          file=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.playback.MusicLabSectionWorkPolicyTest.xml')
+          assert file.exists(), 'R44 native standby policy unit tests not executed'
+          suite=ET.parse(file).getroot()
+          stats={key:int(suite.attrib.get(key,-1)) for key in ('tests','failures','errors','skipped')}
+          assert stats['tests']>=3 and all(stats[key]==0 for key in ('failures','errors','skipped')), stats
+          print('[R44] real native standby policy tests PASS', stats)
+          PY
+      - name: R45 native Compilation fallback tests must execute
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          file = Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.CompilationFallbackQueryPolicyTest.xml')
+          assert file.exists(), 'R45 native query fallback JUnit missing'
+          test = ET.parse(file).getroot()
+          stats = {k:int(test.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert stats['tests']>=3 and all(stats[k]==0 for k in ('failures','errors','skipped')), stats
+          print('[R45] Compilation fallback native PASS',stats)
+          PY
+      - name: R46 native Kotlin full-title fallback unit tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          f=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.CompilationR46PlayerFallbackPolicyTest.xml')
+          assert f.exists(), 'R46 real Kotlin player fallback unit suite missing'
+          root=ET.parse(f).getroot()
+          data={k:int(root.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert data['tests']>=4 and all(data[k]==0 for k in ('failures','errors','skipped')),data
+          print('[R46] native Kotlin player Compilation fallback PASS',data)
+          PY
+      - name: R47 native four-chart parser plus live archive JUnit evidence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          root=Path('app/build/test-results/testFossDebugUnitTest')
+          names=['MusicLabHistoricalExtraChartsTest','MusicLabHistoricalExtraLiveSourceTest']
+          for name in names:
+              path=root/('TEST-com.metrolist.music.ui.screens.search.'+name+'.xml')
+              assert path.is_file(), 'Missing real native HPI suite: '+name
+              data=ET.parse(path).getroot()
+              stats={k:int(data.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+              assert stats['tests']>=1 and all(stats[k]==0 for k in ('failures','errors','skipped')),(name,stats)
+              print('[R47] Native HPI '+name+' PASS '+str(stats))
+          PY
+      - name: Verify compiled R48 persistent Hit Parade binding JUnit tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          path=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.screens.search.MusicLabHitParadeVideoMemoryTest.xml')
+          assert path.is_file(), 'R48 Kotlin memory test class was not executed'
+          data=ET.parse(path).getroot()
+          stats={name:int(data.attrib.get(name,-1)) for name in ('tests','failures','errors','skipped')}
+          assert stats['tests'] >= 4 and all(stats[key] == 0 for key in ('failures','errors','skipped')), stats
+          print('[R48] Persisted Hit Parade video identity native JUnit PASS',stats)
+          PY
+      - name: Require compiled native R49 historical header JUnit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          f=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.screens.search.MusicLabHistoricalHeaderPolicyTest.xml')
+          assert f.is_file(), 'R49 native header tests were not executed'
+          data=ET.parse(f).getroot()
+          stats={k:int(data.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert stats['tests'] >= 5 and all(stats[k] == 0 for k in ('failures','errors','skipped')), stats
+          print('[R49] Weekly/annual title/date native test PASS',stats)
+          PY
+      - name: R50 native disc identity and archive-album proof
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.screens.search.MusicLabHitParadeDiscArtworkTest.xml')
+          assert p.is_file(), 'R50 native disc identity JUnit suite did not execute'
+          t=ET.parse(p).getroot()
+          n={k:int(t.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert n['tests'] >= 5 and all(n[k]==0 for k in ('failures','errors','skipped')),n
+          print('[R50] verified record artwork native JUnit PASS',n)
+          PY
+      - name: Require compiled native R51 category and Style unit tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          root=Path('app/build/test-results/testFossDebugUnitTest')
+          names=(
+              'com.metrolist.music.discogs.DiscogsSearchModeTest',
+              'com.metrolist.music.ui.component.CompilationUnifiedStyleFilterTest',
+          )
+          for name in names:
+              file=root/('TEST-'+name+'.xml')
+              assert file.is_file(), f'R51 native proof missing: {name}'
+              data=ET.parse(file).getroot()
+              n={key:int(data.attrib.get(key,-1)) for key in ('tests','failures','errors','skipped')}
+              assert n['tests']>=3 and all(n[key]==0 for key in ('failures','errors','skipped')),(name,n)
+              print('[R51] Native JUnit verified:',name,n)
+          PY
+      - name: Require compiled native R52 title-only and tracklist selection tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.CompilationTitleOnlyPolicyTest.xml')
+          assert p.is_file(), 'R52 native title-only and exact tracklist selection test did not run'
+          data=ET.parse(p).getroot()
+          n={k:int(data.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert n['tests']>=5 and all(n[k]==0 for k in ('failures','errors','skipped')),n
+          print('[R52] Native title-only policy and Discogs song position proof:',n)
+          PY
+      - name: R53 and R54 native title, alternate artist and anonymous remix tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+          p=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.CompilationTitleOnlyPolicyTest.xml')
+          assert p.is_file(), 'R53 native title cleanup regression did not execute'
+          d=ET.parse(p).getroot()
+          n={k:int(d.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert n['tests']>=8 and all(n[k]==0 for k in ('failures','errors','skipped')),n
+          print('[R53] title cleanup preserved:',n)
+          q=Path('app/build/test-results/testFossDebugUnitTest/TEST-com.metrolist.music.ui.component.CompilationLightSearchPolicyTest.xml')
+          assert q.is_file(), 'R54 native Cover-lite/Discogs regression did not execute'
+          d=ET.parse(q).getroot()
+          m={k:int(d.attrib.get(k,-1)) for k in ('tests','failures','errors','skipped')}
+          assert m['tests']>=10 and all(m[k]==0 for k in ('failures','errors','skipped')),m
+          print('[R54] true tracklist, alternate interpreter, anonymous DJ remix:',m)
+          PY
+      - name: Scudo360 Quality r40 gate
+        env:
+          SCUDO360_R40_PROMOTION: '1'
+        run: node .motorlab/regression/scudo360-quality-r40.mjs .motorlab/scudo360-contracts.json .motorlab/scudo360-report.json .motorlab/scudo360-r40-plan.json .motorlab/scudo360-r40-quality.json
+      - name: Preserve Scudo360 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scudo360-musiclab-library-spotify-first
+          path: |
+            .motorlab/scudo360-report.json
+            app/build/test-results/testFossDebugUnitTest/*.xml
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Build signed MusicLab APK and ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        run: |
+          bash tools/universal-apk-builder/diagnose.sh .
+          bash tools/universal-apk-builder/build-apk.sh .
+      - name: Validate APK package version signature and ZIP integrity
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-57-Compilation-Risultati-In-Blocco.apk
+          ZIP=dist/uab/MusicLab-Turbo-LAB79-Revisione-57-Compilation-Risultati-In-Blocco-APK.zip
+          test -s "$APK"
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='it.verlezza.musiclab.turbo01'"
+          printf '%s\n' "$BADGING" | grep -F "versionCode='33137'"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/signature.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/signature.txt
+          CERT="$(grep -i -m1 'certificate SHA-256 digest:' /tmp/signature.txt | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+          test "$CERT" = '9A2F67CFB3C199836813ADDBF7BDFB0FA65EDC765FFACE4B6DF9490BB0962749'
+          python3 - <<'PY'
+          import zipfile,hashlib
+          from pathlib import Path
+          a=Path('dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-57-Compilation-Risultati-In-Blocco.apk')
+          z=Path('dist/uab/MusicLab-Turbo-LAB79-Revisione-57-Compilation-Risultati-In-Blocco-APK.zip')
+          with zipfile.ZipFile(z) as arc:
+              items=[x for x in arc.namelist() if x.lower().endswith('.apk')]
+              assert len(items)==1
+              assert hashlib.sha256(arc.read(items[0])).digest()==hashlib.sha256(a.read_bytes()).digest()
+          Path('dist/uab/BUILD_SHA.txt').write_text('BUILD_SHA='+'verified'+'\n')
+          PY
+          printf '%s\n' "$GITHUB_SHA" > dist/uab/BUILD_SHA.txt
+      - name: Publish separate APK and ZIP
+        if: contains(github.event.head_commit.message, '[build-apk]')
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicLab-Turbo-R57-Compilation-Batch-33137-APK-ZIP
+          path: |
+            dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-57-Compilation-Risultati-In-Blocco.apk
+            dist/uab/MusicLab-Turbo-LAB79-Revisione-57-Compilation-Risultati-In-Blocco-APK.zip
+            dist/uab/BUILD_SHA.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
