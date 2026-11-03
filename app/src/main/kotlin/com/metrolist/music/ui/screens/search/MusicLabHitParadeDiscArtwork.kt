@@ -167,6 +167,8 @@ internal object MusicLabHitParadeDiscArtwork {
         val selectionKey = section.selectionKey ?: return
         val selectedKey = section.selectedKey ?: return
         val row = playbackRows[selectionKey + "|" + selectedKey] ?: return
+        val selectedVideo = MusicLabHitParadeVideoMemory.get(context, row.title, row.artist)
+        if (selectedVideo?.manual == true && selectedVideo.videoId != section.mediaId) return
         val image = artwork(context, row.title, row.artist, album = false) ?: return
         val current = connection.mediaMetadata.value ?: return
         if (current.thumbnailUrl != image)
@@ -178,7 +180,7 @@ internal object MusicLabHitParadeDiscArtwork {
     private fun safeImage(url: String?): String? =
         url?.takeIf { it.startsWith("https://") && it !in rejected }
 
-    private fun eligibleAlbum(title: String, artist: String, foundTitle: String,
+    internal fun eligibleAlbum(title: String, artist: String, foundTitle: String,
                               foundArtist: String): Boolean {
         val wanted = norm(title)
         val actual = norm(foundTitle)
