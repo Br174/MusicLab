@@ -329,6 +329,13 @@ internal fun CompilationScreen(
             .onSuccess { if (openReleaseId == id) {
                 detail = it
                 CompilationSessionStore.detail = it
+                MusicLabCompilationCoverBridge.remember(context, it.id, it.coverUrl)
+                if (selectedTrackIndex == null) {
+                    val wanted = activeSearch
+                    selectedTrackIndex = CompilationTitleOnlyPolicy.selectedTrackIndex(
+                        it.tracks, wanted?.trackTitle, wanted?.trackArtist)
+                    CompilationSessionStore.selectedTrackIndex = selectedTrackIndex
+                }
             } }
             .onFailure { if (openReleaseId == id) {
                 error = it.message ?: "Impossibile riaprire questa compilation."
@@ -744,10 +751,19 @@ internal fun CompilationScreen(
         resolvedTracks.clear()
         CompilationSessionStore.resolvedTracks.clear()
         scope.launch {
+            MusicLabCompilationCoverBridge.remember(context, summary.id,
+                summary.coverUrl ?: summary.thumbnailUrl)
             DiscogsClient.getRelease(discogsToken, summary.id)
                 .onSuccess { loaded ->
+                    // Original Discogs release sleeve wins over any video poster.
+                    MusicLabCompilationCoverBridge.remember(context, loaded.id,
+                        loaded.coverUrl ?: summary.coverUrl ?: summary.thumbnailUrl)
                     detail = loaded
                     CompilationSessionStore.detail = loaded
+                    val wanted = activeSearch
+                    selectedTrackIndex = CompilationTitleOnlyPolicy.selectedTrackIndex(
+                        loaded.tracks, wanted?.trackTitle, wanted?.trackArtist)
+                    CompilationSessionStore.selectedTrackIndex = selectedTrackIndex
                     detailLoading = false
                 }
                 .onFailure {
@@ -1023,9 +1039,8 @@ internal fun CompilationScreen(
                 resolvedTracks = resolvedTracks,
                 fullAudio = fullAudio,
                 saving = saving,
-                selectedTrackIndex = detail?.let { current ->
-                    selectedKeys["compilation:detail:" + current.id]
-                        ?.toIntOrNull() ?: selectedTrackIndex
+                selectedTrackIndex = selectedTrackIndex ?: detail?.let { current ->
+                    selectedKeys["compilation:detail:" + current.id]?.toIntOrNull()
                 },
                 onPlayFull = {
                     playerConnection?.beginPlaybackPriorityBurst("compilation-full-audio")
@@ -1451,7 +1466,16 @@ private fun CompilationDetailContent(
     onVisibleTrack: suspend (Int) -> Unit,
     onDiscogsClick: () -> Unit,
 ) {
+    // Two preceding LazyColumn items (artwork/header + divider) precede tracks.
+    // Scrolling is purely visual: it must never call playTrack().
+    val detailListState = remember(detail.id) { LazyListState() }
+    LaunchedEffect(detail.id, selectedTrackIndex) {
+        val highlighted = selectedTrackIndex
+        if (highlighted != null && highlighted in detail.tracks.indices)
+            detailListState.scrollToItem(highlighted + 2)
+    }
     LazyColumn(
+        state = detailListState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 176.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1462,7 +1486,8 @@ private fun CompilationDetailContent(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 AsyncImage(
-                    model = detail.coverUrl,
+                    model = detail.coverUrl ?: MusicLabCompilationCoverBridge.artwork(
+                        LocalContext.current, detail.id),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(220.dp),
