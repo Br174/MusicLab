@@ -449,7 +449,10 @@ private fun MusicLabHistoricalExtraChartsScreen(
         picker.show()
     }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Hit Parade Italiana") }, navigationIcon = {
+        TopAppBar(title = {
+            MusicLabHistoricalHeaderTitle(mode,
+                chart?.actualDate ?: selectedMillis)
+        }, navigationIcon = {
             IconButton(onClick = { navController.navigateUp() }) {
                 Icon(painter = painterResource(R.drawable.arrow_back),
                     contentDescription = "Indietro")
