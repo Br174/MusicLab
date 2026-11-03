@@ -39,6 +39,6 @@ test('R47 separate persistent category/date/scroll/cache and no autoplay on rest
 });
 test('R47 album rows open a search without treating an album as one song', () => {
   assert.match(extra,/if \(mode.isAlbum\) \{/);
-  assert.match(extra,/SearchRoutes.resultRoute\(row.title \+ " " \+ row.artist\)/);
+  assert.match(extra,/SearchRoutes.resultRoute\(row.title \+ " " \+ displayArtist\)/);
   assert.match(extra,/MusicLabHitParadeDiscCover/);
 });
