@@ -55,7 +55,7 @@ annual_begin="    internal fun parseAnnualAlbums("
 weekly_begin="    /** Weekly album archives"
 assert e_old.split(annual_begin,1)[0] == e_new.split(annual_begin,1)[0], "Original annual singles parser changed"
 assert (e_old.split(weekly_begin,1)[1].split("    fun loadSaved(",1)[0].strip() ==
-        e_new.split(weekly_begin,1)[1].split("    /**\\n     * Older on-device R47",1)[0].strip()), "Weekly albums parser changed"
+        e_new.split(weekly_begin,1)[1].split("    /**\n     * Older on-device R47",1)[0].strip()), "Weekly albums parser changed"
 assert 'val cells = row.children().filter { it.normalName() == "td" }' in e_new
 assert 'val headerArtist = cells.getOrNull(artistCol)' in e_new
 assert 'val adjacentArtist = cells.getOrNull(titleCol + 1)' in e_new
