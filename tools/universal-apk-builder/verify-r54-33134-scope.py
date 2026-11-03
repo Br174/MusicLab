@@ -64,7 +64,7 @@ assert 'includeSingles = criteria.lookupMode == CompilationLookupMode.COVER_LITE
 assert 'if (!includeSingles && !mode.accepts(formats)) continue' in discogs
 assert 'addQueryParameter("track", trackTitle.trim())' in discogs
 assert 'originalArtistPresent(track, originalArtist)' in policy
-assert 'editionMarker.containsMatchIn(track.title)' in policy
+assert 'alternateMarker.containsMatchIn(track.title)' in policy
 assert 'CoverNavigationBridge' not in policy
 assert 'selected = found.song.toMediaItem()' in ui
 assert 'MusicLabCompilationCoverBridge.mediaItem(' not in ui
