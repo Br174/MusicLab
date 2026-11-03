@@ -13,6 +13,7 @@ EXPECTED={
     "app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabCompilationCoverBridge.kt",
     "app/src/main/kotlin/com/metrolist/music/ui/component/MusicLabCompilationSnapshot.kt",
     "app/src/test/kotlin/com/metrolist/music/ui/component/CompilationTitleOnlyPolicyTest.kt",
+    "cloudflare/music-intelligence/test/musiclab-r41-section-memory.test.mjs",
     "cloudflare/music-intelligence/test/musiclab-r39-compilation-legacy-search.test.mjs",
     "cloudflare/music-intelligence/test/musiclab-r45-manual-version-scroll-compilation.test.mjs",
     "cloudflare/music-intelligence/test/musiclab-r51-compilation-album-modes.test.mjs",
