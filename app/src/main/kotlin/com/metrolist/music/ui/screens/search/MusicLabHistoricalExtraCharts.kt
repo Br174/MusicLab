@@ -567,7 +567,7 @@ private fun MusicLabHistoricalExtraChartsScreen(
                         Text(row.rank.toString(), style = MaterialTheme.typography.titleMedium)
                         MusicLabHitParadeDiscCover(
                             title = row.title,
-                            artist = displayArtist,
+                            artist = row.artist,
                             album = mode.isAlbum,
                             sourceArtwork = row.artwork)
                         Column(modifier = Modifier.weight(1f)) {
