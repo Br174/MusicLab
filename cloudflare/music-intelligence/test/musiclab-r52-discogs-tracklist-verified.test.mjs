@@ -12,16 +12,12 @@ const player=read(root+'playback/CoverPlaybackMemory.kt');
 const snap=read(root+'ui/component/MusicLabCompilationSnapshot.kt');
 const hit=read(root+'ui/screens/search/MusicLabHitParadeDiscArtwork.kt');
 
-test('R52: Cerca runs exact visible field; adjacent Titolo explicitly cleans and searches', () => {
-  const start=ui.indexOf('BasicTextField(\n                                            value = query');
-  const nearby=ui.slice(start,start+3800);
-  assert.ok(nearby.includes('onClick = { runSearch() }'));
-  assert.ok(nearby.includes('Text(if (loading) "…" else "Cerca")'));
-  assert.ok(nearby.includes('Text("Titolo")'));
-  assert.ok(nearby.includes('CompilationTitleOnlyPolicy.title('));
-  assert.ok(nearby.includes('query = cleaned'));
-  assert.ok(nearby.includes('trackTitle = cleaned'));
-  assert.ok(nearby.includes('trackArtist = null'));
+test('R54: one selector, title+artist automatically, title-only and lightweight Cover explicitly', () => {
+  assert.ok(ui.includes('CompilationLookupMode.entries.forEach'));
+  assert.ok(ui.includes('lookupMode = CompilationLookupMode.TITLE_ARTIST'));
+  assert.ok(ui.includes('sourceTitle = target.title'));
+  assert.ok(ui.includes('sourceArtist = target.artist'));
+  assert.ok(ui.includes('runSearch(CompilationSearchCriteria('));
   assert.ok(clean.includes('CompilationFallbackQueryPolicy.songTitle('));
 });
 
@@ -33,32 +29,28 @@ test('R52: plain q and real Discogs track index are mutually exclusive', () => {
   assert.ok(ui.includes('verifyIndexedTrackCandidates(pageResult.items, criteria, token, generation)'));
 });
 
-test('R52: only verified actual tracklist matches are displayed for song searches', () => {
+test('R54 only tracklist rows can validate a hit, not a similar compilation name', () => {
   assert.ok(ui.includes('DiscogsClient.getRelease(token, candidate.id,'));
   assert.ok(ui.includes('release.formatDescriptions.ifEmpty { candidate.formats }'));
-  assert.ok(ui.includes('criteria.mode.accepts(formatLabels)'));
-  assert.ok(ui.includes('CompilationTitleOnlyPolicy.selectedTrackIndex('));
+  assert.ok(ui.includes('CompilationLightSearchPolicy.accepts('));
   assert.ok(ui.includes('if (criteria.language != null'));
   assert.ok(kinds.includes('ALBUM -> isAlbum && !isCompilation'));
   assert.ok(kinds.includes('COMPILATION -> isCompilation'));
   assert.ok(ui.includes('Cerca nei dischi successivi'));
 });
 
-test('R53: poster is untouched until the user explicitly picks Cerca or Titolo', () => {
-  const a=ui.indexOf('LaunchedEffect(trackRequest?.requestId');
-  const b=ui.indexOf('fun loadNextPage(',a);
-  const nav=ui.slice(a,b);
-  assert.ok(nav.includes('query = target.title'));
-  assert.ok(!nav.includes('runSearch('));
-  assert.ok(!nav.includes('CompilationFallbackQueryPolicy'));
-  assert.ok(!ui.includes('finalCriteria.copy(mode = DiscogsSearchMode.ALBUM)'));
-  assert.ok(ui.includes('onClick = { runSearch() }'));
-  assert.ok(ui.includes('Text("Titolo")'));
+test('R54 initial search automatically uses locandina metadata and not video-specific text', () => {
+  const nav=ui.slice(ui.indexOf('LaunchedEffect(trackRequest?.requestId'),ui.indexOf('fun loadNextPage('));
+  assert.ok(nav.includes('sourceTitle = target.title'));
+  assert.ok(nav.includes('sourceArtist = target.artist'));
+  assert.ok(nav.includes('trackTitle = title'));
+  assert.ok(nav.includes('runSearch(CompilationSearchCriteria('));
+  assert.ok(!nav.includes('CompilationFallbackQueryPolicy.query'));
 });
 
 test('R52: opened release highlights and scrolls to corresponding track without playing it', () => {
   const open=ui.slice(ui.indexOf('fun openCompilation('),ui.indexOf('fun scheduleFullAudioLookup('));
-  assert.ok(open.includes('selectedTrackIndex = CompilationTitleOnlyPolicy.selectedTrackIndex('));
+  assert.ok(open.includes('CompilationLightSearchPolicy.accepts('));
   assert.ok(open.includes('CompilationSessionStore.selectedTrackIndex = selectedTrackIndex'));
   assert.ok(ui.includes('detailListState.scrollToItem(highlighted + 2)'));
   const detail=ui.slice(ui.indexOf('private fun CompilationDetailContent('));
