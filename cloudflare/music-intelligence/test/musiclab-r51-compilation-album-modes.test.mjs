@@ -21,7 +21,7 @@ test('R51: manual category selector replaces Genere, old genre+style share Stile
   assert.match(ui,/val picked = CompilationUnifiedStyleFilter\.parse\(it\)/);
   assert.match(style,/GENRE = "Genere · "/);
   assert.match(style,/STYLE = "Stile · "/);
-  assert.match(style,/fun parse(option: String): Pair<String\?, String\?>/);
+  assert.match(style,/fun parse\(option: String\): Pair<String\?, String\?>/);
 });
 
 test('R51: Discogs queries use correct format, Both only on manual selection', () => {
