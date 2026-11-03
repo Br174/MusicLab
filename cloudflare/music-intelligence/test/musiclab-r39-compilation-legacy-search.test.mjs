@@ -22,14 +22,15 @@ test('R39 restores wide R36 Discogs q-based search, 100 releases per page', () =
   assert.match(api, /addQueryParameter\("q", it\)/);
 });
 
-test('menu transfers unchanged song title and awaits an explicit Cerca or Titolo tap', () => {
+test('R54 player locandina launches ONLY the title + singer index, not YouTube or release name', () => {
   assert.match(bridge, /fun openForTrack\(title: String, artist: String\)/);
-  assert.match(nav, /query = target.title/);
-  assert.match(nav, /mode = DiscogsSearchMode.COMPILATION/);
-  assert.doesNotMatch(nav, /runSearch\(/);
-  assert.doesNotMatch(nav, /CompilationFallbackQueryPolicy/);
-  assert.match(comp, /onClick = \{ runSearch\(\) \}/);
-  assert.match(comp, /Text\("Titolo"\)/);
+  assert.match(nav, /sourceTitle = target.title/);
+  assert.match(nav, /sourceArtist = target.artist/);
+  assert.match(nav, /lookupMode = CompilationLookupMode.TITLE_ARTIST/);
+  assert.match(nav, /trackTitle = title/);
+  assert.match(nav, /runSearch\(CompilationSearchCriteria\(/);
+  assert.doesNotMatch(nav, /YouTube|videoTitle/);
+  assert.match(comp, /CompilationLookupMode.entries.forEach/);
 });
 
 test('R38 safety, token, history and search isolation remain operational', () => {
