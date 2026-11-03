@@ -1,6 +1,7 @@
 package com.metrolist.music.ui.screens.search
 
 import android.content.Context
+import java.lang.ref.WeakReference
 import androidx.media3.common.MediaItem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.MusicLabSectionPlayback
+import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.ui.component.MusicLabFastPath
 import java.net.HttpURLConnection
 import java.net.URL
@@ -58,6 +60,7 @@ internal object MusicLabHitParadeDiscArtwork {
     private const val PREFS = "musiclab_hitparade_disc_artwork_r50"
     private val covers = ConcurrentHashMap<String, String>()
     private val playbackRows = ConcurrentHashMap<String, RecordIdentity>()
+    @Volatile private var attachedPlayer: WeakReference<PlayerConnection>? = null
     private val albumArtists = ConcurrentHashMap<String, String>()
     private val rejected = ConcurrentHashMap.newKeySet<String>()
     private val retryAfter = ConcurrentHashMap<String, Long>()
@@ -130,6 +133,7 @@ internal object MusicLabHitParadeDiscArtwork {
         }
         edit.apply()
         publish()
+        if (!album) synchronizeCurrentPlayer(context)
     }
 
     fun reject(context: Context, title: String, artist: String, album: Boolean, url: String) {
@@ -144,12 +148,29 @@ internal object MusicLabHitParadeDiscArtwork {
     }
 
     fun registerPlaybackRows(
-        selectionKey: String, entries: List<MusicLabSectionPlayback.Entry>
+        selectionKey: String, entries: List<MusicLabSectionPlayback.Entry>,
+        player: PlayerConnection,
     ) {
+        attachedPlayer = WeakReference(player)
         entries.forEach { entry ->
             playbackRows[selectionKey + "|" + entry.key] =
                 RecordIdentity(entry.title, entry.artist)
         }
+    }
+
+    private fun synchronizeCurrentPlayer(context: Context) {
+        val connection = attachedPlayer?.get() ?: return
+        val section = MusicLabSectionPlayback.active.value ?: return
+        if (section.mediaId != connection.mediaMetadata.value?.id ||
+            (!section.source.startsWith("Hit Parade") &&
+                section.source != "Top annuali singoli")) return
+        val selectionKey = section.selectionKey ?: return
+        val selectedKey = section.selectedKey ?: return
+        val row = playbackRows[selectionKey + "|" + selectedKey] ?: return
+        val image = artwork(context, row.title, row.artist, album = false) ?: return
+        val current = connection.mediaMetadata.value ?: return
+        if (current.thumbnailUrl != image)
+            connection.mediaMetadata.value = current.copy(thumbnailUrl = image)
     }
 
     fun onVideoChanged() { publish() }
