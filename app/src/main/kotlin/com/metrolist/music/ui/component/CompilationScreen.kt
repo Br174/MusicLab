@@ -739,6 +739,10 @@ internal fun CompilationScreen(
     }
 
     fun openCompilation(summary: DiscogsCompilationSummary) {
+        // R58: navigation towards audio suspends 100-release verification.
+        // Preserve all current rows and confirmed evidence for later resume.
+        verificationJob?.cancel()
+        verificationJob = null
         // Preselection is visual, never a playback event.
         awaitingSongSelection = activeSearch?.trackTitle != null
         // The selected poster and its scroll position survive the detail screen.
@@ -810,9 +814,14 @@ internal fun CompilationScreen(
         val track = current.tracks.getOrNull(index) ?: return null
         // R36: reuse the exact native search-result object before invoking the
         // deeper Discogs/video fallback. Cover search remains untouched.
-        val fast = MusicLabFastPath.find(
-            track.title, track.artists.joinToString(" ")
-        ) { candidate -> CompilationTrackResolver.isHardCompatible(track, candidate) }
+        val artist = track.artists.joinToString(" ")
+        val compatible: (SongItem) -> Boolean = { candidate ->
+            CompilationTrackResolver.isHardCompatible(track, candidate)
+        }
+        // R58: the artwork/previous selection may already have the correct
+        // media ID. Never wait for another search in that case.
+        val fast = MusicLabFastPath.peek(track.title, artist, compatible)
+            ?: MusicLabFastPath.find(track.title, artist, compatible)
         val found = fast?.let {
             CompilationResolvedTrack(track, it, "MusicLab FastPath", false)
         } ?: CompilationTrackResolver.resolveTrack(track, current.videos)
@@ -827,6 +836,27 @@ internal fun CompilationScreen(
                     current.id.toString(), resolvedTracks.size)
         }
         return found
+    }
+
+    // R58: returning to the result grid resumes only the unverified
+    // candidates. Album opening or explicit audio selection cancels this
+    // lower-priority worker, without losing already confirmed IDs.
+    LaunchedEffect(detail?.id, activeSearch?.trackTitle, results.size) {
+        if (detail != null || verificationJob?.isActive == true || discogsToken.isBlank())
+            return@LaunchedEffect
+        val criteria = activeSearch ?: return@LaunchedEffect
+        if (criteria.trackTitle == null) return@LaunchedEffect
+        val unverified = results.filter { verifiedTrackIds[it.id] == null }
+        if (unverified.isEmpty()) return@LaunchedEffect
+        val generation = searchGeneration
+        verificationJob = scope.launch {
+            verifyIndexedTrackCandidates(unverified, criteria, discogsToken, generation) { confirmed ->
+                if (generation == searchGeneration) verifiedTrackIds[confirmed.id] = true
+            }
+            if (generation == searchGeneration) unverified.forEach { candidate ->
+                if (verifiedTrackIds[candidate.id] == null) verifiedTrackIds[candidate.id] = false
+            }
+        }
     }
 
     // Restore previously verified SongItems, including after Android process
@@ -898,6 +928,9 @@ internal fun CompilationScreen(
         fullAudioLookupJob?.cancel()
         nextTrackWarmJob?.cancel()
         fastTrackPlayJob?.cancel()
+        verificationJob?.cancel()
+        verificationJob = null
+        // R58: stop candidate network work before resolving the selected song.
         playerConnection?.beginPlaybackPriorityBurst("compilation-track-tap")
 
         fastTrackPlayJob = scope.launch {
