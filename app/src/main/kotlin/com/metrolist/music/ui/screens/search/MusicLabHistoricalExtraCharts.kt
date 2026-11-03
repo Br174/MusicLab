@@ -287,6 +287,17 @@ internal object MusicLabHistoricalExtraRepository {
             HistoricalExtraResult(available.url, available.millis, rows)
         }
 
+    /**
+     * Older on-device R47 snapshots can contain album title copied into the
+     * ARTIST column for most rows. Invalidate only those corrupt cached charts,
+     * not the published HPI ranking or the user's selected date/scroll.
+     */
+    internal fun looksLikeCorruptAlbumSnapshot(rows: List<HistoricalExtraRow>): Boolean =
+        rows.size >= 8 && rows.count {
+            MusicLabHitParadeDiscArtwork.norm(it.title) ==
+                MusicLabHitParadeDiscArtwork.norm(it.artist)
+        } * 2 >= rows.size
+
     fun loadSaved(context: android.content.Context, key: String): HistoricalExtraResult? =
         runCatching {
             val o = MusicLabSectionMemory.readState(context, "hitparade:extra:$key")
@@ -300,7 +311,9 @@ internal object MusicLabHistoricalExtraRepository {
                 HistoricalExtraRow(rank, title, artist,
                     row.optString("image").takeIf(String::isNotBlank))
             }
-            if (rows.isEmpty()) null else HistoricalExtraResult(
+            if (rows.isEmpty() ||
+                ((key.startsWith("ANNUAL_ALBUMS:") || key.startsWith("WEEKLY_ALBUMS:")) &&
+                    looksLikeCorruptAlbumSnapshot(rows))) null else HistoricalExtraResult(
                 o.getString("url"), o.getLong("when"), rows)
         }.getOrNull()
 
