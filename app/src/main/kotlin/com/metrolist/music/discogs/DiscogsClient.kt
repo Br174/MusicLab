@@ -30,6 +30,9 @@ internal object DiscogsClient {
         .build()
 
     private val detailCache = ConcurrentHashMap<Int, DiscogsCompilationDetail>()
+    // R57: lightweight tracklist checks never masquerade as full video details.
+    // Cache them separately so repeated searches avoid duplicate HTTP calls.
+    private val lightweightTracklistCache = ConcurrentHashMap<Int, DiscogsCompilationDetail>()
     private val requestGate = Any()
     @Volatile private var nextAllowedRequestAtMs = 0L
 
@@ -201,16 +204,24 @@ internal object DiscogsClient {
         releaseId: Int,
         includeMasterVideos: Boolean = true,
     ): Result<DiscogsCompilationDetail> = withContext(Dispatchers.IO) {
-        if (includeMasterVideos) {
-            detailCache[releaseId]?.let { return@withContext Result.success(it) }
-        } else {
-            detailCache[releaseId]?.let { return@withContext Result.success(it) }
+        detailCache[releaseId]?.let { return@withContext Result.success(it) }
+        if (!includeMasterVideos) {
+            lightweightTracklistCache[releaseId]?.let {
+                return@withContext Result.success(it)
+            }
         }
 
         runCatching {
             val root = requestJson("$API_BASE/releases/$releaseId", token)
             val detail = parseRelease(root, token, includeMasterVideos)
-            if (includeMasterVideos) detailCache[releaseId] = detail
+            if (includeMasterVideos) {
+                detailCache[releaseId] = detail
+                lightweightTracklistCache.remove(releaseId)
+            } else {
+                // Bounded best-effort cache, without changing the full-video path.
+                if (lightweightTracklistCache.size >= 200) lightweightTracklistCache.clear()
+                lightweightTracklistCache[releaseId] = detail
+            }
             detail
         }
     }
