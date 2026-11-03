@@ -36,11 +36,23 @@ class CompilationLightSearchPolicyTest {
 
     @Test fun lightCoverIncludesUncreditedRemixAndMashup() {
         for (title in listOf("Brutta (DJ XYZ Remix)", "Brutta [Mashup]",
-            "Brutta - Extended Mix", "Brutta")) {
+            "Brutta - Extended Mix")) {
             assertTrue("Missing uncredited alternative: $title",
                 CompilationLightSearchPolicy.accepts(
                     t(title), "Brutta", "Canino", CompilationLookupMode.COVER_LITE))
         }
+    }
+
+    @Test fun lightCoverExcludesAnonymousCanonicalTrackWithoutSpecialVersion() {
+        assertFalse(CompilationLightSearchPolicy.accepts(
+            t("Brutta"), "Brutta", "Canino", CompilationLookupMode.COVER_LITE))
+        assertFalse(CompilationLightSearchPolicy.accepts(
+            t("Brutta", "Various"), "Brutta", "Canino", CompilationLookupMode.COVER_LITE))
+    }
+
+    @Test fun titleOnlyRejectsUnrelatedBracketedLyrics() {
+        assertFalse(CompilationLightSearchPolicy.accepts(
+            t("Brutta (Sei davvero brutta)"), "Brutta", "Canino", CompilationLookupMode.TITLE))
     }
 
     @Test fun lightCoverIncludesDifferentSingerWithoutFullCoverVerification() {
