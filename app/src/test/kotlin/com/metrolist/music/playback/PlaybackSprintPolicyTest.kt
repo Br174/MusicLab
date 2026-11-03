@@ -66,6 +66,13 @@ class PlaybackSprintPolicyTest {
         assertFalse(PlaybackSprintPolicy.shouldRecoverBufferStall(true, true, true, false, 0))
     }
 
+    @Test fun everyExplicitQueueStartButNeverPausedRestoreGetsAudioPriority() {
+        assertTrue(PlaybackSprintPolicy.shouldPrioritizeQueueStart(true, false))
+        assertFalse(PlaybackSprintPolicy.shouldPrioritizeQueueStart(false, false))
+        assertFalse(PlaybackSprintPolicy.shouldPrioritizeQueueStart(true, true))
+        assertFalse(PlaybackSprintPolicy.shouldPrioritizeQueueStart(false, true))
+    }
+
     @Test fun latestTapWinsWhenOldQueueMetadataReturnsLate() {
         assertTrue(PlaybackSprintPolicy.isLatestQueueRequest(41, 41))
         assertFalse(PlaybackSprintPolicy.isLatestQueueRequest(40, 41))
