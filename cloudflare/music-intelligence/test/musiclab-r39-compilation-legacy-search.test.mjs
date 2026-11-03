@@ -12,8 +12,9 @@ const nav = comp.slice(comp.indexOf('LaunchedEffect(trackRequest?.requestId'), c
 test('R39 restores wide R36 Discogs q-based search, 100 releases per page', () => {
   assert.match(load, /DiscogsClient\.searchCompilations\(/);
   assert.match(load, /query = criteria\.query,/);
-  assert.match(load, /perPage = if \(criteria\.language == null\) 100 else 25/);
-  assert.doesNotMatch(load, /trackTitle = criteria\.trackTitle/);
+  assert.match(load, /else if \(criteria\.language == null\) 100 else 25/);
+  assert.match(load, /if \(criteria\.trackTitle != null\) 12/);
+  assert.match(load, /trackTitle = criteria\.trackTitle/);
   assert.doesNotMatch(load, /verifyContainingTrack|CompilationTrackMatchPolicy/);
   assert.match(load, /results = if \(replaceResults\) \{\s*visibleItems/);
   assert.match(api, /DiscogsSearchMode\.COMPILATION ->\s*addQueryParameter\("format", "Compilation"\)/);
