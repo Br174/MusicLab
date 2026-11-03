@@ -11,6 +11,7 @@ EXPECTED={
     "app/src/main/kotlin/com/metrolist/music/ui/screens/search/MusicLabHitParadeVideoResolver.kt",
     "app/src/main/kotlin/com/metrolist/music/playback/CoverPlaybackMemory.kt",
     "app/src/test/kotlin/com/metrolist/music/ui/screens/search/MusicLabHitParadeDiscArtworkTest.kt",
+    "app/src/test/kotlin/com/metrolist/music/ui/screens/search/MusicLabHistoricalExtraChartsTest.kt",
     "cloudflare/music-intelligence/test/musiclab-r36-fastpath-hitparade-compilation.test.mjs",
     "cloudflare/music-intelligence/test/musiclab-r43-compilation-hitparade-prewarm.test.mjs",
     "cloudflare/music-intelligence/test/musiclab-r47-four-hitparade-categories.test.mjs",
