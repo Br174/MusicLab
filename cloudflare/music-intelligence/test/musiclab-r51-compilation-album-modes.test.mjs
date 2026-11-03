@@ -12,7 +12,8 @@ const snap=read(base+'ui/component/MusicLabCompilationSnapshot.kt');
 const history=read(base+'ui/component/CompilationSearchSessionPolicy.kt');
 
 test('R51: manual category selector replaces Genere, old genre+style share Stile', () => {
-  assert.match(ui,/label = "Categoria"/);
+  assert.match(ui,/label = ""/);
+  assert.match(ui,/if \(label.isBlank\(\)\) selected else/);
   assert.match(ui,/selected = mode\.label/);
   assert.match(ui,/DiscogsSearchMode\.entries\.map \{ it\.label \}/);
   assert.doesNotMatch(ui,/label = "Genere"/);
@@ -36,16 +37,14 @@ test('R51: Discogs queries use correct format, Both only on manual selection', (
   assert.match(mode,/\?: COMPILATION/);
 });
 
-test('R51: player verifies one category at a time; Album only after no Compilation matches', () => {
-  const player=ui.slice(ui.indexOf('// R51 automatic player route:'),ui.indexOf('if (!succeeded && generation == searchGeneration)'));
-  assert.match(player,/confirmPlayerCandidates\(/);
-  assert.match(player,/verified\.isEmpty\(\)/);
-  assert.match(player,/finalCriteria\.copy\(mode = DiscogsSearchMode\.ALBUM\)/);
-  assert.match(player,/mode = finalCriteria\.mode/);
-  assert.match(player,/results = verified\.distinctBy \{ it\.id \}/);
-  assert.doesNotMatch(player,/DiscogsSearchMode\.BOTH/);
-  assert.match(ui,/mode = DiscogsSearchMode\.COMPILATION\s*runSearch\(CompilationSearchCriteria/);
-  assert.match(ui,/trackTitle = null, trackArtist = null/);
+test('R53: mode is user-controlled and poster navigation never mixes album results', () => {
+  const nav=ui.slice(ui.indexOf('LaunchedEffect(trackRequest?.requestId'),ui.indexOf('fun loadNextPage('));
+  assert.match(nav,/mode = DiscogsSearchMode.COMPILATION/);
+  assert.match(nav,/query = target.title/);
+  assert.doesNotMatch(nav,/runSearch\(/);
+  assert.doesNotMatch(ui,/finalCriteria\.copy\(mode = DiscogsSearchMode\.ALBUM\)/);
+  assert.match(ui,/mode = mode,/);
+  assert.match(ui,/trackTitle = cleaned,/);
 });
 
 test('R51: mode participates in pagination, resume, state, history and source-safe search', () => {
@@ -57,7 +56,7 @@ test('R51: mode participates in pagination, resume, state, history and source-sa
   assert.match(history,/put\("mode", entry\.mode\.name\)/);
   assert.match(history,/mode = DiscogsSearchMode\.restored\(entry\.optString\("mode"\)\)/);
   assert.match(ui,/searchGeneration \+= 1/);
-  assert.match(ui,/CompilationSessionStore\.activeSearch = finalCriteria/);
+  assert.match(ui,/CompilationSessionStore\.activeSearch = criteria/);
   assert.match(ui,/MusicLabSectionWorkCheckpoint\.standby/);
 });
 
