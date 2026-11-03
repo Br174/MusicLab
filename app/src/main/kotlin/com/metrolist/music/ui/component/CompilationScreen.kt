@@ -396,6 +396,7 @@ internal fun CompilationScreen(
             country = criteria.country,
             page = page,
             perPage = if (criteria.language == null) 100 else 25,
+            mode = criteria.mode,
         )
 
         if (generation != searchGeneration) return false
@@ -435,7 +436,8 @@ internal fun CompilationScreen(
     fun searchIdentity(criteria: CompilationSearchCriteria): String =
         listOf(criteria.query, criteria.year?.toString().orEmpty(),
             criteria.genre.orEmpty(), criteria.style.orEmpty(),
-            criteria.country.orEmpty(), criteria.language.orEmpty()).joinToString("|")
+            criteria.country.orEmpty(), criteria.language.orEmpty(),
+            criteria.mode.name).joinToString("|")
 
     fun runSearch(requestedCriteria: CompilationSearchCriteria? = null,
                   resumeInterrupted: Boolean = false,
@@ -447,6 +449,7 @@ internal fun CompilationScreen(
             style = style,
             country = country,
             language = language,
+            mode = mode,
             // Menu track selection only supplies the text shown in the regular
             // search field. It must not alter Discogs search admission.
             trackTitle = null,
@@ -576,6 +579,7 @@ internal fun CompilationScreen(
                 query = fullVideoTitle, year = null, genre = null, style = null,
                 country = null, language = null,
                 trackTitle = null, trackArtist = null,
+                mode = DiscogsSearchMode.COMPILATION,
             ), playerRequest = target)
         }
     }
@@ -630,7 +634,7 @@ internal fun CompilationScreen(
             }
         } else if (query.isNotBlank() && results.isEmpty() && !loading) {
             val restoreCriteria = CompilationSearchCriteria(
-                query.trim(), year, genre, style, country, language)
+                query.trim(), year, genre, style, country, language, mode = mode)
             val workKey = searchIdentity(restoreCriteria)
             val saved = MusicLabSectionWorkCheckpoint.read(context,
                 "compilation:search", workKey)
@@ -1071,6 +1075,7 @@ internal fun CompilationScreen(
                                                     style = previous.style
                                                     country = previous.country
                                                     language = previous.language
+                                                    mode = previous.mode
                                                     // The history entry supplies the exact criteria.
                                                     // Avoid the auto-navigation effect launching a second search.
                                                     trackRequest = null
