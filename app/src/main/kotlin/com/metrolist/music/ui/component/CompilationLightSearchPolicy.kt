@@ -67,8 +67,8 @@ internal object CompilationLightSearchPolicy {
     ): Boolean {
         if (!isVersionOf(track.title, songTitle)) return false
         return when (lookup) {
-            TITLE -> true
-            TITLE_ARTIST -> {
+            CompilationLookupMode.TITLE -> true
+            CompilationLookupMode.TITLE_ARTIST -> {
                 val singer = norm(originalArtist)
                 if (singer.isBlank()) true
                 else {
@@ -77,7 +77,7 @@ internal object CompilationLightSearchPolicy {
                     attributed.isEmpty() || originalArtistPresent(track, originalArtist)
                 }
             }
-            COVER_LITE -> {
+            CompilationLookupMode.COVER_LITE -> {
                 if (originalArtistPresent(track, originalArtist)) false
                 else {
                     val named = track.artists.map(::norm).filter {
