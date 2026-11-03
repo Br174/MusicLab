@@ -101,6 +101,7 @@ internal data class CompilationSearchCriteria(
     val trackTitle: String? = null,
     val trackArtist: String? = null,
     val mode: DiscogsSearchMode = DiscogsSearchMode.COMPILATION,
+    val lookupMode: CompilationLookupMode = CompilationLookupMode.TITLE_ARTIST,
 )
 
 private object CompilationSessionStore {
@@ -111,6 +112,7 @@ private object CompilationSessionStore {
     var country: String? = null
     var language: String? = null
     var mode: DiscogsSearchMode = DiscogsSearchMode.COMPILATION
+    var lookupMode: CompilationLookupMode = CompilationLookupMode.TITLE_ARTIST
 
     var results: List<DiscogsCompilationSummary> = emptyList()
     var currentPage: Int = 0
@@ -164,6 +166,7 @@ internal fun CompilationScreen(
                 CompilationSessionStore.country = saved.country
                 CompilationSessionStore.language = saved.language
                 CompilationSessionStore.mode = saved.mode
+                CompilationSessionStore.lookupMode = saved.lookupMode
                 CompilationSessionStore.results = saved.results
                 CompilationSessionStore.currentPage = saved.page
                 CompilationSessionStore.totalPages = saved.pages
@@ -177,7 +180,8 @@ internal fun CompilationScreen(
                         saved.country, saved.language,
                         trackTitle = saved.trackTitle,
                         trackArtist = saved.trackArtist,
-                        mode = saved.mode)
+                        mode = saved.mode,
+                        lookupMode = saved.lookupMode)
                 }
             }
         }
@@ -202,6 +206,10 @@ internal fun CompilationScreen(
     var country by remember { mutableStateOf(CompilationSessionStore.country) }
     var language by remember { mutableStateOf(CompilationSessionStore.language) }
     var mode by remember { mutableStateOf(CompilationSessionStore.mode) }
+    var lookupMode by remember { mutableStateOf(CompilationSessionStore.lookupMode) }
+    var sourceTitle by remember { mutableStateOf(restored.originalTitle) }
+    var sourceArtist by remember { mutableStateOf(restored.originalArtist) }
+    var searchModesOpen by remember { mutableStateOf(false) }
 
     var results by remember { mutableStateOf(CompilationSessionStore.results) }
     var loading by remember { mutableStateOf(false) }
@@ -267,7 +275,7 @@ internal fun CompilationScreen(
         searchHistory = withContext(Dispatchers.IO) { CompilationSearchHistoryStore.load(context) }
     }
 
-    LaunchedEffect(query, year, genre, style, country, language, mode) {
+    LaunchedEffect(query, year, genre, style, country, language, mode, lookupMode) {
         CompilationSessionStore.query = query
         CompilationSessionStore.year = year
         CompilationSessionStore.genre = genre
@@ -275,6 +283,7 @@ internal fun CompilationScreen(
         CompilationSessionStore.country = country
         CompilationSessionStore.language = language
         CompilationSessionStore.mode = mode
+        CompilationSessionStore.lookupMode = lookupMode
         CompilationSessionStore.filtersExpanded = filtersExpanded
     }
 
@@ -290,6 +299,7 @@ internal fun CompilationScreen(
     val latestCompilationSnapshot = rememberUpdatedState(MusicLabCompilationSnapshot.Saved(
         query = query, year = year, genre = genre, style = style,
         country = country, language = language, filtersExpanded = filtersExpanded, mode = mode,
+        lookupMode = lookupMode, originalTitle = sourceTitle, originalArtist = sourceArtist,
         trackTitle = activeSearch?.trackTitle, trackArtist = activeSearch?.trackArtist,
         results = results, page = currentPage, pages = totalPages,
         total = totalDiscogsResults, selectedRelease = selectedReleaseId,
@@ -314,7 +324,8 @@ internal fun CompilationScreen(
             }
         }
     }
-    LaunchedEffect(query, year, genre, style, country, language, mode, filtersExpanded,
+    LaunchedEffect(query, year, genre, style, country, language, mode, lookupMode,
+        sourceTitle, sourceArtist, filtersExpanded,
         activeSearch, results, currentPage, totalPages, totalDiscogsResults, selectedReleaseId,
         selectedTrackIndex, openReleaseId) {
         // Coalesce edits and list pagination, never persist the Discogs token.
@@ -322,6 +333,7 @@ internal fun CompilationScreen(
         MusicLabCompilationSnapshot.save(context, MusicLabCompilationSnapshot.Saved(
             query = query, year = year, genre = genre, style = style,
             country = country, language = language, filtersExpanded = filtersExpanded, mode = mode,
+            lookupMode = lookupMode, originalTitle = sourceTitle, originalArtist = sourceArtist,
             trackTitle = activeSearch?.trackTitle, trackArtist = activeSearch?.trackArtist,
             results = results, page = currentPage, pages = totalPages,
             total = totalDiscogsResults, selectedRelease = selectedReleaseId,
@@ -339,8 +351,10 @@ internal fun CompilationScreen(
                 MusicLabCompilationCoverBridge.remember(context, it.id, it.coverUrl)
                 if (selectedTrackIndex == null) {
                     val wanted = activeSearch
-                    selectedTrackIndex = CompilationTitleOnlyPolicy.selectedTrackIndex(
-                        it.tracks, wanted?.trackTitle, wanted?.trackArtist)
+                    selectedTrackIndex = it.tracks.indexOfFirst { track ->
+                        wanted?.trackTitle != null && CompilationLightSearchPolicy.accepts(
+                            track, wanted.trackTitle, wanted.trackArtist.orEmpty(), wanted.lookupMode)
+                    }.takeIf { it >= 0 }
                     CompilationSessionStore.selectedTrackIndex = selectedTrackIndex
                 }
             } }
@@ -391,8 +405,10 @@ internal fun CompilationScreen(
             if (generation != searchGeneration) return emptyList()
             val formatLabels = release.formatDescriptions.ifEmpty { candidate.formats }
             if (!criteria.mode.accepts(formatLabels)) continue
-            if (CompilationTitleOnlyPolicy.selectedTrackIndex(
-                    release.tracks, song, criteria.trackArtist) == null) continue
+            if (release.tracks.none { track ->
+                    CompilationLightSearchPolicy.accepts(
+                        track, song, criteria.trackArtist.orEmpty(), criteria.lookupMode)
+                }) continue
             if (criteria.language != null &&
                 !CompilationLanguageHeuristics.matchesOrUnknown(
                     criteria.language, release.tracks)) continue
@@ -424,6 +440,7 @@ internal fun CompilationScreen(
                 else if (criteria.language == null) 100 else 25,
             trackTitle = criteria.trackTitle,
             mode = criteria.mode,
+            includeSingles = criteria.lookupMode == CompilationLookupMode.COVER_LITE,
         )
 
         if (generation != searchGeneration) return false
@@ -466,7 +483,7 @@ internal fun CompilationScreen(
         listOf(criteria.query, criteria.year?.toString().orEmpty(),
             criteria.genre.orEmpty(), criteria.style.orEmpty(),
             criteria.country.orEmpty(), criteria.language.orEmpty(),
-            criteria.mode.name, criteria.trackTitle.orEmpty(),
+            criteria.mode.name, criteria.lookupMode.name, criteria.trackTitle.orEmpty(),
             criteria.trackArtist.orEmpty()).joinToString("|")
 
     fun runSearch(requestedCriteria: CompilationSearchCriteria? = null,
@@ -479,10 +496,12 @@ internal fun CompilationScreen(
             country = country,
             language = language,
             mode = mode,
-            // Menu track selection only supplies the text shown in the regular
-            // search field. It must not alter Discogs search admission.
-            trackTitle = null,
-            trackArtist = null,
+            // All three strategies use Discogs indexed track titles, NEVER
+            // matches against the album / compilation release title.
+            trackTitle = CompilationLightSearchPolicy.indexTitle(
+                sourceTitle.ifBlank { query }, sourceArtist),
+            trackArtist = sourceArtist.takeIf(String::isNotBlank),
+            lookupMode = lookupMode,
         )
 
         val workKey = searchIdentity(criteria)
@@ -529,7 +548,8 @@ internal fun CompilationScreen(
                 resultListState.scrollToItem(0)
                 var succeeded = loadPage(criteria, page = 1, replaceResults = true,
                     token = token, generation = generation)
-                // R53: no automatic query rewriting or Album fallback.
+                // R54: all searches use only candidate releases with a matched
+                // tracklist row. Cover is deliberately lightweight / unverified.
                 // User controls the exact source query through Cerca,
                 // or chooses the Discogs track index through Titolo.
                 if (!succeeded && generation == searchGeneration) {
@@ -560,41 +580,29 @@ internal fun CompilationScreen(
         }
     }
 
-    // R53: Player/locandina navigation ONLY fills the unchanged original title.
-    // No search, rewrite, fallback or player mutation runs until the user taps
-    // Cerca (verbatim) or Titolo (explicit cleaned track title).
+    // R54: first player poster search uses ONLY canonical locandina metadata.
+    // No YouTube video title, no new player side effects and no hidden mode hop.
     LaunchedEffect(trackRequest?.requestId) {
         val target = trackRequest ?: return@LaunchedEffect
-        searchGeneration += 1
-        searchJob?.cancel()
-        paginationJob?.cancel()
-        fullAudioLookupJob?.cancel()
-        loading = false
-        loadingMore = false
-        error = null
-        paginationError = null
-        detail = null
-        openReleaseId = null
-        fullAudio = null
-        selectedReleaseId = null
-        selectedTrackIndex = null
-        resolvedTracks.clear()
-        CompilationSessionStore.resetForNewSearch()
-        CompilationSessionStore.selectedReleaseId = null
-        activeSearch = null
-        results = emptyList()
-        currentPage = 0
-        totalPages = 0
-        totalDiscogsResults = 0
-        activeSearchToken = ""
-        query = target.title // preserve EXACT label from the locandina
+        sourceTitle = target.title
+        sourceArtist = target.artist
+        lookupMode = CompilationLookupMode.TITLE_ARTIST
+        val title = CompilationLightSearchPolicy.indexTitle(target.title, target.artist)
+        val visible = listOf(target.title, target.artist)
+            .filter(String::isNotBlank).joinToString(" - ")
+        query = visible
         year = null
         genre = null
         style = null
         country = null
         language = null
         mode = DiscogsSearchMode.COMPILATION
-        resultListState.scrollToItem(0)
+        runSearch(CompilationSearchCriteria(
+            query = visible, year = null, genre = null, style = null,
+            country = null, language = null, mode = DiscogsSearchMode.COMPILATION,
+            trackTitle = title, trackArtist = target.artist.takeIf(String::isNotBlank),
+            lookupMode = CompilationLookupMode.TITLE_ARTIST,
+        ))
     }
 
     fun loadNextPage() {
@@ -652,7 +660,8 @@ internal fun CompilationScreen(
                 query.trim(), year, genre, style, country, language,
                 trackTitle = restored.trackTitle,
                 trackArtist = restored.trackArtist,
-                mode = mode)
+                mode = mode,
+                lookupMode = restored.lookupMode)
             val workKey = searchIdentity(restoreCriteria)
             val saved = MusicLabSectionWorkCheckpoint.read(context,
                 "compilation:search", workKey)
@@ -709,8 +718,10 @@ internal fun CompilationScreen(
                     detail = loaded
                     CompilationSessionStore.detail = loaded
                     val wanted = activeSearch
-                    selectedTrackIndex = CompilationTitleOnlyPolicy.selectedTrackIndex(
-                        loaded.tracks, wanted?.trackTitle, wanted?.trackArtist)
+                    selectedTrackIndex = loaded.tracks.indexOfFirst { track ->
+                        wanted?.trackTitle != null && CompilationLightSearchPolicy.accepts(
+                            track, wanted.trackTitle, wanted.trackArtist.orEmpty(), wanted.lookupMode)
+                    }.takeIf { it >= 0 }
                     CompilationSessionStore.selectedTrackIndex = selectedTrackIndex
                     detailLoading = false
                 }
