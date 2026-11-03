@@ -330,6 +330,16 @@ internal object MusicLabHitParadeDiscArtwork {
         else song.toMediaMetadata().copy(thumbnailUrl = sleeve).toMediaItem()
     }
 
+    fun currentPlayerArtwork(context: Context, mediaId: String): String? {
+        val snapshot = MusicLabSectionPlayback.active.value ?: return null
+        if (snapshot.mediaId != mediaId) return null
+        if (!snapshot.source.startsWith("Hit Parade") &&
+            snapshot.source != "Top annuali singoli") return null
+        val row = playbackRows[(snapshot.selectionKey ?: return null) +
+            "|" + (snapshot.selectedKey ?: return null)] ?: return null
+        return artwork(context, row.title, row.artist, album = false)
+    }
+
     /**
      * The native player continues the SAME media stream: only Compose metadata
      * shown by MiniPlayer/expanded Player receives the shared disc sleeve.
