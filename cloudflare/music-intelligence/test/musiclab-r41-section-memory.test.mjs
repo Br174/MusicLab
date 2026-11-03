@@ -48,8 +48,8 @@ test('Compilation saves original R39 search state, all rows and selected release
  assert.match(cp,/put\("results", JSONArray\(\)/);
  assert.doesNotMatch(cp,/DiscogsTokenKey|discogsToken|playNow\(/);
  assert.match(cr,/query = criteria\.query,/);
- assert.match(cr,/perPage = if \(criteria\.trackTitle != null\) 12/);
- assert.match(cr,/else if \(criteria\.language == null\) 100 else 25/);
+ assert.match(comp,/perPage = if \(criteria\.language == null\) 100 else 25/);
+ assert.match(comp,/trackTitle = query\.takeIf\(String::isNotBlank\)\?\.let/);
  assert.doesNotMatch(cr,/verifyContainingTrack\(/);
 });
 test('Cover and originals restore stable session archive identity with all filters and selected card',()=>{
