@@ -25,6 +25,31 @@ class DiscogsSearchModeTest {
         assertFalse(DiscogsSearchMode.BOTH.accepts(emptyList()))
     }
 
+    @Test fun singlesModeFindsSinglesNotAlbumsOrCompilations() {
+        assertTrue(DiscogsSearchMode.SINGLE.accepts(listOf("7-inch", "Single")))
+        assertFalse(DiscogsSearchMode.SINGLE.accepts(listOf("CD", "Album")))
+        assertFalse(DiscogsSearchMode.SINGLE.accepts(listOf("Compilation")))
+    }
+
+    @Test fun allSevenCheckboxCombinationsRoundTrip() {
+        val categories = DiscogsReleaseCategory.entries
+        for (mode in DiscogsSearchMode.entries) {
+            assertEquals(mode, DiscogsSearchMode.restored(mode.name))
+            assertTrue(mode.selected.isNotEmpty())
+            for (category in categories) {
+                val switched = mode.toggle(category)
+                assertTrue(switched.selected.isNotEmpty())
+                if (mode.selected.size > 1 || category !in mode.selected) {
+                    assertEquals(category !in mode.selected, category in switched.selected)
+                }
+            }
+        }
+        assertTrue(DiscogsSearchMode.ALL.accepts(listOf("Single")))
+        assertTrue(DiscogsSearchMode.ALL.accepts(listOf("Album")))
+        assertTrue(DiscogsSearchMode.ALL.accepts(listOf("Compilation")))
+        assertFalse(DiscogsSearchMode.ALL.accepts(emptyList()))
+    }
+
     @Test fun legacySettingsDefaultToCompilationNotMixed() {
         assertEquals(DiscogsSearchMode.COMPILATION, DiscogsSearchMode.restored(null))
         assertEquals(DiscogsSearchMode.COMPILATION, DiscogsSearchMode.restored(""))
