@@ -216,6 +216,10 @@ internal fun CompilationScreen(
     var releaseTypesOpen by remember { mutableStateOf(false) }
 
     var results by remember { mutableStateOf(CompilationSessionStore.results) }
+    // R57: results appear in a complete page; background verification does
+    // not gate their admission or alter their order.
+    val verifiedTrackIds = remember { mutableStateMapOf<Int, Boolean>() }
+    var verificationJob by remember { mutableStateOf<Job?>(null) }
     var loading by remember { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -455,8 +459,7 @@ internal fun CompilationScreen(
             style = criteria.style,
             country = criteria.country,
             page = page,
-            perPage = if (criteria.trackTitle != null) 12
-                else if (criteria.language == null) 100 else 25,
+            perPage = if (criteria.language == null) 100 else 25,
             trackTitle = criteria.trackTitle,
             mode = criteria.mode,
             includeSingles = false, // All lookup strategies honor the selected publication formats.
@@ -476,22 +479,16 @@ internal fun CompilationScreen(
         currentPage = pageResult.page
         totalPages = pageResult.pages
         totalDiscogsResults = pageResult.totalItems
+        // R57: immediately show the full Discogs candidate page as one batch.
+        // Verification is informative, never a prerequisite for visibility.
         val visibleItems = if (criteria.trackTitle != null)
-            verifyIndexedTrackCandidates(pageResult.items, criteria, token, generation) { confirmed ->
-                if (generation == searchGeneration) {
-                    results = (results + confirmed).distinctBy { it.id }
-                    CompilationSessionStore.results = results
-                    CompilationSessionStore.currentPage = currentPage
-                    CompilationSessionStore.totalPages = totalPages
-                    CompilationSessionStore.totalDiscogsResults = totalDiscogsResults
-                }
-            }
+            pageResult.items
         else filterByLanguage(pageResult.items, criteria.language, token, generation)
         if (generation != searchGeneration) return false
         // R36 behavior: show all releases returned by Discogs. No mandatory
         // tracklist/artist matching; keep the R38 stale-request generation gate.
         if (generation != searchGeneration) return false
-        results = if (replaceResults && criteria.trackTitle == null) {
+        results = if (replaceResults) {
             visibleItems
         } else {
             (results + visibleItems).distinctBy { it.id }
@@ -506,6 +503,19 @@ internal fun CompilationScreen(
         CompilationSessionStore.totalDiscogsResults = totalDiscogsResults
         CompilationSessionStore.activeSearch = criteria
 
+        // The initial batch is already on screen. Inspect actual Discogs
+        // tracklists in a cancellable, playback-aware secondary task.
+        if (criteria.trackTitle != null && visibleItems.isNotEmpty()) {
+            verificationJob?.cancel()
+            verificationJob = scope.launch {
+                verifyIndexedTrackCandidates(pageResult.items, criteria, token, generation) { confirmed ->
+                    if (generation == searchGeneration) verifiedTrackIds[confirmed.id] = true
+                }
+                if (generation == searchGeneration) pageResult.items.forEach { candidate ->
+                    if (verifiedTrackIds[candidate.id] == null) verifiedTrackIds[candidate.id] = false
+                }
+            }
+        }
         paginationError = null
         return true
     }
@@ -529,8 +539,14 @@ internal fun CompilationScreen(
             mode = mode,
             // All three strategies use Discogs indexed track titles, NEVER
             // matches against the album / compilation release title.
-            trackTitle = CompilationLightSearchPolicy.indexTitle(
-                sourceTitle.ifBlank { query }, sourceArtist),
+            // R57: filter-only and ordinary manually typed queries use the
+            // fast broad Discogs q path, never the mandatory track index.
+            // Preserve explicit poster/dropdown lookup for the same query.
+            trackTitle = query.takeIf(String::isNotBlank)?.let { entered ->
+                if (sourceTitle.isNotBlank())
+                    CompilationLightSearchPolicy.indexTitle(sourceTitle, sourceArtist)
+                else activeSearch?.takeIf { it.query == entered }?.trackTitle
+            }?.takeIf(String::isNotBlank),
             trackArtist = sourceArtist.takeIf(String::isNotBlank),
             lookupMode = lookupMode,
         )
@@ -545,6 +561,8 @@ internal fun CompilationScreen(
         val generation = searchGeneration
         paginationJob?.cancel()
         searchJob?.cancel()
+        verificationJob?.cancel()
+        verifiedTrackIds.clear()
         fullAudioLookupJob?.cancel()
         nextTrackWarmJob?.cancel()
         loading = true
@@ -1310,7 +1328,8 @@ internal fun CompilationScreen(
                             if (activeSearch != null && (totalDiscogsResults > 0 || results.isNotEmpty())) {
                                 val counterText =
                                     if (activeSearch?.trackTitle != null) {
-                                        "Canzoni verificate in ${results.size} dischi · " +
+                                        "Visualizzati ${results.size} dischi · " +
+                                            "Brano confermato in ${verifiedTrackIds.values.count { it }} · " +
                                             "Discogs $totalDiscogsResults candidati · pagina $currentPage/$totalPages"
                                     } else if (activeSearch?.language == null) {
                                         "Caricate ${results.size} / $totalDiscogsResults · pagina $currentPage/$totalPages"
@@ -1369,6 +1388,8 @@ internal fun CompilationScreen(
                             CompilationResultCard(
                                 summary = item,
                                 selected = item.id == selectedReleaseId,
+                                trackSearch = activeSearch?.trackTitle != null,
+                                verifiedTrack = verifiedTrackIds[item.id],
                                 onClick = { openCompilation(item) },
                             )
                         }
@@ -1446,6 +1467,8 @@ internal fun CompilationScreen(
 private fun CompilationResultCard(
     summary: DiscogsCompilationSummary,
     selected: Boolean,
+    trackSearch: Boolean,
+    verifiedTrack: Boolean?,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -1473,6 +1496,18 @@ private fun CompilationResultCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (trackSearch) {
+                    Text(
+                        when (verifiedTrack) {
+                            true -> "Brano confermato nella tracklist"
+                            false -> "Brano non confermato"
+                            null -> "Da verificare nella tracklist"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (verifiedTrack == true) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     listOfNotNull(summary.year?.toString(), summary.country).joinToString(" · "),
                     style = MaterialTheme.typography.bodyMedium,
