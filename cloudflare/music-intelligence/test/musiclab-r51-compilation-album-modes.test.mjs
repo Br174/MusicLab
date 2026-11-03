@@ -12,10 +12,10 @@ const snap=read(base+'ui/component/MusicLabCompilationSnapshot.kt');
 const history=read(base+'ui/component/CompilationSearchSessionPolicy.kt');
 
 test('R51: manual category selector replaces Genere, old genre+style share Stile', () => {
-  assert.match(ui,/label = ""/);
+  assert.match(ui,/DiscogsReleaseCategory.entries.forEach/);
   assert.match(ui,/if \(label.isBlank\(\)\) selected else/);
-  assert.match(ui,/selected = mode\.label/);
-  assert.match(ui,/DiscogsSearchMode\.entries\.map \{ it\.label \}/);
+  assert.match(ui,/Text\(mode\.label/);
+  assert.match(ui,/Checkbox\(/);
   assert.doesNotMatch(ui,/label = "Genere"/);
   assert.match(ui,/label = "Stile"/);
   assert.match(ui,/CompilationUnifiedStyleFilter\.options\(\s*compilationGenres, compilationStyles\)/);
@@ -29,7 +29,7 @@ test('R51: Discogs queries use correct format, Both only on manual selection', (
   assert.match(api,/when \(mode\) \{/);
   assert.match(api,/DiscogsSearchMode\.COMPILATION ->\s*addQueryParameter\("format", "Compilation"\)/);
   assert.match(api,/DiscogsSearchMode\.ALBUM ->\s*addQueryParameter\("format", "Album"\)/);
-  assert.match(api,/DiscogsSearchMode\.BOTH -> Unit/);
+  assert.match(api,/DiscogsSearchMode\.BOTH, DiscogsSearchMode\.COMPILATION_SINGLE/);
   assert.match(api,/if \(!includeSingles && !mode\.accepts\(formats\)\) continue/);
   assert.match(mode,/ALBUM -> isAlbum && !isCompilation/);
   assert.match(mode,/COMPILATION -> isCompilation/);
