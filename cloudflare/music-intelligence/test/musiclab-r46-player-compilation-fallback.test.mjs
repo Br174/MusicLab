@@ -15,22 +15,24 @@ test('R46 Player -> Compilation delivers each tap, even on existing singleTop ro
   assert.match(comp, /CompilationNavigationBridge.requests.collectAsStateWithLifecycle\(\)/);
   assert.match(comp, /LaunchedEffect\(trackRequest\?\.requestId\)/);
 });
-test('R46 first query uses complete video title; fallback removes video noise and adds singer', () => {
+test('R53 locandina transfers original source label without launching legacy fallback', () => {
   const nav = comp.slice(comp.indexOf('LaunchedEffect(trackRequest?.requestId'),comp.indexOf('fun loadNextPage('));
-  assert.match(nav, /val fullVideoTitle = target.title.trim\(\)/);
-  assert.match(nav, /query = fullVideoTitle/);
-  assert.match(nav, /playerRequest = target/);
+  assert.match(nav, /query = target.title/);
+  assert.match(nav, /mode = DiscogsSearchMode.COMPILATION/);
+  assert.doesNotMatch(nav, /runSearch\(/);
+  assert.doesNotMatch(nav, /CompilationFallbackQueryPolicy.query/);
   assert.match(policy, /fun songTitle\(fullVideoTitle: String, artist: String\)/);
-  assert.match(policy, /official/);
-  assert.match(policy, /fun query\(fullVideoTitle: String, artist: String\)/);
+  assert.match(comp, /trackTitle = cleaned/);
+  assert.match(comp, /runSearch\(CompilationSearchCriteria\(/);
 });
-test('R46 verifies real tracklist, so generic search results cannot prevent fallback', () => {
-  assert.match(comp, /CompilationTrackMatchPolicy.matches/);
-  assert.match(comp, /DiscogsClient.getRelease\(token, candidate.id,/);
-  assert.match(comp, /if \(verified.isEmpty\(\) && fallback != null/);
-  assert.match(comp, /criteria.copy\(query = fallback\)/);
-  assert.match(comp, /totalPages = 1/);
+
+test('R53 verifies real tracklists only when Titolo is explicitly chosen', () => {
+  assert.match(comp, /verifyIndexedTrackCandidates\(/);
+  assert.match(comp, /CompilationTitleOnlyPolicy.selectedTrackIndex\(/);
+  assert.match(comp, /trackTitle = criteria.trackTitle/);
+  assert.doesNotMatch(comp, /val alternative = criteria.copy\(query = fallback\)/);
 });
+
 test('R46 original manual Compilation search retains R39 broad q mode', () => {
   const load = comp.slice(comp.indexOf('suspend fun loadPage('),comp.indexOf('fun runSearch('));
   assert.match(load, /query = criteria.query/);
