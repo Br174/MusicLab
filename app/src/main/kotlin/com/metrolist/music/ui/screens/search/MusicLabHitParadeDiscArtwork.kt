@@ -322,6 +322,24 @@ internal object MusicLabHitParadeDiscArtwork {
             ?: if (album) null else fallback(context, title, artist)
     }
 
+    /**
+     * R58: a previously verified or manually chosen video ID is already a
+     * playable Media3 identity. Never block a repeat tap on YouTube.queue()
+     * just to reconstruct its SongItem metadata. Preserve the original sleeve
+     * and keep the user's exact pinned recording.
+     */
+    fun rememberedPlayableMediaItem(context: Context, title: String, artist: String): MediaItem? {
+        val choice = MusicLabHitParadeVideoMemory.get(context, title, artist) ?: return null
+        return MediaMetadata(
+            id = choice.videoId,
+            title = choice.title.ifBlank { title },
+            artists = listOf(MediaMetadata.Artist(id = null,
+                name = choice.artist.ifBlank { artist })),
+            duration = -1,
+            thumbnailUrl = artwork(context, title, artist, album = false) ?: choice.thumbnail,
+        ).toMediaItem()
+    }
+
     /** Seed both native artwork metadata and the list from the same verified URL. */
     fun playableMediaItem(context: Context, title: String, artist: String,
                           song: SongItem): MediaItem {
