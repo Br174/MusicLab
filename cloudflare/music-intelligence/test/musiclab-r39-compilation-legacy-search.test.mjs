@@ -16,7 +16,8 @@ test('R39 restores wide R36 Discogs q-based search, 100 releases per page', () =
   assert.doesNotMatch(load, /trackTitle = criteria\.trackTitle/);
   assert.doesNotMatch(load, /verifyContainingTrack|CompilationTrackMatchPolicy/);
   assert.match(load, /results = if \(replaceResults\) \{\s*visibleItems/);
-  assert.match(api, /\.addQueryParameter\("format", "Compilation"\)/);
+  assert.match(api, /DiscogsSearchMode\.COMPILATION ->\s*addQueryParameter\("format", "Compilation"\)/);
+  assert.match(api, /DiscogsSearchMode\.ALBUM ->\s*addQueryParameter\("format", "Album"\)/);
   assert.match(api, /addQueryParameter\("q", it\)/);
 });
 
@@ -33,7 +34,7 @@ test('R38 safety, token, history and search isolation remain operational', () =>
   assert.match(comp, /searchGeneration \+= 1/);
   assert.match(comp, /if \(generation != searchGeneration\)/);
   assert.match(comp, /context\.dataStore\.data\.first\(\)\[DiscogsTokenKey\]/);
-  assert.match(comp, /CompilationSearchHistoryStore\.save\(context, criteria\)/);
+  assert.match(comp, /CompilationSearchHistoryStore\.save\(context, activeSearch \?: criteria\)/);
   assert.match(comp, /runSearch\(previous\)/);
   assert.match(policy, /private const val LIMIT = 30/);
   assert.match(policy, /musiclab_compilation_search_history_r38/);
