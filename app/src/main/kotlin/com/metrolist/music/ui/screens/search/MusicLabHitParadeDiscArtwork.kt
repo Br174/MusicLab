@@ -385,7 +385,7 @@ internal fun MusicLabHitParadeDiscCover(
     val disc by produceState(
         initialValue = MusicLabHitParadeDiscArtwork.saved(
             context, identity.title, identity.artist, album),
-        key1 = identity, key2 = album, key3 = sourceArtwork, key4 = rejectedUrl,
+        key1 = identity, key2 = album, key3 = Pair(sourceArtwork, rejectedUrl),
     ) {
         value = MusicLabHitParadeDiscArtwork.saved(
             context, identity.title, identity.artist, album)
