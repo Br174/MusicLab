@@ -608,6 +608,9 @@ class MusicService :
     @Volatile private var playbackPriorityBurstActive: Boolean = false
     // LAB62 Pollicino: read-only, lightweight audio diagnostics (no network calls).
     @Volatile private var lab62PlaybackStartAtMs: Long = 0L
+    // R58: separate earliest explicit selection from stream/READY timings.
+    // Diagnostic only: never pauses, replaces, seeks or prepares the player.
+    @Volatile private var lab58SelectionAtMs: Long = 0L
     @Volatile private var lab62BufferingCount: Int = 0
 
     // LAB31: bounded, read-only diagnostics. No network requests, no media IDs,
@@ -2425,8 +2428,17 @@ class MusicService :
      * re-prepared; Media3 starts resolving the new item immediately.
      */
     fun beginPlaybackPriorityBurst(reason: String = "user-action") {
+        val now = android.os.SystemClock.elapsedRealtime()
+        // Respect the first tap even when the common playback bridge requests
+        // a second priority burst later, after finding the same recording.
+        if (reason.endsWith("-tap") || reason == "play-now" ||
+            reason == "queue-preload-start" || reason == "queue-initial-start" ||
+            lab58SelectionAtMs == 0L
+        ) {
+            lab58SelectionAtMs = now
+        }
         lab31AudioEvent("PRIORITY_START", "reason=" + reason)
-        lab62PlaybackStartAtMs = android.os.SystemClock.elapsedRealtime()
+        lab62PlaybackStartAtMs = now
         lab62BufferingCount = 0
         playbackPriorityBurstActive = true
 
@@ -3285,6 +3297,15 @@ class MusicService :
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         lab31AudioEvent("PLAYING_FLAG", "value=" + isPlaying)
+        // Media3 isPlaying is a readiness signal, not guaranteed audible output.
+        // Keep this honest and separate from STREAM_RESOLVE and BUFFERING logs.
+        if (isPlaying && lab58SelectionAtMs > 0L) {
+            val startedAt = lab58SelectionAtMs
+            lab58SelectionAtMs = 0L
+            lab31AudioEvent("R58_IS_PLAYING",
+                "selection_to_isPlaying_ms=" +
+                    (android.os.SystemClock.elapsedRealtime() - startedAt))
+        }
     }
 
     override fun onPlaybackStateChanged(
@@ -5334,8 +5355,8 @@ class MusicService :
                     return@Factory dataSpec.withResolvedStream(cachedStream)
                 }
             }
-            val storedFormat = runBlocking(Dispatchers.IO) { database.format(mediaId).first() }
-
+            // R58: local songs never need the remote stream metadata query.
+            // Before R58 even a local file synchronously fetched FormatEntity.
             // Handle local audio files — resolve to content URI and bypass YouTube fetch
             if (mediaId.startsWith("local:")) {
                 val localPath = runBlocking(Dispatchers.IO) {
@@ -5348,6 +5369,9 @@ class MusicService :
                 return@Factory dataSpec
             }
 
+            val storedFormat = runBlocking(Dispatchers.IO) {
+                database.format(mediaId).first()
+            }
 
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
 
