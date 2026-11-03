@@ -908,13 +908,19 @@ internal fun CompilationScreen(
                             )
                         },
                         selectedIndex = index,
-                        selected = found.song.toMediaItem(),
+                        selected = MusicLabCompilationCoverBridge.mediaItem(
+                            found.song, MusicLabCompilationCoverBridge.artwork(context, current.id)
+                                ?: current.coverUrl),
                         selectionKey = "compilation:detail:" + current.id,
                         findPlayable = { entry ->
                             entry.key.toIntOrNull()
                                 ?.takeIf { it in current.tracks.indices }
                                 ?.let { trackIndex ->
-                                    resolveTrack(trackIndex, current)?.song?.toMediaItem()
+                                    resolveTrack(trackIndex, current)?.song?.let { playable ->
+                                        MusicLabCompilationCoverBridge.mediaItem(playable,
+                                            MusicLabCompilationCoverBridge.artwork(context, current.id)
+                                                ?: current.coverUrl)
+                                    }
                                 }
                         },
                     )
