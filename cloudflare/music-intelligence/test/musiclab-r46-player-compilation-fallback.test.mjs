@@ -15,22 +15,15 @@ test('R46 Player -> Compilation delivers each tap, even on existing singleTop ro
   assert.match(comp, /CompilationNavigationBridge.requests.collectAsStateWithLifecycle\(\)/);
   assert.match(comp, /LaunchedEffect\(trackRequest\?\.requestId\)/);
 });
-test('R53 locandina transfers original source label without launching legacy fallback', () => {
+test('R54 player tap automatically searches indexed track from poster title and singer', () => {
   const nav = comp.slice(comp.indexOf('LaunchedEffect(trackRequest?.requestId'),comp.indexOf('fun loadNextPage('));
-  assert.match(nav, /query = target.title/);
-  assert.match(nav, /mode = DiscogsSearchMode.COMPILATION/);
-  assert.doesNotMatch(nav, /runSearch\(/);
+  assert.match(nav, /sourceTitle = target.title/);
+  assert.match(nav, /sourceArtist = target.artist/);
+  assert.match(nav, /runSearch\(CompilationSearchCriteria\(/);
+  assert.match(nav, /trackTitle = title/);
   assert.doesNotMatch(nav, /CompilationFallbackQueryPolicy.query/);
-  assert.match(policy, /fun songTitle\(fullVideoTitle: String, artist: String\)/);
-  assert.match(comp, /trackTitle = cleaned/);
-  assert.match(comp, /runSearch\(CompilationSearchCriteria\(/);
-});
-
-test('R53 verifies real tracklists only when Titolo is explicitly chosen', () => {
+  assert.match(comp, /CompilationLightSearchPolicy.accepts\(/);
   assert.match(comp, /verifyIndexedTrackCandidates\(/);
-  assert.match(comp, /CompilationTitleOnlyPolicy.selectedTrackIndex\(/);
-  assert.match(comp, /trackTitle = criteria.trackTitle/);
-  assert.doesNotMatch(comp, /val alternative = criteria.copy\(query = fallback\)/);
 });
 
 test('R46 original manual Compilation search retains R39 broad q mode', () => {
