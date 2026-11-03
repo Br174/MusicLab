@@ -30,7 +30,7 @@ test('R51: Discogs queries use correct format, Both only on manual selection', (
   assert.match(api,/DiscogsSearchMode\.COMPILATION ->\s*addQueryParameter\("format", "Compilation"\)/);
   assert.match(api,/DiscogsSearchMode\.ALBUM ->\s*addQueryParameter\("format", "Album"\)/);
   assert.match(api,/DiscogsSearchMode\.BOTH -> Unit/);
-  assert.match(api,/if \(!mode\.accepts\(formats\)\) continue/);
+  assert.match(api,/if \(!includeSingles && !mode\.accepts\(formats\)\) continue/);
   assert.match(mode,/ALBUM -> isAlbum && !isCompilation/);
   assert.match(mode,/COMPILATION -> isCompilation/);
   assert.match(mode,/BOTH -> isAlbum \|\| isCompilation/);
@@ -49,7 +49,7 @@ test('R54: three song strategies are independent of R51 album/compilation select
 
 test('R51: mode participates in pagination, resume, state, history and source-safe search', () => {
   assert.match(ui,/mode = criteria\.mode/);
-  assert.match(ui,/criteria\.mode\.name, criteria\.trackTitle\.orEmpty\(\)/);
+  assert.match(ui,/criteria\.mode\.name, criteria\.lookupMode\.name, criteria\.trackTitle\.orEmpty\(\)/);
   assert.match(ui,/criteria\.trackArtist\.orEmpty\(\)\)\.joinToString\("\|"\)/);
   assert.match(snap,/put\("mode", saved\.mode\.name\)/);
   assert.match(snap,/DiscogsSearchMode\.restored\(root\.optString\("mode"\)\)/);
