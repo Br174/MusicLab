@@ -26,7 +26,7 @@ test('R52: plain q and real Discogs track index are mutually exclusive', () => {
   assert.ok(api.includes('addQueryParameter("track", trackTitle.trim())'));
   assert.ok(api.includes('addQueryParameter("q", it)'));
   assert.ok(ui.includes('trackTitle = criteria.trackTitle'));
-  assert.ok(ui.includes('verifyIndexedTrackCandidates(pageResult.items, criteria, token, generation)'));
+  assert.ok(ui.includes('verifyIndexedTrackCandidates(pageResult.items, criteria, token, generation) { confirmed ->'));
 });
 
 test('R54 only tracklist rows can validate a hit, not a similar compilation name', () => {
@@ -69,8 +69,8 @@ test('R53: retain Discogs release list/detail covers but restore R51 player unto
 });
 
 test('R52: user modes and prior R50 Hit Parade artwork stay intact', () => {
-  assert.ok(ui.includes('label = ""'));
-  assert.ok(ui.includes('selected = mode.label'));
+  assert.ok(ui.includes('DiscogsReleaseCategory.entries.forEach'));
+  assert.ok(ui.includes('Text(mode.label'));
   assert.ok(ui.includes('CompilationUnifiedStyleFilter.options('));
   assert.ok(snap.includes('put("trackTitle", saved.trackTitle)'));
   assert.ok(snap.includes('put("trackArtist", saved.trackArtist)'));
