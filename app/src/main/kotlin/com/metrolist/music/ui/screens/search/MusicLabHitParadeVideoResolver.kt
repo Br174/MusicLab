@@ -163,12 +163,16 @@ internal object MusicLabHitParadeVideoResolver {
         val saved = MusicLabHitParadeVideoMemory.save(context, title, artist,
             MusicLabHitParadeVideoMemory.Choice(
                 videoId, videoTitle, videoArtist, thumbnail, manual = true))
-        if (saved) live.remove(MusicLabHitParadeVideoMemory.key(title, artist))
+        if (saved) {
+            live.remove(MusicLabHitParadeVideoMemory.key(title, artist))
+            MusicLabHitParadeDiscArtwork.onVideoChanged()
+        }
         return saved
     }
 
     fun removeSelection(context: Context, title: String, artist: String) {
         MusicLabHitParadeVideoMemory.clear(context, title, artist)
         live.remove(MusicLabHitParadeVideoMemory.key(title, artist))
+        MusicLabHitParadeDiscArtwork.onVideoChanged()
     }
 }
