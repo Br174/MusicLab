@@ -29,7 +29,7 @@ test('R54 player tap automatically searches indexed track from poster title and 
 test('R46 original manual Compilation search retains R39 broad q mode', () => {
   const load = comp.slice(comp.indexOf('suspend fun loadPage('),comp.indexOf('fun runSearch('));
   assert.match(load, /query = criteria.query/);
-  assert.match(load, /results = if \(replaceResults && criteria\.trackTitle == null\) \{/);
+  assert.match(load, /results = if \(replaceResults\) \{/);
   assert.doesNotMatch(load,/CompilationTrackMatchPolicy/);
   assert.match(api, /addQueryParameter\("format", "Compilation"\)/);
 });
