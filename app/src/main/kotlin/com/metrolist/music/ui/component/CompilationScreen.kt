@@ -515,7 +515,7 @@ internal fun CompilationScreen(
                         playerRequest.title, playerRequest.artist)
                     if (verified.isEmpty() && fallback != null &&
                         fallback != finalCriteria.query) {
-                        val alternative = finalCriteria.copy(query = fallback)
+                        val alternative = criteria.copy(query = fallback)
                         succeeded = loadPage(alternative, page = 1,
                             replaceResults = true, token = token, generation = generation)
                         if (succeeded && generation == searchGeneration) {
