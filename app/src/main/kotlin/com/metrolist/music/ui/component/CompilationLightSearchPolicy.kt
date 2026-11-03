@@ -34,6 +34,12 @@ internal object CompilationLightSearchPolicy {
         """(?i)\b(remix|mash[\s-]?up|dj|mix|re[\s-]?edit|edit|bootleg|extended|club|dance|live|acoustic|instrumental|radio\s+edit|version|rework|rework(?:ed)?|cover|remaster(?:ed)?|alternate|alternative)\b"""
     )
 
+    // Even without a singer credit, a remix, mashup or DJ edit is eligible.
+    // A plain uncredited original or remaster is not evidence of an alternative.
+    private val alternateMarker = Regex(
+        """(?i)\b(remix|mash[\s-]?up|dj|bootleg|re[\s-]?edit|rework|extended|club|dance|live|acoustic|instrumental|special\s+version|alternate|alternative|cover)\b"""
+    )
+
     private fun isVersionOf(trackTitle: String, wantedTitle: String): Boolean {
         val wanted = norm(wantedTitle)
         val actual = norm(trackTitle)
@@ -86,7 +92,7 @@ internal object CompilationLightSearchPolicy {
                     }
                     // Another performer OR an explicitly named alternative
                     // version. A plain, uncredited canonical song isn't cover.
-                    named.isNotEmpty() || editionMarker.containsMatchIn(track.title)
+                    named.isNotEmpty() || alternateMarker.containsMatchIn(track.title)
                 }
             }
         }
