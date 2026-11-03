@@ -11,6 +11,7 @@ EXPECTED = {
   "cloudflare/music-intelligence/test/musiclab-r39-compilation-legacy-search.test.mjs",
   "cloudflare/music-intelligence/test/musiclab-r41-section-memory.test.mjs",
   "cloudflare/music-intelligence/test/musiclab-r42-audio-seek-selection.test.mjs",
+  "cloudflare/music-intelligence/test/musiclab-r45-manual-version-scroll-compilation.test.mjs",
   "cloudflare/music-intelligence/test/musiclab-r55-discogs-multiselect-progressive-audio.test.mjs",
   "cloudflare/music-intelligence/test/musiclab-r57-compilation-batch-results.test.mjs",
   "tools/universal-apk-builder/prepare-turbo-r57-33137-env.py",
