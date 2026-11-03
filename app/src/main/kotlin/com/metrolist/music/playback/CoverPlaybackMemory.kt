@@ -2,6 +2,7 @@ package com.metrolist.music.playback
 
 import android.content.Context
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.ui.screens.search.MusicLabHitParadeDiscArtwork
 import java.security.MessageDigest
 
 /**
@@ -151,6 +152,12 @@ internal object CoverPlaybackMemory {
     }
 
     fun stablePlayerMetadata(context: Context, metadata: MediaMetadata): MediaMetadata {
+        // R50: during Hit Parade playback use the same verified record sleeve
+        // as the list. Outside Hit Parade preserve Cover's existing poster pin.
+        val historical = MusicLabHitParadeDiscArtwork.currentPlayerArtwork(context, metadata.id)
+        if (historical != null)
+            return if (metadata.thumbnailUrl == historical) metadata
+                else metadata.copy(thumbnailUrl = historical)
         val pinned = pinnedVideoArtwork(context, metadata.id) ?: return metadata
         return if (metadata.thumbnailUrl == pinned) metadata else metadata.copy(thumbnailUrl = pinned)
     }
