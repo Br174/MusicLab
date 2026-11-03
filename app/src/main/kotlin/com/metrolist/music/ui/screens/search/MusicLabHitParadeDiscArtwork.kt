@@ -56,6 +56,7 @@ internal object MusicLabHitParadeDiscArtwork {
     internal data class Disc(val url: String, val artist: String?)
     private const val PREFS = "musiclab_hitparade_disc_artwork_r50"
     private val covers = ConcurrentHashMap<String, String>()
+    private val playbackRows = ConcurrentHashMap<String, RecordIdentity>()
     private val albumArtists = ConcurrentHashMap<String, String>()
     private val rejected = ConcurrentHashMap.newKeySet<String>()
     private val retryAfter = ConcurrentHashMap<String, Long>()
@@ -139,6 +140,15 @@ internal object MusicLabHitParadeDiscArtwork {
         }
         retryAfter.remove(k)
         publish()
+    }
+
+    fun registerPlaybackRows(
+        selectionKey: String, entries: List<MusicLabSectionPlayback.Entry>
+    ) {
+        entries.forEach { entry ->
+            playbackRows[selectionKey + "|" + entry.key] =
+                RecordIdentity(entry.title, entry.artist)
+        }
     }
 
     fun onVideoChanged() { publish() }
@@ -299,7 +309,12 @@ internal object MusicLabHitParadeDiscArtwork {
         val revision by updates.collectAsStateWithLifecycle()
         val section by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
         if (original == null || section == null) return original
-        val active = MusicLabSectionPlayback.activeHitParadeEntry(original.id) ?: return original
+        if (section.mediaId != original.id ||
+            (!section.source.startsWith("Hit Parade") &&
+                section.source != "Top annuali singoli")) return original
+        val position = section.selectionKey ?: return original
+        val rank = section.selectedKey ?: return original
+        val active = playbackRows[position + "|" + rank] ?: return original
         // Consume revision so a newly loaded disc updates both player surfaces.
         val image = artwork(context, active.title, active.artist, album = false)
         return if (image != null && image != original.thumbnailUrl)
