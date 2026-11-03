@@ -29,9 +29,9 @@ test('R54 exactly three indexed tracklist options replace both action buttons',(
  assert.doesNotMatch(toolbar,/onClick = \{ runSearch\(\) \}/);
 });
 
-test('R54 retains separate Compilation Album Entrambi filter and short label',()=>{
-  assert.match(ui,/label = "",\s*selected = mode.label/);
-  assert.match(ui,/DiscogsSearchMode.entries.map \{ it.label \}/);
+test('R55 three independent release-format checkboxes retain previous Discogs source filters',()=>{
+  assert.match(ui,/DiscogsReleaseCategory.entries.forEach/);
+  assert.match(ui,/mode = mode.toggle\(category\)/);
   assert.match(ui,/lookupMode = CompilationLookupMode.TITLE_ARTIST/);
 });
 
