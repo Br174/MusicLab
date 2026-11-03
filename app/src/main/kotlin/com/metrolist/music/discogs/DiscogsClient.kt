@@ -137,8 +137,14 @@ internal object DiscogsClient {
                 .addQueryParameter("page", page.coerceAtLeast(1).toString())
                 .addQueryParameter("per_page", perPage.coerceIn(1, 100).toString())
                 .apply {
-                    query.trim().takeIf(String::isNotBlank)?.let { addQueryParameter("q", it) }
-                    trackTitle?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("track", it) }
+                    // R52 explicit Titolo searches Discogs' actual track index,
+                    // never release_title or the full player/artist label.
+                    // Ordinary Cerca still forwards the ENTIRE entered q unchanged.
+                    if (!trackTitle.isNullOrBlank()) {
+                        addQueryParameter("track", trackTitle.trim())
+                    } else {
+                        query.trim().takeIf(String::isNotBlank)?.let { addQueryParameter("q", it) }
+                    }
                     year?.let { addQueryParameter("year", it.toString()) }
                     genre?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("genre", it) }
                     style?.trim()?.takeIf(String::isNotBlank)?.let { addQueryParameter("style", it) }
