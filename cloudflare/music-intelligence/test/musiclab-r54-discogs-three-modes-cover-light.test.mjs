@@ -44,7 +44,7 @@ test('R54 ALL modes verify actual Discogs tracklists and never accept matching r
  assert.match(ui,/CompilationLightSearchPolicy.accepts\(/);
  assert.match(ui,/trackTitle = criteria.trackTitle/);
  assert.match(api,/addQueryParameter\("track", trackTitle.trim\(\)\)/);
- assert.match(policy,/only individual DiscogsTrack entries count/);
+ assert.match(policy,/Only individual DiscogsTrack entries count/i);
 });
 
 test('R54 Cover is intentionally light: uncredited remix or mashup works, original performer excluded',()=>{
