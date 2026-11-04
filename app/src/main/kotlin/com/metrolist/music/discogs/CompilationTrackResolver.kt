@@ -4,6 +4,7 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.ui.component.YouTubeWebSearch
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -33,6 +34,55 @@ internal object CompilationTrackResolver {
     // lookups per recording, four simultaneous recordings maximum. This is
     // separate from the native player's normal search/playback pipeline.
     private val turboSearchGate = Semaphore(4)
+    /**
+     * R60: explicit Compilation PLAY uses a bounded concurrent discovery race.
+     * The historical deep source search remains available for background
+     * recovery and saving, but cannot delay a normally matched first tap.
+     * A result is accepted only by the existing hard-compatibility policy.
+     */
+    suspend fun resolveTrackForPlayback(
+        track: DiscogsTrack,
+        discogsVideos: List<DiscogsVideo>,
+    ): CompilationResolvedTrack? = coroutineScope {
+        val query = searchQueries(track).firstOrNull() ?: return@coroutineScope null
+        val winner = CompletableDeferred<CompilationResolvedTrack>()
+        val jobs = mutableListOf<Job>()
+        fun launchLane(find: suspend () -> CompilationResolvedTrack?) {
+            jobs += launch(Dispatchers.IO) {
+                try {
+                    val match = find()
+                    if (match != null) winner.complete(match)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A provider failure cannot block the independent sources.
+                }
+            }
+        }
+        // The direct release video and native Song/Summary are independent.
+        launchLane {
+            val videoId = bestDiscogsTrackVideo(track, discogsVideos, emptySet())
+                ?.let { extractYouTubeId(it.uri) }
+                ?: return@launchLane null
+            withTimeoutOrNull(2_800L) {
+                YouTube.queue(videoIds = listOf(videoId)).getOrNull()?.firstOrNull()
+            }?.takeIf { scoreSong(track, it) >= DIRECT_VIDEO_MIN_SCORE }
+                ?.let { CompilationResolvedTrack(track, it, "Discogs → YouTube rapido", true) }
+        }
+        launchLane { fastMusicLabRace(track, query, emptySet(), turboWindow = true) }
+        launchLane {
+            withTimeoutOrNull(3_800L) {
+                YouTubeWebSearch.search(query)?.items.orEmpty()
+            }?.let { items ->
+                bestSong(track, items, relaxedArtist = true)
+                    ?.let { CompilationResolvedTrack(track, it, "YouTube rapido", false) }
+            }
+        }
+        val picked = withTimeoutOrNull(4_800L) { winner.await() }
+        jobs.forEach(Job::cancel)
+        picked
+    }
+
     suspend fun resolveTrack(
         track: DiscogsTrack,
         discogsVideos: List<DiscogsVideo>,
