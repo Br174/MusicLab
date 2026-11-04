@@ -61,7 +61,7 @@ internal object CoverVisibleYearResolver {
         year: Int,
         source: String,
     ): DiscogsVersionSeed {
-        if (row.year != null || !row.releaseDate.isNullOrBlank()) return row
+        if (CoverCardMetadata.publicationYear(row) != null) return row
         return row.copy(
             year = year,
             releaseDate = year.toString(),
