@@ -328,8 +328,7 @@ internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: 
     var sourceFailed by remember(track.title, track.artist, track.artwork) { mutableStateOf(false) }
     var rejectedUrl by remember(track.title, track.artist) { mutableStateOf<String?>(null) }
     val image by produceState<String?>(
-        initialValue = MusicLabLightArtwork.saved(context, track.title, track.artist, false)
-            ?: track.artwork.takeIf { track.sourceArtworkTrusted },
+        initialValue = track.artwork.takeIf { track.sourceArtworkTrusted },
         key1 = track,
         key2 = nowPlayingArtwork,
         key3 = listOf(sourceFailed, rejectedUrl, retrySignal, extraRevision),
