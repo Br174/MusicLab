@@ -310,7 +310,7 @@ private const val PLAYBACK_PRIORITY_BURST_MIN_MS = 2_000L
 // LAB15: protect startup against simultaneous Cover metadata work until
 // the native player has accumulated a REAL audio reserve. The startup
 // decoder threshold (900ms) and maximum Media3 buffer (50s) stay unchanged.
-private const val PLAYBACK_PRIORITY_BURST_MAX_MS = 35_000L
+private const val PLAYBACK_PRIORITY_BURST_MAX_MS = 15_000L
 private const val PLAYBACK_PRIORITY_RELEASE_BUFFER_MS = 18_000L
 private const val COVER_AUDIO_SAFETY_BUFFER_MS = 18_000L
 
