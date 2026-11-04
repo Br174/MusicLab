@@ -2,6 +2,7 @@ package com.metrolist.music.playback
 
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import com.metrolist.music.playback.queues.ListQueue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -9,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -124,6 +126,32 @@ internal object MusicLabSectionPlayback {
         }
     }
 
+    /**
+     * R62: published result sets can grow while the listener keeps playing.
+     * Append only, never move the currently playing version or erase the
+     * already shown cards. A new search/explicit selection still replaces it.
+     */
+    fun appendResults(
+        connection: PlayerConnection,
+        source: String,
+        freshEntries: List<Entry>,
+    ) {
+        val current = snapshotFlow.value ?: return
+        if (source != current.source ||
+            connection.mediaMetadata.value?.id != current.mediaId) return
+        val known = entries.mapTo(mutableSetOf()) { it.key }
+        val additions = freshEntries.filter { known.add(it.key) }
+        if (additions.isEmpty()) return
+        entries = entries + additions
+        snapshotFlow.value = current.copy(size = entries.size)
+        scheduleNeighbour(connection, source, current.index,
+            resolved[current.index] ?: connection.player.currentMediaItem ?: return,
+            revision)
+    }
+
+    /** Read-only result window; normal playlists keep native Media3 behavior. */
+    fun isEditorialSelection(mediaId: String?): Boolean = isCurrent(mediaId)
+
     private fun scheduleNeighbour(
         connection: PlayerConnection,
         source: String,
@@ -139,9 +167,18 @@ internal object MusicLabSectionPlayback {
             val next = index + 1
             if (next !in entries.indices) return@launch
             while (connection.isPlaybackPriorityBurstActive() && rev == revision) delay(180)
-            val nextItem = lookup(next, rev) ?: return@launch
+            val nextItem = withTimeoutOrNull(9_000L) {
+                lookup(next, rev)
+            } ?: return@launch
             if (rev != revision || snapshotFlow.value?.index != index ||
                 connection.mediaMetadata.value?.id != item.mediaId) return@launch
+            // Repeated READY/transition events must never stack duplicates in
+            // the native queue. The correct immediate neighbor is enough.
+            val nativeNext = connection.player.nextMediaItemIndex
+            if (nativeNext != C.INDEX_UNSET &&
+                connection.player.getMediaItemAt(nativeNext).mediaId == nextItem.mediaId) {
+                return@launch
+            }
             connection.playNext(nextItem)
         }
     }
@@ -156,43 +193,84 @@ internal object MusicLabSectionPlayback {
         return effective
     }
 
-    /** true = contextual skip accepted; false = use the native player's queue. */
-    fun skip(connection: PlayerConnection, direction: Int): Boolean {
+    /**
+     * R62: both a manual swipe and natural end use the SAME ordered-context
+     * advance. A temporarily unavailable recording cannot block the rest.
+     * Only the latest explicit selection/revision is allowed to play.
+     */
+    private fun advance(
+        connection: PlayerConnection,
+        direction: Int,
+        automatic: Boolean,
+    ): Boolean {
         val current = snapshotFlow.value ?: return false
         if (connection.mediaMetadata.value?.id != current.mediaId) return false
-        val target = current.index + if (direction > 0) 1 else -1
-        if (target !in entries.indices) return true // Keep section boundaries.
+        val step = if (direction > 0) 1 else -1
+        val firstTarget = current.index + step
+        if (firstTarget !in entries.indices) return true
         val rev = revision
         requestJob?.cancel()
         requestJob = worker.launch {
             try {
-                val item = lookup(target, rev) ?: return@launch
-                if (rev != revision || snapshotFlow.value?.index != current.index ||
-                    connection.mediaMetadata.value?.id != current.mediaId) return@launch
-                val nativeNext = if (direction > 0) connection.player.nextMediaItemIndex
-                    else C.INDEX_UNSET
-                val prepared = nativeNext != C.INDEX_UNSET &&
-                    connection.player.getMediaItemAt(nativeNext).mediaId == item.mediaId
-                if (prepared) {
-                    // The native player has already buffered the exact next
-                    // recording. Seek it immediately, not a new queue/network path.
-                    publishSelection(current.copy(index = target, mediaId = item.mediaId,
-                        selectedKey = entries[target].key))
-                    connection.beginPlaybackPriorityBurst("section-prepared-next")
-                    connection.player.seekTo(nativeNext, 0L)
-                    connection.player.playWhenReady = true
-                    scheduleNeighbour(connection, current.source, target, item, rev)
-                } else {
-                    playAt(connection, current.source, target, item, rev)
+                val nextIndices = if (automatic) {
+                    (firstTarget until entries.size).toList()
+                } else listOf(firstTarget)
+                for (target in nextIndices) {
+                    if (rev != revision || snapshotFlow.value?.index != current.index ||
+                        connection.mediaMetadata.value?.id != current.mediaId ||
+                        (automatic && !connection.player.playWhenReady)) return@launch
+                    val item = withTimeoutOrNull(if (automatic) 9_000L else 12_000L) {
+                        lookup(target, rev)
+                    } ?: continue
+                    if (rev != revision || snapshotFlow.value?.index != current.index ||
+                        connection.mediaMetadata.value?.id != current.mediaId) return@launch
+                    val nativeNext = if (step > 0) connection.player.nextMediaItemIndex
+                        else C.INDEX_UNSET
+                    val prepared = nativeNext != C.INDEX_UNSET &&
+                        connection.player.getMediaItemAt(nativeNext).mediaId == item.mediaId
+                    if (prepared) {
+                        publishSelection(current.copy(index = target, mediaId = item.mediaId,
+                            selectedKey = entries[target].key))
+                        connection.beginPlaybackPriorityBurst("section-prepared-next")
+                        connection.player.seekTo(nativeNext, 0L)
+                        if (connection.player.playbackState == Player.STATE_ENDED ||
+                            connection.player.playbackState == Player.STATE_IDLE) {
+                            connection.player.prepare()
+                        }
+                        connection.player.playWhenReady = true
+                        scheduleNeighbour(connection, current.source, target, item, rev)
+                    } else {
+                        playAt(connection, current.source, target, item, rev)
+                    }
+                    return@launch
                 }
+                // No playable matches remain. Stop at the end of the actual
+                // result list, not on YouTube radio or an obsolete queue item.
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
-                // A missing or temporarily unavailable version must not be
-                // replaced by a different track or a generic YouTube radio.
+                // Keep the current selection; later user taps may try again.
             }
         }
         return true
+    }
+
+    /** true = section-owned gesture, false = normal native playlist. */
+    fun skip(connection: PlayerConnection, direction: Int): Boolean =
+        advance(connection, direction, automatic = false)
+
+    /**
+     * Media3 reports ENDED when no preloaded next item existed. Start the next
+     * real result, including when the previous source lookup was slow.
+     */
+    fun onPlaybackEnded(connection: PlayerConnection) {
+        val current = snapshotFlow.value ?: return
+        if (current.index + 1 >= entries.size ||
+            connection.player.playbackState != Player.STATE_ENDED ||
+            !connection.player.playWhenReady ||
+            !connection.service.canAdvanceOrderedResults() ||
+            connection.player.currentMediaItem?.mediaId != current.mediaId) return
+        advance(connection, 1, automatic = true)
     }
 
     /** Preserve the R40 contextual index when just the recording version changes. */
@@ -206,14 +284,15 @@ internal object MusicLabSectionPlayback {
     fun isCurrent(mediaId: String?): Boolean =
         !mediaId.isNullOrBlank() && snapshotFlow.value?.mediaId == mediaId
 
-    /** Automatic end-of-track transition must advance the same contextual list. */
-    fun onMediaTransition(mediaId: String?) {
+    /** Automatically prewarm each next result after every Media3 transition. */
+    fun onMediaTransition(connection: PlayerConnection, mediaId: String?) {
         val current = snapshotFlow.value ?: return
         if (mediaId == null || mediaId == current.mediaId) return
         val next = current.index + 1
         if (resolved[next]?.mediaId == mediaId && next in entries.indices) {
             publishSelection(current.copy(index = next, mediaId = mediaId,
                 selectedKey = entries[next].key))
+            scheduleNeighbour(connection, current.source, next, resolved[next]!!, revision)
         } else {
             externalSelection()
         }
