@@ -14,6 +14,8 @@ test('R61: real Cover carousel owns only outgoing and incoming verified IDs',()=
   assert.match(bridge,/fun isCoverArtwork\(actualVideoId: String\)/);
   assert.match(bridge,/actualVideoId == currentCoverVideoId/);
   assert.match(bridge,/actualVideoId == incomingCoverVideoId/);
+  assert.match(bridge,/actualVideoId == outgoingCoverVideoId/);
+  assert.match(bridge,/fun markDisplayed\(/);
   assert.match(bridge,/fun beginSelection\(/);
   assert.match(bridge,/fun expectIncoming\(/);
   assert.match(bridge,/fun activate\(/);
@@ -51,6 +53,7 @@ test('R61: Cover poster has two-frame crossfade, no queue neighbor or snap reset
   assert.match(thumb,/if \(coverArtworkMode\) return@LaunchedEffect/);
   assert.match(thumb,/if \(!CoverSwipeBridge\.isCoverArtwork\(/);
   assert.match(thumb,/targetState = coverFrame \?: lastCoverFrame/);
+  assert.match(thumb,/CoverSwipeBridge.markDisplayed\(coverFrame.item.mediaId\)/);
 });
 
 test('R61: ordinary queue carousel, gestures and player audio are unchanged',()=>{
