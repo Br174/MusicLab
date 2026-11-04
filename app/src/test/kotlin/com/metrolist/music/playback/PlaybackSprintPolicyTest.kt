@@ -110,4 +110,20 @@ class PlaybackSprintPolicyTest {
         assertTrue(PlaybackSprintPolicy.canPreload(true,true,false,false,40_000L,40_000L))
         assertTrue(PlaybackSprintPolicy.canPreload(true,true,false,false,30_000L,30_000L))
     }
+    @Test fun persistedRestoreCannotRewindNewSelectionOrActiveSong() {
+        assertTrue(PlaybackSprintPolicy.mayRestorePersistedQueue(20, 20, false, false))
+        assertFalse(PlaybackSprintPolicy.mayRestorePersistedQueue(20, 21, false, false))
+        assertFalse(PlaybackSprintPolicy.mayRestorePersistedQueue(20, 20, true, false))
+        assertFalse(PlaybackSprintPolicy.mayRestorePersistedQueue(20, 20, false, true))
+        assertFalse(PlaybackSprintPolicy.mayRestorePersistedQueue(20, 21, true, true))
+    }
+
+    @Test fun asyncShuffleMustNotResetNewerQueueOrCurrentTrack() {
+        assertTrue(PlaybackSprintPolicy.mayApplyAsyncShuffle(10, 10, true, true, true))
+        assertFalse(PlaybackSprintPolicy.mayApplyAsyncShuffle(10, 11, true, true, true))
+        assertFalse(PlaybackSprintPolicy.mayApplyAsyncShuffle(10, 10, false, true, true))
+        assertFalse(PlaybackSprintPolicy.mayApplyAsyncShuffle(10, 10, true, false, true))
+        assertFalse(PlaybackSprintPolicy.mayApplyAsyncShuffle(10, 10, true, true, false))
+    }
+
 }
