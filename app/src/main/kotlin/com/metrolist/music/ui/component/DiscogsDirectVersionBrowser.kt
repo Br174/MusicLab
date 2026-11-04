@@ -3438,18 +3438,34 @@ internal fun DiscogsDirectVersionBrowser(
         val connection = playerConnection ?: return false
         val contextSeeds = playableContextSeeds(selectedSeed)
         val contextByKey = contextSeeds.associateBy { it.fingerprint }
-        // R62: selected audio starts now. Prepare neighbor metadata only
-        // asynchronously, never 50 synchronous artwork reads at first tap.
-        val sequence = contextSeeds.map { seed ->
+        val sequenceIndex = contextSeeds.indexOfFirst {
+            it.resolvedVideoId == selectedId
+        }
+        // R63: the immediate previous/next two verified Cover cards are
+        // lightweight Media3 metadata items. A swipe never waits for Room,
+        // Discogs or a new cover lookup merely to enqueue a known video ID.
+        // The remaining 47+ results stay lazy and use the R62 resolver.
+        val sequence = contextSeeds.mapIndexed { index, seed ->
+            val id = seed.resolvedVideoId.orEmpty()
+            val nearby = sequenceIndex >= 0 && kotlin.math.abs(index - sequenceIndex) <= 2
+            val readyItem = if (id == selectedId) selectedItem
+                else if (nearby && id.isNotBlank()) {
+                    session.preparedVideoSongs[id]?.toMediaMetadata()?.toMediaItem()
+                        ?: MediaMetadata(
+                            id = id,
+                            title = seed.resolvedVideoTitle?.takeIf(String::isNotBlank)
+                                ?: seed.trackTitle,
+                            artists = listOf(MediaMetadata.Artist(id = null, name = seed.artist)),
+                            duration = seed.durationSeconds ?: -1,
+                            thumbnailUrl = seed.coverUrl,
+                        ).toMediaItem()
+                } else null
             MusicLabSectionPlayback.Entry(
                 key = seed.fingerprint,
                 title = seed.trackTitle,
                 artist = seed.artist,
-                ready = if (seed.resolvedVideoId == selectedId) selectedItem else null,
+                ready = readyItem,
             )
-        }
-        val sequenceIndex = contextSeeds.indexOfFirst {
-            it.resolvedVideoId == selectedId
         }
         if (sequenceIndex >= 0 &&
             (mode == DiscogsDirectMode.COVER || sequence.size > 1)
