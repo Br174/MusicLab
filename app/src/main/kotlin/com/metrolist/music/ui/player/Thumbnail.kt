@@ -339,17 +339,19 @@ fun Thumbnail(
                 val direction = PlaybackSprintPolicy.committedSwipeDirection(
                     committed, 0f, minimumDistance)
                 if (direction == 0) return@detectHorizontalDragGestures
-                val mediaId = playerConnection.mediaMetadata.value?.id
-                val editorial = MusicLabSectionPlayback.isCurrent(mediaId)
+                val committedId = playerConnection.mediaMetadata.value?.id
+                val editorial = MusicLabSectionPlayback.isCurrent(committedId)
                 val handledByCover = !editorial &&
-                    CoverSwipeBridge.trySwipe(mediaId.orEmpty(), direction)
+                    CoverSwipeBridge.trySwipe(committedId.orEmpty(), direction)
                 if (!handledByCover) {
                     if (direction > 0) playerConnection.seekToNext()
                     else playerConnection.skipToPreviousItem()
                 }
                 // The old grid is presentation-only: never recenter an
                 // unrelated playlist poster over verified Cover artwork.
-                if (!editorial && !handledByCover) {
+                if (!CoverSwipeBridge.isCoverArtwork(
+                        playerConnection.mediaMetadata.value?.id.orEmpty()
+                    ) && !editorial && !handledByCover) {
                     scrollScope.launch {
                         delay(190L)
                         val actual = getMediaItems(playerConnection.player, swipeThumbnail)
