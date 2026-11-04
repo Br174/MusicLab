@@ -3425,6 +3425,60 @@ internal fun DiscogsDirectVersionBrowser(
             ).toMediaItem()
     }
 
+    /**
+     * R62: adopt the verified ordered list without 50 upfront image reads.
+     * This is the same synchronous MusicService player as R60/R61.
+     */
+    fun startOrderedResultSequence(
+        selectedSeed: DiscogsVersionSeed,
+        selectedItem: androidx.media3.common.MediaItem,
+        selectedId: String,
+        queueTitle: String,
+    ): Boolean {
+        val connection = playerConnection ?: return false
+        val contextSeeds = playableContextSeeds(selectedSeed)
+        val contextByKey = contextSeeds.associateBy { it.fingerprint }
+        // R62: selected audio starts now. Prepare neighbor metadata only
+        // asynchronously, never 50 synchronous artwork reads at first tap.
+        val sequence = contextSeeds.map { seed ->
+            MusicLabSectionPlayback.Entry(
+                key = seed.fingerprint,
+                title = seed.trackTitle,
+                artist = seed.artist,
+                ready = if (seed.resolvedVideoId == selectedId) selectedItem else null,
+            )
+        }
+        val sequenceIndex = contextSeeds.indexOfFirst {
+            it.resolvedVideoId == selectedId
+        }
+        if (sequenceIndex >= 0 &&
+            (mode == DiscogsDirectMode.COVER || sequence.size > 1)
+        ) {
+            MusicLabSectionPlayback.select(
+                connection = connection,
+                source = queueTitle,
+                orderedEntries = sequence,
+                selectedIndex = sequenceIndex,
+                selected = selectedItem,
+                findPlayable = { entry ->
+                    val version = contextByKey[entry.key]
+                        ?: (previousRoundRows + publishedOriginalSnapshots +
+                            publishedCoverSnapshots + results).firstOrNull {
+                            it.fingerprint == entry.key &&
+                                !it.resolvedVideoId.isNullOrBlank()
+                        }
+                    entry.ready ?: version?.let { seed ->
+                        withContext(Dispatchers.IO) { contextMediaItem(seed) }
+                    }
+                },
+                selectionKey = "version:$sectionIdentity",
+            )
+
+            return true
+        }
+        return false
+    }
+
     suspend fun playResolvedContext(selectedFingerprint: String) {
         val connection = playerConnection ?: return
         // Turbo LAB05: re-entry must play the immutable, previously certified
@@ -3506,47 +3560,11 @@ internal fun DiscogsDirectVersionBrowser(
                         " media=" + selectedId)
             }
         }
-        val contextSeeds = playableContextSeeds(selectedSeed)
-        val contextByKey = contextSeeds.associateBy { it.fingerprint }
-        // R62: selected audio starts now. Prepare neighbor metadata only
-        // asynchronously, never 50 synchronous artwork reads at first tap.
-        val sequence = contextSeeds.map { seed ->
-            MusicLabSectionPlayback.Entry(
-                key = seed.fingerprint,
-                title = seed.trackTitle,
-                artist = seed.artist,
-                ready = if (seed.resolvedVideoId == selectedId) selectedItem else null,
-            )
-        }
-        val sequenceIndex = contextSeeds.indexOfFirst {
-            it.resolvedVideoId == selectedId
-        }
-        if (sequenceIndex >= 0 && mode == DiscogsDirectMode.COVER ||
-            (sequenceIndex >= 0 && sequence.size > 1)
-        ) {
-            MusicLabSectionPlayback.select(
-                connection = connection,
-                source = queueTitle,
-                orderedEntries = sequence,
-                selectedIndex = sequenceIndex,
-                selected = selectedItem,
-                findPlayable = { entry ->
-                    val version = contextByKey[entry.key]
-                        ?: (previousRoundRows + publishedOriginalSnapshots +
-                            publishedCoverSnapshots + results).firstOrNull {
-                            it.fingerprint == entry.key &&
-                                !it.resolvedVideoId.isNullOrBlank()
-                        }
-                    entry.ready ?: version?.let { seed ->
-                        withContext(Dispatchers.IO) { contextMediaItem(seed) }
-                    }
-                },
-                selectionKey = "version:$sectionIdentity",
-            )
-        } else if (connection.service.isPlayerReady.value) {
+        val ordered = startOrderedResultSequence(selectedSeed, selectedItem, selectedId, queueTitle)
+        if (!ordered && connection.service.isPlayerReady.value) {
             // R60 fast single-item fallback when Originali has no next result.
             connection.playNow(selectedItem)
-        } else {
+        } else if (!ordered) {
             connection.playQueue(ListQueue(
                 title = queueTitle, items = listOf(selectedItem), startIndex = 0,
             ))
