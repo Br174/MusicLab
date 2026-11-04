@@ -100,6 +100,7 @@ import com.metrolist.music.playback.queues.SpotifyQueue
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.MusicLabSectionMemory
 import com.metrolist.music.playback.MusicLabListPositionStore
+import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.ChipsRow
 import com.metrolist.music.ui.component.EmptyPlaceholder
@@ -319,6 +320,32 @@ fun OnlineSearchResult(
         }
     }
 
+    // R62: paginated MusicLab search and genre hits are one ordered session.
+    val visibleMusicLabSongs = (if (isShowingSummary) {
+        searchSummary?.summaries.orEmpty().flatMap { it.items }.filterIsInstance<SongItem>()
+    } else {
+        itemsPage?.items.orEmpty().filterIsInstance<SongItem>()
+    }).filterNot { it.id.isSpotifyId() }.distinctBy { it.id }
+
+    val activeSearchPlayback by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
+    LaunchedEffect(visibleMusicLabSongs, activeSearchPlayback?.mediaId) {
+        val active = activeSearchPlayback ?: return@LaunchedEffect
+        if (active.source != "Ricerca · $decodedQuery" ||
+            playerConnection.mediaMetadata.value?.id != active.mediaId) return@LaunchedEffect
+        MusicLabSectionPlayback.appendResults(
+            connection = playerConnection,
+            source = active.source,
+            freshEntries = visibleMusicLabSongs.map { song ->
+                MusicLabSectionPlayback.Entry(
+                    key = song.id,
+                    title = song.title,
+                    artist = song.artists.firstOrNull()?.name.orEmpty(),
+                    ready = song.toMediaItem(),
+                )
+            },
+        )
+    }
+
     val ytItemContent: @Composable LazyItemScope.(YTItem) -> Unit = { item: YTItem ->
         val longClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -413,19 +440,41 @@ fun OnlineSearchResult(
                                             )
                                         }
                                     } else {
-                                        playerConnection.playQueue(
-                                            if (autoRadioQueue) {
-                                                YouTubeQueue(
-                                                    WatchEndpoint(videoId = item.id),
-                                                    item.toMediaMetadata(),
-                                                )
-                                            } else {
-                                                ListQueue(
-                                                    title = item.title,
-                                                    items = listOf(item.toMediaItem())
-                                                )
-                                            }
-                                        )
+                                        val songIndex = visibleMusicLabSongs.indexOfFirst {
+                                            it.id == item.id
+                                        }
+                                        if (songIndex >= 0) {
+                                            MusicLabSectionPlayback.select(
+                                                connection = playerConnection,
+                                                source = "Ricerca · $decodedQuery",
+                                                orderedEntries = visibleMusicLabSongs.map { song ->
+                                                    MusicLabSectionPlayback.Entry(
+                                                        key = song.id,
+                                                        title = song.title,
+                                                        artist = song.artists.firstOrNull()?.name.orEmpty(),
+                                                        ready = song.toMediaItem(),
+                                                    )
+                                                },
+                                                selectedIndex = songIndex,
+                                                selected = item.toMediaItem(),
+                                                findPlayable = { entry -> entry.ready },
+                                                selectionKey = listKey,
+                                            )
+                                        } else {
+                                            playerConnection.playQueue(
+                                                if (autoRadioQueue) {
+                                                    YouTubeQueue(
+                                                        WatchEndpoint(videoId = item.id),
+                                                        item.toMediaMetadata(),
+                                                    )
+                                                } else {
+                                                    ListQueue(
+                                                        title = item.title,
+                                                        items = listOf(item.toMediaItem())
+                                                    )
+                                                }
+                                            )
+                                        }
                                     }
                                 }
 
