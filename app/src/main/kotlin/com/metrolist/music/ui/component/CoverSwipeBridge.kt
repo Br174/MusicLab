@@ -12,12 +12,14 @@ internal object CoverSwipeBridge {
     private var handler: ((Int, String) -> Unit)? = null
     private var currentCoverVideoId: String? = null
     private var incomingCoverVideoId: String? = null
+    private var outgoingCoverVideoId: String? = null
     private var selectionPending = false
 
     fun bind(screen: String, swipe: (direction: Int, currentlyPlayingVideoId: String) -> Unit) {
         if (owner != screen) {
             currentCoverVideoId = null
             incomingCoverVideoId = null
+            outgoingCoverVideoId = null
             selectionPending = false
         }
         owner = screen
@@ -28,6 +30,7 @@ internal object CoverSwipeBridge {
     fun beginSelection(screen: String) {
         if (owner != screen) return
         selectionPending = true
+        outgoingCoverVideoId = currentCoverVideoId
         incomingCoverVideoId = null
     }
 
@@ -46,14 +49,28 @@ internal object CoverSwipeBridge {
         if (owner == screen) {
             selectionPending = false
             incomingCoverVideoId = null
+            outgoingCoverVideoId = null
         }
     }
 
     fun activate(screen: String, videoId: String) {
         if (owner == screen) {
+            if (currentCoverVideoId != videoId && outgoingCoverVideoId == null) {
+                outgoingCoverVideoId = currentCoverVideoId
+            }
             currentCoverVideoId = videoId
             incomingCoverVideoId = null
             selectionPending = false
+        }
+    }
+
+    /**
+     * The outgoing ID is retained until Compose has a real frame for the
+     * incoming ID. Audio may commit between two UI frames.
+     */
+    fun markDisplayed(actualVideoId: String) {
+        if (owner != null && actualVideoId == currentCoverVideoId) {
+            outgoingCoverVideoId = null
         }
     }
 
@@ -61,6 +78,7 @@ internal object CoverSwipeBridge {
         if (owner == screen) {
             currentCoverVideoId = null
             incomingCoverVideoId = null
+            outgoingCoverVideoId = null
             selectionPending = false
         }
     }
@@ -71,6 +89,7 @@ internal object CoverSwipeBridge {
             handler = null
             currentCoverVideoId = null
             incomingCoverVideoId = null
+            outgoingCoverVideoId = null
             selectionPending = false
         }
     }
@@ -79,12 +98,14 @@ internal object CoverSwipeBridge {
     fun isCoverArtwork(actualVideoId: String): Boolean =
         owner != null && actualVideoId.isNotBlank() &&
             (actualVideoId == currentCoverVideoId ||
-                actualVideoId == incomingCoverVideoId)
+                actualVideoId == incomingCoverVideoId ||
+                actualVideoId == outgoingCoverVideoId)
 
     /** Consume a second gesture while the first swap is still in flight. */
     fun trySwipe(actualVideoId: String, direction: Int): Boolean {
-        if (owner == null || actualVideoId.isBlank() ||
-            currentCoverVideoId != actualVideoId) return false
+        if (owner == null || actualVideoId.isBlank()) return false
+        if (actualVideoId == outgoingCoverVideoId) return true
+        if (currentCoverVideoId != actualVideoId) return false
         if (selectionPending) return true
         val callback = handler ?: return false
         callback(if (direction >= 0) 1 else -1, actualVideoId)
