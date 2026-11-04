@@ -11,7 +11,10 @@ import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.CoverPlaybackMemory
 import com.metrolist.music.playback.PlaybackSprintPolicy
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -124,6 +127,12 @@ data class ThumbnailDimensions(
 data class MediaItemsData(
     val items: List<MediaItem>,
     val currentIndex: Int
+)
+
+/** R61: immutable two-frame Cover transition, independent of Media3 neighbors. */
+private data class CoverArtworkFrame(
+    val item: MediaItem,
+    val thumbnailUrl: String?,
 )
 
 /**
@@ -272,6 +281,18 @@ fun Thumbnail(
     val mediaItems = mediaItemsData.items
     val currentMediaIndex = mediaItemsData.currentIndex
 
+    // Cover results have their own verified order, unrelated to Media3's
+    // ordinary queue. Only the two real Cover recordings may be animated.
+    val coverArtworkMode = CoverSwipeBridge.isCoverArtwork(nativeMediaMetadata?.id.orEmpty())
+    val coverFrame = mediaItems.getOrNull(currentMediaIndex)
+        ?.takeIf { it.mediaId == nativeMediaMetadata?.id }
+        ?.let { CoverArtworkFrame(it, mediaMetadata?.thumbnailUrl) }
+    var lastCoverFrame by remember { mutableStateOf<CoverArtworkFrame?>(null) }
+    LaunchedEffect(coverArtworkMode, coverFrame) {
+        if (!coverArtworkMode) lastCoverFrame = null
+        else if (coverFrame != null) lastCoverFrame = coverFrame
+    }
+
     val thumbnailSnapLayoutInfoProvider = remember(thumbnailLazyGridState) {
         ThumbnailSnapLayoutInfoProvider(
             lazyGridState = thumbnailLazyGridState,
@@ -342,12 +363,17 @@ fun Thumbnail(
                         // The LazyGrid may visually settle on a neighbor even
                         // when no audio command is accepted. Recenter against
                         // the actual Media3 transition, never optimistic graphics.
-                        scrollScope.launch {
-                            delay(180L)
-                            val committed = getMediaItems(
-                                playerConnection.player, swipeThumbnail
-                            ).currentIndex
-                            if (committed >= 0) thumbnailLazyGridState.scrollToItem(committed)
+                        if (!CoverSwipeBridge.isCoverArtwork(
+                                playerConnection.mediaMetadata.value?.id.orEmpty()
+                            )
+                        ) {
+                            scrollScope.launch {
+                                delay(180L)
+                                val committed = getMediaItems(
+                                    playerConnection.player, swipeThumbnail
+                                ).currentIndex
+                                if (committed >= 0) thumbnailLazyGridState.scrollToItem(committed)
+                            }
                         }
                         tracking = false
                         horizontalSwipe = false
@@ -358,7 +384,8 @@ fun Thumbnail(
 
     // Keep artwork centered on the ACTUAL item transition, never on optimistic
     // swipe animation. This avoids covers showing a song that is not playing.
-    LaunchedEffect(committedQueueIndex, nativeMediaMetadata?.id, currentMediaIndex) {
+    LaunchedEffect(committedQueueIndex, nativeMediaMetadata?.id, currentMediaIndex, coverArtworkMode) {
+        if (coverArtworkMode) return@LaunchedEffect
         val index = currentMediaIndex
         if (index >= 0 && index < mediaItems.size) {
             thumbnailLazyGridState.scrollToItem(index)
@@ -448,42 +475,82 @@ fun Thumbnail(
                         derivedStateOf { swipeThumbnail && isPlayerExpanded() }
                     }
                     
-                    LazyHorizontalGrid(
-                        state = thumbnailLazyGridState,
-                        rows = GridCells.Fixed(1),
-                        flingBehavior = rememberSnapFlingBehavior(thumbnailSnapLayoutInfoProvider),
-                        userScrollEnabled = isScrollEnabled,
-                        modifier = (if (isLandscape) {
-                            Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
-                        } else {
-                            Modifier.fillMaxSize()
-                        }).then(userSwipePointerModifier)
-                    ) {
-                        items(
-                            count = mediaItems.size,
-                            key = { index ->
-                                val item = mediaItems[index]
-                                val id = item.mediaId.ifEmpty { "unknown_${item.hashCode()}" }
-                                "player_thumbnail_${index}_${id}"
+                    if (coverArtworkMode) {
+                        // R61: dedicated Cover transition. Never draw the
+                        // playlist carousel's unrelated previous/next covers.
+                        // Only transition after Media3 identifies the selected
+                        // verified recording, with the outgoing frame retained
+                        // if its replacement metadata arrives a frame later.
+                        AnimatedContent(
+                            targetState = coverFrame ?: lastCoverFrame,
+                            contentKey = { it?.item?.mediaId ?: "cover-awaiting-metadata" },
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(210)) togetherWith
+                                    fadeOut(animationSpec = tween(170))
                             },
-                        ) { index ->
-                            val item = mediaItems[index]
-                            ThumbnailItem(
-                                item = item,
-                                dimensions = dimensions,
-                                hidePlayerThumbnail = hidePlayerThumbnail,
-                                cropAlbumArt = cropAlbumArt,
-                                textBackgroundColor = textBackgroundColor,
-                                layoutDirection = layoutDirection,
-                                onSeek = onSeekCallback,
-                                playerConnection = playerConnection,
-                                context = context,
-                                isLandscape = isLandscape,
-                                isListenTogetherGuest = isListenTogetherGuest,
-                                currentMediaId = mediaMetadata?.id,
-                                currentMediaThumbnail = mediaMetadata?.thumbnailUrl
-                            )
+                            modifier = (if (isLandscape) {
+                                Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
+                            } else {
+                                Modifier.fillMaxSize()
+                            }).then(userSwipePointerModifier),
+                            label = "R61VerifiedCoverArtwork",
+                        ) { frame ->
+                            if (frame != null) {
+                                ThumbnailItem(
+                                    item = frame.item,
+                                    dimensions = dimensions,
+                                    hidePlayerThumbnail = hidePlayerThumbnail,
+                                    cropAlbumArt = cropAlbumArt,
+                                    textBackgroundColor = textBackgroundColor,
+                                    layoutDirection = layoutDirection,
+                                    onSeek = onSeekCallback,
+                                    playerConnection = playerConnection,
+                                    context = context,
+                                    isLandscape = isLandscape,
+                                    isListenTogetherGuest = isListenTogetherGuest,
+                                    currentMediaId = frame.item.mediaId,
+                                    currentMediaThumbnail = frame.thumbnailUrl,
+                                )
+                            }
                         }
+                    } else {
+                                        LazyHorizontalGrid(
+                                            state = thumbnailLazyGridState,
+                                            rows = GridCells.Fixed(1),
+                                            flingBehavior = rememberSnapFlingBehavior(thumbnailSnapLayoutInfoProvider),
+                                            userScrollEnabled = isScrollEnabled,
+                                            modifier = (if (isLandscape) {
+                                                Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
+                                            } else {
+                                                Modifier.fillMaxSize()
+                                            }).then(userSwipePointerModifier)
+                                        ) {
+                                            items(
+                                                count = mediaItems.size,
+                                                key = { index ->
+                                                    val item = mediaItems[index]
+                                                    val id = item.mediaId.ifEmpty { "unknown_${item.hashCode()}" }
+                                                    "player_thumbnail_${index}_${id}"
+                                                },
+                                            ) { index ->
+                                                val item = mediaItems[index]
+                                                ThumbnailItem(
+                                                    item = item,
+                                                    dimensions = dimensions,
+                                                    hidePlayerThumbnail = hidePlayerThumbnail,
+                                                    cropAlbumArt = cropAlbumArt,
+                                                    textBackgroundColor = textBackgroundColor,
+                                                    layoutDirection = layoutDirection,
+                                                    onSeek = onSeekCallback,
+                                                    playerConnection = playerConnection,
+                                                    context = context,
+                                                    isLandscape = isLandscape,
+                                                    isListenTogetherGuest = isListenTogetherGuest,
+                                                    currentMediaId = mediaMetadata?.id,
+                                                    currentMediaThumbnail = mediaMetadata?.thumbnailUrl
+                                                )
+                                            }
+                                        }
                     }
                 }
             }
