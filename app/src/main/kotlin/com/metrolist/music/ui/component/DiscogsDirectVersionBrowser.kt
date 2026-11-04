@@ -110,6 +110,7 @@ import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.CoverPlaybackMemory
 import com.metrolist.music.playback.MusicLabListPositionStore
 import com.metrolist.music.playback.MusicLabSectionMemory
+import com.metrolist.music.playback.MusicLabSectionPlayback
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.utils.SearchRoutes
 import com.metrolist.music.utils.rememberPreference
@@ -3387,6 +3388,43 @@ internal fun DiscogsDirectVersionBrowser(
             CoverPlaybackMemory.stableArtwork(context, seed.fingerprint, seed.coverUrl)
         }
 
+    // R62: all verified published Cover (or Originali) cards form a real
+    // ordered sequence, not isolated one-song playback requests.
+    // Append late cards without changing the already published order.
+    fun playableContextSeeds(selected: DiscogsVersionSeed? = null): List<DiscogsVersionSeed> {
+        val published = if (mode == DiscogsDirectMode.COVER) {
+            previousRoundRows + publishedOriginalSnapshots + publishedCoverSnapshots
+        } else orderedResults(results)
+        val latest = published.map { snapshot ->
+            results.firstOrNull {
+                it.fingerprint == snapshot.fingerprint && !it.resolvedVideoId.isNullOrBlank()
+            } ?: snapshot
+        }
+        val verified = latest.filterNot(::isHiddenForCurrentCover)
+            .filter { seed ->
+                !seed.resolvedVideoId.isNullOrBlank() &&
+                    (!isTurbo || mode != DiscogsDirectMode.COVER || hasPublishableVideo(seed))
+            }.distinctBy { it.resolvedVideoId }
+        val chosenId = selected?.resolvedVideoId
+        return if (selected == null || chosenId.isNullOrBlank()) verified
+            else if (verified.none { it.resolvedVideoId == chosenId }) verified + selected
+            else verified.map { if (it.resolvedVideoId == chosenId) selected else it }
+    }
+
+    fun contextMediaItem(seed: DiscogsVersionSeed): androidx.media3.common.MediaItem {
+        val videoId = seed.resolvedVideoId.orEmpty()
+        val artwork = stableArtworkFor(seed)
+        return session.preparedVideoSongs[videoId]
+            ?.toMediaMetadata()?.copy(thumbnailUrl = artwork)?.toMediaItem()
+            ?: MediaMetadata(
+                id = videoId,
+                title = seed.resolvedVideoTitle?.takeIf(String::isNotBlank) ?: seed.trackTitle,
+                artists = listOf(MediaMetadata.Artist(id = null, name = seed.artist)),
+                duration = seed.durationSeconds ?: -1,
+                thumbnailUrl = artwork,
+            ).toMediaItem()
+    }
+
     suspend fun playResolvedContext(selectedFingerprint: String) {
         val connection = playerConnection ?: return
         // Turbo LAB05: re-entry must play the immutable, previously certified
@@ -3467,19 +3505,39 @@ internal fun DiscogsDirectVersionBrowser(
                         (SystemClock.elapsedRealtime() - tapAt) +
                         " media=" + selectedId)
             }
-            // Turbo LAB05: a tapped verified recording goes directly through
-            // the existing native playNow path.  playQueue asynchronously
-            // filters and resolves a new queue; a filtered/late result could
-            // silently keep the preceding song playing on re-entry.
+        }
+        val contextSeeds = playableContextSeeds(selectedSeed)
+        val sequence = contextSeeds.map { seed ->
+            MusicLabSectionPlayback.Entry(
+                key = seed.fingerprint,
+                title = seed.trackTitle,
+                artist = seed.artist,
+                ready = if (seed.resolvedVideoId == selectedId) selectedItem
+                    else contextMediaItem(seed),
+            )
+        }
+        val sequenceIndex = contextSeeds.indexOfFirst {
+            it.resolvedVideoId == selectedId
+        }
+        if (sequenceIndex >= 0 && mode == DiscogsDirectMode.COVER ||
+            (sequenceIndex >= 0 && sequence.size > 1)
+        ) {
+            MusicLabSectionPlayback.select(
+                connection = connection,
+                source = queueTitle,
+                orderedEntries = sequence,
+                selectedIndex = sequenceIndex,
+                selected = selectedItem,
+                findPlayable = { entry -> entry.ready },
+                selectionKey = "version:$sectionIdentity",
+            )
+        } else if (connection.service.isPlayerReady.value) {
+            // R60 fast single-item fallback when Originali has no next result.
             connection.playNow(selectedItem)
         } else {
-            connection.playQueue(
-                ListQueue(
-                    title = queueTitle,
-                    items = listOf(selectedItem),
-                    startIndex = 0,
-                ),
-            )
+            connection.playQueue(ListQueue(
+                title = queueTitle, items = listOf(selectedItem), startIndex = 0,
+            ))
         }
         // R21: select just the next already-verified, visible Cover video for
         // the EXISTING MusicService preload worker. No new search, admission,
@@ -6618,6 +6676,44 @@ internal fun DiscogsDirectVersionBrowser(
                 swipeCover(direction, playingId)
             }
         }
+    }
+
+    // R62: keep the highlighted Cover/Originali row and newly published cards
+    // synchronized even when audio advances without another finger gesture.
+    val activeOrderedPlayback by MusicLabSectionPlayback.active.collectAsState()
+    LaunchedEffect(
+        activeOrderedPlayback?.mediaId,
+        activeOrderedPlayback?.selectedKey,
+        publishedCoverSnapshots, publishedOriginalSnapshots, previousRoundRows,
+        results,
+    ) {
+        val active = activeOrderedPlayback ?: return@LaunchedEffect
+        val connection = playerConnection ?: return@LaunchedEffect
+        val expected = if (mode == DiscogsDirectMode.COVER) "Cover · $title"
+            else "Originali · $title"
+        if (active.source != expected ||
+            connection.mediaMetadata.value?.id != active.mediaId) return@LaunchedEffect
+        active.selectedKey?.let { key ->
+            if (selectedFingerprint != key) {
+                selectedFingerprint = key
+                session.selectedFingerprint = key
+            }
+        }
+        if (mode == DiscogsDirectMode.COVER) {
+            CoverSwipeBridge.activate(sessionKey, active.mediaId)
+        }
+        MusicLabSectionPlayback.appendResults(
+            connection = connection,
+            source = expected,
+            freshEntries = playableContextSeeds().map { seed ->
+                MusicLabSectionPlayback.Entry(
+                    key = seed.fingerprint,
+                    title = seed.trackTitle,
+                    artist = seed.artist,
+                    ready = contextMediaItem(seed),
+                )
+            },
+        )
     }
 
     LaunchedEffect(
