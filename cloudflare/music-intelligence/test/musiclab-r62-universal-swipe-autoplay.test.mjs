@@ -60,7 +60,7 @@ test('R62: Cover list is verified, auto-playable and appendable without blocking
   assert.match(cover,/fun playableContextSeeds\(/);
   assert.match(cover,/previousRoundRows \+ publishedOriginalSnapshots \+ publishedCoverSnapshots/);
   assert.match(cover,/filterNot\(::isHiddenForCurrentCover\)/);
-  assert.match(cover,/filter.*hasPublishableVideo/);
+  assert.match(cover,/hasPublishableVideo\(seed\)/);
   assert.match(player,/startOrderedResultSequence\(selectedSeed, selectedItem, selectedId, queueTitle\)/);
   assert.match(cover,/MusicLabSectionPlayback.select\(/);
   assert.match(cover,/findPlayable = \{ entry ->/);
