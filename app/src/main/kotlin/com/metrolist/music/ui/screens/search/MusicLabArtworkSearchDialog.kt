@@ -14,6 +14,7 @@ internal fun MusicLabArtworkSearchDialog(
     visible: Boolean,
     onDismiss: () -> Unit,
     onSearch: () -> Unit,
+    onMoreOptions: (() -> Unit)? = null,
 ) {
     if (!visible) return
     AlertDialog(
@@ -25,6 +26,12 @@ internal fun MusicLabArtworkSearchDialog(
                 Text("Cerca copertina")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annulla") } },
+        dismissButton = {
+            if (onMoreOptions != null) TextButton(onClick = {
+                onDismiss()
+                onMoreOptions()
+            }) { Text("Opzioni video") }
+            TextButton(onClick = onDismiss) { Text("Annulla") }
+        },
     )
 }
