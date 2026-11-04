@@ -1501,8 +1501,12 @@ class MusicService :
                             playerInitialized.first { it }
                             // R59: a queued restore is NEVER allowed to steal a
                             // real tap, including one made while service starts.
-                            if (isActive && queueRequestSerial == restorationSerial &&
-                                player.mediaItemCount == 0 && !player.playWhenReady
+                            if (isActive && PlaybackSprintPolicy.mayRestorePersistedQueue(
+                                    capturedRequestSerial = restorationSerial,
+                                    activeRequestSerial = queueRequestSerial,
+                                    hasMedia = player.mediaItemCount > 0,
+                                    playRequested = player.playWhenReady,
+                                )
                             ) {
                                 playQueue(
                                     queue = restoredQueue,
@@ -3645,10 +3649,13 @@ class MusicService :
             val selectedMediaId = player.currentMediaItem?.mediaId
             shuffleExpansionJob = scope.launch(SilentHandler) {
                 val stillCurrent = {
-                    queueRequestSerial == selectionSerial &&
-                        currentQueue === queue &&
-                        player.currentMediaItem?.mediaId == selectedMediaId &&
-                        player.shuffleModeEnabled
+                    PlaybackSprintPolicy.mayApplyAsyncShuffle(
+                        capturedRequestSerial = selectionSerial,
+                        activeRequestSerial = queueRequestSerial,
+                        sameQueue = currentQueue === queue,
+                        sameSelectedMedia = player.currentMediaItem?.mediaId == selectedMediaId,
+                        shuffleEnabled = player.shuffleModeEnabled,
+                    )
                 }
                 val fullStatus = withContext(Dispatchers.IO) {
                     queue.getFullStatus()
