@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.spotify.Spotify
@@ -139,7 +140,8 @@ internal object MusicLabChartArtworkResolver {
         val id = key(track)
         songCache[id] = song
         prefs(context).edit().putString("video:" + id, song.id).apply()
-        rememberArtwork(context, track, song.thumbnail)
+        if (!MusicLabLightArtwork.isVideoPoster(song.thumbnail))
+            rememberArtwork(context, track, song.thumbnail)
     }
 
     /**
@@ -285,17 +287,21 @@ internal object MusicLabChartArtworkResolver {
     suspend fun resolve(context: Context, track: MusicLabChartTrack,
                         ignoreSourceArtwork: Boolean = false,
                         rejectedUrl: String? = null): String? {
+        MusicLabLightArtwork.saved(context, track.title, track.artist, false)
+            ?.takeUnless { it == rejectedUrl }?.let { return it }
         if (!ignoreSourceArtwork) {
             if (track.sourceArtworkTrusted) {
-                allowedImage(track.artwork)?.takeUnless { it == rejectedUrl }?.let { return it }
+                allowedImage(track.artwork)
+                    ?.takeUnless { it == rejectedUrl || MusicLabLightArtwork.isVideoPoster(it) }
+                    ?.let { return it }
             }
         }
         val id = key(track)
-        artworkCache[id]?.takeUnless { it == rejectedUrl }?.let { return it }
+        artworkCache[id]?.takeUnless { it == rejectedUrl || MusicLabLightArtwork.isVideoPoster(it) }?.let { return it }
         val stored = withContext(Dispatchers.IO) {
             prefs(context).getString("art:" + id, null)
         }
-        allowedImage(stored)?.takeUnless { it == rejectedUrl }?.let {
+        allowedImage(stored)?.takeUnless { it == rejectedUrl || MusicLabLightArtwork.isVideoPoster(it) }?.let {
             artworkCache[id] = it
             return it
         }
@@ -309,28 +315,43 @@ internal object MusicLabChartArtworkResolver {
         }
         val song = resolveSong(context, track)
         val fromYouTube = allowedImage(song?.thumbnail)?.takeUnless { it == rejectedUrl }
-        if (fromYouTube != null) rememberArtwork(context, track, fromYouTube)
+        if (fromYouTube != null && !MusicLabLightArtwork.isVideoPoster(fromYouTube))
+            rememberArtwork(context, track, fromYouTube)
         return fromYouTube
     }
 }
 
 @Composable
-internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: String? = null) {
+internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: String? = null, retrySignal: Int = 0) {
     val context = LocalContext.current
+    val extraRevision by MusicLabLightArtwork.revisions.collectAsStateWithLifecycle()
     var sourceFailed by remember(track.title, track.artist, track.artwork) { mutableStateOf(false) }
     var rejectedUrl by remember(track.title, track.artist) { mutableStateOf<String?>(null) }
     val image by produceState<String?>(
-        initialValue = track.artwork.takeIf { track.sourceArtworkTrusted },
+        initialValue = MusicLabLightArtwork.saved(context, track.title, track.artist, false)
+            ?: track.artwork.takeIf { track.sourceArtworkTrusted },
         key1 = track,
         key2 = nowPlayingArtwork,
-        key3 = Pair(sourceFailed, rejectedUrl),
+        key3 = listOf(sourceFailed, rejectedUrl, retrySignal, extraRevision),
     ) {
-        // Seed the song-specific persistent store without binding the artwork
-        // on screen to whichever item the player happens to be playing.
-        if (nowPlayingArtwork != null && nowPlayingArtwork != rejectedUrl) {
+        // Native MusicLab artwork is displayed immediately, without awaiting any extra provider.
+        value = MusicLabLightArtwork.saved(context, track.title, track.artist, false)
+            ?: track.artwork.takeIf { track.sourceArtworkTrusted && !sourceFailed && it != rejectedUrl }
+            ?: nowPlayingArtwork?.takeIf { it != rejectedUrl }
+        if (nowPlayingArtwork != null && nowPlayingArtwork != rejectedUrl &&
+            !MusicLabLightArtwork.isVideoPoster(nowPlayingArtwork)) {
             MusicLabChartArtworkResolver.rememberArtwork(context, track, nowPlayingArtwork)
         }
-        value = MusicLabChartArtworkResolver.resolve(context, track, sourceFailed, rejectedUrl)
+        if (value == null || MusicLabLightArtwork.isVideoPoster(value)) {
+            MusicLabChartArtworkResolver.resolve(context, track, sourceFailed, rejectedUrl)
+                ?.let { if (value == null || !MusicLabLightArtwork.isVideoPoster(it)) value = it }
+        }
+        // Only the uncovered rows use extra sources. No audio or chart-load coupling.
+        if (retrySignal > 0 || value == null || MusicLabLightArtwork.isVideoPoster(value)) {
+            MusicLabLightArtwork.recover(
+                context, track.title, track.artist, manual = retrySignal > 0,
+            )?.let { value = it }
+        }
         if (value == null) {
             delay(20_000L)
             value = MusicLabChartArtworkResolver.resolve(context, track, sourceFailed, rejectedUrl)
@@ -351,6 +372,7 @@ internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: 
                     val failed = shownImage
                     rejectedUrl = failed
                     MusicLabChartArtworkResolver.forgetBrokenArtwork(context, track, failed)
+                    MusicLabLightArtwork.reject(context, track.title, track.artist, false, failed)
                     if (failed == track.artwork) sourceFailed = true
                 },
             )
