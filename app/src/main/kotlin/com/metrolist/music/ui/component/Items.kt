@@ -1188,6 +1188,7 @@ fun YouTubeListItem(
     isPlaying: Boolean = false,
     isSwipeable: Boolean = true,
     resolveGenreArtwork: Boolean = false,
+    genreArtworkRetry: Int = 0,
     trailingContent: @Composable RowScope.() -> Unit = {},
     badges: @Composable RowScope.() -> Unit = {
         val database = LocalDatabase.current
@@ -1273,6 +1274,7 @@ fun YouTubeListItem(
                             artist = item.artists.first().name,
                             artwork = item.thumbnail,
                         ),
+                        retrySignal = genreArtworkRetry,
                     )
                 } else {
                     ItemThumbnail(
