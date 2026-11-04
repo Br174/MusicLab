@@ -290,7 +290,10 @@ fun Thumbnail(
     var lastCoverFrame by remember { mutableStateOf<CoverArtworkFrame?>(null) }
     LaunchedEffect(coverArtworkMode, coverFrame) {
         if (!coverArtworkMode) lastCoverFrame = null
-        else if (coverFrame != null) lastCoverFrame = coverFrame
+        else if (coverFrame != null) {
+            lastCoverFrame = coverFrame
+            CoverSwipeBridge.markDisplayed(coverFrame.item.mediaId)
+        }
     }
 
     val thumbnailSnapLayoutInfoProvider = remember(thumbnailLazyGridState) {
