@@ -88,6 +88,16 @@ class CoverVisibleSortPolicyTest {
         )
     }
 
+    @Test fun documentedAlbumYearCanReplaceMisleadingVideoYear() {
+        val video = row("upload", year = 2024)
+            .copy(sourceNames = listOf("YouTube"))
+        val verified = CoverVisibleYearResolver.applyDate(video, 1969, "YouTube Music")
+        assertEquals(1969, verified.year)
+        assertEquals("1969", verified.releaseDate)
+        assertEquals("1969", CoverCardMetadata.publicationYear(verified))
+        assertEquals(2024, video.year)
+    }
+
     @Test fun existingPublicationYearIsNeverOverwritten() {
         val studio = row("studio", year = 1970, date = "1970-05-17")
         assertEquals(studio, CoverVisibleYearResolver.applyDate(studio, 2024, "YouTube Music"))
