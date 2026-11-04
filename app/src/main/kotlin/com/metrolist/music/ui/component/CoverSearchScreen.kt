@@ -1442,16 +1442,29 @@ private fun AiCoverResultRow(
     onTitleSearch: (() -> Unit)?,
     onLongClick: () -> Unit,
 ) {
+    var showArtworkSearch by remember(result.song.id) { mutableStateOf(false) }
+    var artworkRetry by remember(result.song.id) { mutableIntStateOf(0) }
+    com.metrolist.music.ui.screens.search.MusicLabArtworkSearchDialog(
+        visible = showArtworkSearch,
+        onDismiss = { showArtworkSearch = false },
+        onSearch = { artworkRetry += 1 },
+        onMoreOptions = onLongClick,
+    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onDetails, onLongClick = onLongClick).padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth()
+            .combinedClickable(onClick = onPlay, onLongClick = { showArtworkSearch = true })
+            .padding(vertical = 6.dp),
     ) {
-        AsyncImage(
-            model = result.song.thumbnail,
-            contentDescription = "Riproduci",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onPlay),
-        )
+        androidx.compose.foundation.layout.Box(Modifier.clickable(onClick = onPlay)) {
+            com.metrolist.music.ui.screens.search.MusicLabCustomCoverArtwork(
+                title = result.candidate.title,
+                artist = result.candidate.artist,
+                nativeThumbnail = result.song.thumbnail,
+                albumHint = result.candidate.album,
+                retrySignal = artworkRetry,
+            )
+        }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
