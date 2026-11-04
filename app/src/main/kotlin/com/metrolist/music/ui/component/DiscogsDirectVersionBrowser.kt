@@ -3454,6 +3454,10 @@ internal fun DiscogsDirectVersionBrowser(
         val queueTitle =
             if (mode == DiscogsDirectMode.COVER) "Cover · $title" else "Originali · $title"
 
+        if (mode == DiscogsDirectMode.COVER &&
+            !isOriginalPerformerVersion(selectedSeed)) {
+            CoverSwipeBridge.expectIncoming(sessionKey, selectedId)
+        }
         if (isTurbo && mode == DiscogsDirectMode.COVER &&
             connection.service.isPlayerReady.value) {
             val tapAt = coverTapAudioClock.get()
@@ -6479,7 +6483,13 @@ internal fun DiscogsDirectVersionBrowser(
                 return
             }
         }
-        CoverSwipeBridge.stop(sessionKey)
+        // R61: keep the outgoing verified Cover artwork visible while the
+        // selected new recording is prepared. Stop the old gesture only.
+        if (mode == DiscogsDirectMode.COVER) {
+            CoverSwipeBridge.beginSelection(sessionKey)
+        } else {
+            CoverSwipeBridge.stop(sessionKey)
+        }
         session.listIndex = listState.firstVisibleItemIndex
         session.listOffset = listState.firstVisibleItemScrollOffset
         MusicLabListPositionStore.select("version:$sectionIdentity", seed.fingerprint)
@@ -6548,6 +6558,9 @@ internal fun DiscogsDirectVersionBrowser(
             }
 
             resolvingFingerprint = null
+            // A rejected/absent video never becomes a visual transition.
+            // Re-enable the outgoing verified Cover's swipe gestures.
+            CoverSwipeBridge.cancelSelection(sessionKey)
             resumeCoverBackgroundAfterPlaybackBurst()
             Toast.makeText(
                 context,
