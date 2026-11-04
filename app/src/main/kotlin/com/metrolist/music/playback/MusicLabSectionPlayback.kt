@@ -212,9 +212,8 @@ internal object MusicLabSectionPlayback {
         requestJob?.cancel()
         requestJob = worker.launch {
             try {
-                val nextIndices = if (automatic) {
-                    (firstTarget until entries.size).toList()
-                } else listOf(firstTarget)
+                val nextIndices = OrderedResultAutoplayPolicy.candidates(
+                    current.index, entries.size, step, automatic)
                 for (target in nextIndices) {
                     if (rev != revision || snapshotFlow.value?.index != current.index ||
                         connection.mediaMetadata.value?.id != current.mediaId ||
@@ -265,11 +264,13 @@ internal object MusicLabSectionPlayback {
      */
     fun onPlaybackEnded(connection: PlayerConnection) {
         val current = snapshotFlow.value ?: return
-        if (current.index + 1 >= entries.size ||
-            connection.player.playbackState != Player.STATE_ENDED ||
-            !connection.player.playWhenReady ||
-            !connection.service.canAdvanceOrderedResults() ||
-            connection.player.currentMediaItem?.mediaId != current.mediaId) return
+        if (!OrderedResultAutoplayPolicy.shouldAdvanceAtEnd(
+                owned = connection.player.currentMediaItem?.mediaId == current.mediaId,
+                ended = connection.player.playbackState == Player.STATE_ENDED,
+                wantsPlayback = connection.player.playWhenReady,
+                timerAllows = connection.service.canAdvanceOrderedResults(),
+                hasMoreResults = current.index + 1 < entries.size,
+            )) return
         advance(connection, 1, automatic = true)
     }
 
