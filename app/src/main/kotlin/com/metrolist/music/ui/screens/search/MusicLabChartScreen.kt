@@ -1,6 +1,9 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.metrolist.music.ui.screens.search
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -313,11 +317,18 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
             }
             chartResult?.let { result ->
                 items(result.tracks, key = { "chart_${it.rank}_${it.title}_${it.artist}" }) { track ->
+                    var showArtworkSearch by remember(track.rank, track.title) { mutableStateOf(false) }
+                    var artworkRetry by remember(track.rank, track.title) { mutableIntStateOf(0) }
+                    MusicLabArtworkSearchDialog(
+                        visible = showArtworkSearch,
+                        onDismiss = { showArtworkSearch = false },
+                        onSearch = { artworkRetry += 1 },
+                    )
                     Row(modifier = Modifier.fillMaxWidth()
                         .background(if (highlightedRank == track.rank.toString()) MaterialTheme.colorScheme.primaryContainer
                             else Color.Transparent)
-                        .clickable {
-                        if (resolvingSong != null) return@clickable
+                        .combinedClickable(onLongClick = { showArtworkSearch = true }, onClick = {
+                        if (resolvingSong != null) return@combinedClickable
                         resolvingSong = "${track.rank}"
                         scope.launch {
                             try {
@@ -379,7 +390,7 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                                     "Il brano resta nella classifica."
                             } finally { resolvingSong = null }
                         }
-                    }.padding(vertical = 8.dp),
+                    }).padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         MusicLabChartArtwork(
@@ -388,6 +399,7 @@ fun MusicLabChartScreen(navController: NavController, title: String) {
                                 MusicLabChartArtworkResolver.matchesPlayer(
                                     track, current.title, current.artists.map { it.name })
                             }?.thumbnailUrl,
+                            retrySignal = artworkRetry,
                         )
                         Column(modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(3.dp)) {
