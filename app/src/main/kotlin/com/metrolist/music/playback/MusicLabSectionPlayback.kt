@@ -223,9 +223,21 @@ internal object MusicLabSectionPlayback {
             pendingManualRevision == rev &&
             pendingManualAnchor == current.mediaId
         ) pendingManualTarget else null
-        val firstTarget = ((previousPending ?: current.index) + step)
-            .coerceIn(0, (entries.size - 1).coerceAtLeast(0))
-        if (firstTarget == current.index) return true
+        val firstTarget = MusicLabSwipeInputPolicy.nextTarget(
+            current = current.index,
+            total = entries.size,
+            direction = step,
+            pendingTarget = previousPending,
+        ) ?: return true
+        if (firstTarget == current.index) {
+            // Two opposite gestures before the pending resolution finishes
+            // cancel each other instead of unexpectedly playing the first.
+            requestJob?.cancel()
+            pendingManualTarget = null
+            pendingManualAnchor = null
+            pendingManualRevision = -1L
+            return true
+        }
         if (!automatic) {
             pendingManualTarget = firstTarget
             pendingManualAnchor = current.mediaId
