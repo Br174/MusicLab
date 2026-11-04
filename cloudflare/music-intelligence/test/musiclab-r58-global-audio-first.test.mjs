@@ -10,7 +10,13 @@ const service=read('playback/MusicService.kt');
 const section=read('playback/MusicLabSectionPlayback.kt');
 const cache=read('playback/StreamUrlCache.kt');
 const resolver=read('ui/screens/search/MusicLabHitParadeVideoResolver.kt');
-const tap=hp.slice(hp.indexOf('.clickable {\n                        // FastPath:'),hp.indexOf('}.padding(vertical = 6.dp)'));
+// R64 retains the exact R58 tap implementation but adds a long-press gesture.
+// Extract the real audio tap handler, not the obsolete .clickable modifier text.
+const tapStart = hp.indexOf('val myTap = ++tapSerial');
+const tapEnd = hp.indexOf('}).padding(vertical = 6.dp)', tapStart);
+assert.ok(tapStart >= 0 && tapEnd > tapStart, 'Hit Parade must retain a tap handler');
+assert.match(hp, /combinedClickable\(onLongClick = \{ showArtworkSearch = true \}, onClick = \{/);
+const tap = hp.slice(tapStart, tapEnd);
 
 test('R58 chart selection protects audio BEFORE any network video lookup',()=>{
   assert.match(tap,/player\?\.beginPlaybackPriorityBurst\("hit-parade-tap"\)/);
