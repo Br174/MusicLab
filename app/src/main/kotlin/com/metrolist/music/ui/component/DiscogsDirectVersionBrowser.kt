@@ -1457,8 +1457,13 @@ internal fun DiscogsDirectVersionBrowser(
                             videoResolutionChecked = refreshed.videoResolutionChecked,
                             // R65: source-confirmed dates must reach ALREADY shown cards.
                             // Their video ID, artwork slot and original rank stay fixed.
-                            year = poster.year ?: refreshed.year,
-                            releaseDate = poster.releaseDate ?: refreshed.releaseDate,
+                            year = if (CoverCardMetadata.publicationYear(poster) == null &&
+                                CoverCardMetadata.publicationYear(refreshed) != null)
+                                refreshed.year else poster.year ?: refreshed.year,
+                            releaseDate = if (CoverCardMetadata.publicationYear(poster) == null &&
+                                CoverCardMetadata.publicationYear(refreshed) != null)
+                                refreshed.releaseDate else poster.releaseDate ?: refreshed.releaseDate,
+                            sourceNames = (poster.sourceNames + refreshed.sourceNames).distinct(),
                         )
                     } else poster
                 fun bindingChanged(poster: DiscogsVersionSeed): Boolean =
@@ -1467,8 +1472,11 @@ internal fun DiscogsDirectVersionBrowser(
                             poster.resolvedVideoTitle != refreshed.resolvedVideoTitle ||
                             poster.resolvedVideoSource != refreshed.resolvedVideoSource ||
                             poster.videoResolutionChecked != refreshed.videoResolutionChecked ||
+                            (CoverCardMetadata.publicationYear(poster) == null &&
+                                CoverCardMetadata.publicationYear(refreshed) != null) ||
                             (poster.year == null && refreshed.year != null) ||
-                            (poster.releaseDate.isNullOrBlank() && !refreshed.releaseDate.isNullOrBlank()))
+                            (poster.releaseDate.isNullOrBlank() && !refreshed.releaseDate.isNullOrBlank()) ||
+                            refreshed.sourceNames.any { it !in poster.sourceNames })
                 if (publishedCoverSnapshots.any(::bindingChanged)) {
                     publishedCoverSnapshots = publishedCoverSnapshots.map(::videoBindingOnly)
                     session.publishedCoverSnapshots = publishedCoverSnapshots
@@ -6983,7 +6991,7 @@ internal fun DiscogsDirectVersionBrowser(
             sortMode == DirectVersionSort.RELEVANCE) return@LaunchedEffect
         delay(350L)
         for (row in visibleResults) {
-            if (row.year != null || !row.releaseDate.isNullOrBlank()) continue
+            if (CoverCardMetadata.publicationYear(row) != null) continue
             val sourceRow = results.firstOrNull { it.fingerprint == row.fingerprint }
             // Only a named music catalogue can confirm a musical publication;
             // YouTube-only upload dates must never masquerade as release dates.
