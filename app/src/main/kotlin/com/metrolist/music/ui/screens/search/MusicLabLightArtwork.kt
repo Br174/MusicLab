@@ -88,6 +88,10 @@ internal object MusicLabLightArtwork {
         manual: Boolean = false,
     ): String? {
         if (title.isBlank() || artist.isBlank()) return null
+        // A video without usable musical credits should retain its YouTube
+        // image instead of exhausting catalogue/provider budgets.
+        if (!manual && (title.count { it.isLetter() } < 2 ||
+                artist.count { it.isLetter() } < 2)) return null
         if (!manual) saved(context, title, artist, album)?.let { return it }
         val k = key(title, artist, album)
         if (!manual && System.currentTimeMillis() < (autoMissUntil[k] ?: 0L)) return null
