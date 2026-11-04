@@ -7008,7 +7008,11 @@ internal fun DiscogsDirectVersionBrowser(
             if (known == null && cache == null &&
                 playable?.album?.id.isNullOrBlank() &&
                 (row.releaseId <= 0 || discogsToken.isBlank())) continue
-            if (!coverYearAttempted.add(row.fingerprint)) continue
+            // A newly identified album can retry a previous undated video.
+            // An identical provider context is never queried again in-session.
+            val yearAttemptKey = row.fingerprint + "|" + (playable?.album?.id ?: "") +
+                "|" + row.releaseId.toString()
+            if (!coverYearAttempted.add(yearAttemptKey)) continue
             val hit = known ?: cache ?: CoverVisibleYearResolver.discover(
                 seed = row,
                 song = playable,
