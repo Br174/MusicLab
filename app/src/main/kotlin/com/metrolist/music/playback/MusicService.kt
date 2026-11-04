@@ -276,7 +276,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.ObjectInputStream
@@ -5725,7 +5724,10 @@ class MusicService :
             ]
             val singleFlight: Pair<CachedStreamUrl?, Result<InnerTubeXPlayer.PlaybackData>?> =
                 runBlocking(Dispatchers.IO) {
-                    gate.withLock {
+                    // Mutex.withLock has a non-suspending action; the stream
+                    // extractor suspends, so use explicit lock/finally.
+                    gate.lock()
+                    try {
                         val previouslyResolved =
                             if (bypassCacheForQualityChange.contains(mediaId)) null
                             else songUrlCache[mediaId]
@@ -5757,6 +5759,8 @@ class MusicService :
                             }
                             null to outcome
                         }
+                    } finally {
+                        gate.unlock()
                     }
                 }
             singleFlight.first?.let { reused ->
