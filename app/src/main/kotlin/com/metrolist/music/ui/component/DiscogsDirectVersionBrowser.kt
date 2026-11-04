@@ -3507,13 +3507,15 @@ internal fun DiscogsDirectVersionBrowser(
             }
         }
         val contextSeeds = playableContextSeeds(selectedSeed)
+        val contextByKey = contextSeeds.associateBy { it.fingerprint }
+        // R62: selected audio starts now. Prepare neighbor metadata only
+        // asynchronously, never 50 synchronous artwork reads at first tap.
         val sequence = contextSeeds.map { seed ->
             MusicLabSectionPlayback.Entry(
                 key = seed.fingerprint,
                 title = seed.trackTitle,
                 artist = seed.artist,
-                ready = if (seed.resolvedVideoId == selectedId) selectedItem
-                    else contextMediaItem(seed),
+                ready = if (seed.resolvedVideoId == selectedId) selectedItem else null,
             )
         }
         val sequenceIndex = contextSeeds.indexOfFirst {
@@ -3528,7 +3530,9 @@ internal fun DiscogsDirectVersionBrowser(
                 orderedEntries = sequence,
                 selectedIndex = sequenceIndex,
                 selected = selectedItem,
-                findPlayable = { entry -> entry.ready },
+                findPlayable = { entry ->
+                    entry.ready ?: contextByKey[entry.key]?.let(::contextMediaItem)
+                },
                 selectionKey = "version:$sectionIdentity",
             )
         } else if (connection.service.isPlayerReady.value) {
