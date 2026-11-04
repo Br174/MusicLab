@@ -1,9 +1,12 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.metrolist.music.ui.screens.search
 
 import android.app.DatePickerDialog
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -756,10 +760,17 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
             } }
             chart?.let { result ->
                 items(result.songs, key = { "hitparade_${it.rank}" }) { song ->
+                    var showArtworkSearch by remember(song.rank, song.title) { mutableStateOf(false) }
+                    var artworkRetry by remember(song.rank, song.title) { mutableIntStateOf(0) }
+                    MusicLabArtworkSearchDialog(
+                        visible = showArtworkSearch,
+                        onDismiss = { showArtworkSearch = false },
+                        onSearch = { artworkRetry += 1 },
+                    )
                     Row(modifier = Modifier.fillMaxWidth()
                         .background(if (highlightedRank == song.rank.toString()) MaterialTheme.colorScheme.primaryContainer
                             else Color.Transparent)
-                        .clickable {
+                        .combinedClickable(onLongClick = { showArtworkSearch = true }, onClick = {
                         // FastPath: the visible row may already have resolved this exact
                         // SongItem for its artwork. The latest tapped song always wins.
                         val myTap = ++tapSerial
@@ -813,12 +824,13 @@ internal fun MusicLabHistoricalHitParadeWeeklySinglesScreen(
                                 if (myTap == tapSerial) resolving = null
                             }
                         }
-                    }.padding(vertical = 6.dp),
+                    }).padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("${song.rank}", style = MaterialTheme.typography.titleMedium)
                         MusicLabHitParadeDiscCover(
-                            title = song.title, artist = song.artist, album = false)
+                            title = song.title, artist = song.artist, album = false,
+                            retrySignal = artworkRetry)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(song.title, fontWeight = FontWeight.SemiBold)
                             Text(song.artist, style = MaterialTheme.typography.bodySmall)
