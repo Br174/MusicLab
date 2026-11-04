@@ -810,7 +810,12 @@ internal fun CompilationScreen(
         if (fullAudio == null) scheduleFullAudioLookup(current)
     }
 
-    suspend fun resolveTrack(index: Int, current: DiscogsCompilationDetail): CompilationResolvedTrack? {
+    suspend fun resolveTrack(
+        index: Int,
+        current: DiscogsCompilationDetail,
+        playbackFast: Boolean = false,
+        skipNativeLookup: Boolean = false,
+    ): CompilationResolvedTrack? {
         resolvedTracks[index]?.let { return it }
         val track = current.tracks.getOrNull(index) ?: return null
         // R36: reuse the exact native search-result object before invoking the
@@ -822,10 +827,15 @@ internal fun CompilationScreen(
         // R58: the artwork/previous selection may already have the correct
         // media ID. Never wait for another search in that case.
         val fast = MusicLabFastPath.peek(track.title, artist, compatible)
-            ?: MusicLabFastPath.find(track.title, artist, compatible)
+            ?: if (playbackFast || skipNativeLookup) null
+               else MusicLabFastPath.find(track.title, artist, compatible)
         val found = fast?.let {
             CompilationResolvedTrack(track, it, "MusicLab FastPath", false)
-        } ?: CompilationTrackResolver.resolveTrack(track, current.videos)
+        } ?: if (playbackFast) {
+            // R60: three independent verified source lanes, maximum 4.8 s.
+            // The full search remains available asynchronously on a rare miss.
+            CompilationTrackResolver.resolveTrackForPlayback(track, current.videos)
+        } else CompilationTrackResolver.resolveTrack(track, current.videos)
         if (found != null && detail?.id == current.id) {
             resolvedTracks[index] = found
             CompilationSessionStore.resolvedTracks[index] = found
@@ -936,8 +946,21 @@ internal fun CompilationScreen(
 
         fastTrackPlayJob = scope.launch {
             // The last selection wins even when an older query finishes late.
-            val found = resolveTrack(index, current)
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            var found = resolveTrack(index, current, playbackFast = true)
             if (selectedTrackIndex != index || detail?.id != current.id) return@launch
+            if (found == null) {
+                // Preserve rare/archival recordings: the deep fallback is still
+                // available without holding every ordinary selection for 30 s.
+                Toast.makeText(context,
+                    "Ricerca rapida conclusa, verifico altre fonti…", Toast.LENGTH_SHORT).show()
+                found = resolveTrack(index, current, skipNativeLookup = true)
+            }
+            if (selectedTrackIndex != index || detail?.id != current.id) return@launch
+            android.util.Log.i("MusicLabR60Audio",
+                "COMPILATION_LOOKUP_MS=" +
+                    (android.os.SystemClock.elapsedRealtime() - startedAt) +
+                    " found=" + (found != null))
             if (found != null) {
                 playerConnection?.let { connection ->
                     MusicLabSectionPlayback.select(
