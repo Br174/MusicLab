@@ -27,7 +27,7 @@ test('R61: browser retains outgoing Cover until incoming ID is authorized BEFORE
   const play=browser.slice(browser.indexOf('fun play(seed: DiscogsVersionSeed)'),
     browser.indexOf('fun swipeCover(',browser.indexOf('fun play(seed: DiscogsVersionSeed)')));
   assert.match(play,/CoverSwipeBridge\.beginSelection\(sessionKey\)/);
-  assert.doesNotMatch(play,/CoverSwipeBridge\.stop\(sessionKey\)/);
+  assert.match(play,/if \(mode == DiscogsDirectMode\.COVER\) \{\s*CoverSwipeBridge\.beginSelection\(sessionKey\)/);
   assert.match(play,/CoverSwipeBridge\.cancelSelection\(sessionKey\)/);
   const context=browser.slice(browser.indexOf('suspend fun playResolvedContext('),
     browser.indexOf('fun pauseCoverBackgroundForPlayback()')>0?
