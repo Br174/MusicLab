@@ -5403,6 +5403,31 @@ class MusicService :
                 return@Factory dataSpec
             }
 
+            // R59: an entirely cached audio range is playable immediately.
+            // Check Media3's own local length metadata BEFORE a synchronous
+            // Room lookup or any external provider. Never trust a partial
+            // prefix as complete: isCached() proves every requested byte.
+            if (!bypassCacheForQualityChange.contains(mediaId)) {
+                val localCaches = if (cachedEnableSongCache)
+                    listOf(downloadCache, playerCache) else listOf(downloadCache)
+                for (audioCache in localCaches) {
+                    val knownLength = ContentMetadata.getContentLength(
+                        audioCache.getContentMetadata(mediaId))
+                    val remaining = knownLength - dataSpec.position
+                    val required = if (dataSpec.length >= 0L)
+                        dataSpec.length else remaining
+                    if (knownLength > 0L && remaining > 0L &&
+                        required > 0L && required <= remaining &&
+                        audioCache.isCached(mediaId, dataSpec.position, required)
+                    ) {
+                        recoverSongDeduped(mediaId)
+                        lab31AudioEvent("R59_LOCAL_AUDIO_FASTPATH",
+                            "media=" + mediaId + " bytes=" + required)
+                        return@Factory dataSpec
+                    }
+                }
+            }
+
             val storedFormat = runBlocking(Dispatchers.IO) {
                 database.format(mediaId).first()
             }
