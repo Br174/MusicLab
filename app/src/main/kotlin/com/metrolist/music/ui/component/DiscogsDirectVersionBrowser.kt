@@ -6993,7 +6993,7 @@ internal fun DiscogsDirectVersionBrowser(
                     name.equals("Apple/iTunes", true) || name.equals("YouTube Music", true)
             }
             val known = if (provenSource != null)
-                sourceRow.year?.takeIf { it in 1850..2100 }?.let { it to provenSource }
+                sourceRow?.year?.takeIf { it in 1850..2100 }?.let { it to provenSource }
             else null
             val cache = CoverVisibleYearResolver.known(context, row.fingerprint)
             val playable = session.preparedVideoSongs[row.resolvedVideoId.orEmpty()]
@@ -8665,10 +8665,12 @@ private fun DiscogsVersionCard(
                             maxLines = 1,
                         )
                     }
-                    CoverCardMetadata.publicationYear(seed)?.let { year ->
-                        Text(year, style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    val publicationYear = CoverCardMetadata.publicationYear(seed)
+                    Text(
+                        publicationYear?.let { "Anno: $it" } ?: "Data non disponibile",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     val discoverySources = CoverCardMetadata.sources(seed).joinToString(" · ")
                     if (discoverySources.isNotBlank()) {
                         Text(
