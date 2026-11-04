@@ -26,8 +26,9 @@ test('the actual Turbo Punti menu changes a visual sort for original and Cover g
 });
 
 test('late validated metadata actually reaches existing published immutable Cover snapshots', () => {
-  assert.match(browser, /year = poster\.year \?: refreshed\.year/);
-  assert.match(browser, /releaseDate = poster\.releaseDate \?: refreshed\.releaseDate/);
+  assert.match(browser, /refreshed\.year else poster\.year \?: refreshed\.year/);
+  assert.match(browser, /sourceNames = \(poster\.sourceNames \+ refreshed\.sourceNames\)\.distinct\(\)/);
+  assert.match(browser, /refreshed\.releaseDate else poster\.releaseDate \?: refreshed\.releaseDate/);
   assert.match(browser, /poster\.year == null && refreshed\.year != null/);
   assert.match(browser, /session\.publishedCoverSnapshots = publishedCoverSnapshots/);
   assert.match(browser, /session\.publishedOriginalSnapshots = publishedOriginalSnapshots/);
@@ -52,6 +53,6 @@ test('unverifiable amateur video keeps explicit unknown date, never fake time or
   assert.match(browser, /"Data non disponibile"/);
   assert.match(browser, /publicationYear\?\.let \{ "Anno: \$it" \}/);
   assert.match(display, /"youtube music"/);
-  assert.match(years, /if \(row\.year != null \|\| !row\.releaseDate\.isNullOrBlank\(\)\) return row/);
+  assert.match(years, /CoverCardMetadata\.publicationYear\(row\) != null/);
   assert.match(native, /unverifiedAmateurKeepsUnknownYearInsteadOfInventingUploadYear/);
 });
