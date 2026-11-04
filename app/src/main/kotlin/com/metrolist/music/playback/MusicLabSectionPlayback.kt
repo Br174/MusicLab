@@ -54,6 +54,11 @@ internal object MusicLabSectionPlayback {
     private val resolved = mutableMapOf<Int, MediaItem>()
     private var requestJob: Job? = null
     private var warmJob: Job? = null
+    // R63: rapid gestures must not silently cancel each other while the
+    // next recording is still being resolved. Keep the latest intended index.
+    private var pendingManualTarget: Int? = null
+    private var pendingManualAnchor: String? = null
+    private var pendingManualRevision = -1L
     private var internalPlayback = false
     private var versionContext: android.content.Context? = null
 
@@ -63,6 +68,9 @@ internal object MusicLabSectionPlayback {
         revision++
         requestJob?.cancel()
         warmJob?.cancel()
+        pendingManualTarget = null
+        pendingManualAnchor = null
+        pendingManualRevision = -1L
         entries = emptyList()
         resolver = null
         versionContext = null
@@ -85,6 +93,9 @@ internal object MusicLabSectionPlayback {
         val rev = revision
         requestJob?.cancel()
         warmJob?.cancel()
+        pendingManualTarget = null
+        pendingManualAnchor = null
+        pendingManualRevision = -1L
         versionContext = connection.service
         entries = orderedEntries.toList()
         resolver = findPlayable
@@ -206,14 +217,27 @@ internal object MusicLabSectionPlayback {
         val current = snapshotFlow.value ?: return false
         if (connection.mediaMetadata.value?.id != current.mediaId) return false
         val step = if (direction > 0) 1 else -1
-        val firstTarget = current.index + step
-        if (firstTarget !in entries.indices) return true
         val rev = revision
+        val previousPending = if (!automatic &&
+            requestJob?.isActive == true &&
+            pendingManualRevision == rev &&
+            pendingManualAnchor == current.mediaId
+        ) pendingManualTarget else null
+        val firstTarget = ((previousPending ?: current.index) + step)
+            .coerceIn(0, (entries.size - 1).coerceAtLeast(0))
+        if (firstTarget == current.index) return true
+        if (!automatic) {
+            pendingManualTarget = firstTarget
+            pendingManualAnchor = current.mediaId
+            pendingManualRevision = rev
+        }
         requestJob?.cancel()
         requestJob = worker.launch {
             try {
-                val nextIndices = OrderedResultAutoplayPolicy.candidates(
-                    current.index, entries.size, step, automatic)
+                val nextIndices = if (automatic) {
+                    OrderedResultAutoplayPolicy.candidates(
+                        current.index, entries.size, step, automatic = true)
+                } else listOf(firstTarget)
                 for (target in nextIndices) {
                     if (rev != revision || snapshotFlow.value?.index != current.index ||
                         connection.mediaMetadata.value?.id != current.mediaId ||
@@ -249,6 +273,15 @@ internal object MusicLabSectionPlayback {
                 throw cancel
             } catch (_: Exception) {
                 // Keep the current selection; later user taps may try again.
+            } finally {
+                if (!automatic && pendingManualRevision == rev &&
+                    pendingManualAnchor == current.mediaId &&
+                    pendingManualTarget == firstTarget
+                ) {
+                    pendingManualTarget = null
+                    pendingManualAnchor = null
+                    pendingManualRevision = -1L
+                }
             }
         }
         return true
