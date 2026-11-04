@@ -24,6 +24,11 @@ class CoverSwipeBridgeTest {
             assertFalse(CoverSwipeBridge.isCoverArtwork("QUEUE_GHOST"))
 
             CoverSwipeBridge.activate(screen, "VIDEO_COVER_B")
+            // Keep A during the audio/UI commit gap, then release it as soon
+            // as the real B frame is observed by Compose.
+            assertTrue(CoverSwipeBridge.isCoverArtwork("VIDEO_COVER_A"))
+            assertTrue(CoverSwipeBridge.isCoverArtwork("VIDEO_COVER_B"))
+            CoverSwipeBridge.markDisplayed("VIDEO_COVER_B")
             assertFalse(CoverSwipeBridge.isCoverArtwork("VIDEO_COVER_A"))
             assertTrue(CoverSwipeBridge.isCoverArtwork("VIDEO_COVER_B"))
         } finally {
