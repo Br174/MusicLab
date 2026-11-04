@@ -3531,7 +3531,15 @@ internal fun DiscogsDirectVersionBrowser(
                 selectedIndex = sequenceIndex,
                 selected = selectedItem,
                 findPlayable = { entry ->
-                    entry.ready ?: contextByKey[entry.key]?.let(::contextMediaItem)
+                    val version = contextByKey[entry.key]
+                        ?: (previousRoundRows + publishedOriginalSnapshots +
+                            publishedCoverSnapshots + results).firstOrNull {
+                            it.fingerprint == entry.key &&
+                                !it.resolvedVideoId.isNullOrBlank()
+                        }
+                    entry.ready ?: version?.let { seed ->
+                        withContext(Dispatchers.IO) { contextMediaItem(seed) }
+                    }
                 },
                 selectionKey = "version:$sectionIdentity",
             )
@@ -6714,7 +6722,9 @@ internal fun DiscogsDirectVersionBrowser(
                     key = seed.fingerprint,
                     title = seed.trackTitle,
                     artist = seed.artist,
-                    ready = contextMediaItem(seed),
+                    // Deferred lookup in the same source resolver avoids
+                    // hundreds of on-main artwork reads during refresh.
+                    ready = null,
                 )
             },
         )
