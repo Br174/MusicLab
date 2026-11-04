@@ -21,6 +21,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,6 +55,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -63,7 +65,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -314,88 +315,51 @@ fun Thumbnail(
         )
     }
 
-    // A finger release is one authoritative command. Graphical scroll alone
-    // must never be interpreted as a committed song change.
-    val userSwipePointerModifier =
-        // R62: keep the pointer recognizer alive across player state changes.
-        // Re-keying it on every new song cancelled quick consecutive swipes.
-        Modifier.pointerInput(swipeThumbnail) {
-            if (!swipeThumbnail) return@pointerInput
-            val touchSlop = viewConfiguration.touchSlop
-            awaitPointerEventScope {
-                var tracking = false
-                var startX = 0f
-                var startY = 0f
-                var horizontalSwipe = false
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Final)
-                    if (!tracking) {
-                        event.changes.firstOrNull { it.pressed && !it.previousPressed }?.let {
-                            tracking = true
-                            startX = it.position.x
-                            startY = it.position.y
-                            horizontalSwipe = false
-                        }
-                        continue
-                    }
-                    val pressed = event.changes.firstOrNull { it.pressed }
-                    if (pressed != null) {
-                        val dx = abs(pressed.position.x - startX)
-                        val dy = abs(pressed.position.y - startY)
-                        if (dx > touchSlop && dx > dy) horizontalSwipe = true
-                    }
-                    if (event.changes.none { it.pressed }) {
-                        val released = event.changes.firstOrNull {
-                            !it.pressed && it.previousPressed
-                        }
-                        if (released != null && horizontalSwipe && isPlayerExpanded()) {
-                            val dx = released.position.x - startX
-                            val dy = released.position.y - startY
-                            val direction = PlaybackSprintPolicy.committedSwipeDirection(
-                                dx, dy, touchSlop * 4
-                            )
-                            if (direction != 0) {
-                                val committedId = playerConnection.mediaMetadata.value?.id
-                                val handledByCover =
-                                    !MusicLabSectionPlayback.isCurrent(committedId) &&
-                                    CoverSwipeBridge.trySwipe(
-                                        committedId.orEmpty(), direction
-                                    )
-                                if (!handledByCover) {
-                                    // Use the same navigation path as next/previous buttons:
-                                    // this activates audio priority, prepares IDLE and updates
-                                    // the Media3 listener that owns the player artwork.
-                                    if (direction > 0) {
-                                        playerConnection.seekToNext()
-                                    } else if (direction < 0) {
-                                        playerConnection.skipToPreviousItem()
-                                    }
-                                }
-                            }
-                        }
-                        // R62: section cards are not native playlist neighbors.
-                        // Native playlist gestures retain their own snapping.
-                        // The LazyGrid may visually settle on a neighbor even
-                        // when no audio command is accepted. Recenter against
-                        // the actual Media3 transition, never optimistic graphics.
-                        if (!CoverSwipeBridge.isCoverArtwork(
-                                playerConnection.mediaMetadata.value?.id.orEmpty()
-                            )
-                        ) {
-                            scrollScope.launch {
-                                delay(180L)
-                                val committed = getMediaItems(
-                                    playerConnection.player, swipeThumbnail
-                                ).currentIndex
-                                if (committed >= 0) thumbnailLazyGridState.scrollToItem(committed)
-                            }
-                        }
-                        tracking = false
-                        horizontalSwipe = false
+    // R63: a single horizontal drag recognizer OWNS the complete gesture.
+    // R62's Final-pass release observer could miss consumed up events, and
+    // the scrollable grid competed for horizontal movement. Compose's native
+    // detector waits for horizontal touch slop and receives drag-end reliably.
+    // rememberUpdatedState prevents old player callbacks after recomposition.
+    val expandedNow by rememberUpdatedState(isPlayerExpanded)
+    val userSwipePointerModifier = Modifier.pointerInput(swipeThumbnail) {
+        if (!swipeThumbnail) return@pointerInput
+        val minimumDistance = viewConfiguration.touchSlop * 1.6f
+        var horizontalDistance = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { horizontalDistance = 0f },
+            onHorizontalDrag = { change, dragAmount ->
+                horizontalDistance += dragAmount
+                change.consume()
+            },
+            onDragCancel = { horizontalDistance = 0f },
+            onDragEnd = {
+                val committed = horizontalDistance
+                horizontalDistance = 0f
+                if (!expandedNow()) return@detectHorizontalDragGestures
+                val direction = PlaybackSprintPolicy.committedSwipeDirection(
+                    committed, 0f, minimumDistance)
+                if (direction == 0) return@detectHorizontalDragGestures
+                val mediaId = playerConnection.mediaMetadata.value?.id
+                val editorial = MusicLabSectionPlayback.isCurrent(mediaId)
+                val handledByCover = !editorial &&
+                    CoverSwipeBridge.trySwipe(mediaId.orEmpty(), direction)
+                if (!handledByCover) {
+                    if (direction > 0) playerConnection.seekToNext()
+                    else playerConnection.skipToPreviousItem()
+                }
+                // The old grid is presentation-only: never recenter an
+                // unrelated playlist poster over verified Cover artwork.
+                if (!editorial && !handledByCover) {
+                    scrollScope.launch {
+                        delay(190L)
+                        val actual = getMediaItems(playerConnection.player, swipeThumbnail)
+                            .currentIndex
+                        if (actual >= 0) thumbnailLazyGridState.scrollToItem(actual)
                     }
                 }
-            }
-        }
+            },
+        )
+    }
 
     // Keep artwork centered on the ACTUAL item transition, never on optimistic
     // swipe animation. This avoids covers showing a song that is not playing.
@@ -485,11 +449,7 @@ fun Thumbnail(
                         }
                     }
                     
-                    // Derive scroll enabled state to prevent unnecessary recomposition
-                    val isScrollEnabled by remember(swipeThumbnail) {
-                        derivedStateOf { swipeThumbnail && isPlayerExpanded() }
-                    }
-                    
+
                     if (coverArtworkMode) {
                         // R61: dedicated Cover transition. Never draw the
                         // playlist carousel's unrelated previous/next covers.
@@ -533,7 +493,7 @@ fun Thumbnail(
                                             state = thumbnailLazyGridState,
                                             rows = GridCells.Fixed(1),
                                             flingBehavior = rememberSnapFlingBehavior(thumbnailSnapLayoutInfoProvider),
-                                            userScrollEnabled = isScrollEnabled,
+                                            userScrollEnabled = false,
                                             modifier = (if (isLandscape) {
                                                 Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
                                             } else {
