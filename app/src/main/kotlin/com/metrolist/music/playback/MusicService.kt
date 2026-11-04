@@ -451,6 +451,8 @@ class MusicService :
     // status fetches must never overwrite a newer user-selected track.
     @Volatile private var queueRequestSerial = 0L
     private var pendingQueuePreparation: Job? = null
+    // R59: shuffle expansion must not rebind a newer user selection.
+    private var shuffleExpansionJob: Job? = null
 
     private var currentQueue: Queue = EmptyQueue
     var queueTitle: String? = null
@@ -1494,14 +1496,21 @@ class MusicService :
                 }.onSuccess { queue ->
                     runCatching {
                         val restoredQueue = queue.toQueue()
+                        val restorationSerial = queueRequestSerial
                         scope.launch {
                             playerInitialized.first { it }
-                            if (isActive) {
+                            // R59: a queued restore is NEVER allowed to steal a
+                            // real tap, including one made while service starts.
+                            if (isActive && queueRequestSerial == restorationSerial &&
+                                player.mediaItemCount == 0 && !player.playWhenReady
+                            ) {
                                 playQueue(
                                     queue = restoredQueue,
                                     playWhenReady = false,
                                     restoringQueue = true,
                                 )
+                            } else {
+                                lab31AudioEvent("R59_STALE_QUEUE_RESTORE_IGNORED")
                             }
                         }
                     }.onFailure { error ->
@@ -1544,17 +1553,12 @@ class MusicService :
                         }
                     }
                 }.onSuccess { playerState ->
-                    scope.launch {
-                        delay(1000) // Wait for queue to be loaded
-                        // Don't restore repeat/shuffle from playerState as they are already set from DataStore (source of truth)
-                        // player.repeatMode = playerState.repeatMode
-                        // player.shuffleModeEnabled = playerState.shuffleModeEnabled
-                        playerVolume.value = playerState.volume
-
-                        if (playerState.currentMediaItemIndex < player.mediaItemCount) {
-                            player.seekTo(playerState.currentMediaItemIndex, playerState.currentPosition)
-                        }
-                    }
+                    // R59: PersistQueue already owns the saved position and
+                    // index. A second seek delayed by exactly one second was
+                    // rewinding fresh playback. Restore volume immediately;
+                    // never replay stale position onto a user-selected song.
+                    playerVolume.value = playerState.volume.coerceIn(0f, 1f)
+                    lab31AudioEvent("R59_RESTORE_NO_DELAYED_SEEK")
                 }.onFailure { error ->
                     Timber.tag(TAG).w(error, "Failed to read player state, clearing data")
                     clearPersistedQueueFiles()
@@ -2115,6 +2119,8 @@ class MusicService :
         val requestSerial = ++queueRequestSerial
         pendingQueuePreparation?.cancel()
         pendingQueuePreparation = null
+        shuffleExpansionJob?.cancel()
+        shuffleExpansionJob = null
         if (!playerInitialized.value) {
             Timber.tag(TAG).w("playQueue called before player initialization, queuing request")
             scope.launch {
@@ -2137,7 +2143,10 @@ class MusicService :
             if (PlaybackSprintPolicy.shouldPrioritizeQueueStart(playWhenReady, restoringQueue)) {
                 beginPlaybackPriorityBurst("queue-preload-start")
             }
-            player.setMediaItem(queue.preloadItem!!.toMediaItem())
+            // R59: select the pinned recording BEFORE prepare; replacing the
+            // first media item in onMediaItemTransition can restart its audio.
+            player.setMediaItem(MusicLabManualVersionStore.apply(
+                this, queue.preloadItem!!.toMediaItem()))
             player.prepare()
             player.playWhenReady = playWhenReady
         }
@@ -2181,11 +2190,14 @@ class MusicService :
                 if (PlaybackSprintPolicy.shouldPrioritizeQueueStart(playWhenReady, restoringQueue)) {
                     beginPlaybackPriorityBurst("queue-initial-start")
                 }
-                player.setMediaItems(
-                    initialStatus.items,
-                    if (initialStatus.mediaItemIndex > 0) initialStatus.mediaItemIndex else 0,
-                    initialStatus.position,
-                )
+                val start = if (initialStatus.mediaItemIndex > 0)
+                    initialStatus.mediaItemIndex else 0
+                // Only the selected item needs the manually pinned video now.
+                // Leave all other entries lazy so a large playlist stays fast.
+                val preparedItems = initialStatus.items.toMutableList()
+                preparedItems[start] = MusicLabManualVersionStore.apply(
+                    this@MusicService, preparedItems[start])
+                player.setMediaItems(preparedItems, start, initialStatus.position)
                 player.prepare()
                 player.playWhenReady = playWhenReady
             }
@@ -2538,6 +2550,8 @@ class MusicService :
         ++queueRequestSerial
         pendingQueuePreparation?.cancel()
         pendingQueuePreparation = null
+        shuffleExpansionJob?.cancel()
+        shuffleExpansionJob = null
         currentQueue = ListQueue(title = sectionTitle, items = listOf(item))
         queueTitle = sectionTitle
         originalQueueSize = 1
@@ -2563,6 +2577,8 @@ class MusicService :
         ++queueRequestSerial
         pendingQueuePreparation?.cancel()
         pendingQueuePreparation = null
+        shuffleExpansionJob?.cancel()
+        shuffleExpansionJob = null
         lab31AudioEvent("PLAY_NOW", "player_state=" + player.playbackState)
         beginPlaybackPriorityBurst("play-now")
 
