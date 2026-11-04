@@ -4,7 +4,7 @@ package com.metrolist.music.ui.component
 internal object CoverCardMetadata {
     private val yearPrefix = Regex("""^(\d{4})(?:-\d{2}(?:-\d{2})?)?$""")
     private val studioTag = Regex("""(?i)\b(studio version|studio recording|studio session|in studio|registrazione in studio)\b""")
-    private val publicationSources = setOf("cover.info", "discogs", "musicbrainz", "apple/itunes", "spotify")
+    private val publicationSources = setOf("cover.info", "discogs", "musicbrainz", "apple/itunes", "spotify", "youtube music")
     private val sourceOrder = listOf("COVER.INFO", "Discogs", "MusicBrainz", "Apple/iTunes", "Spotify", "YouTube Music", "YouTube")
 
     fun publicationYear(seed: DiscogsVersionSeed): String? {
