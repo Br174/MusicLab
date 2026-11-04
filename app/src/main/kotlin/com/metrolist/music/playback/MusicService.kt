@@ -275,6 +275,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.ObjectInputStream
@@ -309,7 +311,7 @@ private const val PLAYBACK_PRIORITY_BURST_MIN_MS = 2_000L
 // LAB15: protect startup against simultaneous Cover metadata work until
 // the native player has accumulated a REAL audio reserve. The startup
 // decoder threshold (900ms) and maximum Media3 buffer (50s) stay unchanged.
-private const val PLAYBACK_PRIORITY_BURST_MAX_MS = 15_000L
+private const val PLAYBACK_PRIORITY_BURST_MAX_MS = 35_000L
 private const val PLAYBACK_PRIORITY_RELEASE_BUFFER_MS = 18_000L
 private const val COVER_AUDIO_SAFETY_BUFFER_MS = 18_000L
 
@@ -677,6 +679,10 @@ class MusicService :
 
     // URL cache for stream URLs - class-level so it can be invalidated on errors
     private val songUrlCache = StreamUrlCache()
+    // R60: bounded per-song single-flight lanes. Multiple Media3 data-source
+    // requests for the same recording must NOT invoke the slow extractor twice.
+    // Fixed stripes avoid a growing per-song lock map on long listening sessions.
+    private val streamResolutionGates = Array(48) { Mutex() }
 
     // Tracks mediaIds for which a recoverSong() coroutine is currently in flight.
     //
@@ -5705,33 +5711,72 @@ class MusicService :
             }
 
             val cacheGeneration = songUrlCache.generation(mediaId)
+            val resolveQuality = effectiveAudioQuality()
             Timber.tag(TAG).i(
-                "FETCHING STREAM: $mediaId | quality=${effectiveAudioQuality()} userQuality=$audioQuality | priorityBurst=$playbackPriorityBurstActive"
+                "FETCHING STREAM: $mediaId | quality=$resolveQuality userQuality=$audioQuality | priorityBurst=$playbackPriorityBurstActive"
             )
-            // LAB16: measure the real stream-resolution bottleneck before
-            // changing a single buffering or source-priority constant.
+            // R60: use the same stream extraction for duplicate requests.
+            // Publish signed links to the expiry-aware cache INSIDE the lock,
+            // before Room format persistence, so a second reader never waits
+            // for another expensive signature/token extraction.
             val resolveStartedAt = android.os.SystemClock.elapsedRealtime()
-            val playbackData =
+            val gate = streamResolutionGates[
+                (mediaId.hashCode() and Int.MAX_VALUE) % streamResolutionGates.size
+            ]
+            val singleFlight: Pair<CachedStreamUrl?, Result<InnerTubeXPlayer.PlaybackData>?> =
                 runBlocking(Dispatchers.IO) {
-                    val song = database.songEntity(mediaId)
-                    InnerTubeXPlayer.playerResponseForPlayback(
-                        resolveYouTubePlaybackId(mediaId),
-                        audioQuality = effectiveAudioQuality(),
-                        connectivityManager = connectivityManager,
-                        contentHints = ContentHints(
-                            isExplicit = song?.explicit,
-                            isUploaded = song?.isUploaded,
-                        ),
-                    ).also { outcome ->
-                        lab31AudioEvent("STREAM_RESOLVE", "elapsed_ms=" +
-                            (android.os.SystemClock.elapsedRealtime() - resolveStartedAt) +
-                            " success=" + outcome.isSuccess)
-                        Timber.tag("MusicLabLAB16Audio").d(
-                            "stream_source=REMOTE resolve_ms=%d success=%b cover_active=%b",
-                            android.os.SystemClock.elapsedRealtime() - resolveStartedAt,
-                            outcome.isSuccess, coverSectionActive,
-                        )
+                    gate.withLock {
+                        val previouslyResolved =
+                            if (bypassCacheForQualityChange.contains(mediaId)) null
+                            else songUrlCache[mediaId]
+                        if (previouslyResolved != null) {
+                            previouslyResolved to null
+                        } else {
+                            val song = database.songEntity(mediaId)
+                            val outcome = InnerTubeXPlayer.playerResponseForPlayback(
+                                resolveYouTubePlaybackId(mediaId),
+                                audioQuality = resolveQuality,
+                                connectivityManager = connectivityManager,
+                                contentHints = ContentHints(
+                                    isExplicit = song?.explicit,
+                                    isUploaded = song?.isUploaded,
+                                ),
+                            )
+                            outcome.getOrNull()?.let { fresh ->
+                                songUrlCache.put(
+                                    mediaId = mediaId,
+                                    url = fresh.streamUrl,
+                                    requestHeaders = fresh.streamHeaders,
+                                    clientName = fresh.streamClient,
+                                    expiresInSeconds = fresh.streamExpiresInSeconds,
+                                    requireBoundedRange = fresh.requireBoundedRange,
+                                    rangeChunkSizeBytes = fresh.rangeChunkSizeBytes,
+                                    useRangeChunks = fresh.useRangeChunks,
+                                    expectedGeneration = cacheGeneration,
+                                )
+                            }
+                            null to outcome
+                        }
                     }
+                }
+            singleFlight.first?.let { reused ->
+                lab31AudioEvent("R60_STREAM_JOIN",
+                    "elapsed_ms=" +
+                        (android.os.SystemClock.elapsedRealtime() - resolveStartedAt))
+                recoverSongDeduped(mediaId)
+                currentStreamClient.value = reused.clientName
+                return@Factory dataSpec.withResolvedStream(reused)
+            }
+            val playbackData =
+                checkNotNull(singleFlight.second).also { outcome ->
+                    lab31AudioEvent("STREAM_RESOLVE", "elapsed_ms=" +
+                        (android.os.SystemClock.elapsedRealtime() - resolveStartedAt) +
+                        " success=" + outcome.isSuccess)
+                    Timber.tag("MusicLabR60Audio").d(
+                        "singleflight_resolve_ms=%d success=%b cover_active=%b",
+                        android.os.SystemClock.elapsedRealtime() - resolveStartedAt,
+                        outcome.isSuccess, coverSectionActive,
+                    )
                 }.getOrElse { throwable ->
                     when (throwable) {
                         is PlaybackException -> {
