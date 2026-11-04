@@ -61,9 +61,10 @@ test('R62: Cover list is verified, auto-playable and appendable without blocking
   assert.match(cover,/previousRoundRows \+ publishedOriginalSnapshots \+ publishedCoverSnapshots/);
   assert.match(cover,/filterNot\(::isHiddenForCurrentCover\)/);
   assert.match(cover,/filter.*hasPublishableVideo/);
-  assert.match(player,/MusicLabSectionPlayback.select\(/);
-  assert.match(player,/findPlayable = \{ entry ->/);
-  assert.match(player,/entry.ready \?: version\?\.let/);
+  assert.match(player,/startOrderedResultSequence\(selectedSeed, selectedItem, selectedId, queueTitle\)/);
+  assert.match(cover,/MusicLabSectionPlayback.select\(/);
+  assert.match(cover,/findPlayable = \{ entry ->/);
+  assert.match(cover,/entry.ready \?: version\?\.let/);
   assert.match(cover,/MusicLabSectionPlayback.appendResults\(/);
   assert.match(cover,/session.selectedFingerprint = key/);
   assert.match(cover,/CoverSwipeBridge.activate\(sessionKey, active.mediaId\)/);
