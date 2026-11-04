@@ -1455,6 +1455,10 @@ internal fun DiscogsDirectVersionBrowser(
                             resolvedVideoTitle = refreshed.resolvedVideoTitle,
                             resolvedVideoSource = refreshed.resolvedVideoSource,
                             videoResolutionChecked = refreshed.videoResolutionChecked,
+                            // R65: source-confirmed dates must reach ALREADY shown cards.
+                            // Their video ID, artwork slot and original rank stay fixed.
+                            year = poster.year ?: refreshed.year,
+                            releaseDate = poster.releaseDate ?: refreshed.releaseDate,
                         )
                     } else poster
                 fun bindingChanged(poster: DiscogsVersionSeed): Boolean =
@@ -1462,7 +1466,9 @@ internal fun DiscogsDirectVersionBrowser(
                         (poster.resolvedVideoId != refreshed.resolvedVideoId ||
                             poster.resolvedVideoTitle != refreshed.resolvedVideoTitle ||
                             poster.resolvedVideoSource != refreshed.resolvedVideoSource ||
-                            poster.videoResolutionChecked != refreshed.videoResolutionChecked)
+                            poster.videoResolutionChecked != refreshed.videoResolutionChecked ||
+                            (poster.year == null && refreshed.year != null) ||
+                            (poster.releaseDate.isNullOrBlank() && !refreshed.releaseDate.isNullOrBlank()))
                 if (publishedCoverSnapshots.any(::bindingChanged)) {
                     publishedCoverSnapshots = publishedCoverSnapshots.map(::videoBindingOnly)
                     session.publishedCoverSnapshots = publishedCoverSnapshots
@@ -6966,6 +6972,50 @@ internal fun DiscogsDirectVersionBrowser(
             readyPool.take(visibleLimit)
         }
     val nextBlockReady = nextBlockPool.count(::isPlayReady)
+
+    // R65: ONLY when the user selects chronological order, gently fill dates
+    // of visible records from already known source metadata or a video album.
+    // Do not request a video upload timestamp or invent a year for amateurs.
+    // No playback/scroll/ranking/discovery job is restarted by this lookup.
+    val coverYearAttempted = remember(sessionKey) { mutableSetOf<String>() }
+    LaunchedEffect(sessionKey, sortMode, visibleResults) {
+        if (mode != DiscogsDirectMode.COVER || !isTurbo ||
+            sortMode == DirectVersionSort.RELEVANCE) return@LaunchedEffect
+        delay(350L)
+        for (row in visibleResults) {
+            if (row.year != null || !row.releaseDate.isNullOrBlank()) continue
+            if (!coverYearAttempted.add(row.fingerprint)) continue
+            val sourceRow = results.firstOrNull { it.fingerprint == row.fingerprint }
+            val known = sourceRow?.year?.let { it to "Discogs" }
+                ?: CoverVisibleYearResolver.known(context, row.fingerprint)
+            val hit = known ?: CoverVisibleYearResolver.discover(
+                seed = row,
+                song = session.preparedVideoSongs[row.resolvedVideoId.orEmpty()],
+                discogsToken = discogsToken,
+            )
+            if (hit != null) {
+                val (resolvedYear, verifiedSource) = hit
+                CoverVisibleYearResolver.save(
+                    context, row.fingerprint, resolvedYear, verifiedSource,
+                )
+                val update: (DiscogsVersionSeed) -> DiscogsVersionSeed = { candidate ->
+                    if (candidate.fingerprint == row.fingerprint)
+                        CoverVisibleYearResolver.applyDate(candidate, resolvedYear, verifiedSource)
+                    else candidate
+                }
+                results = results.map(update)
+                previousRoundRows = previousRoundRows.map(update)
+                publishedOriginalSnapshots = publishedOriginalSnapshots.map(update)
+                publishedCoverSnapshots = publishedCoverSnapshots.map(update)
+                session.results = results
+                session.previousRoundRows = previousRoundRows
+                session.publishedOriginalSnapshots = publishedOriginalSnapshots
+                session.publishedCoverSnapshots = publishedCoverSnapshots
+            }
+            // The data lane yields to list scrolling and player work.
+            delay(120L)
+        }
+    }
 
     // LAB54 resume recovery from previously empty snapshots. A process
     // restoration with many candidate summaries but zero committed cards
