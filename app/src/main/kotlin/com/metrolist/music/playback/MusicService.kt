@@ -2543,6 +2543,16 @@ class MusicService :
     }
 
     /**
+     * R62: ordered result lists continue by default just like native queues.
+     * Respect explicit pause and end-of-song sleep timers; never start radio
+     * or append unverified external recommendations.
+     */
+    fun canAdvanceOrderedResults(): Boolean =
+        player.playWhenReady &&
+            !(sleepTimer?.isActive == true && sleepTimer?.pauseWhenSongEnd == true) &&
+            castConnectionHandler?.isCasting?.value != true
+
+    /**
      * R42: an editorial-list selection is a single synchronous player transaction.
      * Never let a delayed ListQueue getInitialStatus() rebind the current stream
      * 1-2 seconds after first sound or after a user's manual seek.
