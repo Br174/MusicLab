@@ -671,6 +671,11 @@ class PlayerConnection(
     override fun onPlaybackStateChanged(state: Int) {
         playbackState.value = state
         error.value = player.playerError
+        // R62: editorial result lists may have only one native Media3 item
+        // prepared at a time. ENDED must continue the verified ordered list.
+        if (state == Player.STATE_ENDED) {
+            MusicLabSectionPlayback.onPlaybackEnded(this)
+        }
     }
 
     override fun onPlayWhenReadyChanged(
@@ -691,7 +696,7 @@ class PlayerConnection(
         reason: Int,
     ) {
         mediaMetadata.value = mediaItem?.metadata
-        MusicLabSectionPlayback.onMediaTransition(mediaItem?.mediaId)
+        MusicLabSectionPlayback.onMediaTransition(this, mediaItem?.mediaId)
         currentMediaItemIndex.value = player.currentMediaItemIndex
         currentWindowIndex.value = player.getCurrentQueueIndex()
         updateCanSkipPreviousAndNext()
@@ -726,6 +731,12 @@ class PlayerConnection(
     }
 
     private fun updateCanSkipPreviousAndNext() {
+        val section = MusicLabSectionPlayback.active.value
+        if (section != null && section.mediaId == mediaMetadata.value?.id) {
+            canSkipPrevious.value = section.canPrevious
+            canSkipNext.value = section.canNext
+            return
+        }
         if (!player.currentTimeline.isEmpty) {
             val window =
                 player.currentTimeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
