@@ -6927,29 +6927,36 @@ internal fun DiscogsDirectVersionBrowser(
                 })
     val visibleOriginalVersions = remember(
         mode, isTurbo, unifiedCoverDisplay, previousRoundRows, publishedOriginalSnapshots,
-        category, turboStreamProofVersion, if (isTurbo) null else results,
+        category, sortMode, turboStreamProofVersion, if (isTurbo) null else results,
     ) {
-        if (mode == DiscogsDirectMode.COVER) unifiedCoverDisplay
-            .filter(::belongsToFirstCoverSection)
-            .filter {
-                !isRejected(it) &&
-                    directMatchesCategory(it, category, isTurbo)
-            }
-            .map(::videoCalibratedDisplaySeed)
-        else emptyList()
+        if (mode == DiscogsDirectMode.COVER) CoverVisibleSortPolicy.sort(
+            unifiedCoverDisplay
+                .filter(::belongsToFirstCoverSection)
+                .filter {
+                    !isRejected(it) &&
+                        directMatchesCategory(it, category, isTurbo)
+                }
+                .map(::videoCalibratedDisplaySeed),
+            sortMode.name,
+        ) else emptyList()
     }
     val visibleTrueCovers = remember(
         mode, isTurbo, loading, unifiedCoverDisplay, visibleLimit, previousRoundRows,
-        publishedOriginalSnapshots, turboStreamProofVersion, category, if (isTurbo) null else results,
+        publishedOriginalSnapshots, turboStreamProofVersion, category, sortMode,
+        if (isTurbo) null else results,
     ) {
         if (mode == DiscogsDirectMode.COVER &&
             (!isTurbo || !loading || publishedCoverSnapshots.isNotEmpty() || previousRoundRows.isNotEmpty())) {
-            unifiedCoverDisplay
-                .filterNot(::belongsToFirstCoverSection)
-                .filterNot { if (isTurbo) isRejected(it) else isHiddenForCurrentCover(it) }
-                .filter { directMatchesCategory(it, category, isTurbo) }
-                .take(visibleLimit)
-                .map(::videoCalibratedDisplaySeed)
+            // R65: reorder ONLY the published visible rows. The historical
+            // committed sequence and incremental batches remain untouched.
+            CoverVisibleSortPolicy.sort(
+                unifiedCoverDisplay
+                    .filterNot(::belongsToFirstCoverSection)
+                    .filterNot { if (isTurbo) isRejected(it) else isHiddenForCurrentCover(it) }
+                    .filter { directMatchesCategory(it, category, isTurbo) }
+                    .map(::videoCalibratedDisplaySeed),
+                sortMode.name,
+            ).take(visibleLimit)
         } else emptyList()
     }
     val visibleResults =
