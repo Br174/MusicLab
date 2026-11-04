@@ -20,6 +20,7 @@ expected = {
     "tools/universal-apk-builder/prepare-turbo-r64-33144-env.py",
     "tools/universal-apk-builder/verify-r64-artwork-scope.py",
     "cloudflare/music-intelligence/test/musiclab-r64-light-artwork.test.mjs",
+    "cloudflare/music-intelligence/test/musiclab-r58-global-audio-first.test.mjs",
     ".github/workflows/musiclab-r64-light-artwork-33144-apk.yml",
 }
 def git(*args):
