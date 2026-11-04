@@ -79,7 +79,7 @@ internal object CompilationTrackResolver {
             }
         }
         val picked = withTimeoutOrNull(4_800L) { winner.await() }
-        jobs.forEach(Job::cancel)
+        jobs.forEach { it.cancel() }
         picked
     }
 
