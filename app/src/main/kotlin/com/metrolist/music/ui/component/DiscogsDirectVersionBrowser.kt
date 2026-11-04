@@ -504,6 +504,11 @@ internal fun DiscogsDirectVersionBrowser(
     // LAB12: protect UI/audio and source quotas from an unbounded 50-way
     // metadata burst. Four verifiers may run; providers retain own limits.
     val turboVideoCheckGate = remember(sessionKey) { Semaphore(4) }
+    // R60: a monotonic time stamp belongs to the actual Turbo Cover play
+    // button, NOT to metadata lookup or a historical unused Cover screen.
+    val coverTapAudioClock = remember(sessionKey) {
+        java.util.concurrent.atomic.AtomicLong(0L)
+    }
 
     var title by remember(sessionKey) { mutableStateOf(session.title) }
     var resolvedOriginalArtist by remember(sessionKey) { mutableStateOf(session.documentedOriginal ?: lockedArtist) }
@@ -3451,6 +3456,13 @@ internal fun DiscogsDirectVersionBrowser(
 
         if (isTurbo && mode == DiscogsDirectMode.COVER &&
             connection.service.isPlayerReady.value) {
+            val tapAt = coverTapAudioClock.get()
+            if (tapAt > 0L) {
+                android.util.Log.i("MusicLabR60Audio",
+                    "COVER_TAP_TO_PLAYER_MS=" +
+                        (SystemClock.elapsedRealtime() - tapAt) +
+                        " media=" + selectedId)
+            }
             // Turbo LAB05: a tapped verified recording goes directly through
             // the existing native playNow path.  playQueue asynchronously
             // filters and resolves a new queue; a filtered/late result could
@@ -6481,7 +6493,8 @@ internal fun DiscogsDirectVersionBrowser(
         if (isTurbo && mode == DiscogsDirectMode.COVER) {
             playerConnection?.service?.lab31BeginCoverTap()
         }
-        playerConnection?.beginPlaybackPriorityBurst("musiclab-version")
+        coverTapAudioClock.set(SystemClock.elapsedRealtime())
+        playerConnection?.beginPlaybackPriorityBurst("musiclab-version-tap")
         playbackLaunchJob?.cancel()
         pauseCoverBackgroundForPlayback()
         backgroundResumeJob?.cancel()
