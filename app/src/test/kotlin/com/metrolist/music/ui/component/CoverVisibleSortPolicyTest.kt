@@ -78,6 +78,16 @@ class CoverVisibleSortPolicyTest {
         assertNull(amateur.releaseDate)
     }
 
+    @Test fun youtubeOnlyUploadYearCannotClaimToBeAnOlderMusicalRelease() {
+        val amateur = row("amateur", year = 1960).copy(sourceNames = listOf("YouTube"))
+        val documented = row("documented", year = 1970)
+        assertEquals(
+            listOf("documented", "amateur"),
+            CoverVisibleSortPolicy.sort(listOf(amateur, documented), "OLDEST")
+                .map { it.fingerprint },
+        )
+    }
+
     @Test fun existingPublicationYearIsNeverOverwritten() {
         val studio = row("studio", year = 1970, date = "1970-05-17")
         assertEquals(studio, CoverVisibleYearResolver.applyDate(studio, 2024, "YouTube Music"))
