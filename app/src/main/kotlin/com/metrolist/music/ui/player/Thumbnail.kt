@@ -281,9 +281,16 @@ fun Thumbnail(
     val mediaItems = mediaItemsData.items
     val currentMediaIndex = mediaItemsData.currentIndex
 
+    // R62: Cover, Hit Parade, Compilation, Classifiche and Generi all use
+    // the SAME two-frame editorial artwork path. Normal native playlists
+    // keep their existing carousel and swipe gestures.
+    val activeEditorialContext by MusicLabSectionPlayback.active.collectAsState()
+
     // Cover results have their own verified order, unrelated to Media3's
     // ordinary queue. Only the two real Cover recordings may be animated.
-    val coverArtworkMode = CoverSwipeBridge.isCoverArtwork(nativeMediaMetadata?.id.orEmpty())
+    val coverArtworkMode = CoverSwipeBridge.isCoverArtwork(nativeMediaMetadata?.id.orEmpty()) ||
+        (activeEditorialContext?.mediaId == nativeMediaMetadata?.id &&
+            !nativeMediaMetadata?.id.isNullOrBlank())
     val coverFrame = mediaItems.getOrNull(currentMediaIndex)
         ?.takeIf { it.mediaId == nativeMediaMetadata?.id }
         ?.let { CoverArtworkFrame(it, mediaMetadata?.thumbnailUrl) }
@@ -310,7 +317,9 @@ fun Thumbnail(
     // A finger release is one authoritative command. Graphical scroll alone
     // must never be interpreted as a committed song change.
     val userSwipePointerModifier =
-        Modifier.pointerInput(swipeThumbnail, nativeMediaMetadata?.id, currentMediaIndex) {
+        // R62: keep the pointer recognizer alive across player state changes.
+        // Re-keying it on every new song cancelled quick consecutive swipes.
+        Modifier.pointerInput(swipeThumbnail) {
             if (!swipeThumbnail) return@pointerInput
             val touchSlop = viewConfiguration.touchSlop
             awaitPointerEventScope {
@@ -346,10 +355,11 @@ fun Thumbnail(
                                 dx, dy, touchSlop * 4
                             )
                             if (direction != 0) {
+                                val committedId = playerConnection.mediaMetadata.value?.id
                                 val handledByCover =
-                                    !MusicLabSectionPlayback.isCurrent(nativeMediaMetadata?.id) &&
+                                    !MusicLabSectionPlayback.isCurrent(committedId) &&
                                     CoverSwipeBridge.trySwipe(
-                                        nativeMediaMetadata?.id.orEmpty(), direction
+                                        committedId.orEmpty(), direction
                                     )
                                 if (!handledByCover) {
                                     // Use the same navigation path as next/previous buttons:
@@ -363,6 +373,8 @@ fun Thumbnail(
                                 }
                             }
                         }
+                        // R62: section cards are not native playlist neighbors.
+                        // Native playlist gestures retain their own snapping.
                         // The LazyGrid may visually settle on a neighbor even
                         // when no audio command is accepted. Recenter against
                         // the actual Media3 transition, never optimistic graphics.
