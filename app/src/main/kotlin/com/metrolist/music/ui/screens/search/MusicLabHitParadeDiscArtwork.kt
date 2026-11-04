@@ -288,7 +288,9 @@ internal object MusicLabHitParadeDiscArtwork {
         // this bounded lookup; changing section cancels Compose's producer.
         return gate.withPermit {
             saved(context, original.title, original.artist, album)?.let { return@withPermit it }
-            val verified = safeImage(sourceArtwork)?.let { Disc(it, null) }
+            val verified = safeImage(sourceArtwork)
+                ?.takeUnless { MusicLabLightArtwork.isVideoPoster(it) }
+                ?.let { Disc(it, null) }
                 ?: if (album) coroutineScope {
                     val spotify = async(Dispatchers.IO) {
                         spotifyAlbum(original.title, original.artist)
@@ -298,9 +300,12 @@ internal object MusicLabHitParadeDiscArtwork {
                     }
                     spotify.await() ?: apple.await()
                 } else songDisc(original.title, original.artist)
-            if (verified != null) {
-                rememberDisc(context, original.title, original.artist, album, verified)
-                verified.url
+            val enriched = verified ?: MusicLabLightArtwork.recover(
+                context, original.title, original.artist, album = album
+            )?.let { Disc(it, null) }
+            if (enriched != null) {
+                rememberDisc(context, original.title, original.artist, album, enriched)
+                enriched.url
             } else {
                 retryAfter[k] = System.currentTimeMillis() + 20_000L
                 null
@@ -319,6 +324,7 @@ internal object MusicLabHitParadeDiscArtwork {
     fun artwork(context: Context, title: String, artist: String, album: Boolean): String? {
         val chosen = if (album) RecordIdentity(title, artist) else identity(context, title, artist)
         return saved(context, chosen.title, chosen.artist, album)
+            ?: MusicLabLightArtwork.saved(context, chosen.title, chosen.artist, album)
             ?: if (album) null else fallback(context, title, artist)
     }
 
@@ -369,6 +375,7 @@ internal object MusicLabHitParadeDiscArtwork {
     fun playerMetadata(original: MediaMetadata?): MediaMetadata? {
         val context = LocalContext.current
         val revision by updates.collectAsStateWithLifecycle()
+        val extraRevision by MusicLabLightArtwork.revisions.collectAsStateWithLifecycle()
         val observedSection by MusicLabSectionPlayback.active.collectAsStateWithLifecycle()
         val section = observedSection
         if (original == null || section == null) return original
@@ -391,9 +398,11 @@ internal fun MusicLabHitParadeDiscCover(
     artist: String,
     album: Boolean,
     sourceArtwork: String? = null,
+    retrySignal: Int = 0,
 ) {
     val context = LocalContext.current
     val revision by MusicLabHitParadeDiscArtwork.updates.collectAsStateWithLifecycle()
+    val extraRevision by MusicLabLightArtwork.revisions.collectAsStateWithLifecycle()
     val identity = remember(title, artist, album, revision) {
         if (album) MusicLabHitParadeDiscArtwork.RecordIdentity(title, artist)
         else MusicLabHitParadeDiscArtwork.identity(context, title, artist)
@@ -404,17 +413,34 @@ internal fun MusicLabHitParadeDiscCover(
     val disc by produceState(
         initialValue = MusicLabHitParadeDiscArtwork.saved(
             context, identity.title, identity.artist, album),
-        key1 = identity, key2 = album, key3 = Pair(sourceArtwork, rejectedUrl),
+        key1 = identity, key2 = album, key3 = listOf(sourceArtwork, rejectedUrl, retrySignal, extraRevision),
     ) {
         value = MusicLabHitParadeDiscArtwork.saved(
             context, identity.title, identity.artist, album)
+        if (retrySignal > 0) {
+            MusicLabLightArtwork.recover(
+                context, identity.title, identity.artist, album = album, manual = true
+            )?.let { value = it }
+        }
         if (value == null) {
             value = MusicLabHitParadeDiscArtwork.resolve(
                 context, title, artist, album, sourceArtwork)
         }
     }
-    val image = disc?.takeUnless { it == rejectedUrl } ?:
-        if (!album) MusicLabHitParadeDiscArtwork.fallback(context, title, artist) else null
+    val videoFallback by produceState<String?>(
+        initialValue = sourceArtwork?.takeIf { MusicLabLightArtwork.isVideoPoster(it) }
+            ?: if (!album) MusicLabHitParadeDiscArtwork.fallback(context, title, artist) else null,
+        key1 = title, key2 = artist, key3 = album,
+    ) {
+        if (value == null && !album) {
+            value = MusicLabFastPath.find(title, artist) { candidate ->
+                MusicLabChartArtworkResolver.sameRecordingLabel(title, artist, candidate)
+            }?.thumbnail
+        }
+    }
+    val image = disc?.takeUnless { it == rejectedUrl }
+        ?: MusicLabLightArtwork.saved(context, identity.title, identity.artist, album)
+        ?: videoFallback?.takeUnless { it == rejectedUrl }
     Box(Modifier.size(56.dp).clip(RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center) {
@@ -427,6 +453,8 @@ internal fun MusicLabHitParadeDiscCover(
                 onError = {
                     rejectedUrl = image
                     MusicLabHitParadeDiscArtwork.reject(
+                        context, identity.title, identity.artist, album, image)
+                    MusicLabLightArtwork.reject(
                         context, identity.title, identity.artist, album, image)
                 },
             )

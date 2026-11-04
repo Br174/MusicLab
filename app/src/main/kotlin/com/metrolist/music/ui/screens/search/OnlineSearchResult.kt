@@ -347,6 +347,15 @@ fun OnlineSearchResult(
     }
 
     val ytItemContent: @Composable LazyItemScope.(YTItem) -> Unit = { item: YTItem ->
+        var showArtworkSearch by remember(item.id) { mutableStateOf(false) }
+        var artworkRetry by remember(item.id) { androidx.compose.runtime.mutableIntStateOf(0) }
+        if (isMusicLabGenreQuery && item is SongItem) {
+            MusicLabArtworkSearchDialog(
+                visible = showArtworkSearch,
+                onDismiss = { showArtworkSearch = false },
+                onSearch = { artworkRetry += 1 },
+            )
+        }
         val longClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             menuState.show {
@@ -400,6 +409,7 @@ fun OnlineSearchResult(
         YouTubeListItem(
             item = item,
             resolveGenreArtwork = isMusicLabGenreQuery,
+            genreArtworkRetry = artworkRetry,
             isActive =
                 when (item) {
                     is SongItem -> mediaMetadata?.id == item.id
@@ -533,7 +543,10 @@ fun OnlineSearchResult(
                                 }
                             }
                         },
-                        onLongClick = longClick,
+                        onLongClick = {
+                            if (isMusicLabGenreQuery && item is SongItem) showArtworkSearch = true
+                            else longClick()
+                        },
                     )
                     .background(if (MusicLabListPositionStore.get(listKey).selectedKey ==
                         item.id) MaterialTheme.colorScheme.primaryContainer
