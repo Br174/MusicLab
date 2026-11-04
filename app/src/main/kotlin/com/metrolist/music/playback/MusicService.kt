@@ -3633,54 +3633,72 @@ class MusicService :
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
         updateNotification()
+        // R59: turn any obsolete full-queue request into a no-op before it
+        // can rebind a song 1-2 seconds after sound begins.
+        shuffleExpansionJob?.cancel()
+        shuffleExpansionJob = null
         if (shuffleModeEnabled) {
             if (player.mediaItemCount == 0) return
 
-            val queue = currentQueue ?: return
-            val currentPositionMs = player.currentPosition
-            // Prefer full playlist so shuffle includes all tracks (e.g. 227), not just from current onwards.
-            scope.launch(SilentHandler) {
+            val queue = currentQueue
+            val selectionSerial = queueRequestSerial
+            val selectedMediaId = player.currentMediaItem?.mediaId
+            shuffleExpansionJob = scope.launch(SilentHandler) {
+                val stillCurrent = {
+                    queueRequestSerial == selectionSerial &&
+                        currentQueue === queue &&
+                        player.currentMediaItem?.mediaId == selectedMediaId &&
+                        player.shuffleModeEnabled
+                }
                 val fullStatus = withContext(Dispatchers.IO) {
                     queue.getFullStatus()
                         ?.filterExplicit(dataStore.get(HideExplicitKey, false))
                         ?.filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                 }
+                if (!stillCurrent()) {
+                    lab31AudioEvent("R59_STALE_SHUFFLE_IGNORED")
+                    return@launch
+                }
                 if (fullStatus != null && fullStatus.items.isNotEmpty()) {
-                    val currentId = player.currentMetadata?.id
-                    val startIndex = if (currentId != null) {
-                        fullStatus.items.indexOfFirst { it.mediaId == currentId }.takeIf { it >= 0 }
-                            ?: fullStatus.mediaItemIndex
-                    } else {
-                        fullStatus.mediaItemIndex
-                    }.coerceIn(0, fullStatus.items.size - 1)
-                    player.setMediaItems(fullStatus.items, startIndex, currentPositionMs.coerceAtLeast(0L))
-                    player.prepare()
-                    if (player.playbackState != Player.STATE_IDLE) {
-                        player.playWhenReady = true
+                    // Expand the native queue without replacing the current
+                    // Media3 item or calling prepare(), which audibly restarts.
+                    // Preserve duplicate recordings using a multiset difference.
+                    val missing = fullStatus.items.toMutableList()
+                    player.mediaItems.forEach { existing ->
+                        val match = missing.indexOfFirst {
+                            it.mediaId == existing.mediaId
+                        }
+                        if (match >= 0) missing.removeAt(match)
                     }
-                    originalQueueSize = fullStatus.items.size
+                    if (missing.isNotEmpty()) player.addMediaItems(missing)
+                    originalQueueSize = player.mediaItemCount
                     val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-                    applyShuffleOrder(startIndex, fullStatus.items.size, shufflePlaylistFirst)
+                    if (!stillCurrent()) return@launch
+                    applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount,
+                        shufflePlaylistFirst)
                     return@launch
                 }
                 if (queue.hasNextPage()) {
                     withContext(Dispatchers.IO) { queue.shuffleRemainingTracks() }
-                    while (queue.hasNextPage() && player.mediaItemCount < SHUFFLE_PRELOAD_MAX_ITEMS) {
+                    while (stillCurrent() && queue.hasNextPage() &&
+                        player.mediaItemCount < SHUFFLE_PRELOAD_MAX_ITEMS
+                    ) {
                         val moreItems = withContext(Dispatchers.IO) {
                             queue.nextPage()
                                 .filterExplicit(dataStore.get(HideExplicitKey, false))
                                 .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                         }
+                        if (!stillCurrent()) return@launch
                         if (moreItems.isEmpty()) break
                         player.addMediaItems(moreItems)
                     }
-                    originalQueueSize = player.mediaItemCount
-                    val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-                    applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
-                } else {
-                    val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-                    applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
                 }
+                if (!stillCurrent()) return@launch
+                originalQueueSize = player.mediaItemCount
+                val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+                if (!stillCurrent()) return@launch
+                applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount,
+                    shufflePlaylistFirst)
             }
         }
 
