@@ -39,6 +39,27 @@ internal object PlaybackSprintPolicy {
     fun shouldPrioritizeQueueStart(playWhenReady: Boolean, restoringQueue: Boolean): Boolean =
         playWhenReady && !restoringQueue
 
+    // R59: restoring a previous session is allowed only while no newer
+    // playback choice exists. The saved queue already contains its position.
+    fun mayRestorePersistedQueue(
+        capturedRequestSerial: Long,
+        activeRequestSerial: Long,
+        hasMedia: Boolean,
+        playRequested: Boolean,
+    ): Boolean = capturedRequestSerial == activeRequestSerial &&
+        !hasMedia && !playRequested
+
+    // R59: remote shuffle expansion can append missing songs, but cannot
+    // apply a delayed response after a different track/queue is selected.
+    fun mayApplyAsyncShuffle(
+        capturedRequestSerial: Long,
+        activeRequestSerial: Long,
+        sameQueue: Boolean,
+        sameSelectedMedia: Boolean,
+        shuffleEnabled: Boolean,
+    ): Boolean = capturedRequestSerial == activeRequestSerial &&
+        sameQueue && sameSelectedMedia && shuffleEnabled
+
     // R35: asynchronous queue results are accepted only for the latest tap.
     fun isLatestQueueRequest(requestSerial: Long, activeSerial: Long): Boolean =
         requestSerial == activeSerial
