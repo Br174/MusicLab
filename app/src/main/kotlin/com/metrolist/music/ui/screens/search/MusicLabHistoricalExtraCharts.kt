@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.metrolist.music.ui.screens.search
 
 import android.app.DatePickerDialog
@@ -5,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -532,6 +536,13 @@ private fun MusicLabHistoricalExtraChartsScreen(
             } }
             chart?.let { current ->
                 items(current.rows, key = { "hpi_extra_" + it.rank }) { row ->
+                    var showArtworkSearch by remember(row.rank, row.title) { mutableStateOf(false) }
+                    var artworkRetry by remember(row.rank, row.title) { mutableIntStateOf(0) }
+                    MusicLabArtworkSearchDialog(
+                        visible = showArtworkSearch,
+                        onDismiss = { showArtworkSearch = false },
+                        onSearch = { artworkRetry += 1 },
+                    )
                     // When a source record repeats the album title as artist,
                     // use the catalogue-verified artist without changing chart ranks.
                     val artworkRevision by MusicLabHitParadeDiscArtwork.updates.collectAsStateWithLifecycle()
@@ -541,7 +552,7 @@ private fun MusicLabHistoricalExtraChartsScreen(
                     Row(modifier = Modifier.fillMaxWidth()
                         .background(if (selectedKeys[positionKey] == row.rank.toString())
                             MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                        .clickable {
+                        .combinedClickable(onLongClick = { showArtworkSearch = true }, onClick = {
                             MusicLabListPositionStore.select(positionKey, row.rank.toString())
                             if (mode.isAlbum) {
                                 navController.navigate(
@@ -587,7 +598,7 @@ private fun MusicLabHistoricalExtraChartsScreen(
                                     }
                                 }
                             }
-                        }.padding(vertical = 6.dp),
+                        }).padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(row.rank.toString(), style = MaterialTheme.typography.titleMedium)
@@ -595,7 +606,8 @@ private fun MusicLabHistoricalExtraChartsScreen(
                             title = row.title,
                             artist = row.artist,
                             album = mode.isAlbum,
-                            sourceArtwork = row.artwork)
+                            sourceArtwork = row.artwork,
+                            retrySignal = artworkRetry)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(row.title, fontWeight = FontWeight.SemiBold)
                             Text(displayArtist, style = MaterialTheme.typography.bodySmall)
