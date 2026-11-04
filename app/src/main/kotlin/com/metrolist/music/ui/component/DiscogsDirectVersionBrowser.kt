@@ -6978,19 +6978,32 @@ internal fun DiscogsDirectVersionBrowser(
     // Do not request a video upload timestamp or invent a year for amateurs.
     // No playback/scroll/ranking/discovery job is restarted by this lookup.
     val coverYearAttempted = remember(sessionKey) { mutableSetOf<String>() }
-    LaunchedEffect(sessionKey, sortMode, visibleResults) {
+    LaunchedEffect(sessionKey, sortMode, visibleResults, turboStreamProofVersion) {
         if (mode != DiscogsDirectMode.COVER || !isTurbo ||
             sortMode == DirectVersionSort.RELEVANCE) return@LaunchedEffect
         delay(350L)
         for (row in visibleResults) {
             if (row.year != null || !row.releaseDate.isNullOrBlank()) continue
-            if (!coverYearAttempted.add(row.fingerprint)) continue
             val sourceRow = results.firstOrNull { it.fingerprint == row.fingerprint }
-            val known = sourceRow?.year?.let { it to "Discogs" }
-                ?: CoverVisibleYearResolver.known(context, row.fingerprint)
-            val hit = known ?: CoverVisibleYearResolver.discover(
+            // Only a named music catalogue can confirm a musical publication;
+            // YouTube-only upload dates must never masquerade as release dates.
+            val provenSource = sourceRow?.sourceNames?.firstOrNull { name ->
+                name.equals("Discogs", true) || name.equals("COVER.INFO", true) ||
+                    name.equals("MusicBrainz", true) || name.equals("Spotify", true) ||
+                    name.equals("Apple/iTunes", true) || name.equals("YouTube Music", true)
+            }
+            val known = if (provenSource != null)
+                sourceRow.year?.takeIf { it in 1850..2100 }?.let { it to provenSource }
+            else null
+            val cache = CoverVisibleYearResolver.known(context, row.fingerprint)
+            val playable = session.preparedVideoSongs[row.resolvedVideoId.orEmpty()]
+            if (known == null && cache == null &&
+                playable?.album?.id.isNullOrBlank() &&
+                (row.releaseId <= 0 || discogsToken.isBlank())) continue
+            if (!coverYearAttempted.add(row.fingerprint)) continue
+            val hit = known ?: cache ?: CoverVisibleYearResolver.discover(
                 seed = row,
-                song = session.preparedVideoSongs[row.resolvedVideoId.orEmpty()],
+                song = playable,
                 discogsToken = discogsToken,
             )
             if (hit != null) {
