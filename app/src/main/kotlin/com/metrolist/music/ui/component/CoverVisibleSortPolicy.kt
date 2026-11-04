@@ -7,12 +7,11 @@ package com.metrolist.music.ui.component
  */
 internal object CoverVisibleSortPolicy {
     private fun dateKey(seed: DiscogsVersionSeed): Int? {
+        // A raw video/upload year is not proof of a recording's release year.
+        val year = CoverCardMetadata.publicationYear(seed)?.toIntOrNull()
+            ?.takeIf { it in 1800..2100 } ?: return null
         val release = seed.releaseDate?.trim().orEmpty()
         val parts = release.split('-', '/', '.', limit = 3)
-        val year = parts.firstOrNull()?.takeIf { it.length == 4 }?.toIntOrNull()
-            ?.takeIf { it in 1800..2100 }
-            ?: seed.year?.takeIf { it in 1800..2100 }
-            ?: return null
         val month = parts.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..12 } ?: 0
         val day = parts.getOrNull(2)?.toIntOrNull()?.takeIf { it in 1..31 } ?: 0
         return year * 10_000 + month * 100 + day
