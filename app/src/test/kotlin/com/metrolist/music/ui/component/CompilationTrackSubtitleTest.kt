@@ -29,9 +29,9 @@ class CompilationTrackSubtitleTest {
         )
     }
 
-    @Test fun unresolvedRowsKeepTheirPreviousPrompt() {
+    @Test fun unresolvedRowsDisplayOnlyArtistButRemainPlayable() {
         assertEquals(
-            "Jovanotti · Tocca per trovare e riprodurre",
+            "Jovanotti",
             compilationTrackSubtitle("Jovanotti", null, false),
         )
     }
