@@ -112,7 +112,15 @@ internal object CoverRoundSearchPlan {
                 },
             )
         }
-        return (first + targeted).filter { round >= finalRound || it.text.trim() != clean }
+        // Accent-folded alternatives are a LAST-ROUND fallback only. Do not
+        // double the initial search traffic or alter titles shown in the UI.
+        val accentFallback = if (round >= finalRound) {
+            CoverTitleTypography.unaccentedQuery(clean)
+                ?.takeIf { it != clean.lowercase() }
+                ?.let { listOf(Query(it, AiCoverCategory.COVER)) }.orEmpty()
+        } else emptyList()
+        return (first + targeted + accentFallback)
+            .filter { round >= finalRound || it.text.trim() != clean }
             .distinctBy { it.text.trim().lowercase() }
     }
 }
