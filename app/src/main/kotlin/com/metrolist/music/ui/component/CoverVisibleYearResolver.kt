@@ -3,6 +3,7 @@ package com.metrolist.music.ui.component
 import android.content.Context
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.discogs.DiscogsClient
+import com.metrolist.music.playback.MusicLabArtworkAudioGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -33,7 +34,8 @@ internal object CoverVisibleYearResolver {
         seed: DiscogsVersionSeed,
         song: SongItem?,
         discogsToken: String,
-    ): Pair<Int, String>? = withContext(Dispatchers.IO) {
+    ): Pair<Int, String>? = MusicLabArtworkAudioGate.optionalLookup {
+        withContext(Dispatchers.IO) {
         // Only an album-ID can establish a musical issue year from YT Music.
         // An amateur YouTube video with no album is NOT a dated release.
         song?.album?.id?.takeIf(String::isNotBlank)?.let {
@@ -54,6 +56,7 @@ internal object CoverVisibleYearResolver {
             }
         }
         null
+        }
     }
 
     internal fun applyDate(
