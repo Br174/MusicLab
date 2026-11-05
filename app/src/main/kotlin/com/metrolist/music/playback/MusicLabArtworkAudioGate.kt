@@ -3,6 +3,10 @@ package com.metrolist.music.playback
 import android.os.SystemClock
 import androidx.media3.common.Player
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
@@ -70,12 +74,24 @@ internal object MusicLabArtworkAudioGate {
         }
         return artworkNetworkSlots.withPermit {
             if (!mayStartOptionalArtwork()) return@withPermit null
-            val job = currentCoroutineContext().job
-            synchronized(activeArtwork) { activeArtwork += job }
-            try {
-                if (!mayStartOptionalArtwork()) null else block()
-            } finally {
-                synchronized(activeArtwork) { activeArtwork.remove(job) }
+            // Cancel only the supplier child. Cancelling the caller's
+            // produceState/LaunchedEffect would permanently kill the row's
+            // future image retry and could lose preserved UI progress.
+            supervisorScope {
+                val supplier = async(start = CoroutineStart.LAZY) { block() }
+                synchronized(activeArtwork) { activeArtwork += supplier }
+                try {
+                    if (!mayStartOptionalArtwork()) return@supervisorScope null
+                    supplier.start()
+                    supplier.await()
+                } catch (cancel: CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                    null // user playback preempted optional provider, not UI
+                } catch (_: Exception) {
+                    null // optional image failure never becomes player failure
+                } finally {
+                    synchronized(activeArtwork) { activeArtwork.remove(supplier) }
+                }
             }
         }
     }
