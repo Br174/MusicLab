@@ -1245,7 +1245,7 @@ internal object DiscogsVersionSource {
         // Do not inflate a source-native relation again while adapting it to a UI seed.
         val externalScore = candidate.evidenceScore.coerceIn(1, 20)
         return DiscogsVersionSeed(
-            trackTitle = candidate.title,
+            trackTitle = CoverTitleTypography.shown(candidate.title, targetTitle),
             artist = candidate.artist,
             releaseTitle = candidate.album ?: candidate.sources.joinToString(" + "),
             releaseId = candidate.recordingReleaseId ?: 0,
