@@ -900,7 +900,9 @@ internal fun CompilationScreen(
                 delay(160L)
             }
             if (detail?.id != current.id || resolvedTracks.containsKey(index)) return@withPermit
-            val song = MusicLabFastPath.find(
+            // R67: passive Compilation thumbnail/prewarm never consumes the
+            // FastPath audio lanes while a selected track starts or rebuffers.
+            val song = MusicLabFastPath.findArtwork(
                 track.title, track.artists.joinToString(" ")
             ) { candidate -> CompilationTrackResolver.isHardCompatible(track, candidate) }
             if (song != null && detail?.id == current.id &&
