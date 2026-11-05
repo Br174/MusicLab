@@ -310,7 +310,10 @@ internal object MusicLabHitParadeDiscArtwork {
                 rememberDisc(context, original.title, original.artist, album, enriched)
                 enriched.url
             } else {
-                retryAfter[k] = System.currentTimeMillis() + 20_000L
+                // A suppressed provider during audio startup is NOT a
+                // missing disc: never impose 20 s of false negative cache.
+                if (MusicLabArtworkAudioGate.mayStartOptionalArtwork())
+                    retryAfter[k] = System.currentTimeMillis() + 20_000L
                 null
             }
         }
@@ -428,6 +431,19 @@ internal fun MusicLabHitParadeDiscCover(
         if (value == null) {
             value = MusicLabHitParadeDiscArtwork.resolve(
                 context, title, artist, album, sourceArtwork)
+        }
+        if (value == null) {
+            // A tap may have preempted the catalogue read. The video thumbnail
+            // remains visible while this light, cancelable retry sleeps.
+            repeat(2) {
+                if (value != null) return@produceState
+                delay(3_000L)
+                if (MusicLabArtworkAudioGate.mayStartOptionalArtwork()) {
+                    value = MusicLabHitParadeDiscArtwork.resolve(
+                        context, title, artist, album, sourceArtwork
+                    )
+                }
+            }
         }
     }
     val videoFallback by produceState<String?>(
