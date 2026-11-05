@@ -211,6 +211,7 @@ internal object CoverPriorityOrder {
         val best = if (weight(second) > weight(first)) second else first
         val other = if (best === first) second else first
         return best.copy(
+            title = CoverTitleTypography.prefer(best.title, other.title),
             sources = (first.sources + second.sources).distinct(),
             album = best.album ?: other.album,
             year = best.year ?: other.year,
