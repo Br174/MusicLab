@@ -96,12 +96,10 @@ internal object MusicLabLightArtwork {
         if (!manual) saved(context, title, artist, album)?.let { return it }
         val k = key(title, artist, album)
         if (!manual && System.currentTimeMillis() < (autoMissUntil[k] ?: 0L)) return null
-        // An audio tap must NOT count as a failed lookup (or impose a 2-min
-        // missing-artwork cooldown). Defer the extra sources without blocking.
-        if (!MusicLabArtworkAudioGate.mayStartOptionalArtwork()) return null
+        // Audio startup suspends this optional task; it does not trigger
+        // an artificial missing-artwork cooldown or another player lookup.
         return gate.withPermit {
             if (!manual) saved(context, title, artist, album)?.let { return@withPermit it }
-            if (!MusicLabArtworkAudioGate.mayStartOptionalArtwork()) return@withPermit null
             val result = MusicLabArtworkAudioGate.optionalLookup {
                 withTimeoutOrNull(5_500L) {
                     // Discogs and Last.fm are secondary to native metadata.
