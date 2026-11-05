@@ -21,7 +21,11 @@ test('R27 cover ownership is track-specific and survives playback changes',()=>{
 test('R27 missing covers resolve without a tap and retry safely',()=>{
     assert.match(art,/produceState<String\?>/);
     assert.match(art,/MusicLabChartArtworkResolver.resolve\(context, track/);
-    assert.match(art,/delay\(20_000L\)/);
+    // R67: retry quickly after audio startup, not a blind 20-second timer.
+    assert.match(art,/repeat\(3\)/);
+    assert.match(art,/delay\(2_500L\)/);
+    assert.match(art,/MusicLabArtworkAudioGate\.mayStartOptionalArtwork\(\)/);
+    assert.match(art,/MusicLabArtworkAudioGate\.optionalLookup/);
     assert.match(art,/forgetBrokenArtwork/);
     assert.match(art,/Semaphore\(3\)/);
 });
