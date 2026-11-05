@@ -7857,6 +7857,7 @@ internal fun DiscogsDirectVersionBrowser(
                     ) { _, seed ->
                         DiscogsVersionCard(
                             seed = seed,
+                            referenceTitle = title,
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
                             audioReadyVerified = hasTurboStreamReady(seed),
@@ -7896,6 +7897,7 @@ internal fun DiscogsDirectVersionBrowser(
                     ) { _, seed ->
                         DiscogsVersionCard(
                             seed = seed,
+                            referenceTitle = title,
                             showVideoPreview = true,
                             videoReadyVerified = hasPublishableVideo(seed),
                             audioReadyVerified = hasTurboStreamReady(seed),
@@ -8528,6 +8530,7 @@ private fun MusicLabPlaybackBars(
 @Composable
 private fun DiscogsVersionCard(
     seed: DiscogsVersionSeed,
+    referenceTitle: String? = null,
     showVideoPreview: Boolean,
     videoReadyVerified: Boolean = false,
     audioReadyVerified: Boolean = false,
@@ -8660,7 +8663,7 @@ private fun DiscogsVersionCard(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        seed.trackTitle,
+                        CoverTitleTypography.shown(seed.trackTitle, referenceTitle.orEmpty()),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
