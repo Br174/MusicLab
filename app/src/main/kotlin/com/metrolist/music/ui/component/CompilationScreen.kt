@@ -105,7 +105,7 @@ internal fun compilationTrackSubtitle(
     source: String?,
     resolved: Boolean,
 ): String {
-    if (!resolved) return "$artist · Tocca per trovare e riprodurre"
+    if (!resolved) return artist
     val label = source?.trim().orEmpty()
     return if (label.isBlank() || label.equals("MusicLab FastPath", ignoreCase = true)) {
         artist
