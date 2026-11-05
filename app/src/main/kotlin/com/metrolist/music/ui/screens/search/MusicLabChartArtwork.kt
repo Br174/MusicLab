@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.innertube.YouTube
+import com.metrolist.music.playback.MusicLabArtworkAudioGate
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.spotify.Spotify
 import kotlinx.coroutines.async
@@ -307,13 +308,16 @@ internal object MusicLabChartArtworkResolver {
         }
         // The initial list loads artwork without any click or player event.
         // Never persist the generic Last.fm star as a successful cover.
-        val fromCatalogue = gate.withPermit { catalogueArtwork(track) }
-            ?.takeUnless { it == rejectedUrl }
+        val fromCatalogue = MusicLabArtworkAudioGate.optionalLookup {
+            gate.withPermit { catalogueArtwork(track) }
+        }?.takeUnless { it == rejectedUrl }
         if (fromCatalogue != null) {
             rememberArtwork(context, track, fromCatalogue)
             return fromCatalogue
         }
-        val song = resolveSong(context, track)
+        val song = MusicLabArtworkAudioGate.optionalLookup {
+            resolveSong(context, track)
+        }
         val fromYouTube = allowedImage(song?.thumbnail)?.takeUnless { it == rejectedUrl }
         if (fromYouTube != null && !MusicLabLightArtwork.isVideoPoster(fromYouTube))
             rememberArtwork(context, track, fromYouTube)
@@ -352,8 +356,17 @@ internal fun MusicLabChartArtwork(track: MusicLabChartTrack, nowPlayingArtwork: 
             )?.let { value = it }
         }
         if (value == null) {
-            delay(20_000L)
-            value = MusicLabChartArtworkResolver.resolve(context, track, sourceFailed, rejectedUrl)
+            // A tap may have suspended optional requests. Give the player a
+            // short head start, then retry only when the audio lane is safe.
+            repeat(3) {
+                if (value != null) return@produceState
+                delay(2_500L)
+                if (MusicLabArtworkAudioGate.mayStartOptionalArtwork()) {
+                    value = MusicLabChartArtworkResolver.resolve(
+                        context, track, sourceFailed, rejectedUrl
+                    )
+                }
+            }
         }
     }
     Box(
