@@ -15,6 +15,7 @@ internal object MusicLabEditorialSnapshot {
         val data = JSONObject().apply {
             put("weekMillis", chart.week.millis)
             put("url", chart.week.url)
+            put("textCodec", 66)
             put("songs", JSONArray().apply {
                 chart.songs.take(200).forEach { row ->
                     put(JSONObject().apply {
@@ -45,7 +46,9 @@ internal object MusicLabEditorialSnapshot {
                 row.optString("weeks").takeIf(String::isNotBlank),
                 row.optString("previous").takeIf(String::isNotBlank))
         }
-        if (rows.isEmpty()) null else HistoricalChart(
+        if (rows.isEmpty() || (obj.optInt("textCodec", 0) < 66 &&
+            rows.any { MusicLabHistoricHtmlDecoder.corrupted(it.title) ||
+                MusicLabHistoricHtmlDecoder.corrupted(it.artist) })) null else HistoricalChart(
             HistoricalWeek(obj.getLong("weekMillis"), obj.optString("url")), rows)
     }.getOrNull()
 
