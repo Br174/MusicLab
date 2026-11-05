@@ -556,7 +556,7 @@ jobs:
         if: contains(github.event.head_commit.message, '[build-apk]')
         uses: actions/upload-artifact@v4
         with:
-          name: MusicLab-Turbo-R67-Audio-First-Stabile-33148-APK-ZIP
+          name: MusicLab-Turbo-R68-Compilation-Nomi-Puliti-33148-APK-ZIP
           path: |
             dist/uab/apk/MusicLab-Turbo-LAB79-Revisione-68-Compilation-Nomi-Puliti.apk
             dist/uab/MusicLab-Turbo-LAB79-Revisione-68-Compilation-Nomi-Puliti-APK.zip
