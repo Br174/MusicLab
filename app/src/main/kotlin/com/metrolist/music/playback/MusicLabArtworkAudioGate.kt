@@ -4,6 +4,7 @@ import android.os.SystemClock
 import androidx.media3.common.Player
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Semaphore
@@ -18,6 +19,7 @@ import kotlinx.coroutines.sync.withPermit
  */
 internal object MusicLabArtworkAudioGate {
     const val FIRST_AUDIO_RESERVE_MS = 6_000L
+    const val ARTWORK_SAFE_WAIT_MS = 8_500L
     private val artworkNetworkSlots = Semaphore(2)
     private val activeArtwork = HashSet<Job>()
 
@@ -58,7 +60,14 @@ internal object MusicLabArtworkAudioGate {
 
     /** No queue of network work can delay the user's next tap. */
     suspend fun <T> optionalLookup(block: suspend () -> T?): T? {
-        if (!mayStartOptionalArtwork()) return null
+        // Suspend only this OPTIONAL metadata coroutine. The requested audio
+        // never calls this function or waits for a permit.
+        val start = SystemClock.elapsedRealtime()
+        while (!mayStartOptionalArtwork()) {
+            if (SystemClock.elapsedRealtime() - start >= ARTWORK_SAFE_WAIT_MS)
+                return null
+            delay(180L)
+        }
         return artworkNetworkSlots.withPermit {
             if (!mayStartOptionalArtwork()) return@withPermit null
             val job = currentCoroutineContext().job
