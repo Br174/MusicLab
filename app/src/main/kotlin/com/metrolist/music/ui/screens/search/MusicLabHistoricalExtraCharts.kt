@@ -162,7 +162,8 @@ internal object MusicLabHistoricalExtraRepository {
             .build()
         return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Archivio non disponibile (HTTP " + response.code + ")")
-            response.body?.string() ?: error("Pagina originale vuota")
+            val body = response.body ?: error("Pagina originale vuota")
+            MusicLabHistoricHtmlDecoder.decode(body.bytes(), response.header("Content-Type"))
         }
     }
 
