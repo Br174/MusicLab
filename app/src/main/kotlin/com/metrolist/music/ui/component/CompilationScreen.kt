@@ -95,6 +95,23 @@ import java.time.Year
 
 private data class CompilationTokenState(val loaded: Boolean = false, val token: String = "")
 
+/**
+ * R68: display formatting ONLY. Preserve MusicLab FastPath as the internal
+ * provenance for cache/selection/diagnostics; never print it as a subtitle.
+ * No metadata, stream lookup or playback scheduling is changed.
+ */
+internal fun compilationTrackSubtitle(
+    artist: String,
+    source: String?,
+    resolved: Boolean,
+): String {
+    if (!resolved) return "$artist · Tocca per trovare e riprodurre"
+    val label = source?.trim().orEmpty()
+    return if (label.isBlank() || label.equals("MusicLab FastPath", ignoreCase = true)) {
+        artist
+    } else "$artist · $label"
+}
+
 internal data class CompilationSearchCriteria(
     val query: String,
     val year: Int?,
@@ -1742,9 +1759,8 @@ private fun CompilationDetailContent(
                         overflow = TextOverflow.Ellipsis,
                     )
                     val artist = track.artists.joinToString(", ").ifBlank { "Artista non indicato" }
-                    val source = resolved?.source ?: "Tocca per trovare e riprodurre"
                     Text(
-                        "$artist · $source",
+                        compilationTrackSubtitle(artist, resolved?.source, resolved != null),
                         style = MaterialTheme.typography.bodySmall,
                         color = if (resolved != null) {
                             MaterialTheme.colorScheme.primary
