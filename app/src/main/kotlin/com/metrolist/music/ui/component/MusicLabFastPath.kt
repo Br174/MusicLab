@@ -25,6 +25,7 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.ui.screens.search.MusicLabChartArtwork
 import com.metrolist.music.ui.screens.search.MusicLabChartArtworkResolver
+import com.metrolist.music.playback.MusicLabArtworkAudioGate
 import com.metrolist.music.ui.screens.search.MusicLabChartTrack
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -95,6 +96,20 @@ internal object MusicLabFastPath {
         return songs.firstOrNull(compatible)
     }
 
+    /**
+     * R67: thumbnail discovery is ALWAYS subordinate to user-selected audio.
+     * It may reuse native cached SongItems immediately, but new HTTP work is
+     * throttled and cancellable. Explicit playback continues using find().
+     */
+    suspend fun findArtwork(
+        title: String,
+        artist: String,
+        compatible: (SongItem) -> Boolean,
+    ): SongItem? =
+        peek(title, artist, compatible) ?: MusicLabArtworkAudioGate.optionalLookup {
+            find(title, artist, compatible)
+        }
+
     fun peek(
         title: String,
         artist: String,
@@ -128,7 +143,7 @@ internal fun MusicLabFastHitArtwork(track: MusicLabChartTrack) {
         key1 = track.title,
         key2 = track.artist,
     ) {
-        val song = MusicLabFastPath.find(track.title, track.artist, compatible)
+        val song = MusicLabFastPath.findArtwork(track.title, track.artist, compatible)
         if (song != null) {
             MusicLabChartArtworkResolver.rememberArtwork(context, track, song.thumbnail)
         }
