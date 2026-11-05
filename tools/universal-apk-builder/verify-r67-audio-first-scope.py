@@ -16,6 +16,7 @@ CHANGED={
     P+"ui/component/CoverVisibleYearResolver.kt",
     "app/src/test/kotlin/com/metrolist/music/playback/MusicLabArtworkAudioGateTest.kt",
     "cloudflare/music-intelligence/test/musiclab-r67-audio-first-artwork.test.mjs",
+    "cloudflare/music-intelligence/test/turbo-r27-artwork-coverage-playback.test.mjs",
     "tools/universal-apk-builder/prepare-turbo-r67-33147-env.py",
     "tools/universal-apk-builder/verify-r67-audio-first-scope.py",
     ".github/workflows/musiclab-r67-audio-first-33147-apk.yml",
