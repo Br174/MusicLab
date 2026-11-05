@@ -330,6 +330,9 @@ internal object MusicLabHistoricalExtraRepository {
                     row.optString("image").takeIf(String::isNotBlank))
             }
             if (rows.isEmpty() ||
+                (o.optInt("textCodec", 0) < 66 &&
+                    rows.any { MusicLabHistoricHtmlDecoder.corrupted(it.title) ||
+                        MusicLabHistoricHtmlDecoder.corrupted(it.artist) }) ||
                 ((key.startsWith("ANNUAL_ALBUMS:") || key.startsWith("WEEKLY_ALBUMS:")) &&
                     looksLikeCorruptAlbumSnapshot(rows))) null else HistoricalExtraResult(
                 o.getString("url"), o.getLong("when"), rows)
@@ -339,6 +342,7 @@ internal object MusicLabHistoricalExtraRepository {
         MusicLabSectionMemory.writeState(context, "hitparade:extra:$key", JSONObject().apply {
             put("url", chart.sourceUrl)
             put("when", chart.actualDate)
+            put("textCodec", 66)
             put("rows", JSONArray().apply {
                 chart.rows.take(200).forEach { item ->
                     put(JSONObject().apply {
