@@ -123,7 +123,8 @@ internal object MusicLabHistoricalHitParade {
             .build()
         return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Fonte non disponibile (HTTP " + response.code + ")")
-            response.body?.string() ?: error("Pagina vuota")
+            val body = response.body ?: error("Pagina vuota")
+            MusicLabHistoricHtmlDecoder.decode(body.bytes(), response.header("Content-Type"))
         }
     }
 
