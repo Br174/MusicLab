@@ -31,6 +31,7 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.MusicLabSectionPlayback
+import com.metrolist.music.playback.MusicLabArtworkAudioGate
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.ui.component.MusicLabFastPath
 import java.net.HttpURLConnection
@@ -291,15 +292,17 @@ internal object MusicLabHitParadeDiscArtwork {
             val verified = safeImage(sourceArtwork)
                 ?.takeUnless { MusicLabLightArtwork.isVideoPoster(it) }
                 ?.let { Disc(it, null) }
-                ?: if (album) coroutineScope {
-                    val spotify = async(Dispatchers.IO) {
-                        spotifyAlbum(original.title, original.artist)
-                    }
-                    val apple = async(Dispatchers.IO) {
-                        appleAlbum(original.title, original.artist)
-                    }
-                    spotify.await() ?: apple.await()
-                } else songDisc(original.title, original.artist)
+                ?: MusicLabArtworkAudioGate.optionalLookup {
+                    if (album) coroutineScope {
+                        val spotify = async(Dispatchers.IO) {
+                            spotifyAlbum(original.title, original.artist)
+                        }
+                        val apple = async(Dispatchers.IO) {
+                            appleAlbum(original.title, original.artist)
+                        }
+                        spotify.await() ?: apple.await()
+                    } else songDisc(original.title, original.artist)
+                }
             val enriched = verified ?: MusicLabLightArtwork.recover(
                 context, original.title, original.artist, album = album
             )?.let { Disc(it, null) }
@@ -433,7 +436,7 @@ internal fun MusicLabHitParadeDiscCover(
         key1 = title, key2 = artist, key3 = album,
     ) {
         if (value == null && !album) {
-            value = MusicLabFastPath.find(title, artist) { candidate ->
+            value = MusicLabFastPath.findArtwork(title, artist) { candidate ->
                 MusicLabChartArtworkResolver.sameRecordingLabel(title, artist, candidate)
             }?.thumbnail
         }
