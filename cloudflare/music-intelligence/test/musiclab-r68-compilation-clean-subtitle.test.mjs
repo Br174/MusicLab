@@ -19,11 +19,11 @@ test('Compilation hides FastPath only from subtitles, not from provider metadata
 });
 
 test('Unresolved lines and other original source labels keep their behavior', () => {
-  assert.match(src, /if \(!resolved\) return "\$artist · Tocca per trovare e riprodurre"/);
+  assert.match(src, /if \(!resolved\) return artist/);
   assert.match(src, /else "\$artist · \$label"/);
   assert.match(native, /internalFastPathLabelIsHiddenForResolvedSongs/);
   assert.match(native, /otherSourcesRemainVisible/);
-  assert.match(native, /unresolvedRowsKeepTheirPreviousPrompt/);
+  assert.match(native, /unresolvedRowsDisplayOnlyArtistButRemainPlayable/);
   assert.match(native, /emptyAndCaseInsensitiveFastPathLabelsDoNotLeaveDanglingSeparator/);
 });
 
