@@ -34,7 +34,10 @@ test('R28 no-login Apple Music catalogue fallback is bounded, validated and off 
 test('R28 per-song artwork is persistent, independent from playback, and retains fallback',()=>{
   assert.match(artwork,/rememberArtwork\(context, track, fromCatalogue\)/);
   assert.match(artwork,/putString\("art:" \+ id/);
-  assert.match(artwork,/val song = resolveSong\(context, track\)/);
+  // R67: the same native song lookup remains, but optional thumbnail work
+  // now yields to Media3 during a new tap or rebuffer.
+  assert.match(artwork,/val song = MusicLabArtworkAudioGate\.optionalLookup \{/);
+  assert.match(artwork,/resolveSong\(context, track\)/);
   assert.match(artwork,/retryAfter/);
   assert.match(artwork,/Semaphore\(3\)/);
   assert.doesNotMatch(artwork,/initialValue = nowPlayingArtwork/);
