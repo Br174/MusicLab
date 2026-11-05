@@ -2449,6 +2449,9 @@ class MusicService :
      * re-prepared; Media3 starts resolving the new item immediately.
      */
     fun beginPlaybackPriorityBurst(reason: String = "user-action") {
+        // R67: a tap immediately preempts OPTIONAL artwork HTTP. Player and
+        // extraction never wait on artwork lookup or on a metadata semaphore.
+        MusicLabArtworkAudioGate.onAudioRequested()
         val now = android.os.SystemClock.elapsedRealtime()
         // Respect the first tap even when the common playback bridge requests
         // a second priority burst later, after finding the same recording.
@@ -3346,6 +3349,7 @@ class MusicService :
     override fun onPlaybackStateChanged(
         @Player.State playbackState: Int,
     ) {
+        MusicLabArtworkAudioGate.onPlayerState(playbackState, player.playWhenReady)
         // LAB62: diagnose delay to Media3 READY and repeated buffering.
         // READY != audible first sample; this deliberately reports player readiness only.
         val now = android.os.SystemClock.elapsedRealtime()
@@ -3520,6 +3524,7 @@ class MusicService :
             }
         }
 
+        MusicLabArtworkAudioGate.onPlayIntent(playWhenReady)
         if (playWhenReady) {
             applyCachedAudioNormalizationNow()
         }
