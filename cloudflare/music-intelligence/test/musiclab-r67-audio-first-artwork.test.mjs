@@ -31,6 +31,10 @@ test('Artwork network slots are separate, cancellable, bounded, and never used b
   assert.match(gate, /ARTWORK_SAFE_WAIT_MS = 8_500L/);
   assert.match(gate, /while \(!mayStartOptionalArtwork\(\)\)/);
   assert.match(gate, /pending\.forEach \{ it\.cancel\(/);
+  assert.match(gate, /supervisorScope \{/);
+  assert.match(gate, /async\(start = CoroutineStart\.LAZY\)/);
+  assert.match(gate, /supplier\.await\(\)/);
+  assert.match(gate, /currentCoroutineContext\(\)\.ensureActive\(\)/);
   assert.match(gate, /onPlayerState\(state: Int, playWhenReady: Boolean\)/);
   assert.match(gate, /suspend fun <T> optionalLookup/);
   assert.doesNotMatch(gate, /playNow\(|prepare\(|seekTo\(|setMediaItem\(|YouTube\.queue\(/);
@@ -47,6 +51,8 @@ test('No image source competes with a first-audio user search', () => {
   assert.match(chart, /MusicLabArtworkAudioGate\.optionalLookup \{\s*resolveSong\(context, track\)/);
   assert.match(hit, /MusicLabArtworkAudioGate\.optionalLookup \{/);
   assert.match(hit, /MusicLabFastPath\.findArtwork\(title, artist\)/);
+  assert.match(hit, /if \(MusicLabArtworkAudioGate\.mayStartOptionalArtwork\(\)\)/);
+  assert.match(hit, /delay\(3_000L\)/);
   assert.match(extras, /MusicLabArtworkAudioGate\.optionalLookup \{/);
   assert.match(dates, /MusicLabArtworkAudioGate\.optionalLookup \{/);
   assert.match(comp, /val song = MusicLabFastPath\.findArtwork\(/);
