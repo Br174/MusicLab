@@ -4,6 +4,7 @@ import android.content.Context
 import com.metrolist.music.constants.DiscogsTokenKey
 import com.metrolist.music.constants.LastFMApiKeyKey
 import com.metrolist.music.discogs.DiscogsClient
+import com.metrolist.music.playback.MusicLabArtworkAudioGate
 import com.metrolist.music.utils.dataStore
 import java.net.HttpURLConnection
 import java.net.URL
@@ -95,16 +96,22 @@ internal object MusicLabLightArtwork {
         if (!manual) saved(context, title, artist, album)?.let { return it }
         val k = key(title, artist, album)
         if (!manual && System.currentTimeMillis() < (autoMissUntil[k] ?: 0L)) return null
+        // An audio tap must NOT count as a failed lookup (or impose a 2-min
+        // missing-artwork cooldown). Defer the extra sources without blocking.
+        if (!MusicLabArtworkAudioGate.mayStartOptionalArtwork()) return null
         return gate.withPermit {
             if (!manual) saved(context, title, artist, album)?.let { return@withPermit it }
-            val result = withTimeoutOrNull(5_500L) {
-                // Discogs is only consulted after native metadata/catalogues miss.
-                // Its own client enforces global provider request-rate limits.
-                discogs(context, title, artist, album) ?: lastFm(context, title, artist, album)
+            if (!MusicLabArtworkAudioGate.mayStartOptionalArtwork()) return@withPermit null
+            val result = MusicLabArtworkAudioGate.optionalLookup {
+                withTimeoutOrNull(5_500L) {
+                    // Discogs and Last.fm are secondary to native metadata.
+                    discogs(context, title, artist, album)
+                        ?: lastFm(context, title, artist, album)
+                }
             }
             if (result != null) {
                 store(context, title, artist, album, result)
-            } else if (!manual) {
+            } else if (!manual && MusicLabArtworkAudioGate.mayStartOptionalArtwork()) {
                 autoMissUntil[k] = System.currentTimeMillis() + 120_000L
             }
             result
