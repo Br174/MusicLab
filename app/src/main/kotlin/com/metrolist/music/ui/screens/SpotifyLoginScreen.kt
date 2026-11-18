@@ -52,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,249 +118,216 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    val bl = BrokenLogin.nextId("login")
-                    val cookieManager = CookieManager.getInstance()
-                    cookieManager.setAcceptCookie(true)
-                    cookieManager.removeAllCookies(null)
-                    cookieManager.flush()
-
-                    WebView(ctx).apply {
-                        cookieManager.setAcceptThirdPartyCookies(this, true)
-
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.databaseEnabled = true
-                        settings.loadWithOverviewMode = true
-                        settings.useWideViewPort = true
-                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                        settings.javaScriptCanOpenWindowsAutomatically = true
-                        settings.setSupportMultipleWindows(false)
-                        settings.userAgentString = USER_AGENT_DESKTOP
-
-
-                        /*
-                         * The WebView implementation is a separate, auto-updating system package.
-                         * "It worked days ago and now the page is black" is very often that package
-                         * updating underneath us, so its version is the first thing worth knowing —
-                         * and it is not recoverable from any other line in a logcat.
-                         */
-                        BrokenLogin.i(
-                            bl, "webview.create",
-                            BrokenLogin.kv(
-                                "webViewPackage" to BrokenLogin.trap(bl, "webview.package") {
-                                    WebView.getCurrentWebViewPackage()?.let { "${it.packageName}/${it.versionName}" }
-                                },
-                                "userAgent" to BrokenLogin.shortUrl(settings.userAgentString, 110),
-                                "javaScript" to settings.javaScriptEnabled,
-                                "domStorage" to settings.domStorageEnabled,
-                                "thirdPartyCookies" to cookieManager.acceptThirdPartyCookies(this),
-                                "acceptCookie" to cookieManager.acceptCookie(),
-                                "mixedContent" to settings.mixedContentMode,
-                                // Platform dark inversion. Applied on top of a page that is
-                                // already dark, this turns text dark-on-dark — a WebView that
-                                // reports everything painted while showing the user black.
-                                "algorithmicDarkening" to BrokenLogin.trap(bl, "webview.darkening") {
-                                    if (android.os.Build.VERSION.SDK_INT >= 33) {
-                                        settings.isAlgorithmicDarkeningAllowed
-                                    } else {
-                                        "n/a<33"
+            // A retry must rebuild the real WebView, not just dismiss the error overlay.
+            key(retryCount) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        val bl = BrokenLogin.nextId("login")
+                        val cookieManager = CookieManager.getInstance()
+                        cookieManager.setAcceptCookie(true)
+                        // Preserve the existing Spotify browser session. Clearing every cookie here
+                        // is asynchronous and can race with the initial login navigation, invalidating
+                        // the page while it is already loading. Never wipe third-party SSO cookies.
+    
+                        WebView(ctx).apply {
+                            cookieManager.setAcceptThirdPartyCookies(this, true)
+    
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.databaseEnabled = true
+                            settings.loadWithOverviewMode = true
+                            settings.useWideViewPort = true
+                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                            settings.javaScriptCanOpenWindowsAutomatically = true
+                            settings.setSupportMultipleWindows(false)
+                            settings.userAgentString = USER_AGENT_DESKTOP
+    
+    
+                            /*
+                             * The WebView implementation is a separate, auto-updating system package.
+                             * "It worked days ago and now the page is black" is very often that package
+                             * updating underneath us, so its version is the first thing worth knowing —
+                             * and it is not recoverable from any other line in a logcat.
+                             */
+                            BrokenLogin.i(
+                                bl, "webview.create",
+                                BrokenLogin.kv(
+                                    "webViewPackage" to BrokenLogin.trap(bl, "webview.package") {
+                                        WebView.getCurrentWebViewPackage()?.let { "${it.packageName}/${it.versionName}" }
+                                    },
+                                    "userAgent" to BrokenLogin.shortUrl(settings.userAgentString, 110),
+                                    "javaScript" to settings.javaScriptEnabled,
+                                    "domStorage" to settings.domStorageEnabled,
+                                    "thirdPartyCookies" to cookieManager.acceptThirdPartyCookies(this),
+                                    "acceptCookie" to cookieManager.acceptCookie(),
+                                    "mixedContent" to settings.mixedContentMode,
+                                    // Platform dark inversion. Applied on top of a page that is
+                                    // already dark, this turns text dark-on-dark — a WebView that
+                                    // reports everything painted while showing the user black.
+                                    "algorithmicDarkening" to BrokenLogin.trap(bl, "webview.darkening") {
+                                        if (android.os.Build.VERSION.SDK_INT >= 33) {
+                                            settings.isAlgorithmicDarkeningAllowed
+                                        } else {
+                                            "n/a<33"
+                                        }
+                                    },
+                                    "uiNightMode" to BrokenLogin.trap(bl, "webview.nightMode") {
+                                        ctx.resources.configuration.uiMode and
+                                            android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                                    },
+                                    "loginUrl" to BrokenLogin.shortUrl(SpotifyAuth.LOGIN_URL),
+                                ),
+                            )
+    
+                            /*
+                             * Surfaces what the page itself reports. Without a WebChromeClient a page
+                             * that fails entirely in JavaScript looks identical to one that rendered
+                             * fine — which is exactly the black-screen case being chased here.
+                             */
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
+                                    if (message != null) {
+                                        val op = when (message.messageLevel()) {
+                                            ConsoleMessage.MessageLevel.ERROR -> "console.error"
+                                            ConsoleMessage.MessageLevel.WARNING -> "console.warn"
+                                            else -> "console"
+                                        }
+                                        val details = BrokenLogin.kv(
+                                            "level" to message.messageLevel(),
+                                            "line" to message.lineNumber(),
+                                            "source" to BrokenLogin.shortUrl(message.sourceId(), 90),
+                                            "msg" to message.message(),
+                                        )
+                                        if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                                            BrokenLogin.e(bl, op, details)
+                                        } else {
+                                            BrokenLogin.d(bl, op, details)
+                                        }
                                     }
-                                },
-                                "uiNightMode" to BrokenLogin.trap(bl, "webview.nightMode") {
-                                    ctx.resources.configuration.uiMode and
-                                        android.content.res.Configuration.UI_MODE_NIGHT_MASK
-                                },
-                                "loginUrl" to BrokenLogin.shortUrl(SpotifyAuth.LOGIN_URL),
-                            ),
-                        )
-
-                        /*
-                         * Surfaces what the page itself reports. Without a WebChromeClient a page
-                         * that fails entirely in JavaScript looks identical to one that rendered
-                         * fine — which is exactly the black-screen case being chased here.
-                         */
-                        webChromeClient = object : WebChromeClient() {
-                            override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
-                                if (message != null) {
-                                    val op = when (message.messageLevel()) {
-                                        ConsoleMessage.MessageLevel.ERROR -> "console.error"
-                                        ConsoleMessage.MessageLevel.WARNING -> "console.warn"
-                                        else -> "console"
-                                    }
-                                    val details = BrokenLogin.kv(
-                                        "level" to message.messageLevel(),
-                                        "line" to message.lineNumber(),
-                                        "source" to BrokenLogin.shortUrl(message.sourceId(), 90),
-                                        "msg" to message.message(),
-                                    )
-                                    if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
-                                        BrokenLogin.e(bl, op, details)
-                                    } else {
-                                        BrokenLogin.d(bl, op, details)
+                                    return true
+                                }
+    
+                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    // A page that stalls partway shows up here as a progress that
+                                    // never reaches 100 despite onPageFinished having fired.
+                                    if (newProgress % 25 == 0) {
+                                        BrokenLogin.d(bl, "progress", BrokenLogin.kv("percent" to newProgress))
                                     }
                                 }
-                                return true
-                            }
-
-                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                // A page that stalls partway shows up here as a progress that
-                                // never reaches 100 despite onPageFinished having fired.
-                                if (newProgress % 25 == 0) {
-                                    BrokenLogin.d(bl, "progress", BrokenLogin.kv("percent" to newProgress))
+    
+                                override fun onReceivedTitle(view: WebView?, title: String?) {
+                                    // An empty or error title on a "finished" page is a strong signal
+                                    // the document is not the login form.
+                                    BrokenLogin.i(bl, "title", BrokenLogin.kv("title" to title))
                                 }
                             }
-
-                            override fun onReceivedTitle(view: WebView?, title: String?) {
-                                // An empty or error title on a "finished" page is a strong signal
-                                // the document is not the login form.
-                                BrokenLogin.i(bl, "title", BrokenLogin.kv("title" to title))
-                            }
-                        }
-
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                isLoading = true
-                                Timber.d("SpotifyLogin: page started: $url")
-                                BrokenLogin.i(bl, "page.started", BrokenLogin.kv("url" to BrokenLogin.shortUrl(url)))
-                            }
-
-                            override fun onReceivedError(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                                error: WebResourceError?,
-                            ) {
-                                // Not overridden before, so every network-level failure — including
-                                // one on the main frame, which paints a blank view — was silent.
-                                val isMainFrame = request?.isForMainFrame == true
-                                val details = BrokenLogin.kv(
-                                    "mainFrame" to isMainFrame,
-                                    "code" to BrokenLogin.trap(bl, "error.code") { error?.errorCode },
-                                    "desc" to BrokenLogin.trap(bl, "error.desc") { error?.description?.toString() },
-                                    "method" to request?.method,
-                                    "url" to BrokenLogin.shortUrl(request?.url?.toString()),
-                                )
-                                if (isMainFrame) BrokenLogin.e(bl, "page.error", details)
-                                else BrokenLogin.w(bl, "resource.error", details)
-                            }
-
-                            override fun onReceivedHttpError(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                                errorResponse: WebResourceResponse?,
-                            ) {
-                                val isMainFrame = request?.isForMainFrame == true
-                                val details = BrokenLogin.kv(
-                                    "mainFrame" to isMainFrame,
-                                    "status" to errorResponse?.statusCode,
-                                    "reason" to errorResponse?.reasonPhrase,
-                                    "mime" to errorResponse?.mimeType,
-                                    "url" to BrokenLogin.shortUrl(request?.url?.toString()),
-                                )
-                                if (isMainFrame) BrokenLogin.e(bl, "page.httpError", details)
-                                else BrokenLogin.w(bl, "resource.httpError", details)
-                            }
-
-                            override fun onReceivedSslError(
-                                view: WebView?,
-                                handler: SslErrorHandler?,
-                                error: SslError?,
-                            ) {
-                                BrokenLogin.e(
-                                    bl, "page.sslError",
-                                    BrokenLogin.kv(
-                                        "primaryError" to error?.primaryError,
-                                        "url" to BrokenLogin.shortUrl(error?.url),
-                                    ),
-                                )
-                                // Preserve the default (cancel): never weaken TLS to get a login through.
-                                super.onReceivedSslError(view, handler, error)
-                            }
-
-                            override fun onRenderProcessGone(
-                                view: WebView?,
-                                detail: RenderProcessGoneDetail?,
-                            ): Boolean {
-                                /*
-                                 * The prime suspect for a black WebView. When the renderer dies the
-                                 * view keeps its surface and simply paints nothing; returning false
-                                 * (the default) also kills the hosting app process. Log it and
-                                 * return true so the app survives and the trace makes it to logcat.
-                                 */
-                                BrokenLogin.e(
-                                    bl, "renderer.gone",
-                                    BrokenLogin.kv(
-                                        "didCrash" to detail?.didCrash(),
-                                        "rendererPriorityAtExit" to detail?.rendererPriorityAtExit(),
-                                    ),
-                                )
-                                BrokenLogin.trap(bl, "renderer.destroy") { view?.destroy() }
-                                return true
-                            }
-
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                isLoading = false
-                                Timber.d("SpotifyLogin: page finished: $url")
-                                BrokenLogin.i(
-                                    bl, "page.finished",
-                                    BrokenLogin.kv(
-                                        "url" to BrokenLogin.shortUrl(url),
-                                        "progress" to BrokenLogin.trap(bl, "page.progress") { view?.progress },
-                                        "contentHeight" to BrokenLogin.trap(bl, "page.height") { view?.contentHeight },
-                                        "title" to BrokenLogin.trap(bl, "page.title") { view?.title },
-                                    ) + " " + BrokenLogin.describeCookies(
-                                        BrokenLogin.trap(bl, "page.cookies") {
-                                            CookieManager.getInstance().getCookie("https://open.spotify.com")
-                                        },
-                                    ),
-                                )
-                                // Runs on every page: the collapsed layout is re-created by each
-                                // navigation within the login flow, not just the first load.
-                                applyLoginLayoutFix(bl, view)
-                                probeDom(bl, view)
-
-                                if (url?.startsWith("https://open.spotify.com") == true &&
-                                    tokenFetchStarted.compareAndSet(false, true)
+    
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    isLoading = true
+                                    Timber.d("SpotifyLogin: page started: $url")
+                                    BrokenLogin.i(bl, "page.started", BrokenLogin.kv("url" to BrokenLogin.shortUrl(url)))
+                                }
+    
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?,
                                 ) {
-                                    Timber.d("SpotifyLogin: extracting token from onPageFinished")
-                                    extractAndFetchToken(
-                                        view = view,
-                                        context = context,
-                                        scope = scope,
-                                        navController = navController,
-                                        setProcessing = { isProcessing = it },
-                                        setStatus = { statusMessage = it },
-                                        setError = { hasError = it },
-                                        tokenFetchStarted = tokenFetchStarted,
+                                    // Not overridden before, so every network-level failure — including
+                                    // one on the main frame, which paints a blank view — was silent.
+                                    val isMainFrame = request?.isForMainFrame == true
+                                    val details = BrokenLogin.kv(
+                                        "mainFrame" to isMainFrame,
+                                        "code" to BrokenLogin.trap(bl, "error.code") { error?.errorCode },
+                                        "desc" to BrokenLogin.trap(bl, "error.desc") { error?.description?.toString() },
+                                        "method" to request?.method,
+                                        "url" to BrokenLogin.shortUrl(request?.url?.toString()),
                                     )
+                                    if (isMainFrame) BrokenLogin.e(bl, "page.error", details)
+                                    else BrokenLogin.w(bl, "resource.error", details)
                                 }
-                            }
-
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): Boolean {
-                                val requestUrl = request?.url?.toString() ?: return false
-                                Timber.d("SpotifyLogin: navigating to: $requestUrl")
-                                BrokenLogin.i(
-                                    bl, "navigate",
-                                    BrokenLogin.kv(
-                                        "url" to BrokenLogin.shortUrl(requestUrl),
-                                        "mainFrame" to request.isForMainFrame,
-                                        "redirect" to request.isRedirect,
-                                    ),
-                                )
-
-                                if (requestUrl.startsWith("https://open.spotify.com")) {
-                                    val spDc = extractSpDcCookie()
-                                    BrokenLogin.i(
-                                        bl, "redirect.toOpenSpotify",
-                                        BrokenLogin.kv("spDc" to BrokenLogin.redact(spDc)),
+    
+                                override fun onReceivedHttpError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    errorResponse: WebResourceResponse?,
+                                ) {
+                                    val isMainFrame = request?.isForMainFrame == true
+                                    val details = BrokenLogin.kv(
+                                        "mainFrame" to isMainFrame,
+                                        "status" to errorResponse?.statusCode,
+                                        "reason" to errorResponse?.reasonPhrase,
+                                        "mime" to errorResponse?.mimeType,
+                                        "url" to BrokenLogin.shortUrl(request?.url?.toString()),
                                     )
-                                    if (spDc != null && tokenFetchStarted.compareAndSet(false, true)) {
-                                        Timber.d("SpotifyLogin: sp_dc available at redirect, processing immediately")
+                                    if (isMainFrame) BrokenLogin.e(bl, "page.httpError", details)
+                                    else BrokenLogin.w(bl, "resource.httpError", details)
+                                }
+    
+                                override fun onReceivedSslError(
+                                    view: WebView?,
+                                    handler: SslErrorHandler?,
+                                    error: SslError?,
+                                ) {
+                                    BrokenLogin.e(
+                                        bl, "page.sslError",
+                                        BrokenLogin.kv(
+                                            "primaryError" to error?.primaryError,
+                                            "url" to BrokenLogin.shortUrl(error?.url),
+                                        ),
+                                    )
+                                    // Preserve the default (cancel): never weaken TLS to get a login through.
+                                    super.onReceivedSslError(view, handler, error)
+                                }
+    
+                                override fun onRenderProcessGone(
+                                    view: WebView?,
+                                    detail: RenderProcessGoneDetail?,
+                                ): Boolean {
+                                    /*
+                                     * The prime suspect for a black WebView. When the renderer dies the
+                                     * view keeps its surface and simply paints nothing; returning false
+                                     * (the default) also kills the hosting app process. Log it and
+                                     * return true so the app survives and the trace makes it to logcat.
+                                     */
+                                    BrokenLogin.e(
+                                        bl, "renderer.gone",
+                                        BrokenLogin.kv(
+                                            "didCrash" to detail?.didCrash(),
+                                            "rendererPriorityAtExit" to detail?.rendererPriorityAtExit(),
+                                        ),
+                                    )
+                                    BrokenLogin.trap(bl, "renderer.destroy") { view?.destroy() }
+                                    return true
+                                }
+    
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    isLoading = false
+                                    Timber.d("SpotifyLogin: page finished: $url")
+                                    BrokenLogin.i(
+                                        bl, "page.finished",
+                                        BrokenLogin.kv(
+                                            "url" to BrokenLogin.shortUrl(url),
+                                            "progress" to BrokenLogin.trap(bl, "page.progress") { view?.progress },
+                                            "contentHeight" to BrokenLogin.trap(bl, "page.height") { view?.contentHeight },
+                                            "title" to BrokenLogin.trap(bl, "page.title") { view?.title },
+                                        ) + " " + BrokenLogin.describeCookies(
+                                            BrokenLogin.trap(bl, "page.cookies") {
+                                                CookieManager.getInstance().getCookie("https://open.spotify.com")
+                                            },
+                                        ),
+                                    )
+                                    // Runs on every page: the collapsed layout is re-created by each
+                                    // navigation within the login flow, not just the first load.
+                                    applyLoginLayoutFix(bl, view)
+                                    probeDom(bl, view)
+    
+                                    if (url?.startsWith("https://open.spotify.com") == true &&
+                                        tokenFetchStarted.compareAndSet(false, true)
+                                    ) {
+                                        Timber.d("SpotifyLogin: extracting token from onPageFinished")
                                         extractAndFetchToken(
                                             view = view,
                                             context = context,
@@ -370,22 +338,59 @@ fun SpotifyLoginScreen(navController: NavController) {
                                             setError = { hasError = it },
                                             tokenFetchStarted = tokenFetchStarted,
                                         )
-                                        return true
                                     }
-                                    // sp_dc not ready yet — let the page load so
-                                    // onPageFinished can pick up the cookie later
-                                    Timber.d("SpotifyLogin: sp_dc not ready at redirect, deferring to onPageFinished")
+                                }
+    
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                ): Boolean {
+                                    val requestUrl = request?.url?.toString() ?: return false
+                                    Timber.d("SpotifyLogin: navigating to: $requestUrl")
+                                    BrokenLogin.i(
+                                        bl, "navigate",
+                                        BrokenLogin.kv(
+                                            "url" to BrokenLogin.shortUrl(requestUrl),
+                                            "mainFrame" to request.isForMainFrame,
+                                            "redirect" to request.isRedirect,
+                                        ),
+                                    )
+    
+                                    if (requestUrl.startsWith("https://open.spotify.com")) {
+                                        val spDc = extractSpDcCookie()
+                                        BrokenLogin.i(
+                                            bl, "redirect.toOpenSpotify",
+                                            BrokenLogin.kv("spDc" to BrokenLogin.redact(spDc)),
+                                        )
+                                        if (spDc != null && tokenFetchStarted.compareAndSet(false, true)) {
+                                            Timber.d("SpotifyLogin: sp_dc available at redirect, processing immediately")
+                                            extractAndFetchToken(
+                                                view = view,
+                                                context = context,
+                                                scope = scope,
+                                                navController = navController,
+                                                setProcessing = { isProcessing = it },
+                                                setStatus = { statusMessage = it },
+                                                setError = { hasError = it },
+                                                tokenFetchStarted = tokenFetchStarted,
+                                            )
+                                            return true
+                                        }
+                                        // sp_dc not ready yet — let the page load so
+                                        // onPageFinished can pick up the cookie later
+                                        Timber.d("SpotifyLogin: sp_dc not ready at redirect, deferring to onPageFinished")
+                                        return false
+                                    }
+    
                                     return false
                                 }
-
-                                return false
                             }
+    
+                            loadUrl(SpotifyAuth.LOGIN_URL)
                         }
-
-                        loadUrl(SpotifyAuth.LOGIN_URL)
-                    }
-                },
-            )
+                    },
+                )
+            }
 
             if (isProcessing) {
                 Box(
