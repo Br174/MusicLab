@@ -78,11 +78,16 @@ export ANDROID_HOME="$SDK" ANDROID_SDK_ROOT="$SDK"
 export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$PATH"
 SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
 [[ -x "$SDKMANAGER" ]] || fail 'sdkmanager StudyBook assente: non cambio il Codespace o creo servizi a pagamento.'
-if [[ ! -f "$SDK/platforms/android-37/android.jar" ]]; then
-  say 'Aggiungo Android API 37 nello SDK esistente, senza creare nuovi Codespace.'
-  "$SDKMANAGER" --sdk_root="$SDK" 'platforms;android-37' 'build-tools;36.0.0' 'platform-tools' ||
-    fail 'Android API 37 non installabile nello spazio gratuito disponibile.'
+# Starting with API 37, Google publishes minor-versioned SDK platform package IDs.
+# "platforms;android-37" is not a valid package; compileSdk=37 uses 37.0 by default.
+PLATFORM_JAR="$SDK/platforms/android-37.0/android.jar"
+if [[ ! -s "$PLATFORM_JAR" ]]; then
+  say 'Aggiungo Android SDK Platform 37.0 (nome pacchetto ufficiale) nel Codespace esistente.'
+  "$SDKMANAGER" --sdk_root="$SDK" 'platforms;android-37.0' 'build-tools;36.0.0' 'platform-tools' ||
+    fail 'Installazione Android 37.0 non riuscita: controllare catalogo SDK, rete e disponibilità disco (non è necessariamente quota esaurita).'
 fi
+[[ -s "$PLATFORM_JAR" ]] ||
+  fail 'Pacchetto Android 37.0 non verificato: manca android-37.0/android.jar. Non compilo con SDK errato.'
 AAPT="$(find "$SDK/build-tools" -type f -name aapt | sort -V | tail -n1)"
 APKSIGNER="$(find "$SDK/build-tools" -type f -name apksigner | sort -V | tail -n1)"
 [[ -x "$AAPT" && -x "$APKSIGNER" ]] || fail 'aapt/apksigner Android SDK mancanti.'
