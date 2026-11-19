@@ -129,10 +129,10 @@ fun SpotifyLoginScreen(navController: NavController) {
                         // Preserve the existing Spotify browser session. Clearing every cookie here
                         // is asynchronous and can race with the initial login navigation, invalidating
                         // the page while it is already loading. Never wipe third-party SSO cookies.
-    
+
                         WebView(ctx).apply {
                             cookieManager.setAcceptThirdPartyCookies(this, true)
-    
+
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.databaseEnabled = true
@@ -142,8 +142,8 @@ fun SpotifyLoginScreen(navController: NavController) {
                             settings.javaScriptCanOpenWindowsAutomatically = true
                             settings.setSupportMultipleWindows(false)
                             settings.userAgentString = USER_AGENT_DESKTOP
-    
-    
+
+
                             /*
                              * The WebView implementation is a separate, auto-updating system package.
                              * "It worked days ago and now the page is black" is very often that package
@@ -179,7 +179,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     "loginUrl" to BrokenLogin.shortUrl(SpotifyAuth.LOGIN_URL),
                                 ),
                             )
-    
+
                             /*
                              * Surfaces what the page itself reports. Without a WebChromeClient a page
                              * that fails entirely in JavaScript looks identical to one that rendered
@@ -207,7 +207,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     }
                                     return true
                                 }
-    
+
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     // A page that stalls partway shows up here as a progress that
                                     // never reaches 100 despite onPageFinished having fired.
@@ -215,21 +215,21 @@ fun SpotifyLoginScreen(navController: NavController) {
                                         BrokenLogin.d(bl, "progress", BrokenLogin.kv("percent" to newProgress))
                                     }
                                 }
-    
+
                                 override fun onReceivedTitle(view: WebView?, title: String?) {
                                     // An empty or error title on a "finished" page is a strong signal
                                     // the document is not the login form.
                                     BrokenLogin.i(bl, "title", BrokenLogin.kv("title" to title))
                                 }
                             }
-    
+
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     isLoading = true
                                     Timber.d("SpotifyLogin: page started: $url")
                                     BrokenLogin.i(bl, "page.started", BrokenLogin.kv("url" to BrokenLogin.shortUrl(url)))
                                 }
-    
+
                                 override fun onReceivedError(
                                     view: WebView?,
                                     request: WebResourceRequest?,
@@ -248,7 +248,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     if (isMainFrame) BrokenLogin.e(bl, "page.error", details)
                                     else BrokenLogin.w(bl, "resource.error", details)
                                 }
-    
+
                                 override fun onReceivedHttpError(
                                     view: WebView?,
                                     request: WebResourceRequest?,
@@ -265,7 +265,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     if (isMainFrame) BrokenLogin.e(bl, "page.httpError", details)
                                     else BrokenLogin.w(bl, "resource.httpError", details)
                                 }
-    
+
                                 override fun onReceivedSslError(
                                     view: WebView?,
                                     handler: SslErrorHandler?,
@@ -281,7 +281,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     // Preserve the default (cancel): never weaken TLS to get a login through.
                                     super.onReceivedSslError(view, handler, error)
                                 }
-    
+
                                 override fun onRenderProcessGone(
                                     view: WebView?,
                                     detail: RenderProcessGoneDetail?,
@@ -302,7 +302,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     BrokenLogin.trap(bl, "renderer.destroy") { view?.destroy() }
                                     return true
                                 }
-    
+
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     isLoading = false
                                     Timber.d("SpotifyLogin: page finished: $url")
@@ -323,7 +323,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     // navigation within the login flow, not just the first load.
                                     applyLoginLayoutFix(bl, view)
                                     probeDom(bl, view)
-    
+
                                     if (url?.startsWith("https://open.spotify.com") == true &&
                                         tokenFetchStarted.compareAndSet(false, true)
                                     ) {
@@ -340,7 +340,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                         )
                                     }
                                 }
-    
+
                                 override fun shouldOverrideUrlLoading(
                                     view: WebView?,
                                     request: WebResourceRequest?,
@@ -355,7 +355,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                             "redirect" to request.isRedirect,
                                         ),
                                     )
-    
+
                                     if (requestUrl.startsWith("https://open.spotify.com")) {
                                         val spDc = extractSpDcCookie()
                                         BrokenLogin.i(
@@ -381,11 +381,11 @@ fun SpotifyLoginScreen(navController: NavController) {
                                         Timber.d("SpotifyLogin: sp_dc not ready at redirect, deferring to onPageFinished")
                                         return false
                                     }
-    
+
                                     return false
                                 }
                             }
-    
+
                             loadUrl(SpotifyAuth.LOGIN_URL)
                         }
                     },
