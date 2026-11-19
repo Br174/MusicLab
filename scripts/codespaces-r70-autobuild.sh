@@ -57,9 +57,9 @@ if [[ -x "$TOOLS/temurin-21/bin/java" ]]; then
   export PATH="$JAVA_HOME/bin:$PATH"
 fi
 java -version 2>&1 | head -n 1 | grep -Eq '"21[.]' || fail 'Serve Java 21; controllare il JDK già installato dal percorso StudyBook.'
-if [[ -n "$ANDROID_SDK_ROOT" && -d "$ANDROID_SDK_ROOT" ]]; then
+if [[ -n "${ANDROID_SDK_ROOT:-}" && -d "${ANDROID_SDK_ROOT:-}" ]]; then
   SDK="$ANDROID_SDK_ROOT"
-elif [[ -n "$ANDROID_HOME" && -d "$ANDROID_HOME" ]]; then
+elif [[ -n "${ANDROID_HOME:-}" && -d "${ANDROID_HOME:-}" ]]; then
   SDK="$ANDROID_HOME"
 else
   SDK="$TOOLS/android-sdk"
