@@ -10,6 +10,7 @@ EXPECTED = {
     "cloudflare/music-intelligence/test/musiclab-r70-spotify-login.test.mjs",
     "scripts/codespaces-r70-autobuild.sh",
     "go.sh",
+    "why.sh",
     "tools/universal-apk-builder/verify-r70-spotify-login-scope.py",
     "tools/universal-apk-builder/prepare-turbo-r70-33150-env.py",
     ".github/workflows/musiclab-r70-spotify-login-33150-apk.yml",
