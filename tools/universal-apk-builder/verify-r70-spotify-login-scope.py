@@ -8,6 +8,7 @@ UI = "app/src/main/kotlin/com/metrolist/music/ui/screens/SpotifyLoginScreen.kt"
 EXPECTED = {
     UI,
     "cloudflare/music-intelligence/test/musiclab-r70-spotify-login.test.mjs",
+    "scripts/codespaces-r70-autobuild.sh",
     "tools/universal-apk-builder/verify-r70-spotify-login-scope.py",
     "tools/universal-apk-builder/prepare-turbo-r70-33150-env.py",
     ".github/workflows/musiclab-r70-spotify-login-33150-apk.yml",
