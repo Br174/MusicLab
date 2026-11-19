@@ -16,6 +16,12 @@ STATE="$HOME/.local/share/musiclab-r70-codespaces"
 OUT="$ROOT/APK-R70-CODESPACES"
 TOOLS="$HOME/.local/share/studybook-lab125"
 mkdir -p "$STATE" "$OUT"
+# Preserve the same 7 GB free-disk floor used by the working StudyBook Codespace route.
+FREE_KB="$(df -Pk "$ROOT" | awk 'NR==2 {print $4}')"
+[[ "$FREE_KB" =~ ^[0-9]+$ ]] && (( FREE_KB >= 7 * 1024 * 1024 )) || {
+  printf '[MUSICLAB R70 BLOCCATO] Spazio libero insufficiente nel Codespace; nessun upgrade automatico.\n' >&2
+  exit 1
+}
 fail() { printf '[MUSICLAB R70 BLOCCATO] %s\n' "$*" >&2; exit 1; }
 say() { printf '\n[MUSICLAB R70] %s\n' "$*"; }
 for bin in git bash python3 node gh java sha256sum unzip zip flock; do
