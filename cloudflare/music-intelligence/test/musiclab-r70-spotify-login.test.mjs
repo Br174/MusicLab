@@ -38,6 +38,7 @@ test("R70 Codespaces memory budget restores project Gradle settings on exit",()=
   assert.ok(builder.includes('GRADLE_BACKUP="$(mktemp'));
   assert.ok(builder.includes('cp "$GRADLE_BACKUP" "$ROOT/gradle.properties"'));
   assert.ok(builder.includes("org.gradle.jvmargs=-Xmx2304m"));
+  assert.ok(builder.includes("-XX:MaxMetaspaceSize=1g"));
   assert.ok(builder.includes("org.gradle.workers.max=1"));
   assert.ok(builder.includes("kotlin.compiler.execution.strategy=in-process"));
   assert.ok(builder.includes("org.gradle.parallel=false"));
