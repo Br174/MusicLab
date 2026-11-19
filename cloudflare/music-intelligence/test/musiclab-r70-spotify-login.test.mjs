@@ -24,8 +24,8 @@ test("Spotify token exchange and navigation stay intact",()=>{
 
 test("R70 Codespaces installs the Android 37.0 minor-versioned platform, not nonexistent 37",()=>{
   const builder=readFileSync("scripts/codespaces-r70-autobuild.sh","utf8");
-  assert.match(builder,/'platforms;android-37\\.0'/);
-  assert.match(builder,/platforms\\/android-37\\.0\\/android\\.jar/);
-  assert.doesNotMatch(builder,/'platforms;android-37'/);
-  assert.match(builder,/compileSdk=37 uses 37\\.0/);
+  assert.ok(builder.includes("'platforms;android-37.0'"));
+  assert.ok(builder.includes('platforms/android-37.0/android.jar'));
+  assert.ok(!builder.includes("'platforms;android-37'"));
+  assert.ok(builder.includes("compileSdk=37 uses 37.0"));
 });
