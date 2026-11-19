@@ -35,7 +35,10 @@ for bin in git bash python3 node gh java sha256sum unzip zip flock; do
 done
 exec 9>"$STATE/build.lock"
 flock -n 9 || fail 'Un altra compilazione MusicLab R70 è già in esecuzione; non ne avvio una seconda.'
-[[ "$(git branch --show-current)" == "$BRANCH" ]] || fail 'Ramo errato. Non modifico il Codespace di StudyBook.'
+# Short alias ml70 makes execution possible from Android without clipboard access.
+# Still require identical SHA to the canonical, verified LAB branch below.
+CURRENT_BRANCH="$(git branch --show-current)"
+[[ "$CURRENT_BRANCH" == "$BRANCH" || "$CURRENT_BRANCH" == "ml70" ]] || fail 'Ramo non autorizzato: usare MusicLab R70 o ml70.'
 case "$(git remote get-url origin)" in
   https://github.com/Br174/MusicLab|https://github.com/Br174/MusicLab.git|git@github.com:Br174/MusicLab.git|ssh://git@github.com/Br174/MusicLab.git) ;;
   *) fail 'Origine GitHub diversa da MusicLab.' ;;
