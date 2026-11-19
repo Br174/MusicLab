@@ -128,7 +128,7 @@ if len(jvm)!=1 or not jvm[0].startswith("org.gradle.jvmargs=-Xmx4096M"):
 if original.count("org.gradle.parallel=true")!=1:
     raise SystemExit("R70: impostazione Gradle parallel inattesa")
 tuned=original.replace(jvm[0],
-    "org.gradle.jvmargs=-Xmx2304m -XX:+UseParallelGC -Dfile.encoding=UTF-8",1)
+    "org.gradle.jvmargs=-Xmx2304m -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC -Dfile.encoding=UTF-8",1)
 tuned=tuned.replace("org.gradle.parallel=true","org.gradle.parallel=false",1)
 if "org.gradle.workers.max=" in tuned or "kotlin.compiler.execution.strategy=" in tuned:
     raise SystemExit("R70: il progetto ha già controlli delle risorse: non li sovrascrivo")
