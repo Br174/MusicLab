@@ -97,10 +97,13 @@ fi
 [[ -s .uab/signing/musiclab-lab-family-01.jks.b64 ]] ||
   fail 'Chiave della famiglia Turbo non presente: non creo una nuova firma.'
 BACKUP="$(mktemp "$STATE/uab-original-XXXXXXXX")"
+GRADLE_BACKUP="$(mktemp "$STATE/gradle-original-XXXXXXXX")"
 cp uab-project.env "$BACKUP"
+cp gradle.properties "$GRADLE_BACKUP"
 restore_config() {
   [[ -s "$BACKUP" ]] && cp "$BACKUP" "$ROOT/uab-project.env"
-  rm -f "$BACKUP"
+  [[ -s "$GRADLE_BACKUP" ]] && cp "$GRADLE_BACKUP" "$ROOT/gradle.properties"
+  rm -f "$BACKUP" "$GRADLE_BACKUP"
   # Only the decoded, transient test signing file from this build; never the source key.
   rm -f "$ROOT/dist/uab/.signing/turbo01.jks"
 }
@@ -111,9 +114,46 @@ source uab-project.env
 set +a
 [[ "$UAB_UPDATE_FAMILY_APPLICATION_ID" == "$APP_ID" ]] || fail 'Identità famiglia cambiata.'
 [[ "$UAB_UPDATE_FAMILY_VERSION_CODE" == "$VERSION" ]] || fail 'VersionCode diverso dalla R70.'
+# MusicLab's 4096M Gradle JVM plus 4096M Kotlin daemon, with parallel builds,
+# can exceed this existing 8GB Codespace. Change only temporary LAB build
+# preferences, restored by the EXIT trap. Preserve ALL native Scudo360 tests.
+python3 - <<'PY'
+from pathlib import Path
+import re
+p=Path("gradle.properties")
+original=p.read_text()
+jvm=re.findall(r"(?m)^org[.]gradle[.]jvmargs=.*$", original)
+if len(jvm)!=1 or not jvm[0].startswith("org.gradle.jvmargs=-Xmx4096M"):
+    raise SystemExit("R70: configurazione Gradle cambiata: nessun override della memoria applicato")
+if original.count("org.gradle.parallel=true")!=1:
+    raise SystemExit("R70: impostazione Gradle parallel inattesa")
+tuned=original.replace(jvm[0],
+    "org.gradle.jvmargs=-Xmx2304m -XX:+UseParallelGC -Dfile.encoding=UTF-8",1)
+tuned=tuned.replace("org.gradle.parallel=true","org.gradle.parallel=false",1)
+if "org.gradle.workers.max=" in tuned or "kotlin.compiler.execution.strategy=" in tuned:
+    raise SystemExit("R70: il progetto ha già controlli delle risorse: non li sovrascrivo")
+tuned=tuned.rstrip()+"\norg.gradle.workers.max=1\nkotlin.compiler.execution.strategy=in-process\n"
+p.write_text(tuned)
+print("[R70] Gradle Codespaces: heap 2304 MB, 1 worker, Kotlin in-process, no parallelismo; ripristino automatico")
+PY
+# Quality r40 requires an exact source SHA on its native Scudo360 report.
+export GITHUB_SHA="$SHA"
+oom_kills() {
+  if [[ -r /sys/fs/cgroup/memory.events ]]; then
+    awk '$1=="oom_kill" {print $2}' /sys/fs/cgroup/memory.events
+  else
+    printf '0\n'
+  fi
+}
+OOM_BEFORE="$(oom_kills)"
 say 'Eseguo Scudo360 nativo e regressioni Java/Kotlin prima della build.'
-node scripts/scudo360-gate.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-report.json ||
-  fail 'Scudo360 non superato: nessuna APK viene distribuita.'
+if ! node scripts/scudo360-gate.mjs .motorlab/scudo360-contracts.json lab .motorlab/scudo360-report.json; then
+  OOM_AFTER="$(oom_kills)"
+  if [[ "$OOM_BEFORE" =~ ^[0-9]+$ && "$OOM_AFTER" =~ ^[0-9]+$ ]] && (( OOM_AFTER > OOM_BEFORE )); then
+    fail "Scudo360 fallito: il sistema ha terminato un processo per memoria esaurita (oom_kill +$((OOM_AFTER-OOM_BEFORE))); leggere bash why.sh."
+  fi
+  fail 'Scudo360 fallito, senza nuove prove di OOM nel cgroup: leggere bash why.sh. Nessuna APK distribuita.'
+fi
 SCUDO360_R40_PROMOTION=1 node .motorlab/regression/scudo360-quality-r40.mjs \
   .motorlab/scudo360-contracts.json .motorlab/scudo360-report.json \
   .motorlab/scudo360-r40-plan.json .motorlab/scudo360-r40-quality.json ||
