@@ -29,3 +29,21 @@ test("R70 Codespaces installs the Android 37.0 minor-versioned platform, not non
   assert.ok(!builder.includes("'platforms;android-37'"));
   assert.ok(builder.includes("compileSdk=37 uses 37.0"));
 });
+
+test("R70 Codespaces memory budget restores project Gradle settings on exit",()=>{
+  const builder=readFileSync("scripts/codespaces-r70-autobuild.sh","utf8");
+  const projectGradle=readFileSync("gradle.properties","utf8");
+  assert.match(projectGradle,/org\.gradle\.jvmargs=-Xmx4096M/);
+  assert.match(projectGradle,/org\.gradle\.parallel=true/);
+  assert.ok(builder.includes('GRADLE_BACKUP="$(mktemp'));
+  assert.ok(builder.includes('cp "$GRADLE_BACKUP" "$ROOT/gradle.properties"'));
+  assert.ok(builder.includes("org.gradle.jvmargs=-Xmx2304m"));
+  assert.ok(builder.includes("org.gradle.workers.max=1"));
+  assert.ok(builder.includes("kotlin.compiler.execution.strategy=in-process"));
+  assert.ok(builder.includes("org.gradle.parallel=false"));
+  assert.ok(builder.includes('export GITHUB_SHA="$SHA"'));
+  assert.ok(builder.includes('OOM_BEFORE="$(oom_kills)"'));
+  assert.ok(builder.includes('OOM_AFTER="$(oom_kills)"'));
+  assert.ok(builder.includes("SCUDO360_R40_PROMOTION=1 node"));
+});
+
