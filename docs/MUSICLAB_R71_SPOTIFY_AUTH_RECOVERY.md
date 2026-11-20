@@ -19,6 +19,15 @@ No GitHub Actions, no paid resources, and no modifications to StudyBook or produ
 - Official Spotify Authorization Code with PKCE requires a separately registered application `client_id` and an exact allowlisted redirect URI. No Spotify OAuth Client ID is configured in the examined MusicLab authentication code.
 - Spotify February/March 2026 policy: Development Mode app ownership requires Spotify Premium and imposes a five-user limit and one newly created Client ID per developer. A normal Spotify login, by itself, does not create a developer application.
 
+## User account and no-cost constraint — confirmed 2026-11-20
+
+- The MusicLab user has a **Spotify Free** personal account and has **never registered** a Spotify Developer application.
+- Per Spotify's February 2026 official Development Mode rules, the **app owner**, not necessarily each end user, must have active Spotify Premium. Therefore the user cannot create an operational self-owned Development Mode Spotify API integration using only this Free account.
+- Spotify Free is **not** inherently disqualified from signing into an eligible third-party app whose registered owner meets the rules; however, MusicLab currently has no verified external owner, client ID, consent/redirect configuration or authorization for such a Spotify application.
+- **No extra spending / no Premium purchase**. Do not request account upgrade as a prerequisite. Do not borrow unrelated third-party client IDs or secrets, scrape tokens or bypass embedded-browser security limits.
+- R71 remains **BLOCKED ON SUPPORTED AUTH CAPABILITY**. Preserve signed MusicLab R70, the current user's local Spotify data and all non-Spotify features. No APK should be presented as repaired until a legitimate account sign-in and permitted API reads are confirmed end to end.
+- Official current references: https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide and https://developer.spotify.com/documentation/web-api/concepts/quota-modes
+
 ## Engineering decision / hard gate
 
 Do **not** present Chrome Custom Tabs alone as a functioning fix: system browser cookies are intentionally unavailable to MusicLab; redirecting the legacy web-player login to Chrome cannot provide `sp_dc` to the existing code. Never solicit passwords, access tokens, `sp_dc`, `sp_key`, client secrets or browser cookies in chat or commit them to GitHub. Do not spoof Google user-agent, disable TLS, use injected JavaScript to extract external-browser cookies or circumvent Google's restrictions.
