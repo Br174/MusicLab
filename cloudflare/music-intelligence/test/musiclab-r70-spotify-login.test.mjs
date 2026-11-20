@@ -42,26 +42,19 @@ test("R70 Codespaces memory budget restores project Gradle settings on exit",()=
   assert.ok(builder.includes("org.gradle.workers.max=1"));
   assert.ok(builder.includes("kotlin.compiler.execution.strategy=in-process"));
   assert.ok(builder.includes("org.gradle.parallel=false"));
-  // Gradle's template has both a commented example and one active setting.
-  assert.match(projectGradle,/^# org\\.gradle\\.parallel=true$/m);
-  assert.match(projectGradle,/^org\\.gradle\\.parallel=true$/m);
-  assert.ok(builder.includes('^org[.]gradle[.]parallel=(?:true|false)
   assert.ok(builder.includes('export GITHUB_SHA="$SHA"'));
   assert.ok(builder.includes('OOM_BEFORE="$(oom_kills)"'));
   assert.ok(builder.includes('OOM_AFTER="$(oom_kills)"'));
   assert.ok(builder.includes("SCUDO360_R40_PROMOTION=1 node"));
 });
-));
-  assert.ok(builder.includes('^org[.]gradle[.]parallel=true
-  assert.ok(builder.includes('export GITHUB_SHA="$SHA"'));
-  assert.ok(builder.includes('OOM_BEFORE="$(oom_kills)"'));
-  assert.ok(builder.includes('OOM_AFTER="$(oom_kills)"'));
-  assert.ok(builder.includes("SCUDO360_R40_PROMOTION=1 node"));
-});
-));
+
+test("Codespaces Gradle parallel guard skips the commented template entry",()=>{
+  const builder=readFileSync("scripts/codespaces-r70-autobuild.sh","utf8");
+  const gradle=readFileSync("gradle.properties","utf8");
+  assert.equal(gradle.split("\n").filter(line=>line==="org.gradle.parallel=true").length,1);
+  assert.ok(gradle.split("\n").includes("# org.gradle.parallel=true"));
+  assert.ok(builder.includes("parallel=re.findall("));
+  assert.ok(builder.includes("tuned,n=re.subn("));
+  assert.ok(builder.includes("org.gradle.parallel=false"));
   assert.ok(!builder.includes('original.count("org.gradle.parallel=true")'));
-  assert.ok(builder.includes('export GITHUB_SHA="$SHA"'));
-  assert.ok(builder.includes('OOM_BEFORE="$(oom_kills)"'));
-  assert.ok(builder.includes('OOM_AFTER="$(oom_kills)"'));
-  assert.ok(builder.includes("SCUDO360_R40_PROMOTION=1 node"));
 });
