@@ -98,6 +98,9 @@ fun SpotifyLoginScreen(navController: NavController) {
     var statusMessage by remember { mutableStateOf("") }
     var hasError by remember { mutableStateOf(false) }
     var retryCount by remember { mutableIntStateOf(0) }
+    // R71: optional native Android WebView UA for Spotify email sign-in.
+    // Keep desktop as default for established Facebook/OAuth layout compatibility.
+    var useAndroidUserAgent by remember { mutableStateOf(false) }
     val tokenFetchStarted = remember { AtomicBoolean(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -109,6 +112,22 @@ fun SpotifyLoginScreen(navController: NavController) {
                     onLongClick = navController::backToMain,
                 ) {
                     Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
+                }
+            },
+            actions = {
+                // On the Spotify page itself, an "Oops" banner never invokes our
+                // native retry overlay. This always-visible control gives the user
+                // a reversible Android-vs-desktop UA trial without clearing cookies.
+                TextButton(onClick = {
+                    useAndroidUserAgent = !useAndroidUserAgent
+                    hasError = false
+                    isProcessing = false
+                    isLoading = true
+                    statusMessage = ""
+                    tokenFetchStarted.set(false)
+                    retryCount++
+                }) {
+                    Text(if (useAndroidUserAgent) "Desktop" else "Android")
                 }
             },
         )
@@ -141,7 +160,11 @@ fun SpotifyLoginScreen(navController: NavController) {
                             settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                             settings.javaScriptCanOpenWindowsAutomatically = true
                             settings.setSupportMultipleWindows(false)
-                            settings.userAgentString = USER_AGENT_DESKTOP
+                            settings.userAgentString = if (useAndroidUserAgent) {
+                                WebSettings.getDefaultUserAgent(ctx)
+                            } else {
+                                USER_AGENT_DESKTOP
+                            }
 
 
                             /*
