@@ -58,3 +58,19 @@ test("Codespaces Gradle parallel guard skips the commented template entry",()=>{
   assert.ok(builder.includes("org.gradle.parallel=false"));
   assert.ok(!builder.includes('original.count("org.gradle.parallel=true")'));
 });
+
+test("R70 Android manifest and UAB package use the same versionCode 33150",()=>{
+  const envScript=readFileSync("tools/universal-apk-builder/prepare-turbo-r70-33150-env.py","utf8");
+  const builder=readFileSync("scripts/codespaces-r70-autobuild.sh","utf8");
+  const gradle=readFileSync("app/build.gradle.kts","utf8");
+  assert.ok(gradle.includes('System.getenv("MUSICLAB_VERSION_CODE")'));
+  assert.ok(envScript.includes("assert 'export MUSICLAB_VERSION_CODE=\"33149\"' in source"));
+  assert.ok(envScript.includes("'export MUSICLAB_VERSION_CODE=\"33150\"', 1"));
+  assert.ok(envScript.includes("'UAB_UPDATE_FAMILY_VERSION_CODE=\"33150\"', 1"));
+  assert.ok(envScript.includes("updated.count('export MUSICLAB_VERSION_CODE=\"33150\"') == 1"));
+  assert.ok(envScript.includes("updated.count('UAB_UPDATE_FAMILY_VERSION_CODE=\"33150\"') == 1"));
+  assert.ok(builder.includes('[[ "${MUSICLAB_VERSION_CODE:-}" == "$VERSION" ]]'));
+  assert.ok(builder.includes('[[ "$UAB_UPDATE_FAMILY_VERSION_CODE" == "$VERSION" ]]'));
+  assert.ok(builder.includes('[[ "${METROLIST_APPLICATION_ID:-}" == "$APP_ID" ]]'));
+  assert.ok(builder.includes("VERSION='33150'"));
+});
