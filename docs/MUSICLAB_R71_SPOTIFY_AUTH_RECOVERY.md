@@ -19,6 +19,15 @@ No GitHub Actions, no paid resources, and no modifications to StudyBook or produ
 - Official Spotify Authorization Code with PKCE requires a separately registered application `client_id` and an exact allowlisted redirect URI. No Spotify OAuth Client ID is configured in the examined MusicLab authentication code.
 - Spotify February/March 2026 policy: Development Mode app ownership requires Spotify Premium and imposes a five-user limit and one newly created Client ID per developer. A normal Spotify login, by itself, does not create a developer application.
 
+## Binding user requirement: live Spotify playlist synchronization
+
+- On 2026-11-20 the user explicitly rejected a one-off ZIP/JSON export as the MusicLab Spotify replacement. The intended behavior is **live, authenticated synchronization of the user's existing Spotify playlists into MusicLab as before**.
+- A public Spotify link, web embed, manually copied list, exported JSON or local snapshot is NOT an acceptable claim of solving this requirement. Do not rename any of these as "Spotify synchronized".
+- Preserve playlist IDs, track identity, ordering, refresh after remote edits, account-private playlist access where authorized, restart persistence and established Spotify-to-YouTube music matching, subject to legally available endpoints. Playback is separate from synchronization.
+- For this Free account with no developer registration, find an authorized provider-supported route through an independently controlled, eligible app registration, with express authorization and permissions, **or** report a verified blocking prerequisite. Do not request a Premium upgrade or reuse an unrelated app's credentials.
+- Current technical status: **LIVE SYNC NOT RESTORED**. No authenticated endpoint/client registration has yet been shown to satisfy this requirement. Defer APK creation rather than advertise an incomplete solution.
+- Official Spotify sources checked 2026-11-20: https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide ; https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow ; https://developer.spotify.com/documentation/web-api/concepts/scopes
+
 ## User account and no-cost constraint — confirmed 2026-11-20
 
 - The MusicLab user has a **Spotify Free** personal account and has **never registered** a Spotify Developer application.
