@@ -125,11 +125,17 @@ original=p.read_text()
 jvm=re.findall(r"(?m)^org[.]gradle[.]jvmargs=.*$", original)
 if len(jvm)!=1 or not jvm[0].startswith("org.gradle.jvmargs=-Xmx4096M"):
     raise SystemExit("R70: configurazione Gradle cambiata: nessun override della memoria applicato")
-if original.count("org.gradle.parallel=true")!=1:
-    raise SystemExit("R70: impostazione Gradle parallel inattesa")
+# Match only an ACTIVE Gradle assignment: the stock file also contains
+# "# org.gradle.parallel=true" in its commented documentation.
+parallel=re.findall(r"(?m)^org[.]gradle[.]parallel=(?:true|false)$", original)
+if parallel!=["org.gradle.parallel=true"]:
+    raise SystemExit("R70: impostazione Gradle parallel attiva diversa dall'atteso")
 tuned=original.replace(jvm[0],
     "org.gradle.jvmargs=-Xmx2304m -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC -Dfile.encoding=UTF-8",1)
-tuned=tuned.replace("org.gradle.parallel=true","org.gradle.parallel=false",1)
+tuned,n=re.subn(r"(?m)^org[.]gradle[.]parallel=true$",
+                "org.gradle.parallel=false",tuned,count=1)
+if n!=1:
+    raise SystemExit("R70: impossibile modificare solo l'impostazione Gradle attiva")
 if "org.gradle.workers.max=" in tuned or "kotlin.compiler.execution.strategy=" in tuned:
     raise SystemExit("R70: il progetto ha già controlli delle risorse: non li sovrascrivo")
 tuned=tuned.rstrip()+"\norg.gradle.workers.max=1\nkotlin.compiler.execution.strategy=in-process\n"
