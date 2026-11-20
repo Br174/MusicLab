@@ -113,7 +113,11 @@ set -a
 source uab-project.env
 set +a
 [[ "$UAB_UPDATE_FAMILY_APPLICATION_ID" == "$APP_ID" ]] || fail 'Identità famiglia cambiata.'
-[[ "$UAB_UPDATE_FAMILY_VERSION_CODE" == "$VERSION" ]] || fail 'VersionCode diverso dalla R70.'
+[[ "${METROLIST_APPLICATION_ID:-}" == "$APP_ID" ]] || fail 'ApplicationId Gradle non coerente con famiglia Turbo.'
+[[ "$UAB_UPDATE_FAMILY_VERSION_CODE" == "$VERSION" ]] || fail 'VersionCode UAB diverso dalla R70.'
+[[ "${MUSICLAB_VERSION_CODE:-}" == "$VERSION" ]] ||
+  fail "VersionCode Gradle incoerente: MUSICLAB_VERSION_CODE=${MUSICLAB_VERSION_CODE:-assente}; atteso $VERSION."
+# Gradle's manifest versionCode comes from MUSICLAB_VERSION_CODE, not the UAB metadata.
 # MusicLab's 4096M Gradle JVM plus 4096M Kotlin daemon, with parallel builds,
 # can exceed this existing 8GB Codespace. Change only temporary LAB build
 # preferences, restored by the EXIT trap. Preserve ALL native Scudo360 tests.
