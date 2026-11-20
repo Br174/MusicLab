@@ -19,6 +19,16 @@ No GitHub Actions, no paid resources, and no modifications to StudyBook or produ
 - Official Spotify Authorization Code with PKCE requires a separately registered application `client_id` and an exact allowlisted redirect URI. No Spotify OAuth Client ID is configured in the examined MusicLab authentication code.
 - Spotify February/March 2026 policy: Development Mode app ownership requires Spotify Premium and imposes a five-user limit and one newly created Client ID per developer. A normal Spotify login, by itself, does not create a developer application.
 
+## Device proof: Spotify Embed playlist visibility (2026-11-20)
+
+- User-supplied Android Chrome screenshot shows `https://open.spotify.com/embed/playlist/2MUEaiDQ8I6dgJlcBhLCVc` rendering a playlist titled **Rap italiano**, by **Bruno Ray Verlezza**. Eight visible numbered rows include "Littlefunkyintro" (Neffa), "L'Incognita" (Neffa), and "Tranqi Funky" (Articolo 31). There may be additional items below the screenshot; **do not infer the complete item count**.
+- Proven: this playlist can be displayed in a Spotify-controlled embed in the user's phone/browser. **NOT proven**: that the page is accessible anonymously (user might already have Spotify browser session), that all track metadata is exposed in a supported machine-readable API, that other followed/private playlists can be enumerated or that remote updates can be synchronized into MusicLab's local playlist DB.
+- Spotify oEmbed is designed to return **basic link metadata** (title, thumbnail, embed markup), not playlist item enumeration: https://developer.spotify.com/documentation/embeds/tutorials/using-the-oembed-api.
+- Spotify iFrame API is intended for controlling embedded Spotify content, not as a playlist-item synchronization API: https://developer.spotify.com/documentation/embeds/references/iframe-api.
+- Current Spotify Get Playlist Items API requires OAuth authorization and is scoped to playlists owned by/collaborated on by the authenticated user: https://developer.spotify.com/documentation/web-api/reference/get-playlists-items.
+- A Spotify-controlled Embed may reflect changes on refresh; it does **not** give MusicLab a compliant, authorized feed of all followed/private playlists with song IDs and diffs. Keep this distinction explicit.
+- No-cost external browser automation was not available during this check; do not spend funds to obtain this result. No changes made to user playlist or account.
+
 ## Binding user requirement: live Spotify playlist synchronization
 
 - On 2026-11-20 the user explicitly rejected a one-off ZIP/JSON export as the MusicLab Spotify replacement. The intended behavior is **live, authenticated synchronization of the user's existing Spotify playlists into MusicLab as before**.
