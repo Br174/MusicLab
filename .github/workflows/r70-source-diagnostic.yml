@@ -1,0 +1,26 @@
+name: MusicLab R70 isolated source diagnostic
+on:
+  push:
+    branches: [diagnostic/r70-source-check-20261127]
+permissions:
+  contents: read
+jobs:
+  source-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check exact parent source without diagnostic workflow changes
+        run: |
+          set -euo pipefail
+          git checkout --detach HEAD^
+          git rev-parse HEAD
+          python3 tools/universal-apk-builder/verify-r70-spotify-login-scope.py
+          node --test cloudflare/music-intelligence/test/musiclab-r70-spotify-login.test.mjs
+          echo "Source diagnostic only; no signing, no release, no active reference updates."
